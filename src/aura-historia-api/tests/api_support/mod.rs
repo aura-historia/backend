@@ -69,6 +69,7 @@ use partnership_postgres::{
 use partnership_service::use_cases::{
     commands::{
         approve_partnership_application::ApprovePartnershipApplicationHandler,
+        grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
         submit_partnership_application::SubmitPartnershipApplicationHandler,
@@ -946,6 +947,13 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         SqlxPartnershipDetailsReaderFactory::new(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
     );
+    let grant_partnership_membership = GrantPartnershipMembershipHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipRepositoryFactory::new(),
+        user_postgres::SqlxUserAccountReaderFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1241,6 +1249,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let partnerships_state = PartnershipsState::new(
         Arc::new(list_admin_partnerships),
         Arc::new(get_admin_partnership),
+        Arc::new(grant_partnership_membership),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 

@@ -1,8 +1,12 @@
 mod get_admin;
 mod list_admin;
+mod put_member;
 
 use crate::state::PartnershipsState;
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, put},
+};
 
 pub(crate) fn router(state: PartnershipsState) -> Router {
     Router::new()
@@ -10,6 +14,10 @@ pub(crate) fn router(state: PartnershipsState) -> Router {
         .route(
             "/api/v1/admin/partnerships/{partnership_id}",
             get(get_admin::get_admin),
+        )
+        .route(
+            "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+            put(put_member::put_member),
         )
         .with_state(state)
 }

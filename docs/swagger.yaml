@@ -9005,6 +9005,168 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
+  /api/v1/admin/partnerships/{partnershipId}/members/{userId}:
+    put:
+      summary: Grant a user membership in a Partnership
+      description: |
+        Idempotently grants the target user membership in the specified Partnership for an
+        authenticated administrator. The target user and Partnership must already exist. An
+        existing membership is a successful no-op. The operation is committed in one PostgreSQL
+        transaction and returns no response body. All success and error responses use
+        `Cache-Control: no-store`.
+      operationId: adminGrantPartnershipMembership
+      tags:
+        - Partnerships
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partnershipId
+          in: path
+          required: true
+          description: Stable Partnership UUID.
+          schema:
+            type: string
+            format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
+        - name: userId
+          in: path
+          required: true
+          description: Existing user UUID to add as a Partnership member.
+          schema:
+            type: string
+            format: uuid
+          example: 660e8400-e29b-41d4-a716-446655440000
+      responses:
+        "204":
+          description: Membership granted, or membership already existed.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because this is an administrator-only mutation.
+              schema:
+                type: string
+              example: no-store
+        "400":
+          description: Bad request - invalid Partnership or user UUID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalidPartnershipId:
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: partnershipId
+                      type: PATH
+                    detail: Path parameter 'partnershipId' must be a UUID.
+                invalidUserId:
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: userId
+                      type: PATH
+                    detail: Path parameter 'userId' must be a UUID.
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "404":
+          description: Partnership or target user not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                partnershipNotFound:
+                  value:
+                    status: 404
+                    title: Not Found
+                    error: PARTNERSHIP_NOT_FOUND
+                    detail: Partnership was not found.
+                userNotFound:
+                  value:
+                    status: 404
+                    title: Not Found
+                    error: USER_NOT_FOUND
+                    detail: User was not found.
+        "500":
+          description: Internal Partnership membership failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTNERSHIP_INTERNAL_ERROR
+        "503":
+          description: Authentication, admin authorization, transaction, or Partnership membership persistence is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration

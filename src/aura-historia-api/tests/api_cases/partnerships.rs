@@ -50,6 +50,22 @@ async fn get_partnership_detail(
     (status, body, cache_control)
 }
 
+async fn put_partnership_member(
+    token: &str,
+    partnership_id: &str,
+    user_id: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to grant Partnership membership: {error}"))
+}
+
 fn assert_no_store(cache_control: Option<String>) {
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
@@ -430,6 +446,144 @@ async fn should_reject_non_admin_admin_partnership_detail_access() {
 
     let (status, body, cache_control) =
         get_partnership_detail(&token, &Uuid::new_v4().to_string()).await;
+
+    assert_no_store(cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_grant_admin_partnership_membership_idempotently() {
+    let target_user_id = seed_user("USER").await;
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Membership Grant Partnership",
+        datetime!(2026-08-10 12:00 UTC),
+        datetime!(2026-08-10 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    for _ in 0..2 {
+        let response = put_partnership_member(
+            &token,
+            &partnership_id.to_string(),
+            &target_user_id.to_string(),
+        )
+        .await;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_no_store(
+            response
+                .headers()
+                .get(reqwest::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+        );
+        assert!(response.bytes().await.is_ok_and(|body| body.is_empty()));
+    }
+
+    let (status, body, cache_control) =
+        get_partnership_detail(&token, &partnership_id.to_string()).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_no_store(cache_control);
+    assert_eq!(json!(1), body["memberCount"]);
+    assert_eq!(json!([target_user_id]), body["memberUserIds"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_user_not_found_when_grant_target_is_missing() {
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Missing Membership User Partnership",
+        datetime!(2026-08-11 12:00 UTC),
+        datetime!(2026-08-11 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_member(
+        &token,
+        &partnership_id.to_string(),
+        &Uuid::new_v4().to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "USER_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_partnership_not_found_when_grant_partnership_is_missing() {
+    let target_user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_member(
+        &token,
+        &Uuid::new_v4().to_string(),
+        &target_user_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PARTNERSHIP_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_non_admin_partnership_membership_grant() {
+    let actor_id = seed_user("USER").await;
+    let target_user_id = seed_user("USER").await;
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Non Admin Membership Grant Partnership",
+        datetime!(2026-08-12 12:00 UTC),
+        datetime!(2026-08-12 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let token =
+        String::from(seed_access_token_for(actor_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_member(
+        &token,
+        &partnership_id.to_string(),
+        &target_user_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
 
     assert_no_store(cache_control);
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");

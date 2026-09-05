@@ -12,6 +12,7 @@
 - Admin application collection search authorizes in the service layer and returns a bounded cursor result with exact filters and deterministic creation/update ordering. Application views preserve applicant, state, proposal, and approval-result references for admin detail reads.
 - Admin partnership collection search authorizes in the service layer and returns `AdminPartnershipSummary` values with Party summary and membership/source-grant counts. It filters by Party, member user, and ListingSource and uses a bounded deterministic `created DESC, partnership_id DESC` cursor.
 - Admin Partnership detail authorizes in the service layer and returns the Partnership/Party identity, bounded current member user and ListingSource references, complete association counts, and timestamps through a transaction-bound purpose-specific reader.
+- Admin Partnership membership grants authorize the actor, verify the Partnership and target User in one transaction, idempotently add the membership, commit explicitly, and report added versus already-member outcomes for structured audit logs.
 - Each outbound capability owns one `ports/<capability>.rs` file; `ports/mod.rs` only assembles exports.
 - Rejection resolves its immutable Party/ListingSource snapshot, updates application, and creates its applicant notification in the same PostgreSQL UoW. Legacy Shop partner flow is not a dependency and remains isolated.
 

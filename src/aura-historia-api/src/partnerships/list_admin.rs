@@ -266,13 +266,20 @@ mod tests {
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
-    use partnership_service::use_cases::queries::{
-        get_admin_partnership::{
-            AdminPartnershipDetailsView, GetAdminPartnershipError, GetAdminPartnershipRequest,
-            GetAdminPartnershipUseCase,
+    use partnership_service::use_cases::{
+        commands::grant_partnership_membership::{
+            GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
+            GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
         },
-        list_admin_partnerships::{
-            ListAdminPartnershipsError, ListAdminPartnershipsResult, ListAdminPartnershipsUseCase,
+        queries::{
+            get_admin_partnership::{
+                AdminPartnershipDetailsView, GetAdminPartnershipError, GetAdminPartnershipRequest,
+                GetAdminPartnershipUseCase,
+            },
+            list_admin_partnerships::{
+                ListAdminPartnershipsError, ListAdminPartnershipsResult,
+                ListAdminPartnershipsUseCase,
+            },
         },
     };
     use std::collections::BTreeSet;
@@ -318,6 +325,22 @@ mod tests {
         ) -> Result<AdminPartnershipDetailsView, GetAdminPartnershipError> {
             Err(GetAdminPartnershipError::Internal {
                 source: static_error("admin detail is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct UnusedGrantPartnershipMembershipUseCase;
+
+    #[async_trait::async_trait]
+    impl GrantPartnershipMembershipUseCase for UnusedGrantPartnershipMembershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: GrantPartnershipMembershipCommand,
+        ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+            Err(GrantPartnershipMembershipError::Internal {
+                source: static_error("membership grant is not used by this test"),
             })
         }
     }
@@ -396,6 +419,7 @@ mod tests {
         let state = PartnershipsState::new(
             Arc::new(use_case),
             Arc::new(UnusedGetAdminPartnershipUseCase),
+            Arc::new(UnusedGrantPartnershipMembershipUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,

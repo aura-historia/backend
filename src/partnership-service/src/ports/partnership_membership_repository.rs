@@ -16,13 +16,19 @@ pub enum PartnershipGrantError {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartnershipMembershipAddOutcome {
+    Added,
+    AlreadyMember,
+}
+
 #[async_trait::async_trait]
 pub trait PartnershipMembershipRepository: Send {
     async fn add_member(
         &mut self,
         user_id: UserId,
         partnership_id: PartnershipId,
-    ) -> Result<(), PartnershipGrantError>;
+    ) -> Result<PartnershipMembershipAddOutcome, PartnershipGrantError>;
 }
 
 pub trait PartnershipMembershipRepositoryFactory<Tx>: Send + Sync {

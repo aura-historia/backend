@@ -21,6 +21,7 @@ use partnership_service::use_cases::queries::list_administered_listing_sources::
 use partnership_service::use_cases::{
     commands::{
         approve_partnership_application::ApprovePartnershipApplicationError,
+        grant_partnership_membership::GrantPartnershipMembershipError,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
         reject_partnership_application::RejectPartnershipApplicationError,
         submit_partnership_application::SubmitPartnershipApplicationError,
@@ -2038,6 +2039,33 @@ impl From<GetAdminPartnershipError> for ApiError {
             | GetAdminPartnershipError::Internal { .. } => {
                 ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
                     .with_detail("Partnership details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GrantPartnershipMembershipError> for ApiError {
+    fn from(error: GrantPartnershipMembershipError) -> Self {
+        match error {
+            GrantPartnershipMembershipError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GrantPartnershipMembershipError::PartnershipNotFound => {
+                ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
+            }
+            GrantPartnershipMembershipError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            GrantPartnershipMembershipError::TemporarilyUnavailable { .. }
+            | GrantPartnershipMembershipError::BeginTransactionFailed
+            | GrantPartnershipMembershipError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partnership membership is temporarily unavailable.")
+            }
+            GrantPartnershipMembershipError::InvalidPersistedState { .. }
+            | GrantPartnershipMembershipError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
+                    .with_detail("Partnership membership failed internally.")
             }
         }
     }

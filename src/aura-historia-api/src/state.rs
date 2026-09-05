@@ -25,6 +25,7 @@ use partnership_service::use_cases::queries::list_administered_listing_sources::
 use partnership_service::use_cases::{
     commands::{
         approve_partnership_application::ApprovePartnershipApplicationUseCase,
+        grant_partnership_membership::GrantPartnershipMembershipUseCase,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewUseCase,
         reject_partnership_application::RejectPartnershipApplicationUseCase,
         submit_partnership_application::SubmitPartnershipApplicationUseCase,
@@ -642,6 +643,7 @@ impl PartnershipApplicationsState {
 pub struct PartnershipsState {
     pub(crate) list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
     pub(crate) get_admin: Arc<dyn GetAdminPartnershipUseCase>,
+    pub(crate) grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -649,11 +651,13 @@ impl PartnershipsState {
     pub fn new(
         list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
         get_admin: Arc<dyn GetAdminPartnershipUseCase>,
+        grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             list_admin,
             get_admin,
+            grant_member,
             authenticator,
         }
     }
