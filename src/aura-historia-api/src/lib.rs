@@ -1,3 +1,4 @@
+pub(crate) mod admin_overview;
 pub mod auth;
 pub mod billing;
 pub mod error;
@@ -26,12 +27,14 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
-    AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
-    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, ReadinessCheck, SearchFiltersState, UsersState, WatchlistState,
-    WebhooksState,
+    AdminOverviewState, AppState, BillingState, ListingSourcesState, NewsletterState,
+    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, ReadinessCheck,
+    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
+use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
+use admin_overview_service::GetAdminOverviewHandler;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -419,6 +422,17 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(admin_overview) = state.admin_overview {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/overview",
+                    get(admin_overview::get_admin_overview),
+                )
+                .with_state(admin_overview),
+        );
+    }
+
     if let Some(listing_sources) = state.listing_sources {
         routes = routes.merge(
             Router::new()
@@ -621,6 +635,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         google_application_default_credentials()?,
     ));
 
+    let get_admin_overview = GetAdminOverviewHandler::new(
+        unit_of_work.clone(),
+        SqlxAdminOverviewReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let create_listing_source = CreateListingSourceHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceRepositoryFactory::new(),
@@ -1135,6 +1154,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     });
 
     Ok(AppState::new()
+        .with_admin_overview(AdminOverviewState::new(
+            Arc::new(get_admin_overview),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)

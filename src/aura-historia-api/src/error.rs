@@ -1,4 +1,5 @@
 use crate::auth::AuthError;
+use admin_overview_service::GetAdminOverviewError;
 use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -94,6 +95,10 @@ pub(crate) struct ApiError {
 #[serde(transparent)]
 pub(crate) struct ApiErrorCode(&'static str);
 
+pub(crate) const ADMIN_OVERVIEW_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("ADMIN_OVERVIEW_INTERNAL_ERROR");
+pub(crate) const ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE");
 pub(crate) const AUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("AUTH_INTERNAL_ERROR");
 pub(crate) const AUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("AUTH_TEMPORARILY_UNAVAILABLE");
@@ -356,6 +361,35 @@ impl From<AuthError> for ApiError {
             | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
+        }
+    }
+}
+
+impl From<GetAdminOverviewError> for ApiError {
+    fn from(error: GetAdminOverviewError) -> Self {
+        match error {
+            GetAdminOverviewError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetAdminOverviewError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetAdminOverviewError::AdminAuthorizationTemporarilyUnavailable { .. }
+            | GetAdminOverviewError::ReaderTemporarilyUnavailable { .. }
+            | GetAdminOverviewError::BeginTransaction { .. }
+            | GetAdminOverviewError::CommitTransaction { .. } => {
+                ApiError::service_unavailable(ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Admin overview is temporarily unavailable.")
+            }
+            GetAdminOverviewError::AdminAuthorizationInvalidReadModel { .. }
+            | GetAdminOverviewError::AdminAuthorizationInternal { .. }
+            | GetAdminOverviewError::ReaderInvalidReadModel { .. }
+            | GetAdminOverviewError::ReaderInternal { .. } => {
+                ApiError::internal_server_error(ADMIN_OVERVIEW_INTERNAL_ERROR)
+                    .with_detail("Admin overview failed internally.")
+            }
         }
     }
 }

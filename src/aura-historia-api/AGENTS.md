@@ -18,6 +18,7 @@
 - `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool ingestion and OpenSearch ping succeed; it returns `503` otherwise. pg-ttl worker health is monitored as PostgreSQL platform health, not a request-path readiness dependency.
 - No API Gateway adapter.
 
+- `admin_overview/` owns the admin-only `GET /api/v1/admin/overview` controller. It maps the bounded, authoritative PostgreSQL overview result to a versioned REST response and always sends `Cache-Control: no-store`; it exposes no PII or secrets and persists no audit event.
 - `listing_sources/` owns authenticated canonical admin create at `POST /api/v1/admin/listing-sources`, admin ID detail/update at `GET`/`PATCH /api/v1/admin/listing-sources/{listingSourceId}`, slug lookup, `GET /api/v1/me/listing-sources`, and bounded admin search at `GET /api/v1/admin/listing-sources`. Detail, mutations, and admin search use ListingSource service use cases; the `me` list uses the Partnership administered-listing-source use case. Admin reads never expose provider secrets or crawler-local configuration.
 - `users/` owns account, admin user (`GET /api/v1/admin/users` collection search plus `GET`, `PATCH`, and `DELETE /api/v1/admin/users/{user_id}` item operations), and access-token REST controllers. No legacy `/api/v1/users/{user_id}` admin item route remains.
 - `newsletter/` owns public newsletter subscription REST controller. It uses optional canonical auth and a User service use case; production wiring reads Postgres user-profile fallback data and writes Zoho Campaigns subscriptions.
@@ -67,6 +68,7 @@
 ## Child DOX Index
 
 
+- `admin_overview/` — administrator overview REST controller.
 - `listing_sources/` — ListingSource REST controllers.
 - `parties/` — admin Party collection and detail REST controllers.
 - `users/` — user account, admin, and access-token REST controllers.
