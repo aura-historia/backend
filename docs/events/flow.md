@@ -10,6 +10,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 |---|---|---|
 | Postgres | Database | Business source of truth and transactional ProductListing/event writes. |
 | `product_listing_events` | Postgres table | ProductListing domain/enrichment event journal and CDC source. |
+| `product_listing_raw_revisions` | Postgres table | Immutable raw ProductListing source evidence; CDC wake-up source for authoritative normalization only. |
 | `notification_deliveries` | Postgres table | Durable email-delivery intent and lease state. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
@@ -119,14 +120,15 @@ Crash rule:
 
 - Crash before Sequin ack: Sequin redelivers.
 - Crash after Sequin ack: queued in-memory jobs may be lost if the process dies before sub-workers finish.
-- MVP accepts this risk; durable queue follow-up is #1558.
-- No scheduled inconsistency checker or repair job is part of v1.
+- MVP accepts this risk for existing scopes; durable queue follow-up is #1558.
+- `product-listing-normalization` is the exception: startup and periodic bounded pending-stream reconciliation repair its missed wake-ups.
 
 ## CDC routing
 
 | Source table | Operation | Route |
 |---|---|---|
 | `product_listing_events` | INSERT | `DOMAIN`/`PRODUCT_LISTING_DISCOVERED` v1 routes to projector, percolator, content assessment, embedding, and translation. `DOMAIN`/`PRODUCT_LISTING_CHANGED` v1 routes to projector and percolator; main-price or availability dimensions also route watchlist, and an `images` dimension also routes embedding. `ENRICHMENT`/`ENRICHMENT_EMBEDDED` v1 and `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES` v1 route to projector and percolator. Image, price, and availability dimensions fan out independently, so a combined payload routes to the union. Embedded does not route translation. Lifecycle is a changed-event dimension, not an event group. |
+| `product_listing_raw_revisions` | INSERT | `product-listing-normalization` only. The typed wake-up carries raw stream ID, raw revision ID, and revision number; it never carries source JSON. The service drains the stream head in order, writes canonical ProductListing state/events and raw progress atomically, and startup/periodic reconciliation repairs a missed post-ack wake-up. Raw revisions never route directly to projections, notifications, translation, embedding, content assessment, or matching. |
 | `product_listings` | INSERT/MODIFY/DELETE | No default downstream route. ProductListing events are the projection trigger to avoid double-firing. Use listing CDC only for future explicit non-event projections. |
 
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
@@ -140,7 +142,7 @@ Crash rule:
 
 Worker sub-jobs use domain payloads or compact IDs and should not depend on raw Sequin JSON outside the router.
 
-Current router jobs carry only typed ProductListing event and aggregate IDs. Sub-worker implementation issues must introduce typed DTOs/payloads where behavior depends on event/change fields. Those DTOs should be derived from Postgres/domain rows, not from Sequin envelopes or duplicated raw event strings.
+Current router jobs carry only typed ProductListing event/aggregate IDs or raw-revision stream/revision IDs. Sub-worker implementation issues must introduce typed DTOs/payloads where behavior depends on event/change fields. Those DTOs should be derived from Postgres/domain rows, not from Sequin envelopes or duplicated raw event strings.
 
 Examples:
 

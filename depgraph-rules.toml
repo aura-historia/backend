@@ -11,7 +11,7 @@ platform-postgres = ["application"]
 geo = []
 
 test-api-macros = []
-aura-historia-worker = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-postgres", "large-language-model", "localization", "money", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-observability", "platform-postgres", "product-listing-core", "product-listing-opensearch", "product-listing-postgres", "product-listing-service", "product-listing-translation-llm", "search-filter-core", "search-filter-opensearch", "search-filter-postgres", "search-filter-service", "user-core", "user-postgres", "watchlist-postgres"]
+aura-historia-worker = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-postgres", "large-language-model", "localization", "money", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-observability", "platform-postgres", "product-listing-core", "product-listing-opensearch", "product-listing-postgres", "product-listing-service", "product-listing-translation-llm", "product-service", "search-filter-core", "search-filter-opensearch", "search-filter-postgres", "search-filter-service", "user-core", "user-postgres", "watchlist-postgres"]
 aura-historia-cron = ["fxrate-postgres", "large-language-model", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
 cloudwatch-log-retention-lambda = ["platform-observability"]
 
