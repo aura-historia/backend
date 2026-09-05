@@ -628,7 +628,7 @@ async fn should_cover_client_crud_use_cases() {
     );
     assert_eq!(
         client_id,
-        GetOAuthClientHandler::new(ports.clone())
+        GetOAuthClientHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
             .execute(&ctx(), &client_id)
             .await
             .unwrap()
@@ -724,8 +724,9 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
     let client = client_with_secret(&RawOAuthClientSecret::new());
     let client_id = client.client_id();
     lock(&ports.0).client = Some(client);
-    let get = GetOAuthClientHandler::new(ports.clone());
     let admin_user_id = UserId::new();
+    let get =
+        GetOAuthClientHandler::new(ports.clone(), FakeCheckUserAdmin::allow_user(admin_user_id));
     let list =
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_user(admin_user_id));
 
@@ -760,7 +761,10 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
         user_id: UserId::new(),
         capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
     });
-    assert!(get.execute(&delegated_non_admin, &client_id).await.is_ok());
+    assert!(matches!(
+        get.execute(&delegated_non_admin, &client_id).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
     assert!(matches!(
         list.execute(&delegated_non_admin, ListOAuthClientsRequest::default())
             .await,
@@ -768,7 +772,10 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
     ));
 
     let direct_non_admin = context(Principal::User(UserId::new()));
-    assert!(get.execute(&direct_non_admin, &client_id).await.is_ok());
+    assert!(matches!(
+        get.execute(&direct_non_admin, &client_id).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
     assert!(matches!(
         list.execute(&direct_non_admin, ListOAuthClientsRequest::default())
             .await,
@@ -779,6 +786,7 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
         user_id: admin_user_id,
         capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
     });
+    assert!(get.execute(&delegated_admin, &client_id).await.is_ok());
     let result = list
         .execute(
             &delegated_admin,
@@ -795,6 +803,7 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
     assert_eq!(100, result.cursor.size);
 
     let direct_admin = context(Principal::User(admin_user_id));
+    assert!(get.execute(&direct_admin, &client_id).await.is_ok());
     assert!(
         list.execute(&direct_admin, ListOAuthClientsRequest::default())
             .await

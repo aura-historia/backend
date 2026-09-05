@@ -8121,23 +8121,23 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/oauth/clients/{clientId}:
+  /api/v1/admin/oauth-clients/{clientId}:
     get:
-      summary: Get OAuth client metadata
-      description: "Retrieves one OAuth client metadata record.
+      summary: Get OAuth client metadata for administration
+      description: |
+        Retrieves one OAuth client metadata record for an authenticated administrator.
 
-        The returned `client_secret` value is masked and does not reveal the plaintext secret.
-
-        Requires an authenticated direct user, or a delegated Aura Historia access token with
-
-        `access-tokens:read`.
-
-        "
-      operationId: getOAuthClient
+        User and delegated-user principals must have the persisted `ADMIN` business role.
+        Delegated Aura Historia access-token callers must also have the `access-tokens:read`
+        capability. The response contains client metadata, redirect URIs, and scopes, but never
+        a plaintext client secret, secret hash, or masked secret value. Every success and error
+        response uses `Cache-Control: no-store`.
+      operationId: adminGetOAuthClient
       tags:
         - OAuth
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: clientId
           in: path
@@ -8152,17 +8152,16 @@ paths:
           description: OAuth client metadata retrieved successfully.
           headers:
             Cache-Control:
-              description: Always set to `no-store`.
+              description: Responses are never stored because administrator OAuth data is returned.
               schema:
                 type: string
               example: no-store
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OAuthClientMetadataResponseData"
+                $ref: "#/components/schemas/OAuthClientAdminData"
               example:
                 client_id: 01970f22-2bf0-7000-8000-000000000010
-                client_secret: aurahistoria_oauth_client_secret_abcdefghijk_****
                 client_name: Acceptance OAuth client
                 tos_uri: https://client.example/tos
                 policy_uri: https://client.example/policy
@@ -8174,54 +8173,48 @@ paths:
                   - product-listings:write
                 client_id_issued_at: 1748539200
         "400":
-          description: Bad request — invalid or missing OAuth client path parameter.
+          description: Bad request — the OAuth client path parameter is not a valid UUID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_client_id:
-                  summary: Missing OAuth client path parameter
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_PATH_PARAMETER_VALUE
-                    source:
-                      field: clientId
-                      sourceType: path
-                    detail: Missing path parameter clientId
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_UUID
-                    source:
-                      field: clientId
-                      sourceType: path
-                    detail: invalid character in UUID
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
+                source:
+                  field: clientId
+                  sourceType: PATH
         "401":
-          description: Unauthorized — invalid or missing JWT token, or the OAuth client does not exist.
+          description: Unauthorized — invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_bearer:
-                  summary: Missing or invalid bearer token
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: UNAUTHORIZED
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden — the delegated caller lacks `access-tokens:read`.
+          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:read`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8230,9 +8223,32 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: OAuth client reads require access-tokens:read for delegated callers.
+                detail: OAuth client administration requires the ADMIN role; delegated callers also require access-tokens:read.
+        "404":
+          description: OAuth client was not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
+                detail: OAuth client not found.
         "500":
-          description: Internal server error.
+          description: Internal authentication, authorization, or OAuth client read failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8240,7 +8256,24 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary authentication, authorization, or OAuth client read failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
+  /api/v1/oauth/clients/{clientId}:
     patch:
       summary: Update OAuth client metadata
       description:
@@ -12437,7 +12470,9 @@ components:
     OAuthClientAdminData:
       type: object
       description:
-        "Secret-free OAuth client metadata returned by `GET /api/v1/admin/oauth-clients`.
+        "Secret-free OAuth client metadata returned by the admin OAuth client collection and
+
+        detail endpoints under `/api/v1/admin/oauth-clients`.
 
         This schema intentionally has no `client_secret` property.
 
