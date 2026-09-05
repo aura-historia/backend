@@ -2,7 +2,10 @@ mod mapping;
 mod readers;
 mod repositories;
 
-pub use readers::{SqlxListingSourceAuthorization, SqlxPartnershipApplicationReaderFactory};
+pub use readers::{
+    SqlxListingSourceAuthorization, SqlxPartnershipApplicationReaderFactory,
+    SqlxPartnershipSearchReaderFactory,
+};
 pub use repositories::{
     SqlxListingSourceGrantRepositoryFactory, SqlxPartnershipApplicationRepositoryFactory,
     SqlxPartnershipRepositoryFactory,

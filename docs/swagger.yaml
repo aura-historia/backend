@@ -8671,6 +8671,183 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
+  /api/v1/admin/partnerships:
+    get:
+      summary: List Partnerships for administration
+      description: |
+        Lists active Partnerships for authenticated administrators.
+
+        Results use bounded keyset cursor pagination in fixed `created` descending, then
+        partnership UUID descending order. Page sizes are clamped to 1–100, with a default
+        of 21. The returned `searchAfter` value is a JSON-encoded
+        `[created RFC3339 timestamp, partnership UUID]` cursor; it is omitted on the terminal
+        page and should be sent with the same filters for the next page.
+
+        Optional `partyId`, `memberUserId`, and `listingSourceId` filters are exact UUID
+        matches and are combined when supplied. Each result is a safe summary containing
+        the Partnership ID, Party ID/immutable slug/name, member count, ListingSource-grant
+        count, and creation/update timestamps. Member identities, grant identities, Party
+        contact data, persistence versions, provider credentials, webhook secrets, and
+        crawler-local configuration are never returned. Responses always use
+        `Cache-Control: no-store`.
+      operationId: adminSearchPartnerships
+      tags:
+        - Partnerships
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partyId
+          in: query
+          required: false
+          description: Optional exact Party UUID filter.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        - name: memberUserId
+          in: query
+          required: false
+          description: Optional exact member user UUID filter.
+          schema:
+            type: string
+            format: uuid
+          example: 660e8400-e29b-41d4-a716-446655440000
+        - name: listingSourceId
+          in: query
+          required: false
+          description: Optional exact ListingSource grant UUID filter.
+          schema:
+            type: string
+            format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
+        - name: searchAfter
+          in: query
+          required: false
+          description: JSON-encoded `[created RFC3339 timestamp, partnership UUID]` cursor returned by the previous page.
+          schema:
+            type: string
+          example: '["2026-09-04T12:00:00Z","770e8400-e29b-41d4-a716-446655440000"]'
+        - name: size
+          in: query
+          required: false
+          description: Number of Partnership summaries requested per page. The server clamps values to 1–100.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 21
+          example: 21
+      responses:
+        "200":
+          description: Partnership summaries returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because this is an administrator-only read.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPartnershipCollectionData"
+              example:
+                items:
+                  - partnershipId: 770e8400-e29b-41d4-a716-446655440000
+                    party:
+                      partyId: 550e8400-e29b-41d4-a716-446655440000
+                      partySlugId: safe-party
+                      name: Safe Party
+                    memberCount: 2
+                    listingSourceGrantCount: 3
+                    created: "2026-09-04T12:00:00Z"
+                    updated: "2026-09-04T13:00:00Z"
+                size: 21
+                searchAfter:
+                  - "2026-09-04T12:00:00Z"
+                  - 770e8400-e29b-41d4-a716-446655440000
+        "400":
+          description: Bad request - invalid Partnership query parameter.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: BAD_QUERY_PARAMETER_VALUE
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "500":
+          description: Internal authentication or Partnership search failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTNERSHIP_INTERNAL_ERROR
+        "503":
+          description: Authentication, admin authorization, or Partnership search is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration
@@ -12588,6 +12765,90 @@ components:
           minimum: 0
           description: WooCommerce product identifier. It is converted to the internal `sourceListingId`.
           example: 17
+
+    AdminPartnershipCollectionData:
+      type: object
+      description: "Cursor-paginated safe Partnership summaries for the admin collection. `searchAfter` is omitted on the terminal page; no total is returned."
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPartnershipSummaryData"
+          description: Partnership summaries returned in the current page.
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        searchAfter:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: string
+          description: Partnership cursor for the next page, omitted when no more results are available.
+          example:
+            - "2026-09-04T12:00:00Z"
+            - 770e8400-e29b-41d4-a716-446655440000
+    AdminPartnershipSummaryData:
+      type: object
+      description: "Safe administrator Partnership summary. Member/grant identities, Party contact data, persistence versions, and credentials are excluded."
+      required:
+        - partnershipId
+        - party
+        - memberCount
+        - listingSourceGrantCount
+        - created
+        - updated
+      properties:
+        partnershipId:
+          type: string
+          format: uuid
+          description: Stable Partnership identifier.
+        party:
+          $ref: "#/components/schemas/PartnershipPartySummaryData"
+        memberCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of users in the Partnership.
+        listingSourceGrantCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of ListingSource grants in the Partnership.
+        created:
+          type: string
+          format: date-time
+          description: When the Partnership was created.
+        updated:
+          type: string
+          format: date-time
+          description: When the Partnership was last updated.
+    PartnershipPartySummaryData:
+      type: object
+      description: Party summary embedded in an administrator Partnership result.
+      required:
+        - partyId
+        - partySlugId
+        - name
+      properties:
+        partyId:
+          type: string
+          format: uuid
+          description: Stable Party identifier.
+        partySlugId:
+          type: string
+          description: Immutable Party slug identifier.
+        name:
+          type: string
+          maxLength: 255
+          description: Party name.
     PartnershipApplicationStateData:
       type: string
       enum:
@@ -13133,6 +13394,7 @@ x-tagGroups:
       - Newsletter
   - name: Partner & Platform Integrations
     tags:
+      - Partnerships
       - PartnershipApplications
       - OAuth
 
@@ -13157,6 +13419,8 @@ tags:
     description: Stripe checkout, billing-portal, and subscription-management session creation for authenticated users.
   - name: Newsletter
     description: Newsletter subscription upsert workflows for website or product-surface sign-up flows.
+  - name: Partnerships
+    description: Partnership administration, safe summary reads, and membership/ListingSource count workflows.
   - name: PartnershipApplications
     description: Partnership application submission, review tracking, administration, and decision workflows.
   - name: OAuth

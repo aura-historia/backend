@@ -9,6 +9,7 @@ pub(crate) mod pagination_data;
 pub mod parties;
 pub mod partner_product_listings;
 pub(crate) mod partnership_applications;
+pub(crate) mod partnerships;
 pub(crate) mod patch_value;
 pub mod product_listings;
 pub mod search_filters;
@@ -26,8 +27,9 @@ use crate::auth::{
 };
 use crate::state::{
     AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
-    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
-    ReadinessCheck, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, ReadinessCheck, SearchFiltersState, UsersState, WatchlistState,
+    WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
@@ -82,7 +84,7 @@ use listing_source_service::use_cases::queries::search_listing_sources::SearchLi
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
-    SqlxPartnershipRepositoryFactory,
+    SqlxPartnershipRepositoryFactory, SqlxPartnershipSearchReaderFactory,
 };
 use partnership_service::use_cases::{
     commands::{
@@ -96,6 +98,7 @@ use partnership_service::use_cases::{
         get_own_partnership_application::GetOwnPartnershipApplicationHandler,
         get_partnership_application::GetPartnershipApplicationHandler,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
+        list_admin_partnerships::ListAdminPartnershipsHandler,
         list_administered_listing_sources::ListAdministeredListingSourcesHandler,
         list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
     },
@@ -559,6 +562,10 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(partnership_applications::router(partnership_applications));
     }
 
+    if let Some(partnerships) = state.partnerships {
+        routes = routes.merge(partnerships::router(partnerships));
+    }
+
     with_transport_middleware(routes)
 }
 
@@ -743,6 +750,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let list_admin_partnership_applications = ListAdminPartnershipApplicationsHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let list_admin_partnerships = ListAdminPartnershipsHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
@@ -1063,6 +1075,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(reject_partnership_application),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let partnerships_state = PartnershipsState::new(
+        Arc::new(list_admin_partnerships),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
 
     let readiness = Arc::new(RuntimeReadiness {
         postgres: pool,
@@ -1074,6 +1090,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         .with_users(users_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
+        .with_partnerships(partnerships_state)
         .with_products(
             ProductListingsState::new(
                 Arc::new(get_product),

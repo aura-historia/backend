@@ -19,6 +19,7 @@ use oauth_service::use_cases::{
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
+use partnership_service::use_cases::queries::list_admin_partnerships::ListAdminPartnershipsUseCase;
 use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesUseCase;
 use partnership_service::use_cases::{
     commands::{
@@ -95,6 +96,7 @@ pub struct AppState {
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
+    pub(crate) partnerships: Option<PartnershipsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
@@ -120,6 +122,7 @@ impl AppState {
             users: None,
             watchlist: None,
             partnership_applications: None,
+            partnerships: None,
             oauth: None,
             search_filters: None,
             billing: None,
@@ -172,6 +175,11 @@ impl AppState {
         partnership_applications: PartnershipApplicationsState,
     ) -> Self {
         self.partnership_applications = Some(partnership_applications);
+        self
+    }
+
+    pub fn with_partnerships(mut self, partnerships: PartnershipsState) -> Self {
+        self.partnerships = Some(partnerships);
         self
     }
 
@@ -624,6 +632,24 @@ impl PartnershipApplicationsState {
             mark_in_review,
             approve,
             reject,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PartnershipsState {
+    pub(crate) list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartnershipsState {
+    pub fn new(
+        list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            list_admin,
             authenticator,
         }
     }

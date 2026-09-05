@@ -97,6 +97,10 @@ CREATE TABLE partnerships (
     CONSTRAINT partnerships_version_positive CHECK (version >= 1)
 );
 
+CREATE INDEX partnerships_created_id_idx
+    ON partnerships (created DESC, partnership_id DESC);
+
+
 CREATE TABLE partnership_members (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     partnership_id uuid NOT NULL REFERENCES partnerships(partnership_id) ON DELETE CASCADE,

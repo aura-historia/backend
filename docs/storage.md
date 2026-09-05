@@ -20,6 +20,14 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 - `product_listing_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
 - Watchlist notification readers compare both interval starts with immutable `product_listing_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
 
+## Partnerships and Party
+
+PostgreSQL is authoritative for Partnerships, Party identity, membership, and ListingSource grants.
+
+- `partnerships` has one row per Party (`party_id` is unique); `partnership_members` and `partnership_listing_source_grants` hold membership and source access.
+- The admin Partnership reader uses one joined query and counts distinct members and ListingSource grants. Exact `partyId`, `memberUserId`, and `listingSourceId` filters use `EXISTS`, so filtering does not reduce the returned counts.
+- The safe admin read model contains only Partnership ID, Party ID/immutable slug/name, member and grant counts, and `created`/`updated`. It omits Party contact, member/grant identities, persistence `version`, provider credentials, webhook secrets, and crawler-local configuration.
+
 ## Credentials
 
 PostgreSQL is authoritative for User access tokens and canonical OAuth credentials:
@@ -55,6 +63,7 @@ Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LIS
 
 - Saved-filter matches support both `created ASC, product_listing_id ASC` and `created DESC, product_listing_id ASC` for a fixed filter.
 - Product domain-event history orders by `event_time ASC, event_id ASC` for one product.
+- Admin Partnership lists use keyset pagination in fixed `created DESC, partnership_id DESC` order; the `partnerships_created_id_idx` index matches this cursor path.
 
 ## FX snapshots
 
