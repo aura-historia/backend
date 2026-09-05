@@ -1328,6 +1328,10 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
         )),
         Arc::new(ListOAuthClientsHandler::new(
             SqlxOAuthClientListReader::new(pool.clone()),

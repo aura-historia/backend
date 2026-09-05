@@ -11,7 +11,7 @@ struct OAuthClientCredentials {
 }
 
 async fn authenticated_client() -> (reqwest::Client, String) {
-    let user_id = seed_user("USER").await;
+    let user_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
         user_id,
         std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
@@ -34,7 +34,10 @@ async fn create_oauth_client_with_name(
     client_name: &str,
 ) -> OAuthClientCredentials {
     let response = client
-        .post(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
+        .post(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
         .bearer_auth(token)
         .json(&serde_json::json!({
             "client_name": client_name,
@@ -48,13 +51,29 @@ async fn create_oauth_client_with_name(
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create OAuth client: {error}"));
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::CREATED, status);
+    let client_id = body["client_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing client_id"))
+        .to_owned();
+    assert_eq!(
+        Some(format!("/api/v1/admin/oauth-clients/{client_id}")),
+        location
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     OAuthClientCredentials {
-        client_id: body["client_id"]
-            .as_str()
-            .unwrap_or_else(|| panic!("missing client_id"))
-            .to_owned(),
+        client_id,
         client_secret: body["client_secret"]
             .as_str()
             .unwrap_or_else(|| panic!("missing client_secret"))
@@ -209,12 +228,14 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     assert!(body["items"][0].get("client_secret").is_none());
 
     let response = client
-        .get(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
+        .post(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
         .bearer_auth(&admin_token)
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to check removed OAuth client list route: {error}"));
-    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+        .unwrap_or_else(|error| {
+            panic!("failed to check removed OAuth client create route: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 
     let response = client
         .get(format!(
@@ -266,6 +287,126 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .await
         .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_oauth_client_creation_for_non_admin() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::AccessTokensWrite]),
+    )
+    .await;
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({
+            "client_name": "Non-admin OAuth Client",
+            "tos_uri": "https://client.example/tos",
+            "policy_uri": "https://client.example/policy",
+            "client_uri": "https://client.example",
+            "logo_uri": "https://client.example/logo.png",
+            "redirect_uris": ["https://client.example/callback"],
+            "scope": ["access-tokens:read"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin OAuth client create: {error}"));
+    let (status, body) = json_response(response).await;
+
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_oauth_client_creation_for_admin_without_delegated_write() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, Default::default()).await;
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({
+            "client_name": "Missing Capability OAuth Client",
+            "tos_uri": "https://client.example/tos",
+            "policy_uri": "https://client.example/policy",
+            "client_uri": "https://client.example",
+            "logo_uri": "https://client.example/logo.png",
+            "redirect_uris": ["https://client.example/callback"],
+            "scope": ["access-tokens:read"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject OAuth client create without write: {error}")
+        });
+    let (status, body) = json_response(response).await;
+
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_oauth_client_redirect_uris_and_scopes() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AccessTokensWrite]),
+        )
+        .await,
+    );
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "client_name": "Invalid Redirect OAuth Client",
+            "tos_uri": "https://client.example/tos",
+            "policy_uri": "https://client.example/policy",
+            "client_uri": "https://client.example",
+            "logo_uri": "https://client.example/logo.png",
+            "redirect_uris": ["https://client.example/callback#fragment"],
+            "scope": ["access-tokens:read"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject invalid redirect URI: {error}"));
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "OAUTH_INVALID_CLIENT_METADATA",
+    );
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&serde_json::json!({
+            "client_name": "Invalid Scope OAuth Client",
+            "tos_uri": "https://client.example/tos",
+            "policy_uri": "https://client.example/policy",
+            "client_uri": "https://client.example",
+            "logo_uri": "https://client.example/logo.png",
+            "redirect_uris": ["https://client.example/callback"],
+            "scope": ["not-a-supported-scope"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject invalid OAuth scope: {error}"));
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

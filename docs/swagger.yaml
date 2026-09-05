@@ -7782,133 +7782,7 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/oauth/clients:
-    post:
-      summary: Create OAuth client metadata
-      description: "Creates a new OAuth client metadata record.
 
-        The plaintext `client_secret` is returned only in this create response; later reads return
-
-        a masked secret display value.
-
-        Requires an authenticated direct user, or a delegated Aura Historia access token with
-
-        `access-tokens:write`.
-
-        "
-      operationId: postOAuthClient
-      tags:
-        - OAuth
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        description: OAuth client metadata creation payload.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OAuthClientMetadataRequestData"
-            example:
-              client_name: Acceptance OAuth client
-              tos_uri: https://client.example/tos
-              policy_uri: https://client.example/policy
-              client_uri: https://client.example
-              logo_uri: https://client.example/logo.png
-              redirect_uris:
-                - https://client.example/callback
-              scope:
-                - product-listings:write
-      responses:
-        "201":
-          description: OAuth client metadata created successfully.
-          headers:
-            Location:
-              description: URL of the created OAuth client metadata resource.
-              schema:
-                type: string
-                format: uri
-              example: https://api.aura-historia.com/api/v1/oauth/clients/01970f22-2bf0-7000-8000-000000000010
-            Cache-Control:
-              description: Always set to `no-store`.
-              schema:
-                type: string
-              example: no-store
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OAuthClientMetadataResponseData"
-              example:
-                client_id: 01970f22-2bf0-7000-8000-000000000010
-                client_secret: aurahistoria_oauth_client_secret_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
-                client_name: Acceptance OAuth client
-                tos_uri: https://client.example/tos
-                policy_uri: https://client.example/policy
-                client_uri: https://client.example
-                logo_uri: https://client.example/logo.png
-                redirect_uris:
-                  - https://client.example/callback
-                scope:
-                  - product-listings:write
-                client_id_issued_at: 1748539200
-        "400":
-          description: Bad request — missing, empty, malformed JSON body, or invalid OAuth client metadata.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
-                empty_redirect_uris:
-                  summary: Redirect URIs are required
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_INVALID_CLIENT_METADATA
-                    detail: "OAuth client metadata is invalid: OAuth client must have at least one redirect URI"
-                insecure_redirect_uri:
-                  summary: Redirect URI must use HTTPS
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: OAUTH_INVALID_CLIENT_METADATA
-                    detail: "OAuth client metadata is invalid: OAuth redirect URI must use HTTPS: http://client.example/callback"
-        "401":
-          description: Unauthorized — invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: Unauthorized
-                error: UNAUTHORIZED
-        "403":
-          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 403
-                title: Forbidden
-                error: FORBIDDEN
-                detail: OAuth client administration requires access-tokens:write for delegated callers.
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
   /api/v1/admin/oauth-clients:
     get:
       summary: List OAuth client metadata for administration
@@ -8067,6 +7941,172 @@ paths:
                 error: OAUTH_INTERNAL_ERROR
         "503":
           description: Temporary authentication, authorization, or OAuth client read failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
+    post:
+      summary: Create OAuth client metadata for administration
+      description: |
+        Creates a new OAuth client metadata record for an authenticated administrator.
+
+        User and delegated-user principals must have the persisted `ADMIN` business role.
+        Delegated Aura Historia access-token callers must also have the `access-tokens:write`
+        capability. The plaintext `client_secret` is returned only in this create response and
+        is never logged or returned by later reads.
+
+        Redirect URIs must be non-empty HTTPS URLs without fragments. Requested scopes must be
+        supported OAuth scopes.
+      operationId: adminCreateOAuthClient
+      tags:
+        - OAuth
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        description: OAuth client metadata creation payload.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthClientMetadataRequestData"
+            example:
+              client_name: Acceptance OAuth client
+              tos_uri: https://client.example/tos
+              policy_uri: https://client.example/policy
+              client_uri: https://client.example
+              logo_uri: https://client.example/logo.png
+              redirect_uris:
+                - https://client.example/callback
+              scope:
+                - product-listings:write
+      responses:
+        "201":
+          description: OAuth client metadata created successfully.
+          headers:
+            Location:
+              description: URL of the created admin OAuth client detail resource.
+              schema:
+                type: string
+                format: uri
+              example: /api/v1/admin/oauth-clients/01970f22-2bf0-7000-8000-000000000010
+            Cache-Control:
+              description: Always set to `no-store` because the response contains the raw secret.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthClientMetadataResponseData"
+              example:
+                client_id: 01970f22-2bf0-7000-8000-000000000010
+                client_secret: aurahistoria_oauth_client_secret_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
+                client_name: Acceptance OAuth client
+                tos_uri: https://client.example/tos
+                policy_uri: https://client.example/policy
+                client_uri: https://client.example
+                logo_uri: https://client.example/logo.png
+                redirect_uris:
+                  - https://client.example/callback
+                scope:
+                  - product-listings:write
+                client_id_issued_at: 1748539200
+        "400":
+          description: Bad request — missing, empty, malformed JSON body, invalid redirect URI, or unsupported scope.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                missing_body:
+                  summary: Missing request body
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: Body cannot be empty
+                empty_redirect_uris:
+                  summary: Redirect URIs are required
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: OAUTH_INVALID_CLIENT_METADATA
+                    detail: "OAuth client metadata is invalid: OAuth client must have at least one redirect URI"
+                insecure_redirect_uri:
+                  summary: Redirect URI must use HTTPS
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: OAUTH_INVALID_CLIENT_METADATA
+                    detail: "OAuth client metadata is invalid: OAuth redirect URI must use HTTPS: http://client.example/callback"
+        "401":
+          description: Unauthorized — invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:write`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: OAuth client creation requires the ADMIN role; delegated callers also require access-tokens:write.
+        "500":
+          description: Internal authentication or OAuth client creation failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary authentication, authorization, or OAuth client persistence failure.
           headers:
             Cache-Control:
               description: Error responses are never stored.

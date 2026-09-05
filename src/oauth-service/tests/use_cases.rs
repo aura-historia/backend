@@ -182,6 +182,18 @@ fn ctx() -> OperationContext {
     })
 }
 
+fn create_command() -> CreateOAuthClientCommand {
+    CreateOAuthClientCommand {
+        name: OAuthClientName::from("A"),
+        redirect_uris: HashSet::from([url("https://client.example/callback")]),
+        tos_uri: url("https://client.example/tos"),
+        policy_uri: url("https://client.example/policy"),
+        client_uri: url("https://client.example"),
+        logo_uri: url("https://client.example/logo.png"),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
+    }
+}
+
 fn url(value: &str) -> url::Url {
     match url::Url::parse(value) {
         Ok(url) => url,
@@ -589,22 +601,12 @@ impl AccessTokenRepository for TransactionalFakePorts<'_> {
 #[tokio::test]
 async fn should_cover_client_crud_use_cases() {
     let ports = FakePorts::default();
-    let create = CreateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone());
-    let result = create
-        .execute(
-            &ctx(),
-            CreateOAuthClientCommand {
-                name: OAuthClientName::from("A"),
-                redirect_uris: HashSet::from([url("https://client.example/callback")]),
-                tos_uri: url("https://client.example/tos"),
-                policy_uri: url("https://client.example/policy"),
-                client_uri: url("https://client.example"),
-                logo_uri: url("https://client.example/logo.png"),
-                scopes: HashSet::from([Scope::ProductListingsWrite]),
-            },
-        )
-        .await
-        .unwrap();
+    let create = CreateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_all(),
+    );
+    let result = create.execute(&ctx(), create_command()).await.unwrap();
     let client_id = result.client.client_id;
     assert!(
         result.raw_client_secret.check(
@@ -665,6 +667,55 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(1, state.client_updates);
     assert_eq!(3, state.transaction_begins);
     assert_eq!(3, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_require_admin_role_and_delegated_write_for_oauth_client_creation() {
+    let admin_user_id = UserId::new();
+    let ports = FakePorts::default();
+    let create = CreateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_user(admin_user_id),
+    );
+
+    let direct_non_admin = context(Principal::User(UserId::new()));
+    assert!(matches!(
+        create.execute(&direct_non_admin, create_command()).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let delegated_without_write = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::new(),
+    });
+    assert!(matches!(
+        create
+            .execute(&delegated_without_write, create_command())
+            .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let direct_admin = context(Principal::User(admin_user_id));
+    assert!(
+        create
+            .execute(&direct_admin, create_command())
+            .await
+            .is_ok()
+    );
+
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(
+        create
+            .execute(&delegated_admin, create_command())
+            .await
+            .is_ok()
+    );
+    assert_eq!(2, lock(&ports.0).transaction_begins);
+    assert_eq!(2, lock(&ports.0).transaction_commits);
 }
 
 #[tokio::test]
@@ -816,21 +867,25 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
 #[tokio::test]
 async fn should_reject_invalid_client_metadata() {
     let ports = FakePorts::default();
-    let err = CreateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports)
-        .execute(
-            &ctx(),
-            CreateOAuthClientCommand {
-                name: OAuthClientName::from("A"),
-                redirect_uris: HashSet::new(),
-                tos_uri: url("https://client.example/tos"),
-                policy_uri: url("https://client.example/policy"),
-                client_uri: url("https://client.example"),
-                logo_uri: url("https://client.example/logo.png"),
-                scopes: HashSet::new(),
-            },
-        )
-        .await
-        .unwrap_err();
+    let err = CreateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports,
+        FakeCheckUserAdmin::allow_all(),
+    )
+    .execute(
+        &ctx(),
+        CreateOAuthClientCommand {
+            name: OAuthClientName::from("A"),
+            redirect_uris: HashSet::new(),
+            tos_uri: url("https://client.example/tos"),
+            policy_uri: url("https://client.example/policy"),
+            client_uri: url("https://client.example"),
+            logo_uri: url("https://client.example/logo.png"),
+            scopes: HashSet::new(),
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, OAuthServiceError::InvalidClientMetadata(_)));
 }
 
