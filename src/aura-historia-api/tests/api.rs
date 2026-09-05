@@ -22,6 +22,8 @@ mod parties;
 mod partner_product_listings;
 #[path = "api_cases/partnership_applications.rs"]
 mod partnership_applications;
+#[path = "api_cases/partnerships.rs"]
+mod partnerships;
 #[path = "api_cases/product_listings.rs"]
 mod product_listings;
 #[path = "api_cases/search_filters.rs"]

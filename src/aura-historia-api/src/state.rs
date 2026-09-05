@@ -19,12 +19,18 @@ use oauth_service::use_cases::{
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
+use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
+use partnership_service::use_cases::queries::list_admin_partnerships::ListAdminPartnershipsUseCase;
 use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesUseCase;
 use partnership_service::use_cases::{
     commands::{
         approve_partnership_application::ApprovePartnershipApplicationUseCase,
+        grant_partnership_listing_source::GrantPartnershipListingSourceUseCase,
+        grant_partnership_membership::GrantPartnershipMembershipUseCase,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewUseCase,
         reject_partnership_application::RejectPartnershipApplicationUseCase,
+        revoke_partnership_listing_source::RevokePartnershipListingSourceUseCase,
+        revoke_partnership_membership::RevokePartnershipMembershipUseCase,
         submit_partnership_application::SubmitPartnershipApplicationUseCase,
         withdraw_partnership_application::WithdrawPartnershipApplicationUseCase,
     },
@@ -95,6 +101,7 @@ pub struct AppState {
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
+    pub(crate) partnerships: Option<PartnershipsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
@@ -120,6 +127,7 @@ impl AppState {
             users: None,
             watchlist: None,
             partnership_applications: None,
+            partnerships: None,
             oauth: None,
             search_filters: None,
             billing: None,
@@ -172,6 +180,11 @@ impl AppState {
         partnership_applications: PartnershipApplicationsState,
     ) -> Self {
         self.partnership_applications = Some(partnership_applications);
+        self
+    }
+
+    pub fn with_partnerships(mut self, partnerships: PartnershipsState) -> Self {
+        self.partnerships = Some(partnerships);
         self
     }
 
@@ -624,6 +637,39 @@ impl PartnershipApplicationsState {
             mark_in_review,
             approve,
             reject,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PartnershipsState {
+    pub(crate) list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+    pub(crate) get_admin: Arc<dyn GetAdminPartnershipUseCase>,
+    pub(crate) grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
+    pub(crate) revoke_member: Arc<dyn RevokePartnershipMembershipUseCase>,
+    pub(crate) grant_listing_source: Arc<dyn GrantPartnershipListingSourceUseCase>,
+    pub(crate) revoke_listing_source: Arc<dyn RevokePartnershipListingSourceUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartnershipsState {
+    pub fn new(
+        list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+        get_admin: Arc<dyn GetAdminPartnershipUseCase>,
+        grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
+        revoke_member: Arc<dyn RevokePartnershipMembershipUseCase>,
+        grant_listing_source: Arc<dyn GrantPartnershipListingSourceUseCase>,
+        revoke_listing_source: Arc<dyn RevokePartnershipListingSourceUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            list_admin,
+            get_admin,
+            grant_member,
+            revoke_member,
+            grant_listing_source,
+            revoke_listing_source,
             authenticator,
         }
     }
