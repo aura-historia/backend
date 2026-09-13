@@ -46,7 +46,7 @@ Limits: idle startup only. No all-ten-scope, real provider/TLS/JWT authenticatio
 
 ## R3 — ordinary Compose, isolated acceptance
 
-Baseline `5b8914085c0819c0d8cbdfbbe344128ff8919e04`, clean `task/#1412-deployment` before work. Capability commit pending recording. Runtime/Cargo/schema/search/infra/workflow sources unchanged; reused R2 binaries retain source identity `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`, not the tooling SHA.
+Baseline `5b8914085c0819c0d8cbdfbbe344128ff8919e04`, clean `task/#1412-deployment` before work. Accepted capability commit `588b3f3cf140d831a35e16b5b1c1493218e5751a` (`feat(deploy): run isolated full backend with ordinary Compose`). Final43 Python tests and staged whitespace check pass. Nothing pushed or deployed. Runtime/Cargo/schema/search/infra/workflow sources unchanged; reused R2 binaries retain source identity `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`, not the tooling SHA.
 
 `deploy/compose/` now has ordinary separate platform/application/edge projects and nonsecret input example/runbook. Long-lived services use unless-stopped; applications are nonroot/read-only, default stop budgets60/300/330/330s. Platform volumes remain independent. Only Caddy publishes loopback HTTPS and joins an additional edge bridge; app/platform test network is internal. No renderer, secret materializer or new deployment framework.
 
