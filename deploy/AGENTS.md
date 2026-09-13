@@ -22,6 +22,7 @@
 
 - Prioritize actual image startup, full Compose launch, A→B/bad-B cutover, queue custody, singleton handover and reboot.
 - Preserve TLS, redaction, signal and data-custody regression tests.
+- R2 image smoke: `deploy/tests/README.md` has exact immutable inputs, isolation and evidence limits; Python harness is test-only, not deployment orchestration.
 - Dormant helper checks: `npm --prefix deploy/control test`; `npm --prefix deploy/control run validate-catalog`.
 - No deployment workflow enabled before the host path is proven.
 
@@ -29,4 +30,6 @@
 
 - `catalog.json` — actual four native binaries, five Lambdas, ten scopes and existing assets.
 - `control/`, `schemas/`, `bootstrap/` — dormant old framework; retain useful catalog/hash/tag/redaction helpers, do not expand.
-- Image/Compose/host-command files join this index only as their runnable milestones land.
+- `images/` — shared multistage Dockerfile, four nonroot runnable application targets; separate fixture-only bootstrap/Python helper.
+- `tests/` — isolated real-image idle startup/signals, genuine fresh PostgreSQL/OpenSearch, non-forwarding provider doubles and ownership-safe cleanup.
+- Compose/host-command files join this index only as their runnable milestones land.
