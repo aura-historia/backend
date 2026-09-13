@@ -41,7 +41,7 @@
 - `admin-overview.md` — administrator overview source and count semantics.
 - `auction.md` — Auction domain contract and current implementation status.
 - `auction-implementation.md` — isolated Auction iteration ownership and reset plan.
-- `auction-iterations/` — per-iteration Auction handoffs and verification records.
+- `auction-iterations/` — per-iteration Auction handoffs and verification records; `12-release-audit.md` owns release blockers, reopened gates, source coverage, and reset-rehearsal status.
 - `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
 - `product-listing.md` — canonical ProductListing domain contract.
 - `product-listing-raw-normalization-runbook.md` — raw capture, durable wake-ups, reconstructible reconciliation cursor/FIFO, shutdown, backlog, and crawler checks.

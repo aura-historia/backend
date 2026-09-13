@@ -1132,6 +1132,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingAuctionOverrideRepository for TestAuctionOverrideRepository {
+        async fn lock(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<(), ProductListingAuctionOverrideError> {
+            Ok(())
+        }
+
         async fn find(
             &mut self,
             _: ProductListingId,

@@ -2,7 +2,7 @@
 
 ## Gate
 
-**PASS** — source-key Auction membership. Stop before iteration 07.
+**INCOMPLETE — reopened by [iteration 12](12-release-audit.md), A12-04.** Historical command results below remain recorded PASS results, not full acceptance proof. The OpenAPI response closure is repaired; reliable-ID typed partner, grouping/race/rollback acceptance evidence still needs owning verification. `--no-run` did not execute that boundary.
 
 ## Objective and non-goals
 
@@ -49,4 +49,4 @@ The initial business schema, current ProductListing event payload, partner listi
 
 ## Next iteration
 
-**07 — correction, override barrier, and safe release.**
+Historical next step was 07. Current release is blocked; repair and verify this owning gate before downstream release approval.

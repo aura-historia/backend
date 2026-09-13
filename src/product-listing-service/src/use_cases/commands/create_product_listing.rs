@@ -466,6 +466,15 @@ where
         PartnerProductListingAuctionResolutionError,
     > {
         if let Some(product_listing_id) = product_listing_id {
+            self.overrides
+                .in_transaction(tx)
+                .lock(product_listing_id)
+                .await
+                .map_err(
+                    |error| PartnerProductListingAuctionResolutionError::Internal {
+                        source: box_error(error),
+                    },
+                )?;
             let override_state = self
                 .overrides
                 .in_transaction(tx)

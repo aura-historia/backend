@@ -102,9 +102,11 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          {
-            description: "Bounded newest-first Auction directory. All responses use `Cache-Control: no-store`.",
-          }
+          description: "Bounded newest-first Auction directory. All responses use `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionDirectoryData"
         "400":
           {
             description: Invalid ID,
@@ -125,13 +127,11 @@ paths:
           description: Strict `auc_` UUIDv7 TypeID.
       responses:
         "200":
-          {
-            description: Public Auction facts,
-            source summary,
-            schedule,
-            reported lot count,
-            and visible listing count. Always `Cache-Control: no-store`.,
-          }
+          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Always `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionData"
         "400": { description: Invalid Auction ID (`INVALID_OBJECT_ID`). }
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
   /api/v1/auctions/{auctionId}/product-listings:
@@ -157,9 +157,11 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          {
-            description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Always `Cache-Control: no-store`.",
-          }
+          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Always `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionCatalogueData"
         "400": { description: Invalid Auction ID or cursor. }
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
   /api/v1/admin/auctions:
@@ -12259,7 +12261,7 @@ components:
           nullable: true
         auction:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionData"
+            - $ref: "#/components/schemas/ProductListingAuctionContextData"
           nullable: true
           description: Optional source-asserted lot context, including an optional resolved Auction ID.
         auctionSummary:
@@ -12832,7 +12834,7 @@ components:
     ProductListingAuctionData:
       type: object
       additionalProperties: false
-      description: Source-asserted lot context. In partner writes, optional `sourceAuctionId` resolves shared Auction membership and `metadata` is fill-only; ordinary writes cannot change an existing membership.
+      description: Partner ProductListing write context. Optional `sourceAuctionId` resolves shared Auction membership and `metadata` is fill-only; ordinary writes cannot change an existing membership.
       properties:
         sourceAuctionId:
           type: string
@@ -12858,6 +12860,30 @@ components:
           nullable: true
           description: Optional one-based source catalogue position.
           example: 7
+        timing:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionTimingData"
+          nullable: true
+    ProductListingAuctionContextData:
+      type: object
+      additionalProperties: false
+      required: [lotNumber, cataloguePosition, timing]
+      description: Public and history lot context. It never exposes a source Auction key or metadata.
+      properties:
+        auctionId:
+          type: string
+          description: Resolved Aura Auction TypeID. Omitted when membership is unresolved.
+        lotNumber:
+          type: string
+          nullable: true
+          description: Optional source-assigned lot label.
+        cataloguePosition:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+          description: Optional one-based source catalogue position.
         timing:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionTimingData"
@@ -13153,7 +13179,7 @@ components:
           minimum: 0
         auction:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionData"
+            - $ref: "#/components/schemas/ProductListingAuctionContextData"
           nullable: true
     ProductListingChangedHistoryPayloadData:
       type: object
@@ -13285,11 +13311,11 @@ components:
             - AUCTION_CHANGED
         previous:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionData"
+            - $ref: "#/components/schemas/ProductListingAuctionContextData"
           nullable: true
         current:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionData"
+            - $ref: "#/components/schemas/ProductListingAuctionContextData"
           nullable: trueുവനന്തപുരം】【：】【“】【assistant to=functions.edit_file  天天彩 ＿老司机՞ւ 天天买彩票】【。】【”】【 北京赛车怎么 _一本道  大发快三怎么看json->functions.edit_file code  天天中彩票开奖】【。】【”】【json_payload】【：】【“】【{
     ProductListingWithdrawalHistoryChangeData:
       type: object
@@ -13414,7 +13440,8 @@ components:
           description: ListingSource IDs to include.
         excludeListingSourceId:
           type: array
-          items: *id003
+          items: &id003
+            type: string
           uniqueItems: true
           description: ListingSource IDs to exclude.
           nullable: true
@@ -16568,6 +16595,203 @@ components:
           minimum: 0
           maximum: 4294967295
           nullable: true
+    PublicAuctionDirectoryData:
+      type: object
+      additionalProperties: false
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicAuctionDirectoryItemData"
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/PublicAuctionDirectoryCursorData"
+          nullable: true
+          description: Omitted on the terminal page. Send the complete JSON value as the `searchAfter` query parameter.
+    PublicAuctionDirectoryItemData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          auctionId,
+          listingSource,
+          name,
+          format,
+          schedule,
+          reportedStatus,
+          created,
+        ]
+      properties:
+        auctionId:
+          type: string
+          description: Strict `auc_` UUIDv7 TypeID.
+        listingSource:
+          $ref: "#/components/schemas/PublicAuctionSourceData"
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleData"
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        created:
+          type: string
+          format: date-time
+    PublicAuctionData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          auctionId,
+          listingSource,
+          name,
+          description,
+          catalogueUrl,
+          viewUrl,
+          format,
+          schedule,
+          reportedStatus,
+          reportedLotCount,
+          visibleListingCount,
+        ]
+      properties:
+        auctionId:
+          type: string
+          description: Strict `auc_` UUIDv7 TypeID.
+        listingSource:
+          $ref: "#/components/schemas/PublicAuctionSourceData"
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        description:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        catalogueUrl:
+          type: string
+          format: uri
+          nullable: true
+        viewUrl:
+          type: string
+          format: uri
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleData"
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        reportedLotCount:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+        visibleListingCount:
+          type: integer
+          format: int64
+          minimum: 0
+    PublicAuctionSourceData:
+      type: object
+      additionalProperties: false
+      required: [listingSourceId, name, slugId]
+      properties:
+        listingSourceId:
+          type: string
+        name:
+          type: string
+        slugId:
+          type: string
+    PublicAuctionDirectoryCursorData:
+      type: object
+      additionalProperties: false
+      required: [created, auctionId, scope]
+      properties:
+        created:
+          type: string
+          format: date-time
+        auctionId:
+          type: string
+        scope:
+          $ref: "#/components/schemas/PublicAuctionDirectoryCursorScopeData"
+    PublicAuctionDirectoryCursorScopeData:
+      type: object
+      additionalProperties: false
+      required: [listingSourceId, format, reportedStatus, timeRole, from, to]
+      properties:
+        listingSourceId:
+          type: string
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        timeRole:
+          type: string
+          enum: [BIDDING_OPENS, LIVE_STARTS, LOTS_BEGIN_CLOSING, SCHEDULED_END]
+          nullable: true
+        from:
+          type: string
+          format: date-time
+          nullable: true
+        to:
+          type: string
+          format: date-time
+          nullable: true
+    PublicAuctionCatalogueData:
+      type: object
+      additionalProperties: false
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/PublicAuctionCatalogueCursorData"
+          nullable: true
+          description: Omitted on the terminal page. Send the complete JSON value as the `searchAfter` query parameter.
+    PublicAuctionCatalogueCursorData:
+      type: object
+      additionalProperties: false
+      required: [auctionId, cataloguePosition, productListingId]
+      properties:
+        auctionId:
+          type: string
+        cataloguePosition:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+        productListingId:
+          type: string
     AuctionAdminData:
       type: object
       required:

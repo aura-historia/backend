@@ -1,6 +1,6 @@
 # Iteration 10 — Public Auction browsing
 
-**Status:** PASS
+**Status: INCOMPLETE — reopened by [iteration 12](12-release-audit.md), A12-04.** Public Auction success response schemas now parse and match the current safe DTO shapes. Existing HTTP evidence exercises an empty anonymous catalogue, not populated personalized/content-policy coverage or bounded query-count measurement. Historical commands below remain valid only for their exercised scope; verify this owner separately.
 
 ## Objective
 

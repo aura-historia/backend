@@ -1,6 +1,6 @@
 # Iteration 09 — Auction summary reads
 
-**Status:** PASS
+**Status: INCOMPLETE — reopened by [iteration 12](12-release-audit.md), A12-04 and earlier prerequisites.** The public listing Auction schema now describes returned membership facts rather than partner input. Historical read/library PASS results do not prove full boundary acceptance; close the remaining acceptance in this owner.
 
 ## Objective
 
@@ -38,4 +38,4 @@ No shared database, queue, index, or remote environment was reset. This iteratio
 
 ## Audit
 
-No compatibility reader, version, alias, dual write, stub route, schema change, or out-of-scope Auction execution feature was added. The next iteration is 10 — public Auction browsing.
+No compatibility reader, version, alias, dual write, stub route, schema change, or out-of-scope Auction execution feature was added. Historical next step was 10. Current release approval waits for the reopened owning gates.

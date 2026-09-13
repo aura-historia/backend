@@ -74,7 +74,7 @@ Internal persisted JSON deliberately keeps canonical lowercase hyphenated UUID t
 - ProductListing sale observation `fxRateId`;
 - ProductListing enrichment `sourceEventId`;
 - notification product snapshot `listing_source_id`;
-- search-filter persisted ProductListing and ListingSource ID sets.
+- search-filter persisted ProductListing, ListingSource, and Auction ID sets.
 
 Crawler `validation_summary.schema_matrix` is also returned by the crawler review API, has no SQL UUID cast dependency, and therefore uses TypeIDs for persisted `CrawlerReviewId` and `CrawlerReviewPageId` references. Evaluations created before a review row exists use an explicit absent review ID and input-page index/reference. They never use nil or fabricated UUID placeholders.
 

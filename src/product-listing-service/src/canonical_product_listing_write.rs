@@ -390,6 +390,13 @@ where
     if matches!(command.auction, PatchField::Unchanged) {
         return Ok((command, false));
     }
+    overrides
+        .in_transaction(tx)
+        .lock(product_listing_id)
+        .await
+        .map_err(|error| CanonicalProductListingWriteError::Persistence {
+            source: box_error(error),
+        })?;
     let policy = overrides
         .in_transaction(tx)
         .find(product_listing_id)

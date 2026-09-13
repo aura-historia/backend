@@ -114,6 +114,10 @@ where
             .begin()
             .await
             .map_err(|_| ReleaseProductListingAuctionOverrideError::BeginTransactionFailed)?;
+        self.overrides
+            .in_transaction(&mut tx)
+            .lock(command.product_listing_id)
+            .await?;
         let listing = self
             .products
             .in_transaction(&mut tx)

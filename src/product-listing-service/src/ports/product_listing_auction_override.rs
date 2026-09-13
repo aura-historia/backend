@@ -64,6 +64,13 @@ pub enum ProductListingAuctionOverrideError {
 
 #[async_trait]
 pub trait ProductListingAuctionOverrideRepository: Send {
+    /// Serializes every Auction-context policy decision for one listing until the caller-owned
+    /// transaction ends. It protects both persisted and absent policy rows.
+    async fn lock(
+        &mut self,
+        product_listing_id: ProductListingId,
+    ) -> Result<(), ProductListingAuctionOverrideError>;
+
     async fn find(
         &mut self,
         product_listing_id: ProductListingId,

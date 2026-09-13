@@ -1,6 +1,6 @@
 # Iteration 08 — crawler Auction extraction
 
-**Status:** PASS
+**Status: INCOMPLETE — reopened by [iteration 12](12-release-audit.md), A12-04 and prerequisite 07.** Historical suite results below remain evidence of their tested scope. One Lot-tissimo HTML fixture and a separate synthetic raw-normalization case do not prove the required seven-source-scenario matrix or HTML-to-worker resolution. Complete that owning coverage; do not claim live source support from fixture success.
 
 ## Objective
 
@@ -43,7 +43,7 @@ cargo test -p aura-historia-worker --test process_durability --all-features \
 cargo test -p aura-historia-worker --all-features                                  PASS
 ```
 
-The PostgreSQL integration test captures two crawler-shaped raw revisions, then drives the real normalizer and resolver. It proves one same-source Auction is linked to the listing, later conflicting name/URL/format candidates preserve initially accepted values, and an initially absent reported lot count fills.
+The PostgreSQL integration test uses deliberately synthetic `example.test` data, not the Lot-tissimo HTML fixture. It captures two crawler-shaped raw revisions, then drives the real normalizer and resolver. It proves one same-source Auction is linked to the listing, later conflicting name/URL/format candidates preserve initially accepted values, and an initially absent reported lot count fills.
 
 The full worker suite completed under the authorized 20-minute bound, including its real-infrastructure process tests.
 

@@ -154,6 +154,10 @@ where
             .begin()
             .await
             .map_err(|_| CorrectProductListingAuctionContextError::BeginTransactionFailed)?;
+        self.overrides
+            .in_transaction(&mut tx)
+            .lock(command.product_listing_id)
+            .await?;
         let loaded = self
             .products
             .in_transaction(&mut tx)

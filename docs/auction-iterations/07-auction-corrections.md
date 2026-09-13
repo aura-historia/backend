@@ -1,6 +1,6 @@
 # Iteration 07 — Auction corrections
 
-**Status:** PASS
+**Status: repair verified; release audit remains INCOMPLETE.** [Iteration 12](12-release-audit.md) fixed A12-01/A12-02: explicit SQL and one transaction-scoped listing advisory lock now protect activation, reactivation, release, and ordinary raw/partner context decisions. Four real PostgreSQL regressions and one policy-only black-box correction/release HTTP flow pass. Historical successful commands below remain historical; raw/partner/admin race coverage, the broader worker matrix, and coordinated release rehearsal remain owned by the release audit.
 
 ## Objective
 

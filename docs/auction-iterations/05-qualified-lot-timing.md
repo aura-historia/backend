@@ -2,7 +2,7 @@
 
 ## Gate
 
-**PASS** — direct replacement of ambiguous ProductListing auction timestamps. Stop before iteration 06.
+**Recorded PASS** — direct replacement of ambiguous ProductListing auction timestamps. [Iteration 12](12-release-audit.md) notes a historical verification gap: this record lists API library tests, not the required owning HTTP/worker timing acceptance execution. Preserve the command results below, but do not treat that boundary or coordinated reset rehearsal as verified.
 
 ## Objective and non-goals
 

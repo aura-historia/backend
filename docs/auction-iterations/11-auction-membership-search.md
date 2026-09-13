@@ -1,6 +1,6 @@
 # Iteration 11 — Auction membership search
 
-**Status:** PASS.
+**Status: INCOMPLETE — reopened by [iteration 12](12-release-audit.md), A12-04 and earlier prerequisites.** The OpenAPI alias and response schemas now parse. Auction-specific persisted saved-search/worker membership-change acceptance is not established by the recorded broad suites. Close the owning evidence before release. Earlier command PASS records below are retained, not promoted to universal acceptance.
 
 ## Objective
 
