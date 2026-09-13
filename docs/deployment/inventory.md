@@ -1,4 +1,6 @@
-# Hybrid deployment inventory
+# Deployment checkpoint inventory
+
+Historical code inventory retained by reset R1, **not an active architecture or implementation checklist**. Active ordinary-Compose/reset decisions: `architecture-decisions.md`; current evidence: `implementation-status.md`. No generalized manifest/intent or missing migrator requirement applies to current development releases.
 
 Evidence baseline: `901b42f20e3cf6769763f1a9c052d307e813cb9a`, 2026-09-12.
 Clean checkout on `task/#1412-deployment`. Local and cached remote `develop` match baseline; cached `origin/prod` is `6fdbab5eb102dafbebf4cf93e521d944c8986156`. No local tags. No fetch/reset. Default remote branch is `develop`.

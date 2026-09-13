@@ -4,8 +4,7 @@
     { "id": "aura-historia-api", "package": "aura-historia-api", "binary": "aura-historia-api", "path": "src/aura-historia-api", "status": "IMPLEMENTED" },
     { "id": "aura-historia-worker", "package": "aura-historia-worker", "binary": "aura-historia-worker", "path": "src/aura-historia-worker", "status": "IMPLEMENTED" },
     { "id": "aura-historia-cron", "package": "aura-historia-cron", "binary": "aura-historia-cron", "path": "src/aura-historia-cron", "status": "IMPLEMENTED" },
-    { "id": "crawler", "package": "crawler", "binary": "server", "path": "src/crawler", "status": "IMPLEMENTED" },
-    { "id": "aura-historia-migrate", "package": "aura-historia-migrate", "binary": "aura-historia-migrate", "path": "src/aura-historia-migrate", "status": "NOT_IMPLEMENTED" }
+    { "id": "crawler", "package": "crawler", "binary": "server", "path": "src/crawler", "status": "IMPLEMENTED" }
   ],
   "lambdas": [
     { "id": "cloudwatch-log-retention-lambda", "package": "cloudwatch-log-retention-lambda", "binary": "cloudwatch-log-retention-lambda", "path": "src/cloudwatch-log-retention-lambda", "status": "IMPLEMENTED", "architecture": "x86_64", "database": false },

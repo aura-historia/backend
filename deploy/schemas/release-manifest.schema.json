@@ -179,7 +179,7 @@
       }
     },
     "native_images": {
-      "minItems": 5,
+      "minItems": 4,
       "type": "array",
       "items": {
         "type": "object",

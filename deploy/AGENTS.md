@@ -2,31 +2,31 @@
 
 ## Purpose
 
-- Own hybrid release catalog, contracts, controller, host tooling and offline tests.
-- Application business code stays in Rust. Deployment records are operational only.
+- Own runnable single-machine development deployment: images, ordinary Compose, thin host command and checks.
+- Reset playbook supersedes old numbered hybrid iterations. Do not continue old06–14.
 
 ## Contracts
 
-- Read root and matching `docs/arch.md` rules before edits; status lives in `docs/deployment/implementation-status.md`.
-- Current integration is default-off: no workflow calls this package for live mutation.
-- Strict versioned schemas; references only, no credentials or payloads in manifests/journals/logs.
-- Manifest integrity never grants approval. Exact intent/plan/current revision required independently.
-- S3 ETags are conditional tokens, not artifact hashes. Unknown remote outcomes retain operation ownership; no timed lock stealing.
-- Typed allowlisted operations and explicit argv only. No arbitrary shell, Compose, path, registry or mount inputs.
-- Production examples cannot satisfy real-stage setup gates. No cloud/host mutation in unit tests.
-- Integrator owns package/lockfiles, shared types, catalog and orchestration. At most three disjoint substantial implementers.
+- Read root and relevant `docs/arch.md`; current status: `docs/deployment/implementation-status.md`.
+- Every accepted change must advance and exercise the runnable path. No standalone foundation/planner/renderer/evidence work.
+- Use checked-in Compose, Caddy, ordinary restart policies, GitHub Environments/concurrency and Linux flock.
+- Thin host command owns current/previous/incomplete files. Failure leaves incomplete and blocks blind follow-up. No CAS/intent protocol, distributed locks, owner election/reconciler or generic secret materializer.
+- Long-lived containers use unless-stopped; explicitly retire old singleton containers before replacements. Confirm process termination, never infer it from lost connectivity.
+- Ordinary releases do not restart stateful services, recreate volumes, purge queues or downgrade schemas.
+- Fresh initialization only. No incremental adoption, backfill engine or new migrator. Missing fictional migrator must not block current releases.
+- Host-owned restrictive env/CA/ADC files, never committed or printed. Dependency endpoints stay configurable; same-host Docker DNS is allowed.
+- Live host/cloud/firewall/DNS/GitHub/prod mutations need explicit target authority and actual inputs. No guessed values or simulated success.
+- Integrator owns shared Cargo/locks, Compose/scripts/workflows/CDK wiring/docs. At most three disjoint implementers. Independent review asks correctness AND whether existing mechanisms can do materially less custom work.
 
 ## Verification
 
-- `npm --prefix deploy/control ci`
-- `npm --prefix deploy/control test`
-- `npm --prefix deploy/control run validate-catalog`
-- Generated JSON schemas must match typed sources; unsupported commands fail nonzero.
+- Prioritize actual image startup, full Compose launch, A→B/bad-B cutover, queue custody, singleton handover and reboot.
+- Preserve TLS, redaction, signal and data-custody regression tests.
+- Dormant helper checks: `npm --prefix deploy/control test`; `npm --prefix deploy/control run validate-catalog`.
+- No deployment workflow enabled before the host path is proven.
 
 ## Index
 
-- `catalog.json` — deployable bins, assets, scopes and migration streams.
-- `control/` — TypeScript contracts/CLI/planning/state tests; Node26 production target.
-- `schemas/` — generated strict JSON Schema documents; semantic checks also mandatory.
-- `bootstrap/` — owner-provided protection/setup specifications, never applied implicitly.
-- `compose/` — offline application-template contract. Cron/crawler render only; API/worker blocked pending trusted private bind input. No executor or protected-file materializer. Retired singleton uses restart=no; active recovery needs durable owner-aware reconciliation.
+- `catalog.json` — actual four native binaries, five Lambdas, ten scopes and existing assets.
+- `control/`, `schemas/`, `bootstrap/` — dormant old framework; retain useful catalog/hash/tag/redaction helpers, do not expand.
+- Image/Compose/host-command files join this index only as their runnable milestones land.

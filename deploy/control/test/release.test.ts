@@ -44,7 +44,7 @@ function bindingFixture() {
 
 const manifest = () => structuredClone(exampleManifest);
 const parseExample = (input: unknown) => parseManifest(input, exampleManifestPolicy);
-test('complete synthetic release represents every component, stream, family, scope and mail language', () => {
+test('historical synthetic release remains readable without activating the old framework', () => {
   const input = manifest();
   const parsed = parseExample(JSON.parse(JSON.stringify(input)));
   assert.deepEqual(parsed, input);
@@ -60,9 +60,14 @@ test('complete synthetic release represents every component, stream, family, sco
   assert.equal('manifest_sha256' in parsed, false);
   assert.deepEqual(parseMigrationMetadata(parsed.migrations), parsed.migrations);
 });
-test('migration OCI component is required even when another architecture fills the image count', () => {
+test('current application release does not require a migration OCI component', () => {
   const input = manifest();
   input.native_images = input.native_images.filter(image => image.component !== 'aura-historia-migrate');
+  assert.equal(parseExample(input).native_images.length, 4);
+});
+test('another architecture cannot replace a required application', () => {
+  const input = manifest();
+  input.native_images = input.native_images.filter(image => image.component !== 'crawler');
   input.native_images.push({ ...input.native_images[0]!, architecture: 'x86_64', rust_target: 'x86_64-unknown-linux-gnu' });
   invalid('manifest', () => parseExample(input));
 });
@@ -191,7 +196,7 @@ const manifestFailures: ReadonlyArray<readonly [string, (input: ReleaseManifest)
   ['nested command', input => { Object.assign(input.native_images[0]!, { command: 'sh -c forbidden' }); }],
   ['duplicate native component/architecture', input => { input.native_images.push(input.native_images[0]!); }],
   ['duplicate Lambda component/architecture', input => { input.lambdas.push(input.lambdas[0]!); }],
-  ['missing native component', input => { input.native_images.pop(); }],
+  ['missing native component', input => { input.native_images.shift(); }],
   ['missing Lambda component', input => { input.lambdas.pop(); }],
   ['duplicate worker scope', input => { input.queues[1] = input.queues[0]!; }],
   ['duplicate migration stream', input => { input.migrations.streams[1] = input.migrations.streams[0]!; }],

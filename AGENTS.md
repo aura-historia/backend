@@ -102,7 +102,7 @@
 - `.agents/AGENTS.md` — project-local agent skills.
 - `.github/AGENTS.md` — GitHub flow.
 - `docs/AGENTS.md` — public docs.
-- `deploy/AGENTS.md` — hybrid release/controller/platform tooling; default-off during integration.
+- `deploy/AGENTS.md` — active deployment reset: runnable images/ordinary Compose/thin host command; old hybrid framework dormant.
 - `infra/AGENTS.md` — CDK infra.
 - `mjml/AGENTS.md` — email templates.
 - `opensearch/AGENTS.md` — shared OpenSearch assets.

@@ -1,20 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cdkCatalog, parseCatalog, readCatalog, validateCatalog, verifyManifestCatalog } from '../src/catalog.js';
-import { exampleManifest } from '../fixtures/release-fixtures.js';
+import { exampleManifest, exampleManifestPolicy } from '../fixtures/release-fixtures.js';
+import { parseManifest } from '../src/contracts/release.js';
 import { run } from '../src/cli/main.js';
 
-const implementedFixtureCatalog = () => {
-  const catalog = readCatalog();
-  for (const component of catalog.native) component.status = 'IMPLEMENTED';
-  return catalog;
+const currentManifest = () => {
+  const manifest = structuredClone(exampleManifest);
+  manifest.native_images = manifest.native_images.filter(image => image.component !== 'aura-historia-migrate');
+  return parseManifest(manifest, exampleManifestPolicy);
 };
 
 test('actual source catalog matches Cargo, CDK, all mail and search inputs', () => {
-  assert.deepEqual(validateCatalog(), { code: 'OK', native: 4, lambdas: 5, workers: 10, mail: 25, incomplete: ['aura-historia-migrate'] });
+  assert.deepEqual(validateCatalog(), { code: 'OK', native: 4, lambdas: 5, workers: 10, mail: 25, incomplete: [] });
 });
-test('incomplete migrator capability cannot authorize release', () => assert.throws(() => verifyManifestCatalog(exampleManifest, readCatalog()), /COMPATIBILITY_BLOCKED/));
-test('complete synthetic manifest matches catalog identities, not artifact existence', () => verifyManifestCatalog(exampleManifest, implementedFixtureCatalog()));
+test('current four applications pass catalog acceptance without a fictional migrator', () => verifyManifestCatalog(currentManifest(), readCatalog()));
+test('unimplemented required application still blocks acceptance', () => {
+  const catalog = readCatalog();
+  catalog.native[0]!.status = 'NOT_IMPLEMENTED';
+  assert.throws(() => verifyManifestCatalog(currentManifest(), catalog), /COMPATIBILITY_BLOCKED/);
+});
 for (const alter of [
   (m: typeof exampleManifest) => { m.mail_bundle.templates.pop(); },
   (m: typeof exampleManifest) => { m.mail_bundle.templates[0]!.key = 'unknown/en.html'; },
@@ -24,8 +29,8 @@ for (const alter of [
   (m: typeof exampleManifest) => { m.native_images.pop(); },
 ]) {
   test('DEP09 absent or substituted required bundle component is rejected', () => {
-    const manifest = structuredClone(exampleManifest); alter(manifest);
-    assert.throws(() => verifyManifestCatalog(manifest, implementedFixtureCatalog()));
+    const manifest = currentManifest(); alter(manifest);
+    assert.throws(() => verifyManifestCatalog(manifest, readCatalog()));
   });
 }
 test('catalog rejects duplicate targets, unknown scope, unsafe paths and unknown controls', () => {

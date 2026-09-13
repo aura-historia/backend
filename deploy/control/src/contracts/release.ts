@@ -22,6 +22,8 @@ const RustTarget = z.enum([
 const NativeComponent = z.enum([
   'aura-historia-api', 'aura-historia-worker', 'aura-historia-cron', 'crawler', 'aura-historia-migrate',
 ]);
+// Keep old synthetic records readable; only real application binaries are required.
+const RequiredNativeComponents = NativeComponent.options.filter(component => component !== 'aura-historia-migrate');
 const LambdaComponent = z.enum([
   'cloudwatch-log-retention-lambda', 'cognito-post-confirmation', 'shopify-lambda', 'stripe-lambda', 'fxrate-lambda',
 ]);
@@ -101,7 +103,7 @@ export const ReleaseManifest = z.strictObject({
       repository: SafeKey.regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/),
       digest: Digest,
     }),
-  })).min(NativeComponent.options.length),
+  })).min(RequiredNativeComponents.length),
   lambdas: z.array(z.strictObject({
     component: LambdaComponent, architecture: Architecture, rust_target: RustTarget, source_sha: Sha,
     runtime: z.literal('provided.al2023'), artifact: ObjectReference,
@@ -283,7 +285,7 @@ export function parseMigrationMetadata(input: unknown): MigrationMetadata {
 /**
  * Structural/source-policy validation and internal consistency, not full bundle completeness.
  * Callers must separately run the integrator-owned verifyManifestCatalog(manifest, trustedCatalog)
- * gate for catalog completeness and build availability, including the iteration-05 migrator.
+ * gate for actual catalog completeness. The reset's four applications need no migrator.
  * Neither gate replaces cryptographic provenance verification or protected approval.
  */
 export function parseManifest(input: unknown, policy: ManifestPolicy): ReleaseManifest {
@@ -306,7 +308,7 @@ export function parseManifest(input: unknown, policy: ManifestPolicy): ReleaseMa
       requireValid(component.source_sha === manifest.source_sha);
       requireValid(manifest.targets.some(target => target.rust_target === component.rust_target && target.architecture === component.architecture));
     }
-    requireValid(NativeComponent.options.every(component => manifest.native_images.some(image => image.component === component)));
+    requireValid(RequiredNativeComponents.every(component => manifest.native_images.some(image => image.component === component)));
     requireValid(LambdaComponent.options.every(component => manifest.lambdas.some(lambda => lambda.component === component)));
     for (const native of manifest.native_images) requireValid(trusted.trusted_registries.includes(native.image.registry));
     for (const lambda of manifest.lambdas) objectSource(lambda.artifact, manifest.source_sha);

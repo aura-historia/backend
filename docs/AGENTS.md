@@ -10,7 +10,7 @@
 - `CHANGELOG.md` tell API change by pull request.
 - `storage.md` owns storage migration and repository conventions.
 - `durable-worker-runbook.md` owns SQS runtime limits, external handoff, cutover, DLQ recovery, and projection-fence rollout. Runtime code and CDK remain the source for effective values; docs do not prove deployment.
-- `deployment/` owns hybrid implementation evidence, release safety decisions and operator gates; incomplete work stays explicitly non-deployable.
+- `deployment/` owns active single-machine deployment reset, runtime evidence and operator gates. Old hybrid histories are archived, not an active roadmap; incomplete work stays explicitly non-deployable.
 - Child doc can own deeper subsystem docs when folder become durable boundary.
 
 ## Ownership
@@ -39,7 +39,7 @@
 
 ## Child DOX Index
 
-- `deployment/AGENTS.md` — hybrid deployment evidence, decisions and implementation status.
+- `deployment/AGENTS.md` — active deployment reset, historical evidence, decisions and status.
 
 - `admin-overview.md` — administrator overview source and count semantics.
 - `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
