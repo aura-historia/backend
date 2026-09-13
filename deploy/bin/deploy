@@ -1,0 +1,533 @@
+#!/usr/bin/env python3
+"""Single-host application replacement. Preloaded images only; no platform/cloud mutation.
+
+adopt records an already-running verified release. apply replaces it. recover only
+records an already-converged state after explicit operator confirmation; it does not
+cancel unknown Docker work, restart services or guess a rollback. status is read-only.
+"""
+import argparse
+import fcntl
+import hashlib
+import http.client
+import io
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import ssl
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[2]
+COMPOSE = ROOT / "deploy/compose"
+CATALOG = json.loads((ROOT / "deploy/catalog.json").read_text())
+WORKERS = tuple(w["scope"] for w in CATALOG["workers"])
+JOBS = ("cron", "crawler")
+SLOTS = ("api", "api-candidate")
+SERVICES = {*WORKERS, *JOBS, *SLOTS}
+BINS = dict(api="aura-historia-api", worker="aura-historia-worker", cron="aura-historia-cron", crawler="server")
+BUDGETS = dict(api=60, worker=300, cron=330, crawler=330)
+PORTS = dict(api=9080, worker=8081, cron=8082, crawler=9083)
+SAFE_GET = "/api/v1/product-listings/pl_0000000000e008000000000001"
+CONFIG_KEYS = {"stage", "application_project", "edge_project", "config_dir", "compose_env", "state_dir", "https_port", "https_ca"}
+
+
+class Failure(Exception):
+    pass
+
+
+def need(value, code):
+    if not value:
+        raise Failure(code)
+
+
+def kind(service):
+    return "api" if service in SLOTS else "worker" if service in WORKERS else service
+
+
+def pairs(items):
+    result = {}
+    for key, value in items:
+        need(key not in result, "DUPLICATE_JSON_KEY")
+        result[key] = value
+    return result
+
+
+def trusted(path, directory=False):
+    path = Path(path)
+    need(path.is_absolute() and path.resolve() == path, "UNTRUSTED_PATH")
+    info = path.stat()
+    need((stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
+         and info.st_uid in {0, os.geteuid()} and not info.st_mode & 0o022, "UNTRUSTED_FILE")
+    return path
+
+
+def read_json(path):
+    path = trusted(path)
+    need(path.stat().st_size <= 1048576, "INPUT_TOO_LARGE")
+    return json.loads(path.read_text(), object_pairs_hook=pairs)
+
+
+def release(value):
+    need(type(value) is dict and set(value) == {"source_sha", "images"}, "RELEASE_FIELDS")
+    sha = value["source_sha"]
+    need(type(sha) is str and re.fullmatch(r"[0-9a-f]{40}", sha) and len(set(sha)) > 1, "SOURCE_SHA")
+    need(type(value["images"]) is dict and set(value["images"]) == set(BINS), "FOUR_IMAGES_REQUIRED")
+    need(all(type(v) is str and re.fullmatch(r"sha256:[0-9a-f]{64}", v) for v in value["images"].values()), "PRELOADED_IMMUTABLE_IDS_REQUIRED")
+    return value
+
+
+def running_record(value):
+    need(type(value) is dict and set(value) == {"release", "api_slot", "containers"}, "STATE_FIELDS")
+    release(value["release"])
+    need(value["api_slot"] in SLOTS and type(value["containers"]) is dict
+         and set(value["containers"]) == {*WORKERS, *JOBS, value["api_slot"]}
+         and all(type(v) is str and re.fullmatch(r"[0-9a-f]{64}", v) for v in value["containers"].values()), "STATE_IDENTITIES")
+    return value
+
+
+def incomplete_record(value):
+    need(type(value) is dict and set(value) == {"from", "previous", "target", "api_slot", "phase"}, "INCOMPLETE_FIELDS")
+    for key in ("from", "previous"):
+        if value[key] is not None:
+            running_record(value[key])
+    release(value["target"])
+    phases = {"adopt", "preflight", "candidate-start", "proxy-validate", "proxy-switch", "commit-state"}
+    phases |= {prefix + service for prefix in ("preflight-", "stop-", "remove-", "start-") for service in SERVICES}
+    need(value["api_slot"] in SLOTS and value["phase"] in phases, "INCOMPLETE_PHASE")
+    return value
+
+
+def seconds(value):
+    # Compose normalizes 300s to 5m0s. Accept exact whole-second budgets only.
+    match = re.fullmatch(r"(?:(\d+)m)?(\d+)s", value) if type(value) is str else None
+    need(match is not None, "STOP_BUDGET_FORMAT")
+    return int(match[1] or 0) * 60 + int(match[2])
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def atomic(path, data, mode=0o600):
+    # Same-directory replacement preserves existing bind-mounted directories.
+    fd, name = tempfile.mkstemp(prefix=".deploy-", dir=path.parent)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def caddyfile(slot, sha):
+    need(slot in SLOTS and re.fullmatch(r"[0-9a-f]{40}", sha), "CADDY_SELECTION")
+    return (COMPOSE / "Caddyfile.replace").read_text().replace("__AURA_UPSTREAM__", slot).replace("__AURA_RELEASE__", sha)
+
+
+class Host:
+    def __init__(self, config):
+        need(type(config) is dict and set(config) == CONFIG_KEYS, "HOST_CONFIG_FIELDS")
+        need(config["stage"] in {"test", "local", "ephemeral", "dev", "prod"}, "STAGE")
+        for field in ("application_project", "edge_project"):
+            need(type(config[field]) is str and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}", config[field]), "PROJECT")
+        need(config["application_project"] != config["edge_project"], "PROJECT_COLLISION")
+        need(type(config["https_port"]) is int and 1024 <= config["https_port"] <= 65535, "HTTPS_PORT")
+        if config["stage"] in {"dev", "prod"}:
+            need(os.geteuid() == 0, "REAL_STAGE_REQUIRES_ROOT")
+        self.config = config
+        self.state = trusted(config["state_dir"], True)
+        need(self.state.stat().st_mode & 0o077 == 0, "STATE_PERMISSIONS")
+        self.files = trusted(config["config_dir"], True)
+        trusted(config["compose_env"])
+        trusted(config["https_ca"])
+        self.caddy = trusted(self.files / "caddy", True) / "Caddyfile"
+        trusted(self.caddy)
+        self.deadline = time.monotonic() + 7200
+        self.marker = None
+        self.lock = None
+        self.snapshot = None
+        self.image_cache = {}
+        self.cli_config = self.state / "docker"
+        self.cli_config.mkdir(mode=0o700, exist_ok=True)
+        trusted(self.cli_config, True)
+
+    def inputs(self):
+        paths = [self.files / name for name in ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "google-adc.json")]
+        paths += [Path(self.config["compose_env"]), Path(self.config["https_ca"]), ROOT / "deploy/catalog.json"]
+        paths += [COMPOSE / name for name in ("compose.application.yml", "compose.replace.yml", "compose.edge.yml", "Caddyfile.replace")]
+        return {str(path): (trusted(path).stat().st_mode, path.stat().st_uid, hashlib.sha256(path.read_bytes()).hexdigest()) for path in paths}
+
+    def unchanged(self):
+        if self.snapshot is not None:
+            need(self.inputs() == self.snapshot, "HOST_INPUTS_CHANGED")
+
+    def acquire(self):
+        path = self.state / "lock"
+        self.lock = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        need(os.fstat(self.lock).st_uid == os.geteuid(), "LOCK_OWNER")
+        try:
+            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Failure("DEPLOYMENT_BUSY") from None
+
+    def record(self, name, value):
+        atomic(self.state / name, json.dumps(value, sort_keys=True) + "\n")
+
+    def stored(self, name):
+        path = self.state / name
+        if not path.exists():
+            return None
+        value = read_json(path)
+        return incomplete_record(value) if name in {"incomplete", "last-incomplete"} else running_record(value)
+
+    def phase(self, name):
+        self.unchanged()
+        need(self.marker is not None, "MISSING_INCOMPLETE_RECORD")
+        self.marker["phase"] = name
+        self.record("incomplete", self.marker)
+        print(json.dumps({"phase": name}), flush=True)
+
+    def call(self, *args, seconds=30, env=None, check=True):
+        remaining = self.deadline - time.monotonic()
+        need(remaining > 0, "DEADLINE_INCOMPLETE")
+        environment = {"PATH": "/usr/bin:/bin", **(env or {})}
+        try:
+            with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+                result = subprocess.run(["/usr/bin/docker", "--host", "unix:///var/run/docker.sock", "--config", str(self.cli_config), *args],
+                    stdout=output, stderr=errors, env=environment,
+                    timeout=min(seconds, remaining), pass_fds=(() if self.lock is None else (self.lock,)))
+                output.seek(0)
+                raw = output.read(8388609)
+                need(errors.tell() <= 8388608, "OUTPUT_LIMIT_INCOMPLETE")
+            need(len(raw) <= 8388608, "OUTPUT_LIMIT_INCOMPLETE")
+        except subprocess.TimeoutExpired:
+            raise Failure("DOCKER_OUTCOME_UNKNOWN") from None
+        need(not check or result.returncode == 0, "DOCKER_FAILED_INCOMPLETE")
+        return result.returncode, raw.decode("utf-8")
+
+    def compose(self, target, selected, *args, seconds=30):
+        self.unchanged()
+        env = {key.upper() + "_IMAGE": image for key, image in selected["images"].items()}
+        env["AURA_RELEASE_SHA"] = selected["source_sha"]
+        files = ["-f", str(COMPOSE / f"compose.{target}.yml")]
+        if target == "application":
+            files += ["-f", str(COMPOSE / "compose.replace.yml"), "--profile", "candidate"]
+        return self.call("compose", "--project-name", self.config[target + "_project"], "--env-file", self.config["compose_env"],
+                         *files, *args, seconds=seconds, env=env)[1]
+
+    def images(self, selected):
+        result = {}
+        for component, identifier in selected["images"].items():
+            if identifier not in self.image_cache:
+                self.image_cache[identifier] = json.loads(self.call("image", "inspect", identifier)[1])[0]
+            item = self.image_cache[identifier]
+            config = item["Config"]
+            need(item["Id"] == identifier and item["Os"] == "linux" and item["Architecture"] == "amd64", "IMAGE_PLATFORM")
+            need(config["User"] == "10001:10001" and config["Entrypoint"] == ["/usr/local/bin/" + BINS[component]]
+                 and not config.get("Cmd") and not config.get("Volumes"), "IMAGE_CONFIGURATION")
+            need(config.get("Labels", {}).get("org.opencontainers.image.revision") == selected["source_sha"]
+                 and config.get("Labels", {}).get("org.opencontainers.image.source") == "https://github.com/aura-historia/backend", "IMAGE_SOURCE")
+            baked = dict(v.split("=", 1) for v in config.get("Env", []))
+            need(baked.get("COMMIT_SHA") == selected["source_sha"], "IMAGE_SOURCE_ENV")
+            result[component] = baked
+        return result
+
+    def model(self, selected):
+        # Config is host-owned, not supplied by the release. Capture it; never print it.
+        raw = json.loads(self.compose("application", selected, "config", "--no-env-resolution", "--format", "json"))
+        model = json.loads(self.compose("application", selected, "config", "--format", "json"))
+        need(set(model["services"]) == SERVICES and not model.get("volumes"), "APPLICATION_SERVICE_SET")
+        need(set(model["networks"]) == {"backend"} and model["networks"]["backend"].get("external") is True, "APPLICATION_NETWORK")
+        for name, service in model["services"].items():
+            component = kind(name)
+            base = "api" if name in SLOTS else component
+            envfiles = [self.files / (base + ".env")]
+            if name == "notification-delivery":
+                envfiles += [self.files / "notification-delivery.env"]
+            need([e["path"] for e in raw["services"][name]["env_file"]] == [str(p) for p in envfiles], "ENV_FILE_LOCATION")
+            for path in envfiles:
+                trusted(path)
+            need(service["image"] == selected["images"][component] and service["user"] == "10001:10001"
+                 and service["restart"] == "unless-stopped" and service["read_only"]
+                 and seconds(service["stop_grace_period"]) == BUDGETS[component], "APPLICATION_BUDGET_OR_IDENTITY")
+            need(not any(service.get(k) for k in ("ports", "privileged", "devices", "build", "entrypoint", "command", "network_mode", "extra_hosts"))
+                 and set(service["networks"]) == {"backend"}, "APPLICATION_BOUNDARY")
+            expected_mounts = {str(self.files / "postgres-ca.pem"): "/run/aura/postgres-ca.pem"}
+            if name in {"api", "api-candidate", "cron", "crawler", "search-filter-percolator", "product-embedding", "product-translation"}:
+                expected_mounts[str(self.files / "google-adc.json")] = "/run/aura/google-adc.json"
+            mounts = service.get("volumes", [])
+            need(len(mounts) == len(expected_mounts) and all(m["type"] == "bind" and m.get("read_only")
+                 and expected_mounts.get(m["source"]) == m["target"] for m in mounts), "APPLICATION_MOUNTS")
+            for path in expected_mounts:
+                trusted(path)
+            values = service["environment"]
+            stop_key = {"api": "AURA_HISTORIA_API_STOP_SECONDS", "worker": "AURA_HISTORIA_WORKER_STOP_TIMEOUT_SECONDS", "cron": "AURA_HISTORIA_CRON_STOP_TIMEOUT_SECONDS", "crawler": "CRAWLER_STOP_TIMEOUT_SECONDS"}[component]
+            need(values.get(stop_key, str(BUDGETS[component])) == str(BUDGETS[component]), "RUNTIME_STOP_BUDGET")
+            need(values.get("STAGE") == self.config["stage"] and values.get("COMMIT_SHA") == selected["source_sha"], "APPLICATION_STAGE")
+            if self.config["stage"] in {"dev", "prod"}:
+                need(values.get("POSTGRES_SSL_MODE") == "verify-full" and values.get("POSTGRES_SSL_ROOT_CERT") == "/run/aura/postgres-ca.pem", "VERIFIED_TLS_REQUIRED")
+            if name in WORKERS:
+                need(values.get("AURA_HISTORIA_WORKER_SCOPE") == name and values.get("AURA_HISTORIA_WORKER_QUEUE_URL"), "WORKER_SCOPE")
+        return model
+
+    def containers(self, target):
+        project = self.config[target + "_project"]
+        ids = self.call("ps", "-a", "--no-trunc", "--filter", "label=com.docker.compose.project=" + project, "--format", "{{.ID}}")[1].split()
+        result = {}
+        for item in json.loads(self.call("inspect", *ids)[1]) if ids else []:
+            labels = item["Config"].get("Labels", {})
+            service = labels.get("com.docker.compose.service")
+            need(service in (SERVICES if target == "application" else {"caddy"}) and service not in result
+                 and item["Name"] == f"/{project}-{service}-1" and re.fullmatch(r"[0-9a-f]{64}", item["Id"]), "UNEXPECTED_CONTAINER")
+            result[service] = item
+        return result
+
+    def probe(self, identifier, component, path):
+        need(component in PORTS and path in {"/ready", "/version", "/ops/version", "/admission"}, "PROBE_TARGET")
+        command = f"exec 3<>/dev/tcp/127.0.0.1/{PORTS[component]}; printf 'GET {path} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3"
+        code, raw = self.call("exec", identifier, "timeout", "5", "bash", "-c", command, seconds=8, check=False)
+        if code:
+            return 0, None
+        class Socket:
+            def makefile(self, *_args):
+                return io.BytesIO(raw.encode())
+        response = http.client.HTTPResponse(Socket())
+        response.begin()
+        body = response.read(65537)
+        need(len(body) <= 65536 and "no-store" in response.getheader("Cache-Control", ""), "PROBE_FORMAT")
+        return response.status, json.loads(body) if path.endswith("version") else None
+
+    def actual_process(self, item, service, model):
+        config, host = item["Config"], item["HostConfig"]
+        component = kind(service)
+        need(config["User"] == "10001:10001" and config["Entrypoint"] == ["/usr/local/bin/" + BINS[component]]
+             and not config.get("Cmd") and config.get("StopTimeout") == BUDGETS[component]
+             and host["ReadonlyRootfs"] and not host["Privileged"] and not host.get("CapAdd")
+             and host.get("CapDrop") == ["ALL"] and set(host.get("SecurityOpt") or []) in ({"no-new-privileges"}, {"no-new-privileges:true"})
+             and not host.get("Devices") and not host.get("ExtraHosts"), "RUNNING_PROCESS_DRIFT")
+        expected = {(m["source"], m["target"], False) for m in model["services"][service]["volumes"]}
+        actual = []
+        for mount in item["Mounts"]:
+            if mount["Type"] == "tmpfs":
+                need(mount["Destination"] == "/tmp" and mount["RW"], "RUNNING_TMPFS_DRIFT")
+            else:
+                need(mount["Type"] == "bind" and mount["Propagation"] == "rprivate", "RUNNING_MOUNT_DRIFT")
+                actual.append((mount["Source"], mount["Destination"], mount["RW"]))
+        need(len(actual) == len(expected) and set(actual) == expected, "RUNNING_MOUNT_DRIFT")
+
+    def ready(self, service, selected, model, seconds=90):
+        end = min(self.deadline, time.monotonic() + seconds)
+        component = kind(service)
+        baked = self.images(selected)[component]
+        while time.monotonic() < end:
+            item = self.containers("application").get(service)
+            need(item is not None and item["State"]["Running"] and not item["State"]["OOMKilled"]
+                 and not item["State"]["Restarting"] and item["RestartCount"] == 0, "PROCESS_NOT_STABLE")
+            need(item["Image"] == selected["images"][component], "RUNNING_IMAGE_DRIFT")
+            self.actual_process(item, service, model)
+            actual = dict(v.split("=", 1) for v in item["Config"]["Env"])
+            need(actual == {**baked, **model["services"][service]["environment"]}, "RUNNING_CONFIG_DRIFT")
+            need(item["HostConfig"]["RestartPolicy"]["Name"] == "unless-stopped" and not item["HostConfig"]["PortBindings"]
+                 and set(item["NetworkSettings"]["Networks"]) == {model["networks"]["backend"]["name"]}, "RUNNING_NETWORK_DRIFT")
+            if self.probe(item["Id"], component, "/ready")[0] == (204 if component == "api" else 200):
+                path = "/ops/version" if component in JOBS else "/version"
+                code, version = self.probe(item["Id"], component, path)
+                need(code == 200 and version.get("commit_sha" if component in {"api", "crawler"} else "source_sha") == selected["source_sha"], "RUNNING_SOURCE_DRIFT")
+                if component == "worker":
+                    need(version.get("scope") == service and self.probe(item["Id"], component, "/admission")[0] == 200, "INGRESS_UNAVAILABLE")
+                return item["Id"]
+            time.sleep(0.5)
+        raise Failure("READINESS_DEADLINE")
+
+    def edge(self, slot, selected):
+        items = self.containers("edge")
+        need(set(items) == {"caddy"} and items["caddy"]["State"]["Running"], "EDGE_NOT_RUNNING")
+        item = items["caddy"]
+        edge_model = json.loads(self.compose("edge", selected, "config", "--format", "json"))
+        image = edge_model["services"]["caddy"]["image"]
+        need(re.fullmatch(r"(?:sha256:|[a-z0-9./:_-]+@sha256:)[0-9a-f]{64}", image), "EDGE_IMAGE_PIN")
+        need(item["Image"] == json.loads(self.call("image", "inspect", image)[1])[0]["Id"], "EDGE_IMAGE_DRIFT")
+        backend = edge_model["networks"]["backend"]["name"]
+        networks = {backend, self.config["edge_project"] + "_edge"}
+        need(set(item["NetworkSettings"]["Networks"]) == networks and not item["HostConfig"].get("ExtraHosts")
+             and not any(item["HostConfig"].get(key) for key in ("Dns", "DnsSearch", "DnsOptions", "Links")), "EDGE_NETWORK_DRIFT")
+        mounts = {(m["Type"], m.get("Name") if m["Type"] == "volume" else m.get("Source"), m["Destination"], m["RW"]) for m in item["Mounts"]}
+        expected_mounts = {("bind", str(self.caddy.parent), "/etc/caddy", False)}
+        for name, destination in (("caddy-data", "/data"), ("caddy-config", "/config")):
+            volume = self.config["edge_project"] + "_" + name
+            expected_mounts.add(("volume", volume, destination, True))
+            info = json.loads(self.call("volume", "inspect", volume)[1])[0]
+            need(info["Driver"] == "local" and not info.get("Options") and info["Labels"].get("com.docker.compose.project") == self.config["edge_project"], "EDGE_VOLUME_DRIFT")
+        need(mounts == expected_mounts and len(item["Mounts"]) == len(expected_mounts), "EDGE_MOUNT_DRIFT")
+        # The literal upstream alias must resolve only to the verified application.
+        target = self.containers("application")[slot]["Id"]
+        claimants = []
+        for network in networks:
+            info = json.loads(self.call("network", "inspect", network)[1])[0]
+            for identifier in info.get("Containers", {}):
+                peer = json.loads(self.call("inspect", identifier)[1])[0]
+                endpoint = peer["NetworkSettings"]["Networks"][network]
+                names = set(endpoint.get("Aliases") or []) | set(endpoint.get("DNSNames") or []) | {peer["Name"].lstrip("/")}
+                if slot in names:
+                    claimants.append(identifier)
+        need(claimants == [target], "EDGE_UPSTREAM_ALIAS_CONFLICT")
+        need(item["HostConfig"]["PortBindings"] == {"443/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(self.config["https_port"])}]}, "EDGE_PORTS")
+        expected = caddyfile(slot, selected["source_sha"])
+        need(self.caddy.read_text() == expected, "EDGE_DISK_DRIFT")
+        need(self.call("exec", item["Id"], "cat", "/etc/caddy/Caddyfile")[1] == expected, "EDGE_CONTAINER_CONFIG_DRIFT")
+        adapted = json.loads(self.call("exec", item["Id"], "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")[1])
+        active = json.loads(self.call("exec", item["Id"], "wget", "-q", "-O", "-", "http://127.0.0.1:2019/config/")[1])
+        need(active == adapted, "EDGE_ACTIVE_DRIFT")
+        connection = http.client.HTTPSConnection("localhost", self.config["https_port"], timeout=5,
+            context=ssl.create_default_context(cafile=self.config["https_ca"]))
+        try:
+            connection.request("GET", SAFE_GET)
+            response = connection.getresponse()
+            need(response.status in {200, 404} and response.getheader("X-Aura-Release") == selected["source_sha"], "EDGE_SMOKE_FAILED")
+            need(len(response.read(65537)) <= 65536, "EDGE_RESPONSE_LIMIT")
+        finally:
+            connection.close()
+        return item["Id"]
+
+    def converged(self, selected, slot):
+        need(slot in SLOTS, "API_SLOT")
+        model = self.model(selected)
+        need(set(self.containers("application")) == {*WORKERS, *JOBS, slot}, "MIXED_APPLICATION_STATE")
+        identifiers = {name: self.ready(name, selected, model) for name in (*WORKERS, *JOBS, slot)}
+        self.edge(slot, selected)
+        return {"release": selected, "api_slot": slot, "containers": identifiers}
+
+    def stop_remove(self, name, identifier, selected):
+        need(self.containers("application").get(name, {}).get("Id") == identifier, "STOP_TARGET_CHANGED")
+        self.phase("stop-" + name)
+        self.call("stop", "--time", str(BUDGETS[kind(name)]), identifier, seconds=BUDGETS[kind(name)] + 30)
+        item = json.loads(self.call("inspect", identifier)[1])[0]
+        need(not item["State"]["Running"] and not item["State"]["Restarting"] and item["State"]["Pid"] == 0
+             and not item["State"]["OOMKilled"] and item["State"]["ExitCode"] == 0, "STOP_NOT_CLEAN")
+        self.phase("remove-" + name)
+        self.call("rm", identifier)
+        need(name not in self.containers("application"), "OLD_PROCESS_REMAINS")
+
+    def finish(self, observed, previous):
+        self.phase("commit-state")
+        if previous is not None:
+            self.record("previous", previous)
+        elif (self.state / "previous").exists():
+            (self.state / "previous").unlink()
+        self.record("current", observed)
+        (self.state / "incomplete").unlink()
+        sync_directory(self.state)
+        print(json.dumps({"result": "complete", "source_sha": observed["release"]["source_sha"], "api_slot": observed["api_slot"]}), flush=True)
+
+    def execute(self, action, selected, slot, commands_finished):
+        self.acquire()
+        if action == "status":
+            print(json.dumps({name: self.stored(name) for name in ("current", "previous", "incomplete")}, sort_keys=True))
+            return
+        self.snapshot = self.inputs()
+        selected = release(selected)
+        self.images(selected)
+        current = self.stored("current")
+        incomplete = self.state / "incomplete"
+        if action == "recover":
+            need(incomplete.exists() and commands_finished, "RECOVERY_REQUIRES_FINISHED_COMMANDS_CONFIRMATION")
+            self.marker = self.stored("incomplete")
+            original = self.marker["from"]
+            if original is not None and selected == original["release"] and slot == original["api_slot"]:
+                previous = self.marker["previous"]
+            else:
+                need(selected == self.marker["target"] and slot == self.marker["api_slot"], "RECOVERY_TARGET_MISMATCH")
+                previous = original
+            observed = self.converged(selected, slot)
+            self.record("last-incomplete", self.marker)
+            self.finish(observed, previous)
+            return
+        need(not incomplete.exists(), "INCOMPLETE_REQUIRES_RECOVERY")
+        if action == "adopt":
+            need(current is None and self.stored("previous") is None, "ALREADY_ADOPTED")
+            observed = self.converged(selected, slot)
+            self.marker = {"from": None, "previous": None, "target": selected, "api_slot": slot}
+            self.phase("adopt")
+            self.finish(observed, None)
+            return
+        need(current is not None, "ADOPT_RUNNING_RELEASE_FIRST")
+        old = self.converged(release(current["release"]), current["api_slot"])
+        need(old == current, "CURRENT_CONTAINER_DRIFT")
+        model = self.model(selected)
+        candidate = SLOTS[1] if current["api_slot"] == SLOTS[0] else SLOTS[0]
+        self.marker = {"from": current, "previous": self.stored("previous"), "target": selected, "api_slot": candidate}
+        # Existing config/queues stay unchanged. Only image/source selection changes.
+        self.phase("preflight")
+        for name in (candidate, *WORKERS, *JOBS):
+            self.phase("preflight-" + name)
+            self.compose("application", selected, "run", "--rm", "--no-deps", "--pull", "never", "-T",
+                         "--name", self.config["application_project"] + "-preflight", name, "--check-config", seconds=120)
+        self.phase("candidate-start")
+        self.compose("application", selected, "up", "-d", "--no-deps", "--no-build", "--pull", "never", candidate, seconds=120)
+        self.ready(candidate, selected, model)
+        # Failed candidate cannot reach the stop phases below. Sequin is left intact;
+        # HTTP failures while a worker is absent remain unacknowledged for retry.
+        for name in (*WORKERS, *JOBS):
+            self.stop_remove(name, current["containers"][name], current["release"])
+            self.phase("start-" + name)
+            self.compose("application", selected, "up", "-d", "--no-deps", "--no-build", "--pull", "never", name, seconds=120)
+            self.ready(name, selected, model)
+        edge_id = self.edge(current["api_slot"], current["release"])
+        self.ready(candidate, selected, model)
+        self.phase("proxy-validate")
+        atomic(self.caddy.with_name("Caddyfile.next"), caddyfile(candidate, selected["source_sha"]), mode=0o644)
+        self.call("exec", edge_id, "caddy", "validate", "--config", "/etc/caddy/Caddyfile.next", "--adapter", "caddyfile")
+        self.phase("proxy-switch")
+        os.replace(self.caddy.with_name("Caddyfile.next"), self.caddy)
+        sync_directory(self.caddy.parent)
+        self.call("exec", edge_id, "caddy", "reload", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--address", "127.0.0.1:2019")
+        self.edge(candidate, selected)
+        self.ready(candidate, selected, model)
+        self.stop_remove(current["api_slot"], current["containers"][current["api_slot"]], current["release"])
+        self.finish(self.converged(selected, candidate), current)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--config", required=True, help="protected host JSON; never a release-supplied config")
+    parser.add_argument("action", choices=("status", "adopt", "apply", "recover"))
+    parser.add_argument("--release", help="small JSON: source_sha and four preloaded local image IDs")
+    parser.add_argument("--api-slot", choices=SLOTS, default="api", help="adopt/recover only: observed active slot")
+    parser.add_argument("--commands-finished", action="store_true", help="recover only: operator confirmed all prior Docker work finished")
+    args = parser.parse_args(argv)
+    host = None
+    def interrupted(_signum, _frame):
+        raise Failure("INTERRUPTED_OUTCOME_UNKNOWN")
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, interrupted)
+    try:
+        need(args.action == "status" or args.release is not None, "RELEASE_REQUIRED")
+        host = Host(read_json(args.config))
+        host.execute(args.action, None if args.action == "status" else read_json(args.release), args.api_slot, args.commands_finished)
+        return 0
+    except Exception as error:
+        # Never stringify provider/subprocess/JSON errors: they may contain secrets.
+        code = str(error) if isinstance(error, Failure) else "INPUT_OR_DEPENDENCY_FAILED"
+        print(json.dumps({"result": "failed", "code": code}), file=sys.stderr)
+        return 1
+    finally:
+        if host is not None and host.lock is not None:
+            os.close(host.lock)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

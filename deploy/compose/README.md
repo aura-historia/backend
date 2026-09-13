@@ -8,7 +8,7 @@ Three checked-in projects; no renderer or deployment framework:
 | `compose.application.yml` / `aura-dev-application` | API, ten explicit worker scopes, cron, crawler | Yes, with R4 handover—not blind `up` against active singletons |
 | `compose.edge.yml` / `aura-dev-edge` | Caddy and persistent local CA/config | No; routing reload belongs to R4 |
 
-**Proven: isolated, empty full-backend startup and same-version application stop/start. Not yet a live-dev deployment command.** No A→B/bad-candidate, active queue custody, reboot, real provider authentication or production acceptance. Test configuration must never be copied to a real environment.
+**This R3 test proves isolated empty startup and same-version application stop/start.** R4's separate [host command/rehearsal](../bin/README.md) now proves idle A→B and failed-candidate handling. Active queue custody, reboot, real-provider and live readiness remain unproven. Test configuration must never be copied to a real environment.
 
 ## Run the actual isolated stack
 
@@ -47,7 +47,7 @@ Observed checks:
 
 ## Host-owned configuration contract
 
-**Do not execute live setup from these examples yet.** Real-stage bootstrap/trust/provider gates below remain open. Operator supplies target authority and actual inputs. `env.example` contains nonsecret Compose selections; all image/queue blanks intentionally fail. Use immutable digests, explicit project names and one environment-specific network. Compose itself is not a digest validator; R4's host command must enforce immutable selection before mutation.
+**Do not execute live setup from these examples yet.** Real-stage bootstrap/trust/provider gates below remain open. Operator supplies target authority and actual inputs. `env.example` contains nonsecret Compose selections; all image/queue blanks intentionally fail. Use immutable digests, explicit project names and one environment-specific network. Compose itself is not a digest validator; R4's host command enforces preloaded immutable image selection before mutation.
 
 Keep `/etc/aura-historia/dev` root-controlled0700; raw env files root-owned0600, outside Git. Compose reads these files; it does not inherit shell credentials into containers. Do not print resolved Compose configuration, env files, or raw container/provider logs. `format: raw` preserves literal password characters rather than interpolating them.
 
@@ -113,7 +113,7 @@ https://localhost {
 }
 ```
 
-No ACME/DNS changes, public origin, operational routes or CloudFront switch. R4 must define a safe reload/candidate mechanism; this file alone is not A→B orchestration.
+No ACME/DNS changes, public origin, operational routes or CloudFront switch. R4 uses `Caddyfile.replace` with container-loopback admin and two fixed API slots; see its [separate setup](../bin/README.md). This R3 admin-off fixture is not silently upgraded.
 
 ## Fresh initialization and real-stage gates
 
@@ -129,4 +129,4 @@ Additional concrete live gates:
 4. TTL3 dynamic worker needs explicit `ttl_start_worker()` after a PostgreSQL restart; presence is not expiry proof. No reboot recovery claimed. Restrict TTL functions/public-schema writes; runtime expiry guards remain authoritative.
 5. Approved AWS/Google credential delivery/refresh, actual queues, compiled mail assets, FX snapshot, host budgets, backups and real endpoint trust must be supplied/tested. Crawler initial source sync and normalizer reconciliation run immediately; empty fixture behavior is not a scheduling-disable mechanism.
 
-Once these gates and target authority exist, use normal Compose with separate `--project-name`, `--env-file`, and `-f` arguments. `config --quiet` validates without printing secrets; pull/load exact artifacts separately. Never issue platform `down`, `--remove-orphans`, volume recreation, engine upgrade or global image prune during an application release. R4 will own safe replacement and incomplete-state handling.
+Once these gates and target authority exist, use normal Compose with separate `--project-name`, `--env-file`, and `-f` arguments. `config --quiet` validates without printing secrets; pull/load exact artifacts separately. Never issue platform `down`, `--remove-orphans`, volume recreation, engine upgrade or global image prune during an application release. After initial R4 adoption, use the host command for replacement/incomplete handling; never whole-project `up`, which could recreate an inactive API slot.

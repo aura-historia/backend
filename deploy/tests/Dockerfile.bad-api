@@ -1,0 +1,7 @@
+# Fault injection ONLY. Harness gates this local tag against the exact rebuilt B ID.
+# Not a genuine source-built release; inherited source labels describe the base only.
+FROM aura-r4-fault-base:08173849aa0a5f5849a340a1030b94af2162aee8
+USER 0:0
+RUN mv /usr/local/bin/aura-historia-api /usr/local/bin/aura-historia-api.real && printf '#!/bin/sh\nif [ "$#" -eq 1 ] && [ "$1" = "--check-config" ]; then exec /usr/local/bin/aura-historia-api.real "$@"; fi\nexit 42\n' > /usr/local/bin/aura-historia-api && chmod 755 /usr/local/bin/aura-historia-api
+LABEL org.aura-historia.test.fault="r4-api-exit42-wrapper-not-source-built"
+USER 10001:10001

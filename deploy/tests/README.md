@@ -1,10 +1,10 @@
 # Native image smoke (R2)
 
-For simultaneous13-process ordinary Compose startup and same-version restart (R3), see [`../compose/README.md`](../compose/README.md). R2 below remains the separate per-image/signal regression.
+For simultaneous13-process ordinary Compose startup and same-version restart (R3), see [`../compose/README.md`](../compose/README.md). R2 below remains the separate per-image/signal regression. For the actual host-command A→B/fault-candidate rehearsal (R4), see [`../bin/README.md`](../bin/README.md).
 
 Runs the **actual four application image entrypoints** against fresh PostgreSQL16/pg_ttl_index3.0.0 and OpenSearch3.1.0. Worker image runs `product-listing-opensearch` and `product-listing-normalization`. Python stdlib provides non-forwarding ADC/JWKS/SQS doubles. No live accounts, customer data, inference or email.
 
-This is **idle image startup/shutdown evidence**, not complete Compose, real SQS/Sequin custody, active-work drain, provider authentication/TLS, host reboot or A→B cutover. Those remain later reset milestones.
+This is **idle image startup/shutdown evidence**, not complete Compose, real SQS/Sequin custody, active-work drain, provider authentication/TLS, host reboot or A→B cutover. These are outside R2’s evidence; see the R3/R4 results above and their remaining gates.
 
 ## Build and run
 

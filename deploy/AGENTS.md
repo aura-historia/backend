@@ -34,4 +34,6 @@
 - `tests/` — isolated real-image idle startup/signals, genuine fresh PostgreSQL/OpenSearch, non-forwarding provider doubles and ownership-safe cleanup.
 - `compose/` — ordinary independent platform/application/edge projects; all13 apps tested together with empty isolated fixtures. Host config remains explicit; no live trust/bootstrap acceptance.
 - R3 reproduction/gates: `compose/README.md`; `tests/smoke-compose.py` uses these files plus a test-only override. Only Caddy gets an extra edge bridge; app/platform fixtures stay internal. No real SQS custody or A→B claim.
-- Host-command files join this index only as their runnable milestone lands.
+- `bin/deploy`, `bin/README.md` — preloaded immutable app replacement; flock/current/previous/incomplete, two API slots, private Caddy reload, confirmed singleton removal and explicit verified recovery. Isolated idle A→B/bad-candidate accepted; no live/active-custody/reboot acceptance.
+- `compose/compose.replace.yml`, `compose/Caddyfile.replace` — checked-in R4 overlay and local edge template; do not run unscoped Compose up after adoption.
+- Host configuration/tooling/manual operations share the same flock. Freeze inputs, never clear unknown outcomes blindly. Recover confirms already-converged original/target only and preserves previous artifact references.

@@ -1,0 +1,34 @@
+# R4 only: selected services, never `up` this whole model. Inactive API slot is removed.
+services:
+  api:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?Set verified image source SHA}"}
+  api-candidate:
+    extends:
+      file: compose.application.yml
+      service: api
+    profiles: [candidate]
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?Set verified image source SHA}"}
+  product-listing-opensearch:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  search-filter-projection:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  search-filter-percolator:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  search-filter-match-notification:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  watchlist-notification:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  product-content-assessment:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  product-embedding:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  product-translation:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  product-listing-normalization:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  notification-delivery:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  cron:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
+  crawler:
+    environment: {COMMIT_SHA: "${AURA_RELEASE_SHA:?}"}
