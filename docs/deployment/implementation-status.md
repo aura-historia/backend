@@ -31,7 +31,7 @@ Archive previous status/decisions with explicit superseded headings. Active deci
 
 ## R2 — runnable images accepted locally
 
-Source/build baseline: `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`, `task/#1412-deployment`. Rust/Cargo/toolchain/migration/search inputs unchanged. New recipe/tests were uncommitted during execution; image labels identify source, not cryptographic build provenance. Capability commit: pending recording after commit.
+Source/build baseline: `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`, `task/#1412-deployment`. Rust/Cargo/toolchain/migration/search inputs unchanged. New recipe/tests were uncommitted during execution; image labels identify source, not cryptographic build provenance. Accepted capability commit: `b1e743ae740b9512019d95d3832387b79a77f976` (`feat(deploy): build and smoke-test runnable native OCI images`). Final staged whitespace check and six Python tests passed; nothing pushed or deployed.
 
 `deploy/images/Dockerfile` builds four actual nonroot linux/amd64 executables with pinned Rust1.98.0/base digests/signed Debian snapshot and locked Cargo. Fixture-only helper reuses existing `bootstrap-local`; neither bootstrap nor Python ships in application targets. `deploy/tests/README.md` records all immutable image IDs and exact reproduction command; `deploy/images/README.md` records builds and runtime inputs/budgets.
 
