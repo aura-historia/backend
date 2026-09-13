@@ -199,6 +199,56 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         .await
         .map_err(persistence)?;
 
+        for (index, diagnostic) in completion.diagnostics.iter().enumerate() {
+            let ordinal = i16::try_from(index + 1).map_err(|_| {
+                invalid_state("raw normalization diagnostic ordinal exceeds storage range")
+            })?;
+            sqlx::query(
+                r#"
+                INSERT INTO product_listing_raw_normalization_diagnostics (
+                    product_listing_raw_revision_id,
+                    normalizer_version,
+                    ordinal,
+                    code
+                ) VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(completion.product_listing_raw_revision_id.as_uuid())
+            .bind(normalizer_version)
+            .bind(ordinal)
+            .bind(diagnostic.as_str())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(persistence)?;
+        }
+
+        if let Some(acceptance) = completion.auction_acceptance {
+            let auction_result_version =
+                i64::try_from(acceptance.auction_result_version.into_inner())
+                    .map_err(|_| invalid_state("auction result version exceeds storage range"))?;
+            sqlx::query(
+                r#"
+                INSERT INTO product_listing_raw_auction_acceptances (
+                    product_listing_raw_revision_id,
+                    normalizer_version,
+                    auction_id,
+                    auction_result_version,
+                    auction_event_id,
+                    disposition
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(completion.product_listing_raw_revision_id.as_uuid())
+            .bind(normalizer_version)
+            .bind(acceptance.auction_id.into_uuid())
+            .bind(auction_result_version)
+            .bind(acceptance.auction_event_id.map(|value| value.into_uuid()))
+            .bind(acceptance.disposition.as_str())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(persistence)?;
+        }
+
         let updated = sqlx::query(
             r#"
             UPDATE product_listing_raw_normalization_heads

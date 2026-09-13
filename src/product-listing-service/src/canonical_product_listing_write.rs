@@ -1,17 +1,21 @@
 use crate::ports::{
     ProductListingAuctionOverrideRepository, ProductListingAuctionOverrideRepositoryFactory,
-    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
-    stamp_product_listing_event,
+    ProductListingEventAppender, ProductListingEventAppenderFactory,
+    ProductListingRawAuctionCapture, ProductListingRawAuctionContextAdmission,
+    ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
+    ProductListingWriteEffects, stamp_product_listing_event,
+};
+use crate::product_listing_auction_patch::{
+    ProductListingAuctionPatch, compose_product_listing_auction_patch,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
 };
 use application::error::{BoxError, box_error};
 use application::patch_field::PatchField;
-use auction_core::SourceAuctionId;
 use auction_service::{
-    EmbeddedAuctionMetadata, ResolveAuctionForListingError, ResolveAuctionForListingRequest,
+    AuctionWriteReceipt, EmbeddedAuctionMetadata, ResolveAuctionForListingError,
+    ResolveAuctionForListingRequest,
     ports::{
         AuctionEventAppenderFactory, AuctionMetadataPolicyRepositoryFactory,
         AuctionRepositoryFactory,
@@ -55,12 +59,13 @@ pub struct CanonicalProductListingUpsert {
     pub images: PatchField<IndexSet<ProductListingImage>>,
     /// Outer auction-context patch. `CLEAR` is non-destructive for existing listings;
     /// explicit correction owns retraction in a later iteration.
-    pub auction: PatchField<ProductListingAuction>,
-    /// Reliable source identity for the asserted auction context, if the source supplied one.
-    pub auction_source_id: Option<SourceAuctionId>,
+    pub auction: PatchField<ProductListingAuctionPatch>,
     pub auction_metadata: EmbeddedAuctionMetadata,
-    /// Present only for immutable raw normalization. Direct partner writes do not use a raw floor.
-    pub raw_auction_capture_generation: Option<u64>,
+    /// Present only for immutable raw normalization. Direct partner writes do not use raw fences.
+    pub raw_auction_capture: Option<ProductListingRawAuctionCapture>,
+    /// Raw ingestion may preserve unrelated facts when an asserted membership conflicts. Typed
+    /// partner writes remain atomic and leave this disabled.
+    pub isolate_raw_auction_membership_conflict: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +76,20 @@ pub struct CanonicalProductListingWriteResult {
     /// The listing's override policy preserved its existing context; unrelated facts may still
     /// have been written in the same canonical transaction.
     pub auction_context_override_preserved: bool,
+    /// Transactional evidence of an accepted reliable Auction reference, including no-op and
+    /// metadata-only acceptance.
+    pub auction_acceptance: Option<AuctionWriteReceipt>,
+    /// A raw A-to-B membership assertion was isolated; its Auction group was not applied.
+    pub auction_membership_conflict_preserved: bool,
+    /// A raw timing assertion was invalid after composition with current context and was omitted.
+    pub auction_timing_preserved: bool,
+}
+
+struct ResolvedAuctionContext {
+    auction: Option<ProductListingAuction>,
+    acceptance: Option<AuctionWriteReceipt>,
+    membership_conflict_preserved: bool,
+    timing_preserved: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -186,17 +205,17 @@ impl CanonicalProductListingWriter {
         let (command, auction_context_override_preserved) =
             preserve_overridden_auction_context(tx, auction_overrides, product.id(), command)
                 .await?;
-        let command = resolve_auction_context(
+        let auction = resolve_auction_context(
             tx,
             auctions,
             auction_events,
             auction_policies,
             product.listing_source_id(),
             product.auction(),
-            command,
+            &command,
         )
         .await?;
-        apply_update(&mut product, &command)?;
+        apply_update(&mut product, &command, auction.auction)?;
         let event = product.take_pending_event_payload().map(|payload| {
             stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
         });
@@ -225,6 +244,9 @@ impl CanonicalProductListingWriter {
                 ChangeOutcome::Unchanged
             },
             auction_context_override_preserved,
+            auction_acceptance: auction.acceptance,
+            auction_membership_conflict_preserved: auction.membership_conflict_preserved,
+            auction_timing_preserved: auction.timing_preserved,
         })
     }
 
@@ -275,6 +297,9 @@ impl CanonicalProductListingWriter {
                 ChangeOutcome::Unchanged
             },
             auction_context_override_preserved: false,
+            auction_acceptance: None,
+            auction_membership_conflict_preserved: false,
+            auction_timing_preserved: false,
         })
     }
 
@@ -297,14 +322,22 @@ impl CanonicalProductListingWriter {
         AP: AuctionMetadataPolicyRepositoryFactory<Tx>,
         AO: ProductListingAuctionOverrideRepositoryFactory<Tx>,
     {
-        let command = resolve_auction_context(
+        let url = match &command.url {
+            PatchField::Set(url) => url.clone(),
+            PatchField::Unchanged | PatchField::Clear => {
+                return Err(CanonicalProductListingWriteError::InvalidInput {
+                    source: box_error(std::io::Error::other("new raw listing requires URL")),
+                });
+            }
+        };
+        let auction = resolve_auction_context(
             tx,
             auctions,
             auction_events,
             auction_policies,
             command.listing_source_id,
             None,
-            command,
+            &command,
         )
         .await?;
         let title = patch_value(command.title);
@@ -316,14 +349,6 @@ impl CanonicalProductListingWriter {
             .map_err(|error| CanonicalProductListingWriteError::InvalidInput {
                 source: box_error(error),
             })?;
-        let url = match command.url {
-            PatchField::Set(url) => url,
-            PatchField::Unchanged | PatchField::Clear => {
-                return Err(CanonicalProductListingWriteError::InvalidInput {
-                    source: box_error(std::io::Error::other("new raw listing requires URL")),
-                });
-            }
-        };
         let mut product = ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
             title_slug_id,
@@ -342,7 +367,7 @@ impl CanonicalProductListingWriter {
                 PatchField::Set(images) => images,
                 PatchField::Unchanged | PatchField::Clear => IndexSet::new(),
             },
-            auction: patch_value(command.auction),
+            auction: auction.auction,
         })
         .map_err(|error| CanonicalProductListingWriteError::InvalidInput {
             source: box_error(error),
@@ -374,6 +399,9 @@ impl CanonicalProductListingWriter {
             product_listing_event_id: Some(event.event_id),
             outcome: ChangeOutcome::Changed,
             auction_context_override_preserved: false,
+            auction_acceptance: auction.acceptance,
+            auction_membership_conflict_preserved: auction.membership_conflict_preserved,
+            auction_timing_preserved: auction.timing_preserved,
         })
     }
 }
@@ -397,24 +425,29 @@ where
         .map_err(|error| CanonicalProductListingWriteError::Persistence {
             source: box_error(error),
         })?;
-    let policy = overrides
-        .in_transaction(tx)
-        .find(product_listing_id)
-        .await
-        .map_err(|error| CanonicalProductListingWriteError::Persistence {
-            source: box_error(error),
-        })?;
-    let preserve = policy.is_some_and(|policy| {
-        policy.active
-            || policy.release_capture_generation.is_some_and(|floor| {
-                command
-                    .raw_auction_capture_generation
-                    .is_some_and(|generation| generation <= floor)
-            })
-    });
+    let preserve = if let Some(raw_capture) = command.raw_auction_capture {
+        matches!(
+            overrides
+                .in_transaction(tx)
+                .admit_raw_auction_context(product_listing_id, raw_capture)
+                .await
+                .map_err(|error| CanonicalProductListingWriteError::Persistence {
+                    source: box_error(error),
+                })?,
+            ProductListingRawAuctionContextAdmission::Preserve
+        )
+    } else {
+        overrides
+            .in_transaction(tx)
+            .find(product_listing_id)
+            .await
+            .map_err(|error| CanonicalProductListingWriteError::Persistence {
+                source: box_error(error),
+            })?
+            .is_some_and(|policy| policy.active)
+    };
     if preserve {
         command.auction = PatchField::Unchanged;
-        command.auction_source_id = None;
         command.auction_metadata = EmbeddedAuctionMetadata::default();
     }
     Ok((command, preserve))
@@ -427,20 +460,25 @@ async fn resolve_auction_context<Tx, AR, AE, AP>(
     auction_policies: &AP,
     listing_source_id: ListingSourceId,
     existing: Option<&ProductListingAuction>,
-    mut command: CanonicalProductListingUpsert,
-) -> Result<CanonicalProductListingUpsert, CanonicalProductListingWriteError>
+    command: &CanonicalProductListingUpsert,
+) -> Result<ResolvedAuctionContext, CanonicalProductListingWriteError>
 where
     AR: AuctionRepositoryFactory<Tx>,
     AE: AuctionEventAppenderFactory<Tx>,
     AP: AuctionMetadataPolicyRepositoryFactory<Tx>,
 {
-    let PatchField::Set(context) = command.auction.clone() else {
-        return Ok(command);
+    let PatchField::Set(patch) = &command.auction else {
+        return Ok(ResolvedAuctionContext {
+            auction: None,
+            acceptance: None,
+            membership_conflict_preserved: false,
+            timing_preserved: false,
+        });
     };
     let current_membership = existing.and_then(ProductListingAuction::membership);
-    let membership = match (current_membership, command.auction_source_id.clone()) {
-        (Some(current), None) => current,
-        (Some(_) | None, Some(source_auction_id)) => {
+    let mut acceptance = None;
+    let membership = match patch.source_auction_id.clone() {
+        PatchField::Set(source_auction_id) => {
             let receipt = resolve_auction_for_listing(
                 tx,
                 auctions,
@@ -453,29 +491,64 @@ where
                     metadata: command.auction_metadata.clone(),
                 },
             )
-            .await
-            .map_err(|source| match source {
-                ResolveAuctionForListingError::MembershipChangeRequiresCorrection => {
-                    CanonicalProductListingWriteError::MembershipChangeRequiresCorrection
+            .await;
+            match receipt {
+                Ok(receipt) => {
+                    let membership = product_listing_core::product_listing::AuctionMembership::new(
+                        receipt.auction_id,
+                    );
+                    acceptance = Some(receipt);
+                    Some(membership)
                 }
-                source => CanonicalProductListingWriteError::AuctionResolution {
-                    source: box_error(source),
-                },
-            })?;
-            product_listing_core::product_listing::AuctionMembership::new(receipt.auction_id)
+                Err(ResolveAuctionForListingError::MembershipChangeRequiresCorrection)
+                    if command.isolate_raw_auction_membership_conflict =>
+                {
+                    return Ok(ResolvedAuctionContext {
+                        auction: None,
+                        acceptance: None,
+                        membership_conflict_preserved: true,
+                        timing_preserved: false,
+                    });
+                }
+                Err(ResolveAuctionForListingError::MembershipChangeRequiresCorrection) => {
+                    return Err(
+                        CanonicalProductListingWriteError::MembershipChangeRequiresCorrection,
+                    );
+                }
+                Err(source) => {
+                    return Err(CanonicalProductListingWriteError::AuctionResolution {
+                        source: box_error(source),
+                    });
+                }
+            }
         }
-        (None, None) => {
-            command.auction = PatchField::Set(context);
-            return Ok(command);
-        }
+        PatchField::Clear | PatchField::Unchanged => current_membership,
     };
-    command.auction = PatchField::Set(ProductListingAuction::new(
-        Some(membership),
-        context.lot_number().cloned(),
-        context.catalogue_position(),
-        context.timing().cloned(),
-    ));
-    Ok(command)
+    match compose_product_listing_auction_patch(existing, membership, patch) {
+        Ok(auction) => Ok(ResolvedAuctionContext {
+            auction: Some(auction),
+            acceptance,
+            membership_conflict_preserved: false,
+            timing_preserved: false,
+        }),
+        Err(_) if command.isolate_raw_auction_membership_conflict => {
+            let patch_without_timing = ProductListingAuctionPatch {
+                source_auction_id: patch.source_auction_id.clone(),
+                lot_number: patch.lot_number.clone(),
+                catalogue_position: patch.catalogue_position.clone(),
+                ..Default::default()
+            };
+            compose_product_listing_auction_patch(existing, membership, &patch_without_timing)
+                .map(|auction| ResolvedAuctionContext {
+                    auction: Some(auction),
+                    acceptance,
+                    membership_conflict_preserved: false,
+                    timing_preserved: true,
+                })
+                .map_err(invalid_input)
+        }
+        Err(error) => Err(invalid_input(error)),
+    }
 }
 
 fn patch_value<T>(patch: PatchField<T>) -> Option<T> {
@@ -488,6 +561,7 @@ fn patch_value<T>(patch: PatchField<T>) -> Option<T> {
 fn apply_update(
     product: &mut ProductListing,
     command: &CanonicalProductListingUpsert,
+    auction: Option<ProductListingAuction>,
 ) -> Result<(), CanonicalProductListingWriteError> {
     let mut pricing = product.pricing();
     apply_option_patch(&mut pricing.price, command.price.clone());
@@ -528,7 +602,7 @@ fn apply_update(
         }
         PatchField::Unchanged => {}
     };
-    if let PatchField::Set(auction) = command.auction.clone() {
+    if let Some(auction) = auction {
         product
             .replace_auction(Some(auction))
             .map_err(invalid_input)?;

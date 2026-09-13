@@ -221,13 +221,11 @@ mod tests {
                         application::patch_field::PatchField::Set(images),
                         application::patch_field::PatchField::Set(auction),
                     ) if images.len() == 1
-                        && auction.lot_number().is_some_and(|number| number.as_str() == "42")
-                        && auction.catalogue_position().is_some_and(|position| position.value() == 7)
-                        && auction.timing().is_some_and(|timing| {
-                            timing.bidding_opens().is_some()
-                                && timing.scheduled_closes().is_some()
-                                && timing.reported_closed_at().is_some()
-                        })
+                        && matches!(&auction.lot_number, application::patch_field::PatchField::Set(number) if number.as_str() == "42")
+                        && matches!(auction.catalogue_position, application::patch_field::PatchField::Set(position) if position.value() == 7)
+                        && matches!(auction.bidding_opens, application::patch_field::PatchField::Set(_))
+                        && matches!(auction.scheduled_closes, application::patch_field::PatchField::Set(_))
+                        && matches!(auction.reported_closed_at, application::patch_field::PatchField::Set(_))
                 )
             })
             .returning(|_, _, _| Ok(updated()));

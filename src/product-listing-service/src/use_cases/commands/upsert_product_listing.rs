@@ -9,6 +9,9 @@ use crate::ports::{
     ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
     stamp_product_listing_event,
 };
+use crate::product_listing_auction_patch::{
+    ProductListingAuctionPatch, compose_product_listing_auction_patch,
+};
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
     TitleSlugCollisionRetry, title_slug_collision_retry,
@@ -20,7 +23,6 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use auction_core::SourceAuctionId;
 use auction_service::EmbeddedAuctionMetadata;
 use domain_primitives::change_outcome::ChangeOutcome;
 
@@ -56,10 +58,9 @@ pub struct UpsertProductListingCommand {
     pub availability: PatchField<ListingAvailability>,
     pub url: Option<Url>,
     pub images: PatchField<IndexSet<ProductListingImage>>,
-    /// The outer context is asserted as one validated replacement. `Clear` preserves an
-    /// existing context; a dedicated correction use case owns retraction.
-    pub auction: PatchField<ProductListingAuction>,
-    pub auction_source_id: Option<SourceAuctionId>,
+    /// A set outer context asserts participation and composes its nested leaf patches.
+    /// `Clear` preserves an existing context; dedicated correction owns retraction.
+    pub auction: PatchField<ProductListingAuctionPatch>,
     pub auction_metadata: EmbeddedAuctionMetadata,
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -301,16 +302,16 @@ where
                 let expected_version = loaded.version;
                 let mut product = loaded.value;
                 product.restore()?;
-                let command = resolve_auction_context(
+                let auction = resolve_auction_context(
                     &self.auction_resolver,
                     tx,
                     product.id(),
                     product.listing_source_id(),
                     product.auction(),
-                    command,
+                    &command,
                 )
                 .await?;
-                apply_update(&mut product, &command)?;
+                apply_resolved_update(&mut product, &command, auction)?;
                 let event = product.take_pending_event_payload().map(|payload| {
                     stamp_product_listing_event(
                         product.id(),
@@ -359,14 +360,27 @@ where
                         None,
                         command.listing_source_id,
                         None,
-                        command.auction_source_id.clone(),
+                        match &command.auction {
+                            PatchField::Set(auction) => auction.source_auction_id.clone(),
+                            PatchField::Clear | PatchField::Unchanged => PatchField::Unchanged,
+                        },
                         &command.auction_metadata,
                     )
                     .await?;
+                let auction = match &command.auction {
+                    PatchField::Set(patch) => {
+                        compose_product_listing_auction_patch(None, membership, patch)
+                            .map(Some)
+                            .map_err(|error| UpsertProductListingError::InvalidProductListing {
+                                source: box_error(error),
+                            })?
+                    }
+                    PatchField::Clear | PatchField::Unchanged => None,
+                };
                 let mut product = ProductListing::create(command.into_new_product(
                     new_product_listing_id,
                     title_slug_id,
-                    membership,
+                    auction,
                 )?)?;
                 let event = stamp_product_listing_event(
                     product.id(),
@@ -497,7 +511,7 @@ impl UpsertProductListingCommand {
         self,
         id: ProductListingId,
         title_slug_id: ProductListingSlugId,
-        membership: Option<product_listing_core::product_listing::AuctionMembership>,
+        auction: Option<ProductListingAuction>,
     ) -> Result<NewProductListing, UpsertProductListingError> {
         let url = match self.url {
             Some(url) => url,
@@ -528,14 +542,7 @@ impl UpsertProductListingCommand {
             },
             url,
             images: collection_patch_into_value(self.images),
-            auction: optional_patch_into_value(self.auction).map(|auction| {
-                ProductListingAuction::new(
-                    membership,
-                    auction.lot_number().cloned(),
-                    auction.catalogue_position(),
-                    auction.timing().cloned(),
-                )
-            }),
+            auction,
         })
     }
 }
@@ -545,13 +552,13 @@ async fn resolve_auction_context<Tx, AR>(
     product_listing_id: ProductListingId,
     listing_source_id: ListingSourceId,
     existing: Option<&ProductListingAuction>,
-    mut command: UpsertProductListingCommand,
-) -> Result<UpsertProductListingCommand, UpsertProductListingError>
+    command: &UpsertProductListingCommand,
+) -> Result<Option<ProductListingAuction>, UpsertProductListingError>
 where
     AR: PartnerProductListingAuctionResolver<Tx>,
 {
-    let PatchField::Set(context) = command.auction.clone() else {
-        return Ok(command);
+    let PatchField::Set(patch) = &command.auction else {
+        return Ok(None);
     };
     let membership = resolver
         .resolve(
@@ -559,21 +566,42 @@ where
             Some(product_listing_id),
             listing_source_id,
             existing.and_then(ProductListingAuction::membership),
-            command.auction_source_id.clone(),
+            patch.source_auction_id.clone(),
             &command.auction_metadata,
         )
         .await?;
-    command.auction = PatchField::Set(ProductListingAuction::new(
-        membership,
-        context.lot_number().cloned(),
-        context.catalogue_position(),
-        context.timing().cloned(),
-    ));
-    Ok(command)
+    compose_product_listing_auction_patch(existing, membership, patch)
+        .map(Some)
+        .map_err(|error| UpsertProductListingError::InvalidProductListing {
+            source: box_error(error),
+        })
 }
+#[cfg(test)]
 fn apply_update(
     product: &mut ProductListing,
     command: &UpsertProductListingCommand,
+) -> Result<(), UpsertProductListingError> {
+    let auction = match &command.auction {
+        PatchField::Set(patch) => compose_product_listing_auction_patch(
+            product.auction(),
+            product
+                .auction()
+                .and_then(ProductListingAuction::membership),
+            patch,
+        )
+        .map(Some)
+        .map_err(|error| UpsertProductListingError::InvalidProductListing {
+            source: box_error(error),
+        })?,
+        PatchField::Clear | PatchField::Unchanged => None,
+    };
+    apply_resolved_update(product, command, auction)
+}
+
+fn apply_resolved_update(
+    product: &mut ProductListing,
+    command: &UpsertProductListingCommand,
+    auction: Option<ProductListingAuction>,
 ) -> Result<(), UpsertProductListingError> {
     let mut pricing = product.pricing();
     apply_optional_patch(&mut pricing.price, command.price.clone());
@@ -607,7 +635,7 @@ fn apply_update(
             product.replace_images(IndexSet::new())?;
         }
     }
-    if let PatchField::Set(auction) = command.auction.clone() {
+    if let Some(auction) = auction {
         product.replace_auction(Some(auction))?;
     }
     Ok(())
@@ -750,7 +778,6 @@ mod tests {
             url: None,
             images: PatchField::Unchanged,
             auction: PatchField::Unchanged,
-            auction_source_id: None,
             auction_metadata: EmbeddedAuctionMetadata::default(),
         }
     }
@@ -770,6 +797,16 @@ mod tests {
             None,
             None,
         )
+    }
+
+    fn auction_patch(lot_number: &str) -> ProductListingAuctionPatch {
+        ProductListingAuctionPatch {
+            lot_number: PatchField::Set(
+                product_listing_core::product_listing_auction::LotNumber::try_from(lot_number)
+                    .unwrap_or_else(|error| panic!("valid lot number: {error}")),
+            ),
+            ..Default::default()
+        }
     }
 
     fn listing_with_price(value: Option<ProductListingPrice>) -> ProductListing {
@@ -986,7 +1023,7 @@ mod tests {
         );
         listing.take_pending_event_payload();
         let mut update = command(PatchField::Unchanged);
-        update.auction = PatchField::Set(new.clone());
+        update.auction = PatchField::Set(auction_patch("2"));
 
         apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
 
@@ -1062,7 +1099,7 @@ mod tests {
                 PatchField::Set(price(110)),
                 PatchField::Set(price(120)),
                 PatchField::Set(IndexSet::from([image.clone()])),
-                PatchField::Set(auction("1")),
+                PatchField::Set(auction_patch("1")),
                 Some(auction("1")),
             ),
             (
@@ -1082,8 +1119,14 @@ mod tests {
             upsert.images = images;
             upsert.auction = auction_patch;
 
+            let auction = match &upsert.auction {
+                PatchField::Set(patch) => compose_product_listing_auction_patch(None, None, patch)
+                    .map(Some)
+                    .unwrap_or_else(|error| panic!("auction patch: {error}")),
+                PatchField::Clear | PatchField::Unchanged => None,
+            };
             let new_listing = upsert
-                .into_new_product(ProductListingId::new(), test_title_slug(), None)
+                .into_new_product(ProductListingId::new(), test_title_slug(), auction)
                 .unwrap_or_else(|error| panic!("new listing: {error}"));
 
             assert_eq!(new_listing.pricing.price_estimate_min, expected_min);

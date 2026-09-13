@@ -256,6 +256,9 @@ fn redact_hidden_product_search_item(
                 source: box_error(error),
             }
         })?;
+    product.item.auction_id = None;
+    product.item.has_auction_context = false;
+    product.auction_summary = None;
     product.item.title = Some(Localized::new(language, hidden_title(language)));
     product.item.display_price = None;
     product.item.availability = None;
@@ -308,7 +311,11 @@ impl From<ProductListingUserStateReadError> for ProductListingSummaryPersonaliza
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::use_cases::queries::search_product_listings::ProductListingSummaryPriceValuation;
+    use crate::use_cases::queries::search_product_listings::{
+        ProductListingSummaryPriceValuation, present_product_summaries_from_assessments,
+    };
+    use application::personalized::Personalized;
+    use auction_core::{AuctionSchedule, AuctionTime};
     use indexmap::IndexSet;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
@@ -316,6 +323,7 @@ mod tests {
         product_listing_image::ProductListingImage,
     };
     use std::{collections::HashMap, sync::Mutex};
+    use time::macros::datetime;
 
     struct RecordingListingSourceSummaryReader {
         summaries: HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
@@ -531,6 +539,60 @@ mod tests {
                 )]),
             )
         );
+    }
+
+    #[test]
+    fn should_remove_auction_data_from_hidden_product_summary() {
+        let listing_source_id = ListingSourceId::new();
+        let auction_id = AuctionId::new();
+        let product_listing_id = ProductListingId::new();
+        let mut item = search_item(listing_source_id);
+        item.product_listing_id = product_listing_id;
+        item.auction_id = Some(auction_id);
+        item.has_auction_context = true;
+        let source = ListingSourceSummary {
+            listing_source_id,
+            name: ListingSourceName::try_from("Source")
+                .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+            slug_id: ListingSourceSlugId::raw("source")
+                .unwrap_or_else(|error| panic!("valid test source slug: {error}")),
+        };
+        let auction_summary = AuctionSummary {
+            auction_id,
+            name: None,
+            format: None,
+            reported_status: None,
+            schedule: AuctionSchedule::new(
+                None,
+                Some(AuctionTime::instant(datetime!(2026-10-18 16:00 UTC), None)),
+                None,
+                None,
+            )
+            .unwrap_or_else(|error| panic!("valid test auction schedule: {error}")),
+        };
+        let mut products = vec![Personalized {
+            item: ProductListingSearchItemWithSource {
+                item,
+                auction_summary: Some(auction_summary),
+                source,
+                view_url: Url::parse("https://source.example/cabinet")
+                    .unwrap_or_else(|error| panic!("valid test view URL: {error}")),
+            },
+            user_state: None,
+        }];
+        let mut user_state = crate::user_state::ProductListingUserState::default();
+        user_state.search_filter.hidden = true;
+
+        let result = apply_product_user_states(
+            &mut products,
+            &HashMap::from([(product_listing_id, user_state)]),
+        );
+        let summaries = present_product_summaries_from_assessments(products, &HashMap::new());
+
+        assert!(result.is_ok());
+        assert_eq!(None, summaries[0].item.auction_id);
+        assert!(!summaries[0].item.has_auction_context);
+        assert!(summaries[0].item.auction_summary.is_none());
     }
 
     #[tokio::test]

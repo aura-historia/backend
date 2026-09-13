@@ -14,8 +14,11 @@ pub struct StoredAuction {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuctionRepositoryError {
+    /// Root CAS miss. Admin expected-version handling exposes this as an explicit conflict.
     #[error("concurrent auction update")]
     ConcurrencyConflict,
+    /// Immutable source-key unique-constraint violation. Admin creation exposes this as an
+    /// explicit duplicate-key conflict; source-key resolution normally prevents it by locking.
     #[error("source auction key already exists")]
     SourceAuctionAlreadyExists {
         #[source]
@@ -45,6 +48,10 @@ pub enum AuctionRepositoryError {
 
 #[async_trait::async_trait]
 pub trait AuctionRepository: Send {
+    /// Serializes discovery and fill-only metadata acceptance for one immutable source key.
+    /// The lock lasts for the caller-owned transaction.
+    async fn lock_by_key(&mut self, key: &AuctionKey) -> Result<(), AuctionRepositoryError>;
+
     async fn find_by_id(
         &mut self,
         id: AuctionId,

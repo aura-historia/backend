@@ -175,6 +175,10 @@ where
             .begin()
             .await
             .map_err(|_| CreateAuctionError::BeginTransactionFailed)?;
+        self.auctions
+            .in_transaction(&mut tx)
+            .lock_by_key(auction.key())
+            .await?;
         let stored = self
             .auctions
             .in_transaction(&mut tx)
@@ -381,6 +385,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AuctionRepository for FakeAuctionRepository {
+        async fn lock_by_key(&mut self, _key: &AuctionKey) -> Result<(), AuctionRepositoryError> {
+            Ok(())
+        }
+
         async fn find_by_id(
             &mut self,
             _id: AuctionId,

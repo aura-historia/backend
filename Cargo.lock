@@ -5902,6 +5902,7 @@ dependencies = [
  "async-trait",
  "auction-core",
  "auction-postgres",
+ "auction-service",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",

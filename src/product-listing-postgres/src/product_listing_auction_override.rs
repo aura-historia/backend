@@ -5,6 +5,7 @@ use product_listing_service::ports::{
     ProductListingAuctionOverride, ProductListingAuctionOverrideAudit,
     ProductListingAuctionOverrideError, ProductListingAuctionOverrideRepository,
     ProductListingAuctionOverrideRepositoryFactory, ProductListingAuctionPolicyVersion,
+    ProductListingRawAuctionCapture, ProductListingRawAuctionContextAdmission,
 };
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -20,7 +21,18 @@ struct SqlxProductListingAuctionOverrideRepository<'tx> {
 struct OverrideRow {
     policy_version: i64,
     active: bool,
-    release_capture_generation: Option<i64>,
+    release_capture_generation_fence: Option<i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct RawAuctionAdmissionRow {
+    capture_generation: i64,
+    policy_version: Option<i64>,
+    active: Option<bool>,
+    release_capture_generation_fence: Option<i64>,
+    floor_revision: Option<i64>,
+    floor_generation: Option<i64>,
+    floor_revision_generation: Option<i64>,
 }
 
 impl SqlxProductListingAuctionOverrideRepositoryFactory {
@@ -60,7 +72,7 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
         product_listing_id: ProductListingId,
     ) -> Result<Option<ProductListingAuctionOverride>, ProductListingAuctionOverrideError> {
         sqlx::query_as::<_, OverrideRow>(
-            "SELECT policy_version, active, release_capture_generation \
+            "SELECT policy_version, active, release_capture_generation_fence \
              FROM product_listing_auction_overrides WHERE product_listing_id = $1",
         )
         .bind(product_listing_id.as_uuid())
@@ -69,6 +81,95 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
         .map_err(persistence)?
         .map(override_from_row)
         .transpose()
+    }
+
+    async fn admit_raw_auction_context(
+        &mut self,
+        product_listing_id: ProductListingId,
+        raw_capture: ProductListingRawAuctionCapture,
+    ) -> Result<ProductListingRawAuctionContextAdmission, ProductListingAuctionOverrideError> {
+        let revision = raw_capture_revision_to_i64(raw_capture.revision)?;
+        let capture_generation = raw_capture_generation_to_i64(raw_capture.capture_generation)?;
+        let row = sqlx::query_as::<_, RawAuctionAdmissionRow>(
+            r#"
+            SELECT capture.generation AS capture_generation,
+                   policy.policy_version,
+                   policy.active,
+                   policy.release_capture_generation_fence,
+                   floor.last_capture_revision AS floor_revision,
+                   floor.last_capture_generation AS floor_generation,
+                   floor_revision.generation AS floor_revision_generation
+            FROM product_listing_raw_revisions AS capture
+            LEFT JOIN product_listing_auction_overrides AS policy
+              ON policy.product_listing_id = $1
+            LEFT JOIN product_listing_auction_override_floors AS floor
+              ON floor.product_listing_id = policy.product_listing_id
+             AND floor.product_listing_raw_stream_id = capture.product_listing_raw_stream_id
+            LEFT JOIN product_listing_raw_revisions AS floor_revision
+              ON floor_revision.product_listing_raw_stream_id = floor.product_listing_raw_stream_id
+             AND floor_revision.revision = floor.last_capture_revision
+            WHERE capture.product_listing_raw_stream_id = $2
+              AND capture.revision = $3
+            "#,
+        )
+        .bind(product_listing_id.as_uuid())
+        .bind(raw_capture.product_listing_raw_stream_id.as_uuid())
+        .bind(revision)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(persistence)?
+        .ok_or_else(|| invalid("raw auction capture revision is missing"))?;
+        if row.capture_generation != capture_generation {
+            return Err(invalid(
+                "raw auction capture generation does not match its revision",
+            ));
+        }
+        let Some(policy_version) = row.policy_version else {
+            return Ok(ProductListingRawAuctionContextAdmission::Admit);
+        };
+        if u64::try_from(policy_version)
+            .ok()
+            .filter(|value| *value >= 1)
+            .is_none()
+        {
+            return Err(invalid("auction override policy version is invalid"));
+        }
+        let active = row
+            .active
+            .ok_or_else(|| invalid("auction override policy active state is missing"))?;
+        let floor = match (
+            row.floor_revision,
+            row.floor_generation,
+            row.floor_revision_generation,
+        ) {
+            (None, None, None) => None,
+            (Some(revision), Some(generation), Some(actual_generation)) => {
+                let revision = raw_capture_revision_from_i64(revision)?;
+                let generation = raw_capture_generation_from_i64(generation)?;
+                let actual_generation = raw_capture_generation_from_i64(actual_generation)?;
+                if generation != actual_generation {
+                    return Err(invalid(
+                        "auction override floor generation does not match revision",
+                    ));
+                }
+                Some((revision, generation))
+            }
+            _ => return Err(invalid("auction override floor is incomplete")),
+        };
+        if active {
+            return Ok(ProductListingRawAuctionContextAdmission::Preserve);
+        }
+        let fence = row
+            .release_capture_generation_fence
+            .ok_or_else(|| invalid("inactive auction override has no capture fence"))
+            .and_then(raw_capture_generation_from_i64)?;
+        if raw_capture.capture_generation <= fence
+            || floor.is_some_and(|(floor_revision, _)| raw_capture.revision <= floor_revision)
+        {
+            Ok(ProductListingRawAuctionContextAdmission::Preserve)
+        } else {
+            Ok(ProductListingRawAuctionContextAdmission::Admit)
+        }
     }
 
     async fn activate(
@@ -103,7 +204,7 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
                     product_listing_id, policy_version, active, correction_audit_id, updated
                 ) VALUES ($1, 1, TRUE, $2, now())
                 ON CONFLICT (product_listing_id) DO NOTHING
-                RETURNING policy_version, active, release_capture_generation
+                RETURNING policy_version, active, release_capture_generation_fence
                 "#,
             )
             .bind(audit.product_listing_id.as_uuid())
@@ -121,7 +222,7 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
                     updated = now()
                 WHERE product_listing_id = $2
                   AND policy_version = $3
-                RETURNING policy_version, active, release_capture_generation
+                RETURNING policy_version, active, release_capture_generation_fence
                 "#,
             )
             .bind(audit.audit_id.as_uuid())
@@ -145,14 +246,16 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
         recorded_at: OffsetDateTime,
     ) -> Result<ProductListingAuctionOverride, ProductListingAuctionOverrideError> {
         let expected = version_to_i64(expected_version)?;
+        // Sequence allocation is the release linearization point. It does not lock or serialize
+        // raw streams, and is intentionally not rolled back with this transaction.
         let generation = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(MAX(generation), 0) FROM product_listing_raw_revisions",
+            "SELECT nextval('product_listing_raw_capture_generation_seq'::regclass)",
         )
         .fetch_one(&mut *self.connection)
         .await
         .map_err(persistence)?;
-        if generation < 0 {
-            return Err(invalid("raw capture generation is invalid"));
+        if generation < 1 {
+            return Err(invalid("raw capture generation fence is invalid"));
         }
 
         let row = sqlx::query_as::<_, OverrideRow>(
@@ -160,13 +263,13 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
             UPDATE product_listing_auction_overrides
             SET policy_version = policy_version + 1,
                 active = FALSE,
-                release_capture_generation = $1,
+                release_capture_generation_fence = $1,
                 released_audit_id = $2,
                 updated = now()
             WHERE product_listing_id = $3
               AND policy_version = $4
               AND active = TRUE
-            RETURNING policy_version, active, release_capture_generation
+            RETURNING policy_version, active, release_capture_generation_fence
             "#,
         )
         .bind(generation)
@@ -181,7 +284,7 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
         sqlx::query(
             r#"
             INSERT INTO product_listing_auction_override_releases (
-                audit_id, product_listing_id, actor_label, recorded_at, capture_generation
+                audit_id, product_listing_id, actor_label, recorded_at, capture_generation_fence
             ) VALUES ($1, $2, $3, $4, $5)
             "#,
         )
@@ -194,28 +297,34 @@ impl ProductListingAuctionOverrideRepository for SqlxProductListingAuctionOverri
         .await
         .map_err(persistence)?;
 
+        // Release never locks raw heads or streams. The global fence covers captures allocated
+        // before this point but not visible in this transaction's linked-head snapshot.
         sqlx::query(
             r#"
             INSERT INTO product_listing_auction_override_floors (
                 product_listing_id, product_listing_raw_stream_id, last_capture_revision,
                 last_capture_generation
             )
-            SELECT $1, head.product_listing_raw_stream_id, stream.latest_revision,
-                   revision.generation
+            SELECT $1, head.product_listing_raw_stream_id, revision.revision, revision.generation
             FROM product_listing_raw_normalization_heads AS head
-            JOIN product_listing_raw_streams AS stream
-              ON stream.product_listing_raw_stream_id = head.product_listing_raw_stream_id
-            JOIN product_listing_raw_revisions AS revision
-              ON revision.product_listing_raw_stream_id = stream.product_listing_raw_stream_id
-             AND revision.revision = stream.latest_revision
+            JOIN LATERAL (
+                SELECT revision, generation
+                FROM product_listing_raw_revisions
+                WHERE product_listing_raw_stream_id = head.product_listing_raw_stream_id
+                  AND generation < $2
+                ORDER BY generation DESC
+                LIMIT 1
+            ) AS revision ON TRUE
             WHERE head.product_listing_id = $1
-              AND stream.latest_revision > 0
             ON CONFLICT (product_listing_id, product_listing_raw_stream_id) DO UPDATE
             SET last_capture_revision = EXCLUDED.last_capture_revision,
                 last_capture_generation = EXCLUDED.last_capture_generation
+            WHERE product_listing_auction_override_floors.last_capture_generation
+                < EXCLUDED.last_capture_generation
             "#,
         )
         .bind(product_listing_id.as_uuid())
+        .bind(generation)
         .execute(&mut *self.connection)
         .await
         .map_err(persistence)?;
@@ -233,19 +342,43 @@ fn version_to_i64(
 fn override_from_row(
     row: OverrideRow,
 ) -> Result<ProductListingAuctionOverride, ProductListingAuctionOverrideError> {
-    let version =
-        u64::try_from(row.policy_version).map_err(|_| invalid("policy version is invalid"))?;
-    let release_capture_generation = row
-        .release_capture_generation
-        .map(|value| {
-            u64::try_from(value).map_err(|_| invalid("release capture generation is invalid"))
-        })
+    let version = u64::try_from(row.policy_version)
+        .ok()
+        .filter(|value| *value >= 1)
+        .ok_or_else(|| invalid("policy version is invalid"))?;
+    let release_capture_generation_fence = row
+        .release_capture_generation_fence
+        .map(raw_capture_generation_from_i64)
         .transpose()?;
     Ok(ProductListingAuctionOverride {
         version: ProductListingAuctionPolicyVersion::from(version),
         active: row.active,
-        release_capture_generation,
+        release_capture_generation_fence,
     })
+}
+
+fn raw_capture_revision_to_i64(value: u64) -> Result<i64, ProductListingAuctionOverrideError> {
+    let value =
+        i64::try_from(value).map_err(|_| invalid("raw capture revision exceeds storage range"))?;
+    if value < 1 {
+        return Err(invalid("raw capture revision is invalid"));
+    }
+    Ok(value)
+}
+
+fn raw_capture_revision_from_i64(value: i64) -> Result<u64, ProductListingAuctionOverrideError> {
+    if value < 1 {
+        return Err(invalid("raw capture revision is invalid"));
+    }
+    u64::try_from(value).map_err(|_| invalid("raw capture revision is invalid"))
+}
+
+fn raw_capture_generation_to_i64(value: u64) -> Result<i64, ProductListingAuctionOverrideError> {
+    i64::try_from(value).map_err(|_| invalid("raw capture generation exceeds storage range"))
+}
+
+fn raw_capture_generation_from_i64(value: i64) -> Result<u64, ProductListingAuctionOverrideError> {
+    u64::try_from(value).map_err(|_| invalid("raw capture generation is invalid"))
 }
 
 fn persistence(error: sqlx::Error) -> ProductListingAuctionOverrideError {
@@ -280,11 +413,12 @@ mod tests {
     };
     use product_listing_service::ports::{
         ProductListingAuctionOverride, ProductListingAuctionOverrideAudit,
-        ProductListingAuctionOverrideRepository, ProductListingAuctionOverrideRepositoryFactory,
-        ProductListingAuctionPolicyVersion, ProductListingRawCaptureWrite,
-        ProductListingRawCaptureWriteOutcome, ProductListingRawCaptureWriter,
-        ProductListingRawCaptureWriterFactory, ProductListingRawIngestionMethod,
-        ProductListingRawStreamId, SourceRecordKeySha256,
+        ProductListingAuctionOverrideError, ProductListingAuctionOverrideRepository,
+        ProductListingAuctionOverrideRepositoryFactory, ProductListingAuctionPolicyVersion,
+        ProductListingRawAuctionCapture, ProductListingRawAuctionContextAdmission,
+        ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
+        ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
+        ProductListingRawIngestionMethod, ProductListingRawStreamId, SourceRecordKeySha256,
     };
     use serde_json::json;
     use sha2::{Digest, Sha256};
@@ -382,7 +516,7 @@ mod tests {
             ProductListingAuctionOverride {
                 version: 1.into(),
                 active: true,
-                release_capture_generation: None,
+                release_capture_generation_fence: None,
             },
             policy
         );
@@ -411,7 +545,7 @@ mod tests {
             Some(ProductListingAuctionOverride {
                 version: 2.into(),
                 active: false,
-                release_capture_generation: Some(7),
+                release_capture_generation_fence: Some(7),
             }),
             factory
                 .in_transaction(&mut tx)
@@ -430,7 +564,7 @@ mod tests {
             ProductListingAuctionOverride {
                 version: 3.into(),
                 active: true,
-                release_capture_generation: Some(7),
+                release_capture_generation_fence: Some(7),
             },
             policy
         );
@@ -486,15 +620,16 @@ mod tests {
             )
             .await
             .unwrap_or_else(|error| panic!("release linked override should succeed: {error:?}"));
-        assert_eq!(
-            ProductListingAuctionOverride {
-                version: 3.into(),
-                active: false,
-                release_capture_generation: Some(u64::try_from(generation).unwrap_or_else(
-                    |error| panic!("capture generation must be nonnegative: {error:?}")
-                )),
-            },
-            policy
+        assert_eq!(3, policy.version.into_inner());
+        assert!(!policy.active);
+        let fence = policy
+            .release_capture_generation_fence
+            .unwrap_or_else(|| panic!("release must reserve a capture fence"));
+        assert!(
+            fence
+                > u64::try_from(generation).unwrap_or_else(|error| panic!(
+                    "capture generation must be nonnegative: {error:?}"
+                ))
         );
         tx.commit()
             .await
@@ -511,7 +646,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("read committed release floors: {error:?}"));
         assert_eq!(vec![(*stream_id.as_uuid(), 2, generation)], floors);
         let release: (uuid::Uuid, String, OffsetDateTime, i64) = sqlx::query_as(
-            "SELECT audit_id, actor_label, recorded_at, capture_generation \
+            "SELECT audit_id, actor_label, recorded_at, capture_generation_fence \
              FROM product_listing_auction_override_releases WHERE product_listing_id = $1",
         )
         .bind(listing_id.as_uuid())
@@ -523,7 +658,8 @@ mod tests {
                 *release_audit_id.as_uuid(),
                 "regression-operator".to_owned(),
                 recorded_at,
-                generation
+                i64::try_from(fence)
+                    .unwrap_or_else(|error| panic!("capture fence must fit storage: {error:?}"))
             ),
             release
         );
@@ -533,6 +669,260 @@ mod tests {
         .bind(listing_id.as_uuid()).fetch_one(&pool).await
         .unwrap_or_else(|error| panic!("read release audit link: {error:?}"));
         assert_eq!(*release_audit_id.as_uuid(), stored_audit_id);
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    async fn should_reserve_release_fence_after_an_uncommitted_raw_capture_allocation() {
+        let pool = get_postgres_client().await;
+        let (source_id, listing_id) = seed_listing(&pool).await;
+        seed_policy(&pool, listing_id, true, None).await;
+        let (capture_ready, capture_ready_wait) = oneshot::channel();
+        let (allow_capture_commit, allow_capture_commit_wait) = oneshot::channel();
+        let capture_pool = pool.clone();
+        let capture = tokio::spawn(async move {
+            let unit_of_work = SqlxUnitOfWork::new(capture_pool);
+            let factory = SqlxProductListingRawCaptureWriterFactory::new();
+            let mut tx = unit_of_work
+                .begin()
+                .await
+                .map_err(|error| format!("begin uncommitted raw capture: {error:?}"))?;
+            let outcome = factory
+                .in_transaction(&mut tx)
+                .capture(raw_capture_write(source_id, 1))
+                .await
+                .map_err(|error| format!("write uncommitted raw capture: {error:?}"))?;
+            let ProductListingRawCaptureWriteOutcome::Changed {
+                product_listing_raw_stream_id,
+                ..
+            } = outcome
+            else {
+                return Err(format!(
+                    "expected changed uncommitted raw capture, got {outcome:?}"
+                ));
+            };
+            capture_ready
+                .send(product_listing_raw_stream_id)
+                .map_err(|_| "test stopped waiting for raw allocation".to_owned())?;
+            allow_capture_commit_wait
+                .await
+                .map_err(|_| "test stopped before raw capture commit".to_owned())?;
+            tx.commit()
+                .await
+                .map_err(|error| format!("commit uncommitted raw capture: {error:?}"))
+        });
+        let stream_id = capture_ready_wait
+            .await
+            .unwrap_or_else(|_| panic!("raw capture allocation sender dropped"));
+
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let factory = SqlxProductListingAuctionOverrideRepositoryFactory::new();
+        let mut release_tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin release during raw capture: {error:?}"));
+        factory
+            .in_transaction(&mut release_tx)
+            .lock(listing_id)
+            .await
+            .unwrap_or_else(|error| panic!("lock release during raw capture: {error:?}"));
+        let policy = factory
+            .in_transaction(&mut release_tx)
+            .release(
+                listing_id,
+                2.into(),
+                EventId::new(),
+                "regression-operator".to_owned(),
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("release during raw capture: {error:?}"));
+        release_tx
+            .commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit release during raw capture: {error:?}"));
+        allow_capture_commit
+            .send(())
+            .unwrap_or_else(|_| panic!("uncommitted raw capture receiver dropped"));
+        capture
+            .await
+            .unwrap_or_else(|error| panic!("raw capture task failed: {error:?}"))
+            .unwrap_or_else(|error| panic!("raw capture transaction failed: {error}"));
+
+        let (revision, generation): (i64, i64) = sqlx::query_as(
+            "SELECT revision, generation FROM product_listing_raw_revisions \
+             WHERE product_listing_raw_stream_id = $1",
+        )
+        .bind(stream_id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read committed raw capture identity: {error:?}"));
+        let fence = policy
+            .release_capture_generation_fence
+            .unwrap_or_else(|| panic!("release must reserve a capture fence"));
+        assert!(
+            fence
+                > u64::try_from(generation).unwrap_or_else(|error| panic!(
+                    "raw generation must be nonnegative: {error:?}"
+                ))
+        );
+
+        let mut admission_tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin uncommitted-capture admission: {error:?}"));
+        factory
+            .in_transaction(&mut admission_tx)
+            .lock(listing_id)
+            .await
+            .unwrap_or_else(|error| panic!("lock uncommitted-capture admission: {error:?}"));
+        assert_eq!(
+            ProductListingRawAuctionContextAdmission::Preserve,
+            factory
+                .in_transaction(&mut admission_tx)
+                .admit_raw_auction_context(
+                    listing_id,
+                    ProductListingRawAuctionCapture {
+                        product_listing_raw_stream_id: stream_id,
+                        revision: u64::try_from(revision).unwrap_or_else(|error| {
+                            panic!("raw revision must be positive: {error:?}")
+                        }),
+                        capture_generation: u64::try_from(generation).unwrap_or_else(|error| {
+                            panic!("raw generation must be nonnegative: {error:?}")
+                        }),
+                    },
+                )
+                .await
+                .unwrap_or_else(|error| panic!("admit pre-fence raw capture: {error:?}"))
+        );
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    async fn should_enforce_release_fence_and_linked_stream_floor_on_raw_auction_admission() {
+        let pool = get_postgres_client().await;
+        let (source_id, listing_id) = seed_listing(&pool).await;
+        let stream_id = capture_revision(&pool, source_id, 1).await;
+        assert_eq!(stream_id, capture_revision(&pool, source_id, 2).await);
+        let captures: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT revision, generation FROM product_listing_raw_revisions \
+             WHERE product_listing_raw_stream_id = $1 ORDER BY revision",
+        )
+        .bind(stream_id.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read raw capture identities: {error:?}"));
+        let [
+            (first_revision, first_generation),
+            (second_revision, second_generation),
+        ] = captures.as_slice()
+        else {
+            panic!("expected two raw capture identities");
+        };
+        seed_policy(&pool, listing_id, false, Some(*first_generation)).await;
+
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let factory = SqlxProductListingAuctionOverrideRepositoryFactory::new();
+        let mut tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin raw admission: {error:?}"));
+        factory
+            .in_transaction(&mut tx)
+            .lock(listing_id)
+            .await
+            .unwrap_or_else(|error| panic!("lock raw admission: {error:?}"));
+        let first = ProductListingRawAuctionCapture {
+            product_listing_raw_stream_id: stream_id,
+            revision: u64::try_from(*first_revision)
+                .unwrap_or_else(|error| panic!("first revision must be valid: {error:?}")),
+            capture_generation: u64::try_from(*first_generation)
+                .unwrap_or_else(|error| panic!("first generation must be valid: {error:?}")),
+        };
+        let second = ProductListingRawAuctionCapture {
+            product_listing_raw_stream_id: stream_id,
+            revision: u64::try_from(*second_revision)
+                .unwrap_or_else(|error| panic!("second revision must be valid: {error:?}")),
+            capture_generation: u64::try_from(*second_generation)
+                .unwrap_or_else(|error| panic!("second generation must be valid: {error:?}")),
+        };
+        assert_eq!(
+            ProductListingRawAuctionContextAdmission::Preserve,
+            factory
+                .in_transaction(&mut tx)
+                .admit_raw_auction_context(listing_id, first)
+                .await
+                .unwrap_or_else(|error| panic!("admit pre-fence capture: {error:?}"))
+        );
+        assert_eq!(
+            ProductListingRawAuctionContextAdmission::Admit,
+            factory
+                .in_transaction(&mut tx)
+                .admit_raw_auction_context(listing_id, second)
+                .await
+                .unwrap_or_else(|error| panic!("admit post-fence capture: {error:?}"))
+        );
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit raw admission: {error:?}"));
+
+        sqlx::query(
+            "INSERT INTO product_listing_auction_override_floors \
+             (product_listing_id, product_listing_raw_stream_id, last_capture_revision, last_capture_generation) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(listing_id.as_uuid())
+        .bind(stream_id.as_uuid())
+        .bind(second_revision)
+        .bind(second_generation)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("seed linked stream floor: {error:?}"));
+        let mut tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin floor admission: {error:?}"));
+        factory
+            .in_transaction(&mut tx)
+            .lock(listing_id)
+            .await
+            .unwrap_or_else(|error| panic!("lock floor admission: {error:?}"));
+        assert_eq!(
+            ProductListingRawAuctionContextAdmission::Preserve,
+            factory
+                .in_transaction(&mut tx)
+                .admit_raw_auction_context(listing_id, second)
+                .await
+                .unwrap_or_else(|error| panic!("admit floored capture: {error:?}"))
+        );
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit floor admission: {error:?}"));
+
+        sqlx::query(
+            "UPDATE product_listing_auction_override_floors SET last_capture_generation = $1 \
+             WHERE product_listing_id = $2 AND product_listing_raw_stream_id = $3",
+        )
+        .bind(first_generation)
+        .bind(listing_id.as_uuid())
+        .bind(stream_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("corrupt linked stream floor: {error:?}"));
+        let mut tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin corrupt-floor admission: {error:?}"));
+        factory
+            .in_transaction(&mut tx)
+            .lock(listing_id)
+            .await
+            .unwrap_or_else(|error| panic!("lock corrupt-floor admission: {error:?}"));
+        assert!(matches!(
+            factory
+                .in_transaction(&mut tx)
+                .admit_raw_auction_context(listing_id, second)
+                .await,
+            Err(ProductListingAuctionOverrideError::InvalidPersistedState { .. })
+        ));
     }
 
     async fn assert_persisted_policy(
@@ -606,7 +996,7 @@ mod tests {
     ) {
         sqlx::query(
             "INSERT INTO product_listing_auction_overrides \
-             (product_listing_id, policy_version, active, release_capture_generation) VALUES ($1, 2, $2, $3)",
+             (product_listing_id, policy_version, active, release_capture_generation_fence) VALUES ($1, 2, $2, $3)",
         )
         .bind(listing_id.as_uuid()).bind(active).bind(generation).execute(pool).await
         .unwrap_or_else(|error| panic!("seed existing override policy: {error:?}"));
@@ -668,67 +1058,7 @@ mod tests {
         source_id: ListingSourceId,
         revision: u64,
     ) -> ProductListingRawStreamId {
-        use ProductListingRawValuesPatch::{Clear, Set, Unchanged};
-
-        let raw_values = ProductListingRawValues {
-            source_listing_id: "override-lot".to_owned(),
-            title: Set("Override lot".to_owned()),
-            description: Clear,
-            price_format: ProductListingRawValuesPriceFormat::DisplayText,
-            price: if revision == 1 {
-                Clear
-            } else {
-                Set("EUR 120".to_owned())
-            },
-            price_estimate_min: Clear,
-            price_estimate_max: Clear,
-            availability: Set("in stock".to_owned()),
-            url: Set("https://example.test/override-lot".to_owned()),
-            images: Set(Vec::new()),
-            auction: Unchanged,
-            attributes: Default::default(),
-        };
-        let input =
-            ProductListingNormalizationInput::new(
-                RawProductListingOperation::Upsert,
-                RawProductListingPayloadFormat::CrawlerExtractedProduct,
-                1,
-                1,
-                SourcePayload::new(json!({"capture": revision}))
-                    .unwrap_or_else(|error| panic!("source payload fixture: {error:?}")),
-                RawProductListingValues::new(serde_json::to_value(raw_values).unwrap_or_else(
-                    |error| panic!("serialize current raw values fixture: {error:?}"),
-                ))
-                .unwrap_or_else(|error| panic!("raw values fixture: {error:?}")),
-                NormalizationContext::new(json!({
-                    "baseUrl": "https://example.test/override-lot",
-                    "fallbackCurrency": "EUR",
-                    "fallbackLanguage": "en"
-                }))
-                .unwrap_or_else(|error| panic!("normalization context fixture: {error:?}")),
-            )
-            .unwrap_or_else(|error| panic!("normalization input fixture: {error:?}"));
-        match ProductListingRawValuesNormalizer::new().normalize(&input) {
-            ProductListingRawValuesNormalizationOutcome::Resolved(_) => {}
-            other => panic!("raw fixture should normalize successfully: {other:?}"),
-        }
-        let write = ProductListingRawCaptureWrite {
-            listing_source_id: source_id,
-            ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
-            source_record_key: "override-lot".to_owned(),
-            source_record_key_sha256: SourceRecordKeySha256::new(
-                Sha256::digest(b"override-lot").into(),
-            ),
-            input_sha256: input
-                .hash()
-                .unwrap_or_else(|error| panic!("hash raw fixture: {error:?}")),
-            input,
-            provenance: RawProductListingProvenance::new(json!({"capture": revision}))
-                .unwrap_or_else(|error| panic!("raw provenance fixture: {error:?}")),
-            source_event_id: None,
-            source_occurred_at: None,
-            provider_receipt: None,
-        };
+        let write = raw_capture_write(source_id, revision);
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let factory = SqlxProductListingRawCaptureWriterFactory::new();
         let mut tx = unit_of_work
@@ -753,6 +1083,73 @@ mod tests {
                 product_listing_raw_stream_id
             }
             other => panic!("expected changed raw capture, got {other:?}"),
+        }
+    }
+
+    fn raw_capture_write(
+        source_id: ListingSourceId,
+        revision: u64,
+    ) -> ProductListingRawCaptureWrite {
+        use ProductListingRawValuesPatch::{Clear, Set, Unchanged};
+
+        let raw_values = ProductListingRawValues {
+            source_listing_id: "override-lot".to_owned(),
+            title: Set("Override lot".to_owned()),
+            description: Clear,
+            price_format: ProductListingRawValuesPriceFormat::DisplayText,
+            price: if revision == 1 {
+                Clear
+            } else {
+                Set("EUR 120".to_owned())
+            },
+            price_estimate_min: Clear,
+            price_estimate_max: Clear,
+            availability: Set("in stock".to_owned()),
+            url: Set("https://example.test/override-lot".to_owned()),
+            images: Set(Vec::new()),
+            auction: Unchanged,
+            attributes: Default::default(),
+        };
+        let input = ProductListingNormalizationInput::new(
+            RawProductListingOperation::Upsert,
+            RawProductListingPayloadFormat::CrawlerExtractedProduct,
+            1,
+            1,
+            SourcePayload::new(json!({"capture": revision}))
+                .unwrap_or_else(|error| panic!("source payload fixture: {error:?}")),
+            RawProductListingValues::new(
+                serde_json::to_value(raw_values)
+                    .unwrap_or_else(|error| panic!("serialize raw values fixture: {error:?}")),
+            )
+            .unwrap_or_else(|error| panic!("raw values fixture: {error:?}")),
+            NormalizationContext::new(json!({
+                "baseUrl": "https://example.test/override-lot",
+                "fallbackCurrency": "EUR",
+                "fallbackLanguage": "en"
+            }))
+            .unwrap_or_else(|error| panic!("normalization context fixture: {error:?}")),
+        )
+        .unwrap_or_else(|error| panic!("normalization input fixture: {error:?}"));
+        match ProductListingRawValuesNormalizer::new().normalize(&input) {
+            ProductListingRawValuesNormalizationOutcome::Resolved(_) => {}
+            other => panic!("raw fixture should normalize successfully: {other:?}"),
+        }
+        ProductListingRawCaptureWrite {
+            listing_source_id: source_id,
+            ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
+            source_record_key: "override-lot".to_owned(),
+            source_record_key_sha256: SourceRecordKeySha256::new(
+                Sha256::digest(b"override-lot").into(),
+            ),
+            input_sha256: input
+                .hash()
+                .unwrap_or_else(|error| panic!("hash raw fixture: {error:?}")),
+            input,
+            provenance: RawProductListingProvenance::new(json!({"capture": revision}))
+                .unwrap_or_else(|error| panic!("raw provenance fixture: {error:?}")),
+            source_event_id: None,
+            source_occurred_at: None,
+            provider_receipt: None,
         }
     }
 }

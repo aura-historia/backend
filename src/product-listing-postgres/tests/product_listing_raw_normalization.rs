@@ -1,9 +1,18 @@
 mod support;
 
-use application::transaction::{Transaction, UnitOfWork};
+use application::{
+    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+    patch_field::PatchField,
+    transaction::{Transaction, UnitOfWork},
+};
+use auction_core::{AuctionFormat, AuctionKey, SourceAuctionId};
 use auction_postgres::{
     SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
     SqlxAuctionRepositoryFactory,
+};
+use auction_service::{
+    EmbeddedAuctionMetadata,
+    ports::{AuctionRepository, AuctionRepositoryFactory},
 };
 use listing_source_core::ListingSourceId;
 use platform_postgres::SqlxUnitOfWork;
@@ -13,14 +22,22 @@ use product_listing_normalization::{
     SourcePayload,
 };
 use product_listing_postgres::{
-    SqlxPendingProductListingRawStreamReader, SqlxProductListingAuctionOverrideRepositoryFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
-    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,
+    SqlxProductListingAuctionOverrideRepositoryFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRawNormalizationWriterFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::ports::{
-    ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
-    ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
-    ProductListingRawIngestionMethod, SourceRecordKeySha256,
+use product_listing_service::{
+    ports::{
+        ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
+        ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
+        ProductListingRawIngestionMethod, SourceRecordKeySha256,
+    },
+    product_listing_auction_patch::ProductListingAuctionPatch,
+    use_cases::{
+        CreateProductListingCommand, CreateProductListingHandler, CreateProductListingUseCase,
+        commands::create_product_listing::AuctionMembershipResolver,
+    },
 };
 use product_service::ports::{
     PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
@@ -60,8 +77,8 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
     let mut discovered = upsert_values("EUR 100");
     discovered["auction"] = json!({"action": "SET", "value": {
         "sourceAuctionId": {"action": "SET", "value": "catalogue-2026-0042"},
-        "lotNumber": "42A",
-        "cataloguePosition": 43,
+        "lotNumber": {"action": "SET", "value": "42A"},
+        "cataloguePosition": {"action": "SET", "value": 43},
         "auctionMetadata": {
             "name": "Autumn Decorative Arts",
             "catalogueUrl": "https://example.test/auctions/autumn-2026",
@@ -87,19 +104,33 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
         "format": "LIVE",
         "reportedLotCount": 42
     });
-    let second = capture(
+    let _second = capture(
         &unit_of_work,
         &capture_writer,
-        crawler_raw_write(listing_source_id, later_lot_page, "crawler-auction-second"),
+        crawler_raw_write(
+            listing_source_id,
+            later_lot_page.clone(),
+            "crawler-auction-second",
+        ),
+    )
+    .await;
+    let mut no_op_auction = later_lot_page;
+    no_op_auction["price"] = json!({"action": "SET", "value": "EUR 130"});
+    let third = capture(
+        &unit_of_work,
+        &capture_writer,
+        crawler_raw_write(listing_source_id, no_op_auction, "crawler-auction-third"),
     )
     .await;
     let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) =
-        changed_parts(second);
+        changed_parts(third);
+    let replay_stream_id = product_listing_raw_stream_id;
+    let replay_revision_id = product_listing_raw_revision_id;
     assert!(matches!(
         first,
         ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
     ));
-    assert_eq!(2, revision);
+    assert_eq!(3, revision);
 
     let result = NormalizeProductListingRawRevisionHandler::new(
         unit_of_work,
@@ -118,13 +149,14 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
             product_listing_raw_revision_id,
             revision,
         },
-        max_revisions_per_stream: 2,
+        max_revisions_per_stream: 3,
         pending_stream_limit: 1,
     })
     .await
     .unwrap_or_else(|error| panic!("normalize crawler auction stream: {error}"));
     assert_eq!(
         vec![
+            ProductListingRawNormalizationOutcome::Applied,
             ProductListingRawNormalizationOutcome::Applied,
             ProductListingRawNormalizationOutcome::Applied,
         ],
@@ -134,6 +166,29 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
             .map(|revision| revision.outcome)
             .collect::<Vec<_>>()
     );
+    let replay = NormalizeProductListingRawRevisionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .execute(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id: replay_stream_id,
+            product_listing_raw_revision_id: replay_revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 3,
+        pending_stream_limit: 1,
+    })
+    .await
+    .unwrap_or_else(|error| panic!("replay normalized Auction acceptance: {error}"));
+    assert!(replay.revisions.is_empty());
 
     let auction_count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM auctions WHERE listing_source_id = $1")
@@ -171,6 +226,396 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
     );
     assert_eq!(Some("TIMED".to_owned()), format);
     assert_eq!(Some(42), reported_lot_count);
+
+    let acceptance: Vec<(i64, uuid::Uuid, i64, Option<uuid::Uuid>, String)> = sqlx::query_as(
+        "SELECT normalization.revision, acceptance.auction_id, acceptance.auction_result_version, \
+                acceptance.auction_event_id, acceptance.disposition \
+         FROM product_listing_raw_auction_acceptances acceptance \
+         JOIN product_listing_raw_normalizations normalization \
+           ON normalization.product_listing_raw_revision_id = acceptance.product_listing_raw_revision_id \
+          AND normalization.normalizer_version = acceptance.normalizer_version \
+         ORDER BY normalization.revision",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load transactional Auction acceptance evidence: {error}"));
+    assert_eq!(
+        vec![
+            (1, auction_id, 1, acceptance[0].3, "CREATED".to_owned()),
+            (
+                2,
+                auction_id,
+                2,
+                acceptance[1].3,
+                "METADATA_APPLIED".to_owned()
+            ),
+            (3, auction_id, 2, None, "NO_CHANGE".to_owned()),
+        ],
+        acceptance
+    );
+    assert!(acceptance[0].3.is_some());
+    assert!(acceptance[1].3.is_some());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_crawler_participation_until_reliable_source_identity_arrives() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "crawler-participation-then-id").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+
+    let mut participation = upsert_values("EUR 100");
+    participation["auction"] = json!({"action": "SET", "value": {
+        "sourceAuctionId": {"action": "UNCHANGED"},
+        "lotNumber": {"action": "SET", "value": "54"},
+        "cataloguePosition": {"action": "UNCHANGED"},
+        "timing": {
+            "biddingOpens": {
+                "action": "SET",
+                "value": {
+                    "precision": "DATE",
+                    "value": "2026-04-18",
+                    "sourceTimezone": null
+                }
+            },
+            "scheduledCloses": {"action": "UNCHANGED"},
+            "reportedClosedAt": {"action": "UNCHANGED"}
+        }
+    }});
+    let _first = capture(
+        &unit_of_work,
+        &capture_writer,
+        crawler_raw_write(
+            listing_source_id,
+            participation.clone(),
+            "crawler-participation-first",
+        ),
+    )
+    .await;
+
+    let mut identified = participation;
+    identified["auction"]["value"]["sourceAuctionId"] =
+        json!({"action": "SET", "value": "leipzig10033"});
+    identified["auction"]["value"]["auctionMetadata"] = json!({
+        "name": "Auktion 9",
+        "catalogueUrl": "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033"
+    });
+    let second = capture(
+        &unit_of_work,
+        &capture_writer,
+        crawler_raw_write(
+            listing_source_id,
+            identified,
+            "crawler-participation-identified",
+        ),
+    )
+    .await;
+    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) =
+        changed_parts(second);
+
+    let result = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work,
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .execute(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 2,
+        pending_stream_limit: 1,
+    })
+    .await
+    .unwrap_or_else(|error| panic!("normalize crawler participation stream: {error}"));
+    assert_eq!(
+        vec![
+            ProductListingRawNormalizationOutcome::Applied,
+            ProductListingRawNormalizationOutcome::Applied,
+        ],
+        result
+            .revisions
+            .into_iter()
+            .map(|revision| revision.outcome)
+            .collect::<Vec<_>>()
+    );
+
+    let context: (Option<uuid::Uuid>, Option<String>) =
+        sqlx::query_as("SELECT auction_id, lot_number FROM product_listing_auction_contexts")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("load resolved crawler participation context: {error}"));
+    assert!(context.0.is_some());
+    assert_eq!(Some("54".to_owned()), context.1);
+    let auction: (String, Option<String>) = sqlx::query_as(
+        "SELECT source_auction_id, name_text FROM auctions WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load resolved crawler Auction: {error}"));
+    assert_eq!("leipzig10033", auction.0);
+    assert_eq!(Some("Auktion 9".to_owned()), auction.1);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_attach_concurrent_typed_listings_to_one_source_key_auction() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "typed-source-key-race").await;
+    let source_auction_id = SourceAuctionId::try_from("typed-catalogue-42")
+        .unwrap_or_else(|error| panic!("source auction ID: {error}"));
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let handler = || {
+        CreateProductListingHandler::new_with_auction_resolver(
+            unit_of_work.clone(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
+            AuctionMembershipResolver::new(
+                SqlxAuctionRepositoryFactory::new(),
+                SqlxAuctionEventAppenderFactory::new(),
+                SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+                SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+            ),
+        )
+    };
+    let command = |source_listing_id: &str| CreateProductListingCommand {
+        listing_source_id,
+        source_listing_id: product_listing_core::source_listing_id::SourceListingId::try_from(
+            source_listing_id,
+        )
+        .unwrap_or_else(|error| panic!("source listing ID: {error}")),
+        title: None,
+        description: None,
+        pricing: Default::default(),
+        availability: None,
+        url: url::Url::parse(&format!("https://example.test/{source_listing_id}"))
+            .unwrap_or_else(|error| panic!("listing URL: {error}")),
+        images: Default::default(),
+        auction: Some(ProductListingAuctionPatch {
+            source_auction_id: PatchField::Set(source_auction_id.clone()),
+            ..Default::default()
+        }),
+        auction_metadata: EmbeddedAuctionMetadata {
+            format: Some(AuctionFormat::Timed),
+            ..Default::default()
+        },
+    };
+    let context = OperationContext {
+        principal: Principal::System,
+        request_id: RequestId::new("typed-source-key-race"),
+        correlation_id: CorrelationId::new("typed-source-key-race"),
+    };
+
+    let mut gate = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin source-key gate: {error}"));
+    let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(gate.connection())
+        .await
+        .unwrap_or_else(|error| panic!("load source-key gate pid: {error}"));
+    SqlxAuctionRepositoryFactory::new()
+        .in_transaction(&mut gate)
+        .lock_by_key(&AuctionKey::new(
+            listing_source_id,
+            source_auction_id.clone(),
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("lock source key: {error}"));
+
+    let first = handler();
+    let second = handler();
+    let writes = async {
+        tokio::join!(
+            first.execute(&context, command("typed-listing-a")),
+            second.execute(&context, command("typed-listing-b")),
+        )
+    };
+    tokio::pin!(writes);
+    support::assert_blocked(&pool, blocker_pid, 2, writes.as_mut())
+        .await
+        .unwrap_or_else(|error| panic!("typed source-key writes should wait: {error}"));
+    gate.commit()
+        .await
+        .unwrap_or_else(|error| panic!("release source-key gate: {error}"));
+
+    let (first, second) = tokio::time::timeout(Duration::from_secs(20), writes)
+        .await
+        .unwrap_or_else(|error| panic!("timed out typed source-key writes: {error}"));
+    first.unwrap_or_else(|error| panic!("first typed source-key write: {error}"));
+    second.unwrap_or_else(|error| panic!("second typed source-key write: {error}"));
+
+    let auction_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count source-key auctions: {error}"));
+    let event_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auction_events event JOIN auctions auction ON auction.auction_id = event.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count source-key events: {error}"));
+    let attachment_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_auction_contexts context JOIN auctions auction ON auction.auction_id = context.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count source-key attachments: {error}"));
+    assert_eq!(1, auction_count);
+    assert_eq!(1, event_count);
+    assert_eq!(2, attachment_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_attach_concurrent_raw_streams_to_one_source_key_auction() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-source-key-race").await;
+    let source_auction_id = "raw-catalogue-42";
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+    let raw_values = |source_listing_id: &str| {
+        let mut values = upsert_values("EUR 100");
+        values["sourceListingId"] = json!(source_listing_id);
+        values["url"] =
+            json!({"action": "SET", "value": format!("https://example.test/{source_listing_id}")});
+        values["auction"] = json!({"action": "SET", "value": {
+            "sourceAuctionId": {"action": "SET", "value": source_auction_id},
+            "auctionMetadata": {"format": "TIMED"}
+        }});
+        values
+    };
+    let mut first_write = raw_write(
+        listing_source_id,
+        RawProductListingOperation::Upsert,
+        raw_values("raw-listing-a"),
+        normalization_context(),
+        "raw-source-key-race-a",
+    );
+    first_write.source_record_key = "raw-source-key-race-a".to_owned();
+    first_write.source_record_key_sha256 = SourceRecordKeySha256::new([10; 32]);
+    let mut second_write = raw_write(
+        listing_source_id,
+        RawProductListingOperation::Upsert,
+        raw_values("raw-listing-b"),
+        normalization_context(),
+        "raw-source-key-race-b",
+    );
+    second_write.source_record_key = "raw-source-key-race-b".to_owned();
+    second_write.source_record_key_sha256 = SourceRecordKeySha256::new([11; 32]);
+    let first = changed_parts(capture(&unit_of_work, &capture_writer, first_write).await);
+    let second = changed_parts(capture(&unit_of_work, &capture_writer, second_write).await);
+    let handler = || {
+        NormalizeProductListingRawRevisionHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxProductListingRawNormalizationWriterFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            SqlxAuctionRepositoryFactory::new(),
+            SqlxAuctionEventAppenderFactory::new(),
+            SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+            SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+            SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+        )
+    };
+    let wakeup = |(stream, revision_id, revision)| NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id: stream,
+            product_listing_raw_revision_id: revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 1,
+        pending_stream_limit: 1,
+    };
+
+    let source_auction_id = SourceAuctionId::try_from(source_auction_id)
+        .unwrap_or_else(|error| panic!("source auction ID: {error}"));
+    let mut gate = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin raw source-key gate: {error}"));
+    let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(gate.connection())
+        .await
+        .unwrap_or_else(|error| panic!("load raw source-key gate pid: {error}"));
+    SqlxAuctionRepositoryFactory::new()
+        .in_transaction(&mut gate)
+        .lock_by_key(&AuctionKey::new(
+            listing_source_id,
+            source_auction_id.clone(),
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("lock raw source key: {error}"));
+
+    let first_worker = handler();
+    let second_worker = handler();
+    let normalization = async {
+        tokio::join!(
+            first_worker.execute(wakeup(first)),
+            second_worker.execute(wakeup(second)),
+        )
+    };
+    tokio::pin!(normalization);
+    support::assert_blocked(&pool, blocker_pid, 2, normalization.as_mut())
+        .await
+        .unwrap_or_else(|error| panic!("raw source-key work should wait: {error}"));
+    gate.commit()
+        .await
+        .unwrap_or_else(|error| panic!("release raw source-key gate: {error}"));
+
+    let (first, second) = tokio::time::timeout(Duration::from_secs(20), normalization)
+        .await
+        .unwrap_or_else(|error| panic!("timed out raw source-key work: {error}"));
+    for result in [first, second] {
+        let result = result.unwrap_or_else(|error| panic!("raw source-key normalization: {error}"));
+        assert!(matches!(
+            result.revisions.as_slice(),
+            [revision] if revision.outcome == ProductListingRawNormalizationOutcome::Applied
+        ));
+    }
+
+    let auction_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count raw source-key auctions: {error}"));
+    let event_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auction_events event JOIN auctions auction ON auction.auction_id = event.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count raw source-key events: {error}"));
+    let attachment_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_auction_contexts context JOIN auctions auction ON auction.auction_id = context.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_auction_id.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count raw source-key attachments: {error}"));
+    assert_eq!(1, auction_count);
+    assert_eq!(1, event_count);
+    assert_eq!(2, attachment_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -181,11 +626,11 @@ async fn should_apply_other_facts_and_preserve_lot_context_when_timing_is_invali
     let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
     let mut initial = upsert_values("EUR 100");
     initial["auction"] = json!({"action": "SET", "value": {
-        "lotNumber": "42A",
-        "cataloguePosition": 7,
+        "lotNumber": {"action": "SET", "value": "42A"},
+        "cataloguePosition": {"action": "SET", "value": 7},
         "timing": {
-            "biddingOpens": {"precision": "INSTANT", "value": "2026-01-01T10:00:00Z"},
-            "scheduledCloses": {"precision": "INSTANT", "value": "2026-01-01T12:00:00Z"}
+            "biddingOpens": {"action": "SET", "value": {"precision": "INSTANT", "value": "2026-01-01T10:00:00Z"}},
+            "scheduledCloses": {"action": "SET", "value": {"precision": "INSTANT", "value": "2026-01-01T12:00:00Z"}}
         }
     }});
     let first = capture(
@@ -202,8 +647,7 @@ async fn should_apply_other_facts_and_preserve_lot_context_when_timing_is_invali
     .await;
     let mut invalid_timing = initial;
     invalid_timing["price"] = json!({"action": "SET", "value": "EUR 120"});
-    invalid_timing["auction"]["value"]["timing"]["scheduledCloses"] =
-        json!({"precision": "INSTANT", "value": "2026-01-01T09:00:00Z"});
+    invalid_timing["auction"]["value"]["timing"]["scheduledCloses"] = json!({"action": "SET", "value": {"precision": "INSTANT", "value": "2026-01-01T09:00:00Z"}});
     let second = capture(
         &unit_of_work,
         &capture_writer,
@@ -286,6 +730,126 @@ async fn should_apply_other_facts_and_preserve_lot_context_when_timing_is_invali
     .await
     .unwrap_or_else(|error| panic!("load timing diagnostic: {error}"));
     assert_eq!(Some("AUCTION_TIMING_INVALID".to_owned()), diagnostic);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_isolate_raw_auction_membership_conflict_and_apply_other_facts() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-auction-membership-conflict").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+
+    let mut initial = upsert_values("EUR 100");
+    initial["auction"] = json!({"action": "SET", "value": {
+        "sourceAuctionId": {"action": "SET", "value": "catalogue-a"}
+    }});
+    let mut conflicting = initial.clone();
+    conflicting["price"] = json!({"action": "SET", "value": "EUR 120"});
+    conflicting["auction"] = json!({"action": "SET", "value": {
+        "sourceAuctionId": {"action": "SET", "value": "catalogue-b"}
+    }});
+    let first = capture(
+        &unit_of_work,
+        &capture_writer,
+        raw_write(
+            listing_source_id,
+            RawProductListingOperation::Upsert,
+            initial,
+            normalization_context(),
+            "membership-conflict-first",
+        ),
+    )
+    .await;
+    let second = capture(
+        &unit_of_work,
+        &capture_writer,
+        raw_write(
+            listing_source_id,
+            RawProductListingOperation::Upsert,
+            conflicting,
+            normalization_context(),
+            "membership-conflict-second",
+        ),
+    )
+    .await;
+    assert!(matches!(
+        first,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
+    ));
+    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) =
+        changed_parts(second);
+
+    let result = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work,
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .execute(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 2,
+        pending_stream_limit: 1,
+    })
+    .await
+    .unwrap_or_else(|error| panic!("normalize membership conflict: {error}"));
+    assert_eq!(
+        vec![
+            ProductListingRawNormalizationOutcome::Applied,
+            ProductListingRawNormalizationOutcome::Applied,
+        ],
+        result
+            .revisions
+            .into_iter()
+            .map(|revision| revision.outcome)
+            .collect::<Vec<_>>()
+    );
+
+    let (price_amount, source_auction_id): (i64, String) = sqlx::query_as(
+        "SELECT listing.price_amount, auction.source_auction_id \
+         FROM product_listings listing \
+         JOIN product_listing_auction_contexts context \
+           ON context.product_listing_id = listing.product_listing_id \
+         JOIN auctions auction ON auction.auction_id = context.auction_id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load isolated membership conflict state: {error}"));
+    assert_eq!(12_000, price_amount);
+    assert_eq!("catalogue-a", source_auction_id);
+    let diagnostics: Vec<String> = sqlx::query_scalar(
+        "SELECT code FROM product_listing_raw_normalization_diagnostics diagnostic \
+         JOIN product_listing_raw_normalizations normalization \
+           ON normalization.product_listing_raw_revision_id = diagnostic.product_listing_raw_revision_id \
+          AND normalization.normalizer_version = diagnostic.normalizer_version \
+         WHERE normalization.revision = 2 ORDER BY diagnostic.ordinal",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load isolated membership conflict diagnostic: {error}"));
+    assert_eq!(
+        vec!["MEMBERSHIP_CHANGE_REQUIRES_CORRECTION".to_owned()],
+        diagnostics
+    );
+    let conflict_acceptance_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_raw_auction_acceptances acceptance \
+         JOIN product_listing_raw_normalizations normalization \
+           ON normalization.product_listing_raw_revision_id = acceptance.product_listing_raw_revision_id \
+          AND normalization.normalizer_version = acceptance.normalizer_version \
+         WHERE normalization.revision = 2",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count rejected Auction acceptance evidence: {error}"));
+    assert_eq!(0, conflict_acceptance_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

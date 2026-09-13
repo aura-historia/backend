@@ -12,13 +12,12 @@ use listing_source_core::ListingSourceId;
 use money::Price;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{
-    CataloguePosition, LotAuctionTiming, LotNumber, ProductListingAuction, ProductListingPricing,
-};
+use product_listing_core::product_listing::{CataloguePosition, LotNumber, ProductListingPricing};
 use product_listing_core::product_listing_id::ProductListingKey;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
+use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
 use product_listing_service::use_cases::{
     CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,
 };
@@ -45,7 +44,7 @@ pub(super) struct CreateProductListingData {
     pub(super) url: Url,
     pub(super) images: Vec<Url>,
     #[serde(default)]
-    auction: Option<ProductListingAuctionData>,
+    auction: PatchValue<ProductListingAuctionData>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,13 +97,13 @@ pub(super) struct UpsertProductListingData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProductListingAuctionData {
     #[serde(default)]
-    source_auction_id: Option<String>,
+    source_auction_id: PatchValue<String>,
     #[serde(default)]
     metadata: EmbeddedAuctionMetadataData,
     #[serde(default)]
-    lot_number: Option<String>,
+    lot_number: PatchValue<String>,
     #[serde(default)]
-    catalogue_position: Option<u64>,
+    catalogue_position: PatchValue<u64>,
     #[serde(default)]
     timing: Option<LotAuctionTimingData>,
 }
@@ -145,11 +144,11 @@ struct EmbeddedAuctionScheduleData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LotAuctionTimingData {
     #[serde(default)]
-    bidding_opens: Option<AuctionTimeData>,
+    bidding_opens: PatchValue<AuctionTimeData>,
     #[serde(default)]
-    scheduled_closes: Option<AuctionTimeData>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    reported_closed_at: Option<OffsetDateTime>,
+    scheduled_closes: PatchValue<AuctionTimeData>,
+    #[serde(default, deserialize_with = "patch_rfc3339")]
+    reported_closed_at: PatchValue<OffsetDateTime>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -213,10 +212,11 @@ impl CreateProductListingData {
         self,
         listing_source_id: ListingSourceId,
     ) -> Result<CreateProductListingCommand, ApiError> {
-        let auction = self
-            .auction
-            .map(ProductListingAuctionData::into_core)
-            .transpose()?;
+        let ProductListingAuctionCommandPatch { auction, metadata } = auction_patch(self.auction)?;
+        let auction = match auction {
+            PatchField::Set(auction) => Some(auction),
+            PatchField::Clear | PatchField::Unchanged => None,
+        };
         Ok(CreateProductListingCommand {
             listing_source_id,
             source_listing_id: source_listing_id(self.source_listing_id)?,
@@ -230,12 +230,8 @@ impl CreateProductListingData {
             availability: self.availability,
             url: self.url,
             images: product_images(self.images),
-            auction: auction.as_ref().map(|value| value.context.clone()),
-            auction_source_id: auction
-                .as_ref()
-                .and_then(|value| value.source_auction_id.clone()),
-            auction_metadata: auction
-                .map_or_else(EmbeddedAuctionMetadata::default, |value| value.metadata),
+            auction,
+            auction_metadata: metadata,
         })
     }
 }
@@ -258,7 +254,6 @@ impl UpdateProductListingData {
             url: non_nullable_patch(self.url, "url")?,
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction: auction.auction,
-            auction_source_id: auction.source_auction_id,
             auction_metadata: auction.metadata,
         };
         Ok((product_key, command))
@@ -283,52 +278,34 @@ impl UpsertProductListingData {
             url: self.url,
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction: auction.auction,
-            auction_source_id: auction.source_auction_id,
             auction_metadata: auction.metadata,
         })
     }
 }
 
 struct ProductListingAuctionContext {
-    context: ProductListingAuction,
-    source_auction_id: Option<SourceAuctionId>,
+    context: ProductListingAuctionPatch,
     metadata: EmbeddedAuctionMetadata,
 }
 
-struct ProductListingAuctionPatch {
-    auction: PatchField<ProductListingAuction>,
-    source_auction_id: Option<SourceAuctionId>,
+struct ProductListingAuctionCommandPatch {
+    auction: PatchField<ProductListingAuctionPatch>,
     metadata: EmbeddedAuctionMetadata,
 }
 
 impl ProductListingAuctionData {
     fn into_core(self) -> Result<ProductListingAuctionContext, ApiError> {
-        let lot_number = self
-            .lot_number
-            .map(|value| {
-                LotNumber::try_from(value).map_err(|_| {
-                    ApiError::bad_request(BAD_BODY_VALUE)
-                        .with_detail("auction.lotNumber must be nonblank, NUL-free, and at most 128 UTF-8 bytes.")
-                })
-            })
-            .transpose()?;
-        let catalogue_position = self
-            .catalogue_position
-            .map(|value| {
-                CataloguePosition::try_from(value).map_err(|_| {
-                    ApiError::bad_request(BAD_BODY_VALUE)
-                        .with_detail("auction.cataloguePosition must be a positive 32-bit integer.")
-                })
-            })
-            .transpose()?;
-        let timing = self
-            .timing
-            .map(LotAuctionTimingData::into_core)
-            .transpose()?;
-
         Ok(ProductListingAuctionContext {
-            context: ProductListingAuction::new(None, lot_number, catalogue_position, timing),
-            source_auction_id: self.source_auction_id.map(source_auction_id).transpose()?,
+            context: ProductListingAuctionPatch {
+                source_auction_id: source_auction_id_patch(self.source_auction_id)?,
+                lot_number: lot_number_patch(self.lot_number)?,
+                catalogue_position: catalogue_position_patch(self.catalogue_position)?,
+                ..self
+                    .timing
+                    .map(LotAuctionTimingData::into_core)
+                    .transpose()?
+                    .unwrap_or_default()
+            },
             metadata: self.metadata.into_core()?,
         })
     }
@@ -373,19 +350,12 @@ impl EmbeddedAuctionScheduleData {
 }
 
 impl LotAuctionTimingData {
-    fn into_core(self) -> Result<LotAuctionTiming, ApiError> {
-        LotAuctionTiming::new(
-            self.bidding_opens
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
-            self.scheduled_closes
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
-            self.reported_closed_at,
-        )
-        .map_err(|_| {
-            ApiError::bad_request(BAD_BODY_VALUE)
-                .with_detail("auction.timing has invalid comparable bounds.")
+    fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
+        Ok(ProductListingAuctionPatch {
+            bidding_opens: auction_time_patch(self.bidding_opens)?,
+            scheduled_closes: auction_time_patch(self.scheduled_closes)?,
+            reported_closed_at: patch_value(self.reported_closed_at),
+            ..Default::default()
         })
     }
 }
@@ -469,11 +439,10 @@ fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
 
 fn auction_patch(
     value: PatchValue<ProductListingAuctionData>,
-) -> Result<ProductListingAuctionPatch, ApiError> {
+) -> Result<ProductListingAuctionCommandPatch, ApiError> {
     match value {
-        PatchValue::Omitted => Ok(ProductListingAuctionPatch {
+        PatchValue::Omitted => Ok(ProductListingAuctionCommandPatch {
             auction: PatchField::Unchanged,
-            source_auction_id: None,
             metadata: EmbeddedAuctionMetadata::default(),
         }),
         PatchValue::Null => Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail(
@@ -481,11 +450,85 @@ fn auction_patch(
         )),
         PatchValue::Value(value) => {
             let value = value.into_core()?;
-            Ok(ProductListingAuctionPatch {
+            Ok(ProductListingAuctionCommandPatch {
                 auction: PatchField::Set(value.context),
-                source_auction_id: value.source_auction_id,
                 metadata: value.metadata,
             })
+        }
+    }
+}
+
+fn source_auction_id_patch(
+    value: PatchValue<String>,
+) -> Result<PatchField<SourceAuctionId>, ApiError> {
+    match value {
+        PatchValue::Omitted => Ok(PatchField::Unchanged),
+        PatchValue::Null => Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+            "auction.sourceAuctionId cannot be null; omit it to preserve membership.",
+        )),
+        PatchValue::Value(value) => source_auction_id(value).map(PatchField::Set),
+    }
+}
+
+fn lot_number_patch(value: PatchValue<String>) -> Result<PatchField<LotNumber>, ApiError> {
+    match value {
+        PatchValue::Omitted => Ok(PatchField::Unchanged),
+        PatchValue::Null => Ok(PatchField::Clear),
+        PatchValue::Value(value) => LotNumber::try_from(value)
+            .map(PatchField::Set)
+            .map_err(|_| {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+                    "auction.lotNumber must be nonblank, NUL-free, and at most 128 UTF-8 bytes.",
+                )
+            }),
+    }
+}
+
+fn catalogue_position_patch(
+    value: PatchValue<u64>,
+) -> Result<PatchField<CataloguePosition>, ApiError> {
+    match value {
+        PatchValue::Omitted => Ok(PatchField::Unchanged),
+        PatchValue::Null => Ok(PatchField::Clear),
+        PatchValue::Value(value) => CataloguePosition::try_from(value)
+            .map(PatchField::Set)
+            .map_err(|_| {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("auction.cataloguePosition must be a positive 32-bit integer.")
+            }),
+    }
+}
+
+fn auction_time_patch(
+    value: PatchValue<AuctionTimeData>,
+) -> Result<PatchField<AuctionTime>, ApiError> {
+    match value {
+        PatchValue::Omitted => Ok(PatchField::Unchanged),
+        PatchValue::Null => Ok(PatchField::Clear),
+        PatchValue::Value(value) => value.into_core().map(PatchField::Set),
+    }
+}
+
+fn patch_value<T>(value: PatchValue<T>) -> PatchField<T> {
+    match value {
+        PatchValue::Omitted => PatchField::Unchanged,
+        PatchValue::Null => PatchField::Clear,
+        PatchValue::Value(value) => PatchField::Set(value),
+    }
+}
+
+fn patch_rfc3339<'de, D>(deserializer: D) -> Result<PatchValue<OffsetDateTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = PatchValue::<String>::deserialize(deserializer)?;
+    match value {
+        PatchValue::Omitted => Ok(PatchValue::Omitted),
+        PatchValue::Null => Ok(PatchValue::Null),
+        PatchValue::Value(value) => {
+            OffsetDateTime::parse(&value, &time::format_description::well_known::Rfc3339)
+                .map(PatchValue::Value)
+                .map_err(serde::de::Error::custom)
         }
     }
 }
@@ -521,9 +564,10 @@ fn auction_status(value: String) -> Result<AuctionReportedStatus, ApiError> {
 }
 
 fn source_auction_id(value: String) -> Result<SourceAuctionId, ApiError> {
-    SourceAuctionId::try_from(value).map_err(|error| {
-        ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail(format!("auction.sourceAuctionId is invalid: {error}"))
+    SourceAuctionId::try_from(value).map_err(|_| {
+        ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+            "auction.sourceAuctionId must be nonblank, NUL-free, and at most 512 UTF-8 bytes.",
+        )
     })
 }
 
@@ -551,8 +595,19 @@ mod tests {
     use product_listing_core::product_listing_id::ProductListingId;
 
     #[test]
-    fn should_reject_null_auction_in_ordinary_partner_updates() {
+    fn should_reject_null_auction_in_partner_writes() {
         let listing_source_id = ListingSourceId::new();
+        let create: CreateProductListingData = serde_json::from_str(
+            r#"{
+                "sourceListingId":"SKU-1",
+                "title":{"text":"Listing","language":"en"},
+                "description":{"text":"Description","language":"en"},
+                "url":"https://example.com/listing",
+                "images":[],
+                "auction":null
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
         let update: UpdateProductListingData =
             serde_json::from_str(r#"{"sourceListingId":"SKU-1","auction":null}"#)
                 .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
@@ -560,6 +615,14 @@ mod tests {
             serde_json::from_str(r#"{"sourceListingId":"SKU-1","auction":null}"#)
                 .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"));
 
+        assert_eq!(
+            BAD_BODY_VALUE,
+            create
+                .into_command(listing_source_id)
+                .err()
+                .unwrap_or_else(|| panic!("null auction must fail"))
+                .code()
+        );
         assert_eq!(
             BAD_BODY_VALUE,
             update
@@ -605,10 +668,11 @@ mod tests {
             .into_command(ListingSourceId::new())
             .unwrap_or_else(|error| panic!("valid create command: {error}"));
 
-        assert_eq!(
-            command.auction_source_id.as_ref().map(AsRef::as_ref),
-            Some("sale-42")
-        );
+        assert!(matches!(
+            command.auction.as_ref(),
+            Some(auction)
+                if matches!(&auction.source_auction_id, PatchField::Set(value) if value.as_ref() == "sale-42")
+        ));
         assert_eq!(
             command
                 .auction_metadata
@@ -619,6 +683,54 @@ mod tests {
         );
         assert!(command.auction_metadata.scheduled_end.is_some());
         assert!(command.auction.is_some());
+    }
+
+    #[test]
+    fn should_map_nested_partner_auction_leaf_patch_actions() {
+        let update: UpdateProductListingData = serde_json::from_str(
+            r#"{
+                "sourceListingId":"SKU-1",
+                "auction":{
+                    "sourceAuctionId":"sale-42",
+                    "lotNumber":null,
+                    "timing":{
+                        "biddingOpens":null,
+                        "reportedClosedAt":"2026-05-01T12:00:00Z"
+                    }
+                }
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
+
+        let (_, command) = update
+            .into_key_and_command(ListingSourceId::new())
+            .unwrap_or_else(|error| panic!("valid update command: {error}"));
+        let PatchField::Set(auction) = command.auction else {
+            panic!("auction patch should be asserted");
+        };
+        assert!(matches!(
+            auction.source_auction_id,
+            PatchField::Set(value) if value.as_ref() == "sale-42"
+        ));
+        assert_eq!(PatchField::Clear, auction.lot_number);
+        assert_eq!(PatchField::Unchanged, auction.catalogue_position);
+        assert_eq!(PatchField::Clear, auction.bidding_opens);
+        assert_eq!(PatchField::Unchanged, auction.scheduled_closes);
+        assert!(matches!(auction.reported_closed_at, PatchField::Set(_)));
+    }
+
+    #[test]
+    fn should_reject_null_source_auction_id_in_partner_auction_patch() {
+        let update: UpdateProductListingData = serde_json::from_str(
+            r#"{"sourceListingId":"SKU-1","auction":{"sourceAuctionId":null}}"#,
+        )
+        .unwrap_or_else(|error| panic!("valid update JSON: {error}"));
+
+        let error = update
+            .into_key_and_command(ListingSourceId::new())
+            .err()
+            .unwrap_or_else(|| panic!("null source auction ID must fail"));
+        assert_eq!(BAD_BODY_VALUE, error.code());
     }
 
     #[test]
@@ -656,9 +768,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("valid upsert command: {error}"));
 
         assert_eq!(update.auction, PatchField::Unchanged);
-        assert!(update.auction_source_id.is_none());
         assert_eq!(upsert.auction, PatchField::Unchanged);
-        assert!(upsert.auction_source_id.is_none());
     }
 
     #[test]

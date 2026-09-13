@@ -13,6 +13,7 @@ use application::error::{BoxError, box_error, static_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 use auction_core::SourceAuctionId;
 use auction_service::{
@@ -24,14 +25,16 @@ use auction_service::{
     resolve_auction_for_listing,
 };
 
+use crate::product_listing_auction_patch::{
+    ProductListingAuctionPatch, compose_product_listing_auction_patch,
+};
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
-    RehydrateProductListingError,
+    NewProductListing, ProductListing, ProductListingPricing, RehydrateProductListingError,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -51,8 +54,8 @@ pub struct CreateProductListingCommand {
     pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
-    pub auction: Option<ProductListingAuction>,
-    pub auction_source_id: Option<SourceAuctionId>,
+    /// An asserted outer context is composed from these nested leaf patches.
+    pub auction: Option<ProductListingAuctionPatch>,
     pub auction_metadata: EmbeddedAuctionMetadata,
 }
 
@@ -247,22 +250,32 @@ where
                 .await?;
         }
 
-        let mut product = ProductListing::create(
-            command.clone().into_new_product(
-                product_listing_id,
-                title_slug_id,
-                self.auction_resolver
-                    .resolve(
-                        &mut tx,
-                        None,
-                        command.listing_source_id,
-                        None,
-                        command.auction_source_id.clone(),
-                        &command.auction_metadata,
-                    )
-                    .await?,
-            ),
-        )?;
+        let membership = self
+            .auction_resolver
+            .resolve(
+                &mut tx,
+                None,
+                command.listing_source_id,
+                None,
+                command
+                    .auction
+                    .as_ref()
+                    .map(|auction| auction.source_auction_id.clone())
+                    .unwrap_or(PatchField::Unchanged),
+                &command.auction_metadata,
+            )
+            .await?;
+        let auction = command
+            .auction
+            .as_ref()
+            .map(|patch| compose_product_listing_auction_patch(None, membership, patch))
+            .transpose()
+            .map_err(|_| CreateProductListingError::InvalidProductListing)?;
+        let mut product = ProductListing::create(command.clone().into_new_product(
+            product_listing_id,
+            title_slug_id,
+            auction,
+        ))?;
         let event = stamp_product_listing_event(
             product.id(),
             time::OffsetDateTime::now_utc(),
@@ -365,7 +378,7 @@ impl CreateProductListingCommand {
         self,
         id: ProductListingId,
         title_slug_id: ProductListingSlugId,
-        membership: Option<product_listing_core::product_listing::AuctionMembership>,
+        auction: Option<product_listing_core::product_listing::ProductListingAuction>,
     ) -> NewProductListing {
         NewProductListing {
             id,
@@ -378,14 +391,7 @@ impl CreateProductListingCommand {
             availability: self.availability,
             url: self.url,
             images: self.images,
-            auction: self.auction.map(|auction| {
-                ProductListingAuction::new(
-                    membership,
-                    auction.lot_number().cloned(),
-                    auction.catalogue_position(),
-                    auction.timing().cloned(),
-                )
-            }),
+            auction,
         }
     }
 }
@@ -417,7 +423,7 @@ pub trait PartnerProductListingAuctionResolver<Tx>: Send + Sync {
         product_listing_id: Option<ProductListingId>,
         listing_source_id: ListingSourceId,
         current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: Option<SourceAuctionId>,
+        source_auction_id: PatchField<SourceAuctionId>,
         metadata: &EmbeddedAuctionMetadata,
     ) -> Result<
         Option<product_listing_core::product_listing::AuctionMembership>,
@@ -459,7 +465,7 @@ where
         product_listing_id: Option<ProductListingId>,
         listing_source_id: ListingSourceId,
         current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: Option<SourceAuctionId>,
+        source_auction_id: PatchField<SourceAuctionId>,
         metadata: &EmbeddedAuctionMetadata,
     ) -> Result<
         Option<product_listing_core::product_listing::AuctionMembership>,
@@ -491,7 +497,7 @@ where
                 );
             }
         }
-        let Some(source_auction_id) = source_auction_id else {
+        let PatchField::Set(source_auction_id) = source_auction_id else {
             return Ok(current);
         };
 
@@ -529,13 +535,13 @@ where
         _: Option<ProductListingId>,
         _: ListingSourceId,
         current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: Option<SourceAuctionId>,
+        source_auction_id: PatchField<SourceAuctionId>,
         _: &EmbeddedAuctionMetadata,
     ) -> Result<
         Option<product_listing_core::product_listing::AuctionMembership>,
         PartnerProductListingAuctionResolutionError,
     > {
-        if source_auction_id.is_some() {
+        if matches!(source_auction_id, PatchField::Set(_)) {
             return Err(PartnerProductListingAuctionResolutionError::Internal {
                 source: static_error("auction resolver was not configured"),
             });
@@ -842,7 +848,6 @@ mod tests {
                 .unwrap_or_else(|error| panic!("url: {error}")),
             images: IndexSet::new(),
             auction: None,
-            auction_source_id: None,
             auction_metadata: EmbeddedAuctionMetadata::default(),
         }
     }

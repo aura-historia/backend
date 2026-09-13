@@ -20,7 +20,7 @@ use product_listing_core::{
     description::Description,
     product_listing::{
         CataloguePosition, InvalidCataloguePosition, InvalidLotAuctionTiming, InvalidLotNumber,
-        LotAuctionTiming, LotNumber, ProductListingAuction,
+        LotNumber,
     },
     product_listing_image::ProductListingImage,
     product_listing_price::ProductListingPrice,
@@ -119,9 +119,9 @@ pub struct ProductListingRawValues {
 
 /// Strict raw auction context used by a `SET` auction patch.
 ///
-/// Every field is optional because sources commonly assert only one lot fact. A
-/// `SET` replaces the complete asserted context; use the outer patch's `CLEAR`
-/// and `UNCHANGED` actions for absence and no observation respectively.
+/// Every leaf has explicit `SET`, `CLEAR`, or `UNCHANGED` meaning because sources commonly
+/// assert only one lot fact. The outer patch controls context observation; an outer `CLEAR`
+/// remains non-destructive downstream because dedicated correction owns retraction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProductListingRawValuesAuction {
@@ -129,10 +129,10 @@ pub struct ProductListingRawValuesAuction {
     /// value. `CLEAR` never detaches a current membership; correction owns detachment.
     #[serde(default = "raw_patch_unchanged")]
     pub source_auction_id: ProductListingRawValuesPatch<String>,
-    #[serde(default)]
-    pub lot_number: Option<String>,
-    #[serde(default)]
-    pub catalogue_position: Option<u64>,
+    #[serde(default = "raw_patch_unchanged")]
+    pub lot_number: ProductListingRawValuesPatch<String>,
+    #[serde(default = "raw_patch_unchanged")]
+    pub catalogue_position: ProductListingRawValuesPatch<u64>,
     /// Timing is decoded separately so an invalid optional assertion cannot reject unrelated
     /// current raw values. The outer auction object remains strict.
     #[serde(default)]
@@ -192,12 +192,22 @@ pub struct ProductListingRawValuesAuctionMetadataResolved {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProductListingRawValuesLotAuctionTiming {
-    #[serde(default)]
-    pub bidding_opens: Option<ProductListingRawValuesAuctionTime>,
-    #[serde(default)]
-    pub scheduled_closes: Option<ProductListingRawValuesAuctionTime>,
-    #[serde(default)]
-    pub reported_closed_at: Option<ProductListingRawValuesAuctionTime>,
+    #[serde(default = "raw_patch_unchanged")]
+    pub bidding_opens: ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime>,
+    #[serde(default = "raw_patch_unchanged")]
+    pub scheduled_closes: ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime>,
+    #[serde(default = "raw_patch_unchanged")]
+    pub reported_closed_at: ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductListingRawValuesAuctionPatch {
+    pub source_auction_id: ProductListingRawValuesPatch<SourceAuctionId>,
+    pub lot_number: ProductListingRawValuesPatch<LotNumber>,
+    pub catalogue_position: ProductListingRawValuesPatch<CataloguePosition>,
+    pub bidding_opens: ProductListingRawValuesPatch<AuctionTime>,
+    pub scheduled_closes: ProductListingRawValuesPatch<AuctionTime>,
+    pub reported_closed_at: ProductListingRawValuesPatch<OffsetDateTime>,
 }
 
 /// A source-declared auction-time precision. `DATE` never becomes a midnight
@@ -245,21 +255,21 @@ pub struct ProductListingRawValuesResolved {
     pub availability: ProductListingRawValuesPatch<ListingAvailabilityQuickCheck>,
     pub url: ProductListingRawValuesPatch<Url>,
     pub images: ProductListingRawValuesPatch<Vec<ProductListingImage>>,
-    pub auction: ProductListingRawValuesPatch<ProductListingAuction>,
-    /// Reliable source identifier only when the outer auction context was asserted.
-    pub auction_source_id: Option<SourceAuctionId>,
+    pub auction: ProductListingRawValuesPatch<ProductListingRawValuesAuctionPatch>,
     /// Validated embedded shared metadata. It is actionable only alongside a reliable source key.
     pub auction_metadata: ProductListingRawValuesAuctionMetadataResolved,
     pub attributes: BTreeMap<String, ProductListingRawValuesPatch<Vec<String>>>,
-    /// Safe fixed-code metadata for a non-fatal normalization loss.
-    pub diagnostic: Option<ProductListingRawValuesNormalizationDiagnostic>,
+    /// Ordered, de-duplicated safe codes for non-fatal normalization losses.
+    pub diagnostics: Vec<ProductListingRawValuesNormalizationDiagnostic>,
 }
 
 /// Stable safe diagnostic for a non-fatal raw-values normalization loss.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum_macros::EnumIter)]
 pub enum ProductListingRawValuesNormalizationDiagnostic {
-    AuctionTimingInvalid,
     AuctionReferenceInvalid,
+    AuctionLotInvalid,
+    AuctionTimingInvalid,
+    AuctionMetadataInvalid,
     MembershipChangeRequiresCorrection,
 }
 
@@ -268,6 +278,8 @@ impl ProductListingRawValuesNormalizationDiagnostic {
         match self {
             Self::AuctionTimingInvalid => "AUCTION_TIMING_INVALID",
             Self::AuctionReferenceInvalid => "AUCTION_REFERENCE_INVALID",
+            Self::AuctionLotInvalid => "AUCTION_LOT_INVALID",
+            Self::AuctionMetadataInvalid => "AUCTION_METADATA_INVALID",
             Self::MembershipChangeRequiresCorrection => "MEMBERSHIP_CHANGE_REQUIRES_CORRECTION",
         }
     }
@@ -432,7 +444,7 @@ impl ProductListingRawValuesNormalizer {
         let availability = normalize_availability_patch(raw.availability)?;
         let url = normalize_url_patch(raw.url, &base_url)?;
         let images = normalize_images_patch(raw.images, &base_url)?;
-        let (auction, auction_source_id, auction_metadata, diagnostic) =
+        let (auction, auction_metadata, diagnostics) =
             normalize_auction_patch(raw.auction, &base_url, fallback_language)
                 .map_err(ProductListingRawValuesNormalizationError::Auction)?;
 
@@ -447,10 +459,9 @@ impl ProductListingRawValuesNormalizer {
             url,
             images,
             auction,
-            auction_source_id,
             auction_metadata,
             attributes: raw.attributes,
-            diagnostic,
+            diagnostics,
         })
     }
 }
@@ -677,10 +688,9 @@ pub enum ProductListingRawValuesAuctionMetadataNormalizationError {
 }
 
 type NormalizedAuctionPatch = (
-    ProductListingRawValuesPatch<ProductListingAuction>,
-    Option<SourceAuctionId>,
+    ProductListingRawValuesPatch<ProductListingRawValuesAuctionPatch>,
     ProductListingRawValuesAuctionMetadataResolved,
-    Option<ProductListingRawValuesNormalizationDiagnostic>,
+    Vec<ProductListingRawValuesNormalizationDiagnostic>,
 );
 
 fn normalize_auction_patch(
@@ -690,111 +700,156 @@ fn normalize_auction_patch(
 ) -> Result<NormalizedAuctionPatch, ProductListingRawValuesAuctionNormalizationError> {
     match patch {
         ProductListingRawValuesPatch::Set(raw) => {
+            let mut diagnostics = Vec::new();
             let metadata =
-                normalize_auction_metadata(raw.auction_metadata, base_url, fallback_language)
-                    .map_err(ProductListingRawValuesAuctionNormalizationError::Metadata)?;
-            let source_auction_id = match raw.source_auction_id {
-                ProductListingRawValuesPatch::Set(value) => Some(SourceAuctionId::try_from(value)),
-                ProductListingRawValuesPatch::Clear => {
-                    return Ok((
-                        ProductListingRawValuesPatch::Set(ProductListingAuction::new(
-                            None,
-                            raw.lot_number
-                                .map(LotNumber::try_from)
-                                .transpose()
-                                .map_err(ProductListingRawValuesAuctionNormalizationError::LotNumber)?,
-                            raw.catalogue_position
-                                .map(CataloguePosition::try_from)
-                                .transpose()
-                                .map_err(ProductListingRawValuesAuctionNormalizationError::CataloguePosition)?,
-                            None,
-                        )),
-                        None,
-                        metadata,
-                        Some(
-                            ProductListingRawValuesNormalizationDiagnostic::MembershipChangeRequiresCorrection,
-                        ),
-                    ));
+                match normalize_auction_metadata(raw.auction_metadata, base_url, fallback_language)
+                {
+                    Ok(metadata) => metadata,
+                    Err(_) => {
+                        push_diagnostic(
+                            &mut diagnostics,
+                            ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid,
+                        );
+                        ProductListingRawValuesAuctionMetadataResolved::default()
+                    }
+                };
+            if matches!(&raw.source_auction_id, ProductListingRawValuesPatch::Clear) {
+                push_diagnostic(
+                    &mut diagnostics,
+                    ProductListingRawValuesNormalizationDiagnostic::MembershipChangeRequiresCorrection,
+                );
+                return Ok((
+                    ProductListingRawValuesPatch::Unchanged,
+                    ProductListingRawValuesAuctionMetadataResolved::default(),
+                    diagnostics,
+                ));
+            }
+            let (source_auction_id, source_auction_id_diagnostic) =
+                normalize_source_auction_id_patch(raw.source_auction_id);
+            if let Some(diagnostic) = source_auction_id_diagnostic {
+                push_diagnostic(&mut diagnostics, diagnostic);
+            }
+            let (lot_number, catalogue_position) = match (
+                normalize_lot_number_patch(raw.lot_number),
+                normalize_catalogue_position_patch(raw.catalogue_position),
+            ) {
+                (Ok(lot_number), Ok(catalogue_position)) => (lot_number, catalogue_position),
+                _ => {
+                    push_diagnostic(
+                        &mut diagnostics,
+                        ProductListingRawValuesNormalizationDiagnostic::AuctionLotInvalid,
+                    );
+                    (
+                        ProductListingRawValuesPatch::Unchanged,
+                        ProductListingRawValuesPatch::Unchanged,
+                    )
                 }
-                ProductListingRawValuesPatch::Unchanged => None,
             };
-            let lot_number = raw
-                .lot_number
-                .map(LotNumber::try_from)
-                .transpose()
-                .map_err(ProductListingRawValuesAuctionNormalizationError::LotNumber)?;
-            let catalogue_position = raw
-                .catalogue_position
-                .map(CataloguePosition::try_from)
-                .transpose()
-                .map_err(ProductListingRawValuesAuctionNormalizationError::CataloguePosition)?;
             let timing = match raw.timing {
                 Some(raw_timing) => match serde_json::from_value(raw_timing)
                     .map_err(ProductListingRawValuesAuctionNormalizationError::TimingContract)
                     .and_then(normalize_lot_auction_timing)
                 {
-                    Ok(timing) => Some(timing),
-                    Err(_error) => {
-                        return Ok((
-                            ProductListingRawValuesPatch::Unchanged,
-                            None,
-                            metadata,
-                            Some(
-                                ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
-                            ),
-                        ));
+                    Ok(timing) => timing,
+                    Err(_) => {
+                        push_diagnostic(
+                            &mut diagnostics,
+                            ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
+                        );
+                        unchanged_auction_patch()
                     }
                 },
-                None => None,
+                None => unchanged_auction_patch(),
             };
-            match source_auction_id {
-                Some(Ok(source_auction_id)) => Ok((
-                    ProductListingRawValuesPatch::Set(ProductListingAuction::new(
-                        None,
-                        lot_number,
-                        catalogue_position,
-                        timing,
-                    )),
-                    Some(source_auction_id),
-                    metadata,
-                    None,
-                )),
-                Some(Err(_)) => Ok((
-                    ProductListingRawValuesPatch::Set(ProductListingAuction::new(
-                        None,
-                        lot_number,
-                        catalogue_position,
-                        timing,
-                    )),
-                    None,
-                    metadata,
-                    Some(ProductListingRawValuesNormalizationDiagnostic::AuctionReferenceInvalid),
-                )),
-                None => Ok((
-                    ProductListingRawValuesPatch::Set(ProductListingAuction::new(
-                        None,
-                        lot_number,
-                        catalogue_position,
-                        timing,
-                    )),
-                    None,
-                    metadata,
-                    None,
-                )),
-            }
+            Ok((
+                ProductListingRawValuesPatch::Set(ProductListingRawValuesAuctionPatch {
+                    source_auction_id,
+                    lot_number,
+                    catalogue_position,
+                    ..timing
+                }),
+                metadata,
+                diagnostics,
+            ))
         }
         ProductListingRawValuesPatch::Clear => Ok((
             ProductListingRawValuesPatch::Clear,
-            None,
             ProductListingRawValuesAuctionMetadataResolved::default(),
-            None,
+            Vec::new(),
         )),
         ProductListingRawValuesPatch::Unchanged => Ok((
             ProductListingRawValuesPatch::Unchanged,
-            None,
             ProductListingRawValuesAuctionMetadataResolved::default(),
-            None,
+            Vec::new(),
         )),
+    }
+}
+
+fn unchanged_auction_patch() -> ProductListingRawValuesAuctionPatch {
+    ProductListingRawValuesAuctionPatch {
+        source_auction_id: ProductListingRawValuesPatch::Unchanged,
+        lot_number: ProductListingRawValuesPatch::Unchanged,
+        catalogue_position: ProductListingRawValuesPatch::Unchanged,
+        bidding_opens: ProductListingRawValuesPatch::Unchanged,
+        scheduled_closes: ProductListingRawValuesPatch::Unchanged,
+        reported_closed_at: ProductListingRawValuesPatch::Unchanged,
+    }
+}
+
+fn push_diagnostic(
+    diagnostics: &mut Vec<ProductListingRawValuesNormalizationDiagnostic>,
+    diagnostic: ProductListingRawValuesNormalizationDiagnostic,
+) {
+    if !diagnostics.contains(&diagnostic) {
+        diagnostics.push(diagnostic);
+        diagnostics.sort_unstable();
+    }
+}
+
+fn normalize_source_auction_id_patch(
+    patch: ProductListingRawValuesPatch<String>,
+) -> (
+    ProductListingRawValuesPatch<SourceAuctionId>,
+    Option<ProductListingRawValuesNormalizationDiagnostic>,
+) {
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => match SourceAuctionId::try_from(value) {
+            Ok(value) => (ProductListingRawValuesPatch::Set(value), None),
+            Err(_) => (
+                ProductListingRawValuesPatch::Unchanged,
+                Some(ProductListingRawValuesNormalizationDiagnostic::AuctionReferenceInvalid),
+            ),
+        },
+        ProductListingRawValuesPatch::Clear => (ProductListingRawValuesPatch::Clear, None),
+        ProductListingRawValuesPatch::Unchanged => (ProductListingRawValuesPatch::Unchanged, None),
+    }
+}
+
+fn normalize_lot_number_patch(
+    patch: ProductListingRawValuesPatch<String>,
+) -> Result<ProductListingRawValuesPatch<LotNumber>, ProductListingRawValuesAuctionNormalizationError>
+{
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => LotNumber::try_from(value)
+            .map(ProductListingRawValuesPatch::Set)
+            .map_err(ProductListingRawValuesAuctionNormalizationError::LotNumber),
+        ProductListingRawValuesPatch::Clear => Ok(ProductListingRawValuesPatch::Clear),
+        ProductListingRawValuesPatch::Unchanged => Ok(ProductListingRawValuesPatch::Unchanged),
+    }
+}
+
+fn normalize_catalogue_position_patch(
+    patch: ProductListingRawValuesPatch<u64>,
+) -> Result<
+    ProductListingRawValuesPatch<CataloguePosition>,
+    ProductListingRawValuesAuctionNormalizationError,
+> {
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => CataloguePosition::try_from(value)
+            .map(ProductListingRawValuesPatch::Set)
+            .map_err(ProductListingRawValuesAuctionNormalizationError::CataloguePosition),
+        ProductListingRawValuesPatch::Clear => Ok(ProductListingRawValuesPatch::Clear),
+        ProductListingRawValuesPatch::Unchanged => Ok(ProductListingRawValuesPatch::Unchanged),
     }
 }
 
@@ -913,21 +968,52 @@ fn normalize_auction_metadata_time(
 
 fn normalize_lot_auction_timing(
     raw: ProductListingRawValuesLotAuctionTiming,
-) -> Result<LotAuctionTiming, ProductListingRawValuesAuctionNormalizationError> {
-    let bidding_opens = raw
-        .bidding_opens
-        .map(|value| normalize_auction_time(value, LotAuctionTimingField::BiddingOpens))
-        .transpose()?;
-    let scheduled_closes = raw
-        .scheduled_closes
-        .map(|value| normalize_auction_time(value, LotAuctionTimingField::ScheduledCloses))
-        .transpose()?;
-    let reported_closed_at = raw
-        .reported_closed_at
-        .map(normalize_reported_closed_at)
-        .transpose()?;
-    LotAuctionTiming::new(bidding_opens, scheduled_closes, reported_closed_at)
-        .map_err(ProductListingRawValuesAuctionNormalizationError::Timing)
+) -> Result<ProductListingRawValuesAuctionPatch, ProductListingRawValuesAuctionNormalizationError> {
+    let bidding_opens =
+        normalize_auction_time_patch(raw.bidding_opens, LotAuctionTimingField::BiddingOpens)?;
+    let scheduled_closes =
+        normalize_auction_time_patch(raw.scheduled_closes, LotAuctionTimingField::ScheduledCloses)?;
+    let reported_closed_at = normalize_reported_closed_at_patch(raw.reported_closed_at)?;
+
+    Ok(ProductListingRawValuesAuctionPatch {
+        source_auction_id: ProductListingRawValuesPatch::Unchanged,
+        lot_number: ProductListingRawValuesPatch::Unchanged,
+        catalogue_position: ProductListingRawValuesPatch::Unchanged,
+        bidding_opens,
+        scheduled_closes,
+        reported_closed_at,
+    })
+}
+
+fn normalize_auction_time_patch(
+    patch: ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime>,
+    field: LotAuctionTimingField,
+) -> Result<
+    ProductListingRawValuesPatch<AuctionTime>,
+    ProductListingRawValuesAuctionNormalizationError,
+> {
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => {
+            normalize_auction_time(value, field).map(ProductListingRawValuesPatch::Set)
+        }
+        ProductListingRawValuesPatch::Clear => Ok(ProductListingRawValuesPatch::Clear),
+        ProductListingRawValuesPatch::Unchanged => Ok(ProductListingRawValuesPatch::Unchanged),
+    }
+}
+
+fn normalize_reported_closed_at_patch(
+    patch: ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime>,
+) -> Result<
+    ProductListingRawValuesPatch<OffsetDateTime>,
+    ProductListingRawValuesAuctionNormalizationError,
+> {
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => {
+            normalize_reported_closed_at(value).map(ProductListingRawValuesPatch::Set)
+        }
+        ProductListingRawValuesPatch::Clear => Ok(ProductListingRawValuesPatch::Clear),
+        ProductListingRawValuesPatch::Unchanged => Ok(ProductListingRawValuesPatch::Unchanged),
+    }
 }
 
 fn normalize_reported_closed_at(
@@ -1073,12 +1159,12 @@ mod tests {
             "url": set("listings/123"),
             "images": set(["/images/one.jpg", "/images/one.jpg"]),
             "auction": set(json!({
-                "lotNumber": "42A",
-                "cataloguePosition": 7,
+                "lotNumber": set("42A"),
+                "cataloguePosition": set(7),
                 "timing": {
-                    "biddingOpens": {"precision": "DATE", "value": "2026-01-01", "sourceTimezone": "Europe/Berlin"},
-                    "scheduledCloses": {"precision": "INSTANT", "value": "2026-01-02T12:00:00Z"},
-                    "reportedClosedAt": {"precision": "INSTANT", "value": "2026-01-02T12:05:00Z"}
+                    "biddingOpens": set(json!({"precision": "DATE", "value": "2026-01-01", "sourceTimezone": "Europe/Berlin"})),
+                    "scheduledCloses": set(json!({"precision": "INSTANT", "value": "2026-01-02T12:00:00Z"})),
+                    "reportedClosedAt": set(json!({"precision": "INSTANT", "value": "2026-01-02T12:05:00Z"}))
                 }
             })),
             "attributes": {
@@ -1190,8 +1276,10 @@ mod tests {
         assert_eq!(
             codes,
             [
-                "AUCTION_TIMING_INVALID",
                 "AUCTION_REFERENCE_INVALID",
+                "AUCTION_LOT_INVALID",
+                "AUCTION_TIMING_INVALID",
+                "AUCTION_METADATA_INVALID",
                 "MEMBERSHIP_CHANGE_REQUIRES_CORRECTION",
             ]
         );
@@ -1276,33 +1364,31 @@ mod tests {
         let ProductListingRawValuesPatch::Set(auction) = &resolved.auction else {
             panic!("auction context should resolve");
         };
-        assert_eq!(Some("42A"), auction.lot_number().map(LotNumber::as_str));
+        assert!(matches!(
+            &auction.lot_number,
+            ProductListingRawValuesPatch::Set(value) if value.as_str() == "42A"
+        ));
+        assert!(matches!(
+            auction.catalogue_position,
+            ProductListingRawValuesPatch::Set(value) if value.value() == 7
+        ));
+        assert!(matches!(
+            &auction.bidding_opens,
+            ProductListingRawValuesPatch::Set(value)
+                if value.source_date()
+                    == Some(Date::from_calendar_date(2026, Month::January, 1)
+                        .unwrap_or_else(|error| panic!("valid date: {error}")))
+        ));
+        assert!(matches!(
+            &auction.scheduled_closes,
+            ProductListingRawValuesPatch::Set(value) if value.exact_instant().is_some()
+        ));
         assert_eq!(
-            Some(7),
-            auction.catalogue_position().map(CataloguePosition::value)
-        );
-        let timing = auction
-            .timing()
-            .unwrap_or_else(|| panic!("auction timing should resolve"));
-        assert_eq!(
-            Some(
-                Date::from_calendar_date(2026, Month::January, 1)
-                    .unwrap_or_else(|error| panic!("valid date: {error}")),
-            ),
-            timing.bidding_opens().and_then(AuctionTime::source_date)
-        );
-        assert!(
-            timing
-                .scheduled_closes()
-                .and_then(AuctionTime::exact_instant)
-                .is_some()
-        );
-        assert_eq!(
-            Some(
+            ProductListingRawValuesPatch::Set(
                 OffsetDateTime::parse("2026-01-02T12:05:00Z", &Rfc3339)
                     .unwrap_or_else(|error| panic!("valid instant: {error}"))
             ),
-            timing.reported_closed_at()
+            auction.reported_closed_at
         );
         Ok(())
     }
@@ -1576,6 +1662,131 @@ mod tests {
     }
 
     #[test]
+    fn should_normalize_nested_auction_leaf_patch_actions()
+    -> Result<(), crate::NormalizationInputError> {
+        let mut raw_values = upsert_values();
+        raw_values["auction"] = set(json!({
+            "sourceAuctionId": {"action": "SET", "value": "sale-42"},
+            "lotNumber": {"action": "CLEAR"},
+            "timing": {
+                "biddingOpens": {"action": "CLEAR"},
+                "reportedClosedAt": {
+                    "action": "SET",
+                    "value": {"precision": "INSTANT", "value": "2026-01-02T12:05:00Z"}
+                }
+            }
+        }));
+        let input = input(
+            RawProductListingOperation::Upsert,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            raw_values,
+            context(),
+        )?;
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
+        else {
+            panic!("nested auction leaf patches should resolve");
+        };
+        let ProductListingRawValuesPatch::Set(auction) = resolved.auction else {
+            panic!("auction patch should be set");
+        };
+        assert!(matches!(
+            auction.source_auction_id,
+            ProductListingRawValuesPatch::Set(value) if value.as_ref() == "sale-42"
+        ));
+        assert_eq!(ProductListingRawValuesPatch::Clear, auction.lot_number);
+        assert_eq!(
+            ProductListingRawValuesPatch::Unchanged,
+            auction.catalogue_position
+        );
+        assert_eq!(ProductListingRawValuesPatch::Clear, auction.bidding_opens);
+        assert_eq!(
+            ProductListingRawValuesPatch::Unchanged,
+            auction.scheduled_closes
+        );
+        assert!(matches!(
+            auction.reported_closed_at,
+            ProductListingRawValuesPatch::Set(value)
+                if value == OffsetDateTime::parse("2026-01-02T12:05:00Z", &Rfc3339)
+                    .unwrap_or_else(|error| panic!("valid instant: {error}"))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_other_auction_leaves_when_source_auction_id_is_invalid()
+    -> Result<(), crate::NormalizationInputError> {
+        let mut raw_values = upsert_values();
+        raw_values["auction"] = set(json!({
+            "sourceAuctionId": {"action": "SET", "value": " "},
+            "lotNumber": {"action": "SET", "value": "42A"}
+        }));
+        let input = input(
+            RawProductListingOperation::Upsert,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            raw_values,
+            context(),
+        )?;
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
+        else {
+            panic!("invalid source auction ID is a safe nonfatal diagnostic");
+        };
+        let ProductListingRawValuesPatch::Set(auction) = resolved.auction else {
+            panic!("remaining auction leaves should resolve");
+        };
+        assert_eq!(
+            ProductListingRawValuesPatch::Unchanged,
+            auction.source_auction_id
+        );
+        assert!(matches!(
+            auction.lot_number,
+            ProductListingRawValuesPatch::Set(value) if value.as_str() == "42A"
+        ));
+        assert_eq!(
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionReferenceInvalid],
+            resolved.diagnostics
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_report_multiple_optional_auction_losses_in_stable_order()
+    -> Result<(), crate::NormalizationInputError> {
+        let mut raw_values = upsert_values();
+        raw_values["auction"] = set(json!({
+            "sourceAuctionId": {"action": "SET", "value": " "},
+            "lotNumber": {"action": "SET", "value": ""},
+            "timing": "not-a-timing-object",
+            "auctionMetadata": {"format": "timed"}
+        }));
+        let input = input(
+            RawProductListingOperation::Upsert,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            raw_values,
+            context(),
+        )?;
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
+        else {
+            panic!("optional Auction failures should not reject the raw revision");
+        };
+        assert_eq!(
+            vec![
+                ProductListingRawValuesNormalizationDiagnostic::AuctionReferenceInvalid,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionLotInvalid,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid,
+            ],
+            resolved.diagnostics
+        );
+        Ok(())
+    }
+
+    #[test]
     fn should_preserve_auction_clear_and_ignore_invalid_optional_timing()
     -> Result<(), crate::NormalizationInputError> {
         let mut clear_auction = upsert_values();
@@ -1592,23 +1803,10 @@ mod tests {
             panic!("clear auction patch should resolve");
         };
         assert_eq!(ProductListingRawValuesPatch::Clear, clear_resolved.auction);
-        assert_eq!(None, clear_resolved.diagnostic);
+        assert!(clear_resolved.diagnostics.is_empty());
 
         let mut invalid_timing = upsert_values();
-        invalid_timing["auction"] = set(json!({
-            "timing": {
-                "biddingOpens": {
-                    "precision": "DATE",
-                    "value": "2026-05-14",
-                    "sourceTimezone": "Europe/Berlin"
-                },
-                "scheduledCloses": {
-                    "precision": "DATE",
-                    "value": "2026-05-13",
-                    "sourceTimezone": "Europe/Berlin"
-                }
-            }
-        }));
+        invalid_timing["auction"] = set(json!({"timing": "not-a-timing-object"}));
         let invalid_input = input(
             RawProductListingOperation::Upsert,
             PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
@@ -1624,13 +1822,13 @@ mod tests {
             invalid_resolved.title,
             ProductListingRawValuesPatch::Set(_)
         ));
+        assert!(matches!(
+            invalid_resolved.auction,
+            ProductListingRawValuesPatch::Set(_)
+        ));
         assert_eq!(
-            ProductListingRawValuesPatch::Unchanged,
-            invalid_resolved.auction
-        );
-        assert_eq!(
-            Some(ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid),
-            invalid_resolved.diagnostic
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
+            invalid_resolved.diagnostics
         );
         Ok(())
     }
@@ -1715,7 +1913,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_invalid_embedded_auction_metadata_without_accepting_an_outer_alias()
+    fn should_isolate_invalid_embedded_auction_metadata_without_accepting_an_outer_alias()
     -> Result<(), crate::NormalizationInputError> {
         let mut raw_values = upsert_values();
         raw_values["auction"] = set(json!({
@@ -1728,25 +1926,28 @@ mod tests {
             context(),
         )?;
 
-        assert!(matches!(
-            ProductListingRawValuesNormalizer::new().normalize(&input),
-            ProductListingRawValuesNormalizationOutcome::Invalid(
-                ProductListingRawValuesNormalizationError::Auction(
-                    ProductListingRawValuesAuctionNormalizationError::Metadata(
-                        ProductListingRawValuesAuctionMetadataNormalizationError::Format(_)
-                    )
-                )
-            )
-        ));
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
+        else {
+            panic!("invalid optional metadata should not reject the raw revision");
+        };
+        assert_eq!(
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid],
+            resolved.diagnostics
+        );
+        assert_eq!(
+            ProductListingRawValuesAuctionMetadataResolved::default(),
+            resolved.auction_metadata
+        );
         Ok(())
     }
 
     #[test]
-    fn should_ignore_malformed_optional_timing_and_reject_invalid_outer_auction()
+    fn should_isolate_optional_auction_groups_and_reject_invalid_outer_auction()
     -> Result<(), crate::NormalizationInputError> {
         let mut malformed_timing = upsert_values();
         malformed_timing["auction"] = set(json!({
-            "timing": {"biddingOpens": {"value": "2026-05-13"}}
+            "timing": {"biddingOpens": set(json!({"value": "2026-05-13"}))}
         }));
         let malformed_timing_input = input(
             RawProductListingOperation::Upsert,
@@ -1759,13 +1960,13 @@ mod tests {
         else {
             panic!("malformed optional timing should not reject the raw revision");
         };
+        assert!(matches!(
+            malformed_timing_resolved.auction,
+            ProductListingRawValuesPatch::Set(_)
+        ));
         assert_eq!(
-            ProductListingRawValuesPatch::Unchanged,
-            malformed_timing_resolved.auction
-        );
-        assert_eq!(
-            Some(ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid),
-            malformed_timing_resolved.diagnostic
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
+            malformed_timing_resolved.diagnostics
         );
 
         let mut malformed_outer_auction = upsert_values();
@@ -1784,38 +1985,41 @@ mod tests {
         ));
 
         let mut invalid_lot_number = upsert_values();
-        invalid_lot_number["auction"] = set(json!({"lotNumber": ""}));
+        invalid_lot_number["auction"] = set(json!({"lotNumber": set("")}));
         let invalid_lot_number_input = input(
             RawProductListingOperation::Upsert,
             PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             invalid_lot_number,
             context(),
         )?;
-        assert!(matches!(
-            ProductListingRawValuesNormalizer::new().normalize(&invalid_lot_number_input),
-            ProductListingRawValuesNormalizationOutcome::Invalid(
-                ProductListingRawValuesNormalizationError::Auction(
-                    ProductListingRawValuesAuctionNormalizationError::LotNumber(_)
-                )
-            )
-        ));
+        let ProductListingRawValuesNormalizationOutcome::Resolved(invalid_lot_number_resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&invalid_lot_number_input)
+        else {
+            panic!("invalid optional lot data should not reject the raw revision");
+        };
+        assert_eq!(
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionLotInvalid],
+            invalid_lot_number_resolved.diagnostics
+        );
 
         let mut invalid_catalogue_position = upsert_values();
-        invalid_catalogue_position["auction"] = set(json!({"cataloguePosition": 0}));
+        invalid_catalogue_position["auction"] = set(json!({"cataloguePosition": set(0)}));
         let invalid_catalogue_position_input = input(
             RawProductListingOperation::Upsert,
             PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             invalid_catalogue_position,
             context(),
         )?;
-        assert!(matches!(
-            ProductListingRawValuesNormalizer::new().normalize(&invalid_catalogue_position_input),
-            ProductListingRawValuesNormalizationOutcome::Invalid(
-                ProductListingRawValuesNormalizationError::Auction(
-                    ProductListingRawValuesAuctionNormalizationError::CataloguePosition(_)
-                )
-            )
-        ));
+        let ProductListingRawValuesNormalizationOutcome::Resolved(
+            invalid_catalogue_position_resolved,
+        ) = ProductListingRawValuesNormalizer::new().normalize(&invalid_catalogue_position_input)
+        else {
+            panic!("invalid optional lot data should not reject the raw revision");
+        };
+        assert_eq!(
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionLotInvalid],
+            invalid_catalogue_position_resolved.diagnostics
+        );
         Ok(())
     }
 

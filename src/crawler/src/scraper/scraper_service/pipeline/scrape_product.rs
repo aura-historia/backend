@@ -297,7 +297,7 @@ impl ScraperService for ScraperServiceImpl {
         }
         let schema_fingerprint = fingerprint_scraper_context(&effective_schemas, fallback_currency)
             .map_err(ScraperError::SchemaFingerprint)?;
-        let auction = extract_lot_tissimo_auction(url, &selection.raw);
+        let auction = extract_lot_tissimo_auction(url, &selection.raw, &html);
         let raw_input = crawler_raw_input(
             &selection.raw,
             &selection.validated_image_urls,

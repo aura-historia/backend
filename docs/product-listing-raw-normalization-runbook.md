@@ -33,7 +33,7 @@ For Shopify intake, EventBridge uses its default target delivery policy (up to 2
 Structured log events are safe to count by their fixed fields; their `metric` names do not imply provisioned CloudWatch custom metrics or dashboards:
 
 - `product_listing_raw_capture`: `ingestion_method`, `outcome`, attempt/insert/unchanged counters, byte sizes, and latency.
-- `product_listing_raw_normalization`: terminal `outcome` (`APPLIED`, `NO_CHANGE`, `IGNORED`, `REJECTED`) and latency; retryable `failure` or `stream_failure` records carry a stable `error_code`. Successful `APPLIED`/`NO_CHANGE` records may also carry `AUCTION_TIMING_INVALID`: optional auction timing was discarded and the outer auction assertion was left unchanged; other resolved fields still applied.
+- `product_listing_raw_normalization`: terminal `outcome` (`APPLIED`, `NO_CHANGE`, `IGNORED`, `REJECTED`) and latency; retryable `failure` or `stream_failure` records carry a stable `error_code`. Successful results may have ordered bounded Auction diagnostics in `product_listing_raw_normalization_diagnostics`; optional reference, lot, timing, metadata, or membership-conflict losses preserve independently valid facts. An Auction context with no source key is participation, not resolved membership; only a reliable source key may resolve it later. Raw source-key clear and A-to-B membership conflict preserve current context with `MEMBERSHIP_CHANGE_REQUIRES_CORRECTION`.
 - `product_listing_raw_normalization_backlog`: bounded reconciliation-page count and oldest age.
 - `product_listing_raw_normalization_reconciliation`: reconciliation runs, processed revisions, failures, bounded page count, page kind, cursor presence, FIFO depth, deferred-continuation count, and suppressed-continuation count.
 - `crawler_disposition_transition`: successful transitions to `DORMANT_SOLD`.
@@ -87,15 +87,31 @@ GROUP BY error_code
 ORDER BY rejected_count DESC, error_code;
 ```
 
-### Accepted optional-timing diagnostics
+### Accepted Auction diagnostics
 
 ```sql
-SELECT outcome, count(*) AS normalization_count, min(created) AS first_seen_at, max(created) AS last_seen_at
-FROM product_listing_raw_normalizations
-WHERE error_code = 'AUCTION_TIMING_INVALID'
-  AND outcome IN ('APPLIED', 'NO_CHANGE')
-GROUP BY outcome
-ORDER BY outcome;
+SELECT diagnostic.code, normalization.outcome, count(*) AS normalization_count,
+       min(normalization.created) AS first_seen_at, max(normalization.created) AS last_seen_at
+FROM product_listing_raw_normalization_diagnostics AS diagnostic
+JOIN product_listing_raw_normalizations AS normalization
+  ON normalization.product_listing_raw_revision_id = diagnostic.product_listing_raw_revision_id
+ AND normalization.normalizer_version = diagnostic.normalizer_version
+WHERE normalization.outcome IN ('APPLIED', 'NO_CHANGE')
+GROUP BY diagnostic.code, normalization.outcome
+ORDER BY diagnostic.code, normalization.outcome;
+```
+
+### Accepted Auction receipt evidence
+
+```sql
+SELECT acceptance.disposition, count(*) AS acceptance_count,
+       min(normalization.created) AS first_seen_at, max(normalization.created) AS last_seen_at
+FROM product_listing_raw_auction_acceptances AS acceptance
+JOIN product_listing_raw_normalizations AS normalization
+  ON normalization.product_listing_raw_revision_id = acceptance.product_listing_raw_revision_id
+ AND normalization.normalizer_version = acceptance.normalizer_version
+GROUP BY acceptance.disposition
+ORDER BY acceptance.disposition;
 ```
 
 ### Raw-table growth

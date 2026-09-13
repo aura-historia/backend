@@ -183,13 +183,11 @@ mod tests {
                     && matches!(
                         &command.auction,
                         PatchField::Set(auction)
-                            if auction.lot_number().is_some_and(|number| number.as_str() == "42")
-                                && auction.catalogue_position().is_some_and(|position| position.value() == 7)
-                                && auction.timing().is_some_and(|timing| {
-                                    timing.bidding_opens().is_some()
-                                        && timing.scheduled_closes().is_some()
-                                        && timing.reported_closed_at().is_some()
-                                })
+                            if matches!(&auction.lot_number, PatchField::Set(number) if number.as_str() == "42")
+                                && matches!(auction.catalogue_position, PatchField::Set(position) if position.value() == 7)
+                                && matches!(auction.bidding_opens, PatchField::Set(_))
+                                && matches!(auction.scheduled_closes, PatchField::Set(_))
+                                && matches!(auction.reported_closed_at, PatchField::Set(_))
                     )
             })
             .returning(|_, _| Ok(created()));

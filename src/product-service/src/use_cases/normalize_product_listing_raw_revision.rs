@@ -1,9 +1,10 @@
 use crate::ports::{
     PendingProductListingRawStreamCursor, PendingProductListingRawStreamPageRequest,
-    PendingProductListingRawStreamReader, ProductListingRawNormalizationCompletion,
-    ProductListingRawNormalizationHead, ProductListingRawNormalizationOutcome,
-    ProductListingRawNormalizationPortError, ProductListingRawNormalizationWriter,
-    ProductListingRawNormalizationWriterFactory, ProductListingRawRevisionReader,
+    PendingProductListingRawStreamReader, ProductListingRawAuctionAcceptance,
+    ProductListingRawNormalizationCompletion, ProductListingRawNormalizationHead,
+    ProductListingRawNormalizationOutcome, ProductListingRawNormalizationPortError,
+    ProductListingRawNormalizationWriter, ProductListingRawNormalizationWriterFactory,
+    ProductListingRawRevisionReader,
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
@@ -26,12 +27,14 @@ use product_listing_service::canonical_product_listing_write::{
 };
 use product_listing_service::ports::{
     ProductListingAuctionOverrideRepositoryFactory, ProductListingEventAppenderFactory,
-    ProductListingRawRevisionId, ProductListingRawStreamId, ProductListingRepositoryFactory,
+    ProductListingRawAuctionCapture, ProductListingRawRevisionId, ProductListingRawStreamId,
+    ProductListingRepositoryFactory,
 };
+use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
 use std::time::Instant;
 use time::OffsetDateTime;
 
-pub const NORMALIZER_VERSION: u16 = 4;
+pub const NORMALIZER_VERSION: u16 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NormalizeProductListingRawRevisionMode {
@@ -393,7 +396,11 @@ where
                     ));
                 }
                 let mut command = canonical_upsert(head.listing_source_id, resolved.as_ref());
-                command.raw_auction_capture_generation = Some(revision.capture_generation);
+                command.raw_auction_capture = Some(ProductListingRawAuctionCapture {
+                    product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
+                    revision: revision.revision,
+                    capture_generation: revision.capture_generation,
+                });
                 let write = match CanonicalProductListingWriter::upsert_in_transaction(
                     tx,
                     CanonicalProductListingWriterDependencies {
@@ -441,11 +448,38 @@ where
                     if write.auction_context_override_preserved {
                         Some("MANUAL_AUCTION_OVERRIDE_PRESERVED")
                     } else {
-                        resolved
-                            .diagnostic
-                            .map(ProductListingRawValuesNormalizationDiagnostic::as_str)
+                        None
                     },
                 );
+                let mut diagnostics = resolved.diagnostics.clone();
+                if write.auction_membership_conflict_preserved {
+                    push_diagnostic(
+                        &mut diagnostics,
+                        ProductListingRawValuesNormalizationDiagnostic::MembershipChangeRequiresCorrection,
+                    );
+                }
+                if write.auction_timing_preserved {
+                    push_diagnostic(
+                        &mut diagnostics,
+                        ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
+                    );
+                }
+                if completion.error_code.is_none() {
+                    completion.error_code = diagnostics
+                        .first()
+                        .copied()
+                        .map(ProductListingRawValuesNormalizationDiagnostic::as_str);
+                }
+                completion.diagnostics = diagnostics;
+                completion.auction_acceptance =
+                    write
+                        .auction_acceptance
+                        .map(|receipt| ProductListingRawAuctionAcceptance {
+                            auction_id: receipt.auction_id,
+                            auction_result_version: receipt.auction_result_version,
+                            auction_event_id: receipt.auction_event_id,
+                            disposition: receipt.disposition,
+                        });
                 completion.next_product_listing_id = Some(write.product_listing_id);
                 completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
                 Ok(completion)
@@ -713,10 +747,10 @@ fn canonical_upsert(
             ProductListingRawValuesPatch::Clear => PatchField::Clear,
             ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
         },
-        auction: to_patch(&resolved.auction),
-        auction_source_id: resolved.auction_source_id.clone(),
+        auction: auction_patch(&resolved.auction),
         auction_metadata: auction_metadata(&resolved.auction_metadata),
-        raw_auction_capture_generation: None,
+        raw_auction_capture: None,
+        isolate_raw_auction_membership_conflict: true,
     }
 }
 
@@ -740,6 +774,25 @@ fn auction_metadata(
 fn to_patch<T: Clone>(patch: &ProductListingRawValuesPatch<T>) -> PatchField<T> {
     match patch {
         ProductListingRawValuesPatch::Set(value) => PatchField::Set(value.clone()),
+        ProductListingRawValuesPatch::Clear => PatchField::Clear,
+        ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
+    }
+}
+
+fn auction_patch(
+    patch: &ProductListingRawValuesPatch<
+        product_listing_normalization::ProductListingRawValuesAuctionPatch,
+    >,
+) -> PatchField<ProductListingAuctionPatch> {
+    match patch {
+        ProductListingRawValuesPatch::Set(value) => PatchField::Set(ProductListingAuctionPatch {
+            source_auction_id: to_patch(&value.source_auction_id),
+            lot_number: to_patch(&value.lot_number),
+            catalogue_position: to_patch(&value.catalogue_position),
+            bidding_opens: to_patch(&value.bidding_opens),
+            scheduled_closes: to_patch(&value.scheduled_closes),
+            reported_closed_at: to_patch(&value.reported_closed_at),
+        }),
         ProductListingRawValuesPatch::Clear => PatchField::Clear,
         ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
     }
@@ -788,9 +841,21 @@ fn completion(
         outcome,
         product_listing_id,
         product_listing_event_id,
+        diagnostics: Vec::new(),
+        auction_acceptance: None,
         error_code,
         next_product_listing_id: head.product_listing_id,
         next_source_listing_id: head.source_listing_id.clone(),
+    }
+}
+
+fn push_diagnostic(
+    diagnostics: &mut Vec<ProductListingRawValuesNormalizationDiagnostic>,
+    diagnostic: ProductListingRawValuesNormalizationDiagnostic,
+) {
+    if !diagnostics.contains(&diagnostic) {
+        diagnostics.push(diagnostic);
+        diagnostics.sort_unstable();
     }
 }
 
@@ -877,10 +942,41 @@ mod tests {
         ProductListingAuctionOverride, ProductListingAuctionOverrideAudit,
         ProductListingAuctionOverrideError, ProductListingAuctionOverrideRepository,
         ProductListingAuctionOverrideRepositoryFactory, ProductListingEventAppendError,
-        ProductListingEventAppender, ProductListingRawRevisionId, ProductListingRepository,
-        ProductListingRepositoryError,
+        ProductListingEventAppender, ProductListingRawAuctionContextAdmission,
+        ProductListingRawRevisionId, ProductListingRepository, ProductListingRepositoryError,
     };
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn should_map_each_normalized_auction_leaf_patch_to_the_canonical_writer() {
+        let raw_patch = product_listing_normalization::ProductListingRawValuesAuctionPatch {
+            source_auction_id: ProductListingRawValuesPatch::Set(
+                auction_core::SourceAuctionId::try_from("sale-42")
+                    .unwrap_or_else(|error| panic!("source auction ID: {error}")),
+            ),
+            lot_number: ProductListingRawValuesPatch::Clear,
+            catalogue_position: ProductListingRawValuesPatch::Unchanged,
+            bidding_opens: ProductListingRawValuesPatch::Clear,
+            scheduled_closes: ProductListingRawValuesPatch::Set(
+                auction_core::AuctionTime::instant(OffsetDateTime::UNIX_EPOCH, None),
+            ),
+            reported_closed_at: ProductListingRawValuesPatch::Unchanged,
+        };
+
+        let mapped = auction_patch(&ProductListingRawValuesPatch::Set(raw_patch));
+
+        assert!(matches!(
+            mapped,
+            PatchField::Set(ProductListingAuctionPatch {
+                source_auction_id: PatchField::Set(_),
+                lot_number: PatchField::Clear,
+                catalogue_position: PatchField::Unchanged,
+                bidding_opens: PatchField::Clear,
+                scheduled_closes: PatchField::Set(_),
+                reported_closed_at: PatchField::Unchanged,
+            })
+        ));
+    }
 
     struct TestTx(Arc<Mutex<bool>>);
     struct TestUnitOfWork(Arc<Mutex<bool>>);
@@ -1041,6 +1137,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AuctionRepository for TestAuctionRepository {
+        async fn lock_by_key(
+            &mut self,
+            _: &auction_core::AuctionKey,
+        ) -> Result<(), AuctionRepositoryError> {
+            Ok(())
+        }
+
         async fn find_by_id(
             &mut self,
             _: auction_core::AuctionId,
@@ -1147,6 +1250,15 @@ mod tests {
             Ok(None)
         }
 
+        async fn admit_raw_auction_context(
+            &mut self,
+            _: ProductListingId,
+            _: product_listing_service::ports::ProductListingRawAuctionCapture,
+        ) -> Result<ProductListingRawAuctionContextAdmission, ProductListingAuctionOverrideError>
+        {
+            Ok(ProductListingRawAuctionContextAdmission::Admit)
+        }
+
         async fn activate(
             &mut self,
             _: &ProductListingAuctionOverrideAudit,
@@ -1156,7 +1268,7 @@ mod tests {
                 version:
                     product_listing_service::ports::ProductListingAuctionPolicyVersion::default(),
                 active: false,
-                release_capture_generation: None,
+                release_capture_generation_fence: None,
             })
         }
 
@@ -1172,7 +1284,7 @@ mod tests {
                 version:
                     product_listing_service::ports::ProductListingAuctionPolicyVersion::default(),
                 active: false,
-                release_capture_generation: None,
+                release_capture_generation_fence: None,
             })
         }
     }
@@ -1895,10 +2007,10 @@ mod tests {
         else {
             panic!("invalid optional timing should resolve");
         };
-        assert_eq!(
-            PatchField::Unchanged,
-            canonical_upsert(listing_source_id, invalid_timing_resolved.as_ref()).auction
-        );
+        assert!(matches!(
+            canonical_upsert(listing_source_id, invalid_timing_resolved.as_ref()).auction,
+            PatchField::Set(_)
+        ));
 
         let stream_id = ProductListingRawStreamId::new();
         let revision = crate::ports::ProductListingRawRevision {
@@ -1919,18 +2031,19 @@ mod tests {
             ProductListingRawNormalizationOutcome::Applied,
             ProductListingRawNormalizationOutcome::NoChange,
         ] {
-            let completed = completion(
-                &head,
-                &revision,
-                outcome,
-                None,
-                None,
-                invalid_timing_resolved
-                    .diagnostic
-                    .map(ProductListingRawValuesNormalizationDiagnostic::as_str),
-            );
+            let mut completed = completion(&head, &revision, outcome, None, None, None);
+            completed.diagnostics = invalid_timing_resolved.diagnostics.clone();
+            completed.error_code = completed
+                .diagnostics
+                .first()
+                .copied()
+                .map(ProductListingRawValuesNormalizationDiagnostic::as_str);
             assert_eq!(NORMALIZER_VERSION, completed.normalizer_version);
             assert_eq!(outcome, completed.outcome);
+            assert_eq!(
+                vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
+                completed.diagnostics
+            );
             assert_eq!(Some("AUCTION_TIMING_INVALID"), completed.error_code);
         }
         Ok(())
@@ -1950,7 +2063,7 @@ mod tests {
                 Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion)
             ));
         }
-        assert_eq!(4, NORMALIZER_VERSION);
+        assert_eq!(5, NORMALIZER_VERSION);
         Ok(())
     }
 

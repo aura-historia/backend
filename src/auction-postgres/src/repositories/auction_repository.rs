@@ -14,6 +14,16 @@ pub(crate) struct SqlxAuctionRepository<'tx> {
 
 #[async_trait::async_trait]
 impl AuctionRepository for SqlxAuctionRepository<'_> {
+    async fn lock_by_key(&mut self, key: &AuctionKey) -> Result<(), AuctionRepositoryError> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))")
+            .bind(key.listing_source_id().as_uuid().to_string())
+            .bind(key.source_auction_id().as_ref())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(read_error)?;
+        Ok(())
+    }
+
     async fn find_by_id(
         &mut self,
         id: auction_core::AuctionId,

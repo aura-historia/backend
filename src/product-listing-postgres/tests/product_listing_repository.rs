@@ -256,6 +256,126 @@ async fn should_round_trip_listing_owned_auction_context_and_timing_without_auct
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_enforce_total_lot_auction_timing_shapes_in_postgres() {
+    let pool = get_postgres_client().await;
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-timing-shapes").await;
+    let date = time::Date::from_calendar_date(2026, time::Month::May, 14)
+        .unwrap_or_else(|error| panic!("valid date: {error}"));
+    let instant = OffsetDateTime::UNIX_EPOCH;
+
+    for (suffix, timing) in [
+        ("absent", LotAuctionTimingRow::default()),
+        (
+            "date",
+            LotAuctionTimingRow {
+                bidding_opens_precision: Some("DATE"),
+                bidding_opens_date_on: Some(date),
+                bidding_opens_source_timezone: Some("Europe/Berlin"),
+                ..Default::default()
+            },
+        ),
+        (
+            "instant",
+            LotAuctionTimingRow {
+                scheduled_closes_precision: Some("INSTANT"),
+                scheduled_closes_instant_at: Some(instant),
+                scheduled_closes_source_timezone: Some("Europe/Berlin"),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let slug = format!("product-listing-postgres-timing-shape-valid-{suffix}");
+        if let Err(error) = insert_lot_auction_timing(&pool, listing_source_id, &slug, timing).await
+        {
+            panic!("valid lot auction timing shape must persist: {error}");
+        }
+    }
+
+    for (suffix, timing) in [
+        (
+            "bidding-opens-null-precision-instant",
+            LotAuctionTimingRow {
+                bidding_opens_instant_at: Some(instant),
+                ..Default::default()
+            },
+        ),
+        (
+            "bidding-opens-null-precision-date",
+            LotAuctionTimingRow {
+                bidding_opens_date_on: Some(date),
+                ..Default::default()
+            },
+        ),
+        (
+            "bidding-opens-timezone-only",
+            LotAuctionTimingRow {
+                bidding_opens_source_timezone: Some("Europe/Berlin"),
+                ..Default::default()
+            },
+        ),
+        (
+            "bidding-opens-date-with-instant",
+            LotAuctionTimingRow {
+                bidding_opens_precision: Some("DATE"),
+                bidding_opens_instant_at: Some(instant),
+                ..Default::default()
+            },
+        ),
+        (
+            "bidding-opens-instant-with-date",
+            LotAuctionTimingRow {
+                bidding_opens_precision: Some("INSTANT"),
+                bidding_opens_date_on: Some(date),
+                ..Default::default()
+            },
+        ),
+        (
+            "scheduled-closes-null-precision-instant",
+            LotAuctionTimingRow {
+                scheduled_closes_instant_at: Some(instant),
+                ..Default::default()
+            },
+        ),
+        (
+            "scheduled-closes-null-precision-date",
+            LotAuctionTimingRow {
+                scheduled_closes_date_on: Some(date),
+                ..Default::default()
+            },
+        ),
+        (
+            "scheduled-closes-timezone-only",
+            LotAuctionTimingRow {
+                scheduled_closes_source_timezone: Some("Europe/Berlin"),
+                ..Default::default()
+            },
+        ),
+        (
+            "scheduled-closes-date-with-instant",
+            LotAuctionTimingRow {
+                scheduled_closes_precision: Some("DATE"),
+                scheduled_closes_instant_at: Some(instant),
+                ..Default::default()
+            },
+        ),
+        (
+            "scheduled-closes-instant-with-date",
+            LotAuctionTimingRow {
+                scheduled_closes_precision: Some("INSTANT"),
+                scheduled_closes_date_on: Some(date),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let slug = format!("product-listing-postgres-timing-shape-invalid-{suffix}");
+        assert_check_violation(
+            insert_lot_auction_timing(&pool, listing_source_id, &slug, timing).await,
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_persist_valid_long_incompressible_url_through_canonical_repository() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -889,6 +1009,70 @@ fn assert_check_violation(result: Result<(), sqlx::Error>) {
         result,
         Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23514")
     ));
+}
+
+#[derive(Default)]
+struct LotAuctionTimingRow<'a> {
+    bidding_opens_precision: Option<&'a str>,
+    bidding_opens_instant_at: Option<OffsetDateTime>,
+    bidding_opens_date_on: Option<time::Date>,
+    bidding_opens_source_timezone: Option<&'a str>,
+    scheduled_closes_precision: Option<&'a str>,
+    scheduled_closes_instant_at: Option<OffsetDateTime>,
+    scheduled_closes_date_on: Option<time::Date>,
+    scheduled_closes_source_timezone: Option<&'a str>,
+}
+
+async fn insert_lot_auction_timing(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    slug: &str,
+    timing: LotAuctionTimingRow<'_>,
+) -> Result<(), sqlx::Error> {
+    let product_listing_id = seed_lot_auction_timing_context(pool, listing_source_id, slug).await;
+    sqlx::query(
+        "INSERT INTO product_listing_lot_auction_timings (product_listing_id, bidding_opens_precision, bidding_opens_instant_at, bidding_opens_date_on, bidding_opens_source_timezone, scheduled_closes_precision, scheduled_closes_instant_at, scheduled_closes_date_on, scheduled_closes_source_timezone) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(product_listing_id)
+    .bind(timing.bidding_opens_precision)
+    .bind(timing.bidding_opens_instant_at)
+    .bind(timing.bidding_opens_date_on)
+    .bind(timing.bidding_opens_source_timezone)
+    .bind(timing.scheduled_closes_precision)
+    .bind(timing.scheduled_closes_instant_at)
+    .bind(timing.scheduled_closes_date_on)
+    .bind(timing.scheduled_closes_source_timezone)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+async fn seed_lot_auction_timing_context(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    slug: &str,
+) -> uuid::Uuid {
+    if let Err(error) = insert_product_row(pool, listing_source_id, slug, None, None).await {
+        panic!("failed to seed lot auction timing product: {error}");
+    }
+    let source_listing_id = format!("{slug}-source-listing");
+    let product_listing_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2",
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind(source_listing_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load lot auction timing product: {error}"));
+    sqlx::query(
+        "INSERT INTO product_listing_auction_contexts (product_listing_id, listing_source_id) VALUES ($1, $2)",
+    )
+    .bind(product_listing_id)
+    .bind(listing_source_id.into_uuid())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed lot auction timing context: {error}"));
+    product_listing_id
 }
 
 async fn insert_product_with_event(

@@ -353,7 +353,9 @@ CREATE TABLE product_listing_raw_provider_observation_receipts (
 
 CREATE TABLE product_listing_raw_revisions (
     product_listing_raw_revision_id uuid PRIMARY KEY,
-    generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
+    generation bigint GENERATED ALWAYS AS IDENTITY (
+        SEQUENCE NAME product_listing_raw_capture_generation_seq
+    ) UNIQUE,
     product_listing_raw_stream_id uuid NOT NULL
         REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
     revision bigint NOT NULL,
@@ -434,6 +436,45 @@ CREATE TABLE product_listing_raw_normalizations (
 
 CREATE INDEX product_listing_raw_normalizations_stream_revision_idx
     ON product_listing_raw_normalizations (product_listing_raw_stream_id, revision ASC);
+
+CREATE TABLE product_listing_raw_normalization_diagnostics (
+    product_listing_raw_revision_id uuid NOT NULL,
+    normalizer_version smallint NOT NULL,
+    ordinal smallint NOT NULL,
+    code text NOT NULL,
+    PRIMARY KEY (product_listing_raw_revision_id, normalizer_version, ordinal),
+    UNIQUE (product_listing_raw_revision_id, normalizer_version, code),
+    FOREIGN KEY (product_listing_raw_revision_id, normalizer_version)
+        REFERENCES product_listing_raw_normalizations (product_listing_raw_revision_id, normalizer_version)
+        ON DELETE CASCADE,
+    CONSTRAINT product_listing_raw_normalization_diagnostics_ordinal_check
+        CHECK (ordinal >= 1 AND ordinal <= 8),
+    CONSTRAINT product_listing_raw_normalization_diagnostics_code_check
+        CHECK (code IN (
+            'AUCTION_REFERENCE_INVALID',
+            'AUCTION_LOT_INVALID',
+            'AUCTION_TIMING_INVALID',
+            'AUCTION_METADATA_INVALID',
+            'MEMBERSHIP_CHANGE_REQUIRES_CORRECTION'
+        ))
+);
+
+CREATE TABLE product_listing_raw_auction_acceptances (
+    product_listing_raw_revision_id uuid NOT NULL,
+    normalizer_version smallint NOT NULL,
+    auction_id uuid NOT NULL REFERENCES auctions(auction_id) ON DELETE RESTRICT,
+    auction_result_version bigint NOT NULL,
+    auction_event_id uuid,
+    disposition text NOT NULL,
+    PRIMARY KEY (product_listing_raw_revision_id, normalizer_version),
+    FOREIGN KEY (product_listing_raw_revision_id, normalizer_version)
+        REFERENCES product_listing_raw_normalizations (product_listing_raw_revision_id, normalizer_version)
+        ON DELETE CASCADE,
+    CONSTRAINT product_listing_raw_auction_acceptances_result_version_check
+        CHECK (auction_result_version >= 1),
+    CONSTRAINT product_listing_raw_auction_acceptances_disposition_check
+        CHECK (disposition IN ('CREATED', 'METADATA_APPLIED', 'NO_CHANGE'))
+);
 
 CREATE TABLE partnerships (
     partnership_id uuid PRIMARY KEY,
@@ -676,14 +717,18 @@ CREATE TABLE product_listing_lot_auction_timings (
     scheduled_closes_source_timezone text,
     reported_closed_at timestamptz,
     CONSTRAINT product_listing_lot_auction_timings_bidding_opens_shape_check CHECK (
-        (bidding_opens_precision IS NULL AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NULL AND bidding_opens_source_timezone IS NULL)
-        OR (bidding_opens_precision = 'INSTANT' AND bidding_opens_instant_at IS NOT NULL AND bidding_opens_date_on IS NULL)
-        OR (bidding_opens_precision = 'DATE' AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NOT NULL)
+        (
+            (bidding_opens_precision IS NULL AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NULL AND bidding_opens_source_timezone IS NULL)
+            OR (bidding_opens_precision = 'INSTANT' AND bidding_opens_instant_at IS NOT NULL AND bidding_opens_date_on IS NULL)
+            OR (bidding_opens_precision = 'DATE' AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NOT NULL)
+        ) IS TRUE
     ),
     CONSTRAINT product_listing_lot_auction_timings_scheduled_closes_shape_check CHECK (
-        (scheduled_closes_precision IS NULL AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NULL AND scheduled_closes_source_timezone IS NULL)
-        OR (scheduled_closes_precision = 'INSTANT' AND scheduled_closes_instant_at IS NOT NULL AND scheduled_closes_date_on IS NULL)
-        OR (scheduled_closes_precision = 'DATE' AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NOT NULL)
+        (
+            (scheduled_closes_precision IS NULL AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NULL AND scheduled_closes_source_timezone IS NULL)
+            OR (scheduled_closes_precision = 'INSTANT' AND scheduled_closes_instant_at IS NOT NULL AND scheduled_closes_date_on IS NULL)
+            OR (scheduled_closes_precision = 'DATE' AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NOT NULL)
+        ) IS TRUE
     )
 );
 
@@ -697,21 +742,24 @@ CREATE TABLE product_listing_auction_overrides (
         REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     policy_version bigint NOT NULL DEFAULT 1,
     active boolean NOT NULL,
-    release_capture_generation bigint,
+    release_capture_generation_fence bigint,
     correction_audit_id uuid,
     released_audit_id uuid,
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listing_auction_overrides_policy_version_positive_check
         CHECK (policy_version >= 1),
-    CONSTRAINT product_listing_auction_overrides_release_generation_nonnegative_check
-        CHECK (release_capture_generation IS NULL OR release_capture_generation >= 0)
+    CONSTRAINT product_listing_auction_overrides_release_generation_fence_nonnegative_check
+        CHECK (
+            release_capture_generation_fence IS NULL
+            OR release_capture_generation_fence >= 0
+        )
 );
 
 -- Floors retain both stream-local and global immutable capture order. A released override
 -- cannot be undone by work captured before its release, even when delivery is delayed.
 CREATE TABLE product_listing_auction_override_floors (
     product_listing_id uuid NOT NULL
-        REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
+        REFERENCES product_listing_auction_overrides(product_listing_id) ON DELETE CASCADE,
     product_listing_raw_stream_id uuid NOT NULL
         REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
     last_capture_revision bigint NOT NULL,
@@ -744,11 +792,11 @@ CREATE TABLE product_listing_auction_override_releases (
         REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     actor_label text NOT NULL,
     recorded_at timestamptz NOT NULL,
-    capture_generation bigint NOT NULL,
+    capture_generation_fence bigint NOT NULL,
     CONSTRAINT product_listing_auction_override_releases_actor_label_nonblank_check
         CHECK (octet_length(actor_label) BETWEEN 1 AND 1024),
-    CONSTRAINT product_listing_auction_override_releases_generation_nonnegative_check
-        CHECK (capture_generation >= 0)
+    CONSTRAINT product_listing_auction_override_releases_generation_fence_nonnegative_check
+        CHECK (capture_generation_fence >= 0)
 );
 
 CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);

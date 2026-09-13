@@ -36,11 +36,12 @@ pub use raw_values_normalizer::{
     ProductListingRawValuesAuctionMetadata,
     ProductListingRawValuesAuctionMetadataNormalizationError,
     ProductListingRawValuesAuctionMetadataResolved, ProductListingRawValuesAuctionMetadataSchedule,
-    ProductListingRawValuesAuctionNormalizationError, ProductListingRawValuesAuctionTime,
-    ProductListingRawValuesLotAuctionTiming, ProductListingRawValuesNormalizationDiagnostic,
-    ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
-    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
-    ProductListingRawValuesPriceFormat, ProductListingRawValuesResolved,
+    ProductListingRawValuesAuctionNormalizationError, ProductListingRawValuesAuctionPatch,
+    ProductListingRawValuesAuctionTime, ProductListingRawValuesLotAuctionTiming,
+    ProductListingRawValuesNormalizationDiagnostic, ProductListingRawValuesNormalizationError,
+    ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
+    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat,
+    ProductListingRawValuesResolved,
 };
 pub use source_listing_id::{
     SourceListingIdNormalizationError, normalize_source_listing_id_with_url_sha_fallback,

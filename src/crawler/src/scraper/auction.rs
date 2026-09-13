@@ -8,10 +8,14 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CrawlerAuctionEvidence {
-    pub(crate) source_auction_id: String,
-    pub(crate) catalogue_url: String,
+    /// A source key is reliable identity. Its absence still permits a reliable
+    /// participation assertion when a source-specific extractor proves one.
+    pub(crate) source_auction_id: Option<String>,
+    pub(crate) catalogue_url: Option<String>,
     pub(crate) name: Option<String>,
     pub(crate) lot_number: Option<String>,
+    pub(crate) lot_bidding_opens: Option<String>,
+    pub(crate) lot_scheduled_closes: Option<String>,
 }
 
 /// Extracts Lot-tissimo catalogue evidence from its tested lot URL namespace.
@@ -22,6 +26,7 @@ pub(crate) struct CrawlerAuctionEvidence {
 pub(crate) fn extract_lot_tissimo_auction(
     candidate_url: &Url,
     raw: &RawExtractedProduct,
+    html: &str,
 ) -> Option<CrawlerAuctionEvidence> {
     let host = candidate_url.host_str()?;
     if !matches!(host, "lot-tissimo.com" | "www.lot-tissimo.com")
@@ -63,11 +68,26 @@ pub(crate) fn extract_lot_tissimo_auction(
     let catalogue_url = catalogue_url.to_string();
 
     Some(CrawlerAuctionEvidence {
-        source_auction_id: source_auction_id.to_owned(),
+        source_auction_id: Some(source_auction_id.to_owned()),
         name: raw_attribute(raw, "rawAuctionName"),
-        catalogue_url,
+        catalogue_url: Some(catalogue_url),
         lot_number: raw_attribute(raw, "rawAuctionLotNumber"),
+        // These source data-layer fields are date-only. They are lot facts,
+        // not Auction schedule facts, and a `Live` type label is not a close.
+        lot_bidding_opens: data_layer_string(html, "lotStartDate"),
+        lot_scheduled_closes: data_layer_string(html, "lotEndDate"),
     })
+}
+
+/// Reads one exact quoted data-layer value. The caller has already qualified the
+/// source and URL namespace; this parser never scans generic crawler pages.
+fn data_layer_string(html: &str, field: &str) -> Option<String> {
+    let key = format!("\"{field}\"");
+    let after_key = html.split_once(key.as_str())?.1;
+    let after_colon = after_key.split_once(':')?.1;
+    let value = after_colon.trim_start().strip_prefix('\"')?;
+    let value = value.split_once('\"')?.0.trim();
+    (!value.is_empty()).then(|| value.to_owned())
 }
 
 fn is_lot_tissimo_locale(value: &str) -> bool {
@@ -127,20 +147,27 @@ mod tests {
     }
 
     #[test]
-    fn should_extract_catalogue_identity_and_selector_bound_evidence_from_fixture_backed_lot_tissimo_url()
-     {
+    fn should_extract_catalogue_identity_without_using_live_banner_or_opening_price() {
         let url = Url::parse(LOT_URL).unwrap_or_else(|error| panic!("fixture URL: {error}"));
 
-        let evidence = extract_lot_tissimo_auction(&url, &raw())
+        let evidence = extract_lot_tissimo_auction(&url, &raw(), LOT_TISSIMO_HTML)
             .unwrap_or_else(|| panic!("fixture must match documented Lot-tissimo rule"));
 
-        assert_eq!("leipzig10033", evidence.source_auction_id);
+        assert_eq!(Some("leipzig10033".to_owned()), evidence.source_auction_id);
         assert_eq!(
-            "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033",
+            Some(
+                "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033".to_owned(),
+            ),
             evidence.catalogue_url
         );
         assert_eq!(Some("Auktion 9".to_owned()), evidence.name);
+        assert_ne!(Some("Live auf Los 54".to_owned()), evidence.name);
+        assert_eq!(None, raw().price, "openingPrice is not a listing price");
+        assert_eq!(None, raw().price_estimate_min);
+        assert_eq!(None, raw().price_estimate_max);
         assert_eq!(Some("54".to_owned()), evidence.lot_number);
+        assert_eq!(Some("2026-04-18".to_owned()), evidence.lot_bidding_opens);
+        assert_eq!(None, evidence.lot_scheduled_closes);
     }
 
     #[test]
@@ -153,7 +180,26 @@ mod tests {
             "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033/lot-a2850590-e73c-4cce-9386-b3fd00b49bfd?utm_source=fixture",
         ] {
             let url = Url::parse(url).unwrap_or_else(|error| panic!("fixture URL: {error}"));
-            assert!(extract_lot_tissimo_auction(&url, &raw).is_none(), "{url}");
+            assert!(
+                extract_lot_tissimo_auction(&url, &raw, LOT_TISSIMO_HTML).is_none(),
+                "{url}"
+            );
         }
+    }
+
+    #[test]
+    fn should_map_lot_end_date_to_lot_close_without_treating_live_as_a_close() {
+        let html = LOT_TISSIMO_HTML.replacen(
+            "\"lotEndDate\" : \"\"",
+            "\"lotEndDate\" : \"2026-04-18\"",
+            1,
+        );
+        let url = Url::parse(LOT_URL).unwrap_or_else(|error| panic!("fixture URL: {error}"));
+
+        let evidence = extract_lot_tissimo_auction(&url, &raw(), &html)
+            .unwrap_or_else(|| panic!("fixture URL must remain qualified"));
+
+        assert_eq!(Some("2026-04-18".to_owned()), evidence.lot_bidding_opens);
+        assert_eq!(Some("2026-04-18".to_owned()), evidence.lot_scheduled_closes);
     }
 }

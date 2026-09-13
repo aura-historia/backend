@@ -48,6 +48,7 @@ pub use product_listing_auction_override::{
     ProductListingAuctionOverride, ProductListingAuctionOverrideAudit,
     ProductListingAuctionOverrideError, ProductListingAuctionOverrideRepository,
     ProductListingAuctionOverrideRepositoryFactory, ProductListingAuctionPolicyVersion,
+    ProductListingRawAuctionCapture, ProductListingRawAuctionContextAdmission,
 };
 pub use product_listing_content_assessment_reader::{
     ProductListingContentAssessment, ProductListingContentAssessmentReadError,

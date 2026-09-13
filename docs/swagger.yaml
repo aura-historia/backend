@@ -634,11 +634,13 @@ paths:
 
         `null` clears availability and price. Omit `auction` to preserve its context; `auction: null`, `url: null`,
 
-        and `images: null` return `400 BAD_BODY_VALUE`; send `[]` to remove all images. An asserted
+        and `images: null` return `400 BAD_BODY_VALUE`; send `[]` to remove all images. Within an asserted `auction`,
 
-        `auction.sourceAuctionId` resolves or creates membership in the entry transaction; a different key for an
+        omit a leaf to preserve it, send `null` to clear a clearable lot/timing leaf, or send a value to set it.
 
-        existing membership returns `409 CONFLICT` and requires explicit correction. The complete batch contract is
+        `auction.sourceAuctionId` is non-clearable: omit it to preserve membership or send a key to resolve it. A different
+
+        current key returns `409 CONFLICT` and requires explicit correction. The complete batch contract is
 
         validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
@@ -808,7 +810,7 @@ paths:
         \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nAllowed callers are Aura\
         \ Historia admins and users partnered with the target listing source.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
-        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted complete context (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. An asserted `auction.sourceAuctionId` resolves or fills shared Auction membership, but a different current key returns `409 CONFLICT` pending explicit correction. A withdrawn\n  listing is restored before current facts\
+        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested context (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction context, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `sourceAuctionId` is non-clearable: omit to preserve membership or provide a key to resolve/fill it; a different current key returns `409 CONFLICT` pending explicit correction. A withdrawn\n  listing is restored before current facts\
         \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
         \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
@@ -12891,13 +12893,12 @@ components:
     ProductListingAuctionData:
       type: object
       additionalProperties: false
-      description: Partner ProductListing write context. Optional `sourceAuctionId` resolves shared Auction membership and `metadata` is fill-only; ordinary writes cannot change an existing membership.
+      description: Partner ProductListing nested write patch. The outer object participates even when empty. Omit a lot/timing leaf to preserve it, send null to clear a clearable leaf, or send a value to set it. Omit non-clearable `sourceAuctionId` to preserve membership or supply a reliable key to resolve it; null is invalid. `metadata` is fill-only; ordinary writes cannot change an existing membership.
       properties:
         sourceAuctionId:
           type: string
           maxLength: 512
-          nullable: true
-          description: Optional reliable source Auction key. Outer Unicode whitespace is trimmed; case and internal whitespace are preserved.
+          description: Optional non-null/non-clearable reliable source Auction key. Omit to preserve membership; null is invalid. Outer Unicode whitespace is trimmed; case and internal whitespace are preserved.
           example: spring-sale-2026
         metadata:
           allOf:
@@ -12907,7 +12908,7 @@ components:
           type: string
           maxLength: 128
           nullable: true
-          description: Optional source-assigned lot label.
+          description: Omit to preserve the lot label; send null to clear it; send a value to set it.
           example: "42A"
         cataloguePosition:
           type: integer
@@ -12915,7 +12916,7 @@ components:
           minimum: 1
           maximum: 4294967295
           nullable: true
-          description: Optional one-based source catalogue position.
+          description: Omit to preserve the catalogue position; send null to clear it; send a value to set it.
           example: 7
         timing:
           allOf:
@@ -13078,21 +13079,23 @@ components:
     ProductListingAuctionTimingData:
       type: object
       additionalProperties: false
-      description: Optional lot timing assertions. Scheduled values preserve source precision; reported close is an exact observed fact.
+      description: Nested lot-timing patch. Omit each leaf to preserve it, send null to clear it, or send a value to set it. Scheduled values preserve source precision; reported close is an exact observed fact.
       properties:
         biddingOpens:
           allOf:
             - $ref: "#/components/schemas/AuctionTimeData"
           nullable: true
+          description: Omit to preserve; send null to clear; send a value to set.
         scheduledCloses:
           allOf:
             - $ref: "#/components/schemas/AuctionTimeData"
           nullable: true
+          description: Omit to preserve; send null to clear; send a value to set.
         reportedClosedAt:
           type: string
           format: date-time
           nullable: true
-          description: Exact source-reported close time.
+          description: Omit to preserve; send null to clear; send an exact source-reported close time to set.
     PriceEstimateData:
       type: object
       description: "Price estimate range for a product.
@@ -15489,8 +15492,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          nullable: true
-          description: Optional complete lot context. `sourceAuctionId` resolves shared Auction membership and optional embedded metadata is fill-only.
+          description: Omit for no Auction context, or send an asserted nested lot-context patch. `null` is invalid. `sourceAuctionId` resolves shared Auction membership and optional embedded metadata is fill-only.
     PartnerProductListingBatchFailuresResponse:
       type: array
       description:
@@ -15583,7 +15585,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit to leave unchanged. Send an object to replace the lot context. `sourceAuctionId` resolves/fills Auction membership; a different current key returns `409 CONFLICT` pending correction. `null` is invalid.
+          description: Omit to leave unchanged. Send an object to apply nested lot/timing leaf patches. `sourceAuctionId` resolves/fills Auction membership; a different current key returns `409 CONFLICT` pending correction. `null` is invalid.
     UpsertProductListingData:
       type: object
       additionalProperties: false
@@ -15594,9 +15596,11 @@ components:
 
         value, `null` clears it, and a concrete value replaces it. The auction context is omitted
 
-        to preserve it or supplied as a complete replacement; `null` is invalid. `sourceAuctionId` resolves or fills
+        to preserve it or supplied as a nested leaf patch; `null` is invalid. Within an asserted context, lot/timing leaves
 
-        Auction membership, but a different existing key requires explicit correction and returns `409 CONFLICT`. Upsert restores a withdrawn listing before current
+        omit to preserve, use `null` to clear, or provide a value to set. `sourceAuctionId` is non-clearable and resolves or fills
+
+        Auction membership only when provided; a different existing key requires explicit correction and returns `409 CONFLICT`. Upsert restores a withdrawn listing before current
 
         facts apply. Images and URL use the field-specific rules documented below.
 
@@ -15666,7 +15670,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit to preserve the current context or send an object to replace it. `sourceAuctionId` resolves/fills Auction membership; a different current key requires correction. `null` is invalid.
+          description: Omit to preserve the current context or send an object to apply nested leaf patches. `sourceAuctionId` resolves/fills Auction membership; a different current key requires correction. `null` is invalid.
     WoocommerceProductWebhookImageData:
       type: object
       description: Image object extracted from a WooCommerce product payload.

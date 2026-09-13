@@ -3,7 +3,7 @@ use crate::{
     ports::{
         AuctionEventAppender, AuctionEventAppenderFactory, AuctionMetadataPolicyRepository,
         AuctionMetadataPolicyRepositoryFactory, AuctionRepository, AuctionRepositoryError,
-        AuctionRepositoryFactory, stamp_auction_event,
+        AuctionRepositoryFactory, AuctionStorageVersion, stamp_auction_event,
     },
 };
 use application::error::{BoxError, box_error};
@@ -13,13 +13,33 @@ use domain_primitives::event_id::EventId;
 use listing_source_core::ListingSourceId;
 use time::OffsetDateTime;
 
+/// Canonical outcome of accepting listing-embedded Auction metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
+pub enum AuctionAcceptanceDisposition {
+    Created,
+    MetadataApplied,
+    NoChange,
+}
+
+impl AuctionAcceptanceDisposition {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "CREATED",
+            Self::MetadataApplied => "METADATA_APPLIED",
+            Self::NoChange => "NO_CHANGE",
+        }
+    }
+}
+
 /// Result of resolving one reliable source auction reference inside a caller-owned transaction.
 /// It deliberately exposes no adapter data or raw revision identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuctionWriteReceipt {
     pub auction_id: AuctionId,
+    pub auction_result_version: AuctionStorageVersion,
     pub auction_event_id: Option<EventId>,
     pub outcome: ChangeOutcome,
+    pub disposition: AuctionAcceptanceDisposition,
     pub created: bool,
 }
 
@@ -36,6 +56,8 @@ pub struct ResolveAuctionForListingRequest {
 pub enum ResolveAuctionForListingError {
     #[error("listing source does not exist")]
     ListingSourceNotFound,
+    /// A non-cooperating source-key writer or root CAS conflict was observed. The caller-owned
+    /// transaction must end; this resolver never retries on an aborted transaction.
     #[error("concurrent auction resolution")]
     ConcurrencyConflict,
     #[error("auction membership change requires an explicit correction")]
@@ -74,6 +96,12 @@ where
     P: AuctionMetadataPolicyRepositoryFactory<Tx>,
 {
     let key = AuctionKey::new(request.listing_source_id, request.source_auction_id);
+    auctions
+        .in_transaction(tx)
+        .lock_by_key(&key)
+        .await
+        .map_err(map_repository_error)?;
+
     let existing = match request.current_membership {
         Some(auction_id) => {
             let stored = auctions
@@ -144,8 +172,10 @@ where
             })?;
         return Ok(AuctionWriteReceipt {
             auction_id: stored.auction.id(),
+            auction_result_version: stored.version,
             auction_event_id: Some(event.event_id),
             outcome: ChangeOutcome::Changed,
+            disposition: AuctionAcceptanceDisposition::Created,
             created: true,
         });
     };
@@ -165,8 +195,10 @@ where
     if acceptance.change == ChangeOutcome::Unchanged {
         return Ok(AuctionWriteReceipt {
             auction_id: auction.id(),
+            auction_result_version: stored.version,
             auction_event_id: None,
             outcome: ChangeOutcome::Unchanged,
+            disposition: AuctionAcceptanceDisposition::NoChange,
             created: false,
         });
     }
@@ -193,8 +225,10 @@ where
         })?;
     Ok(AuctionWriteReceipt {
         auction_id: stored.auction.id(),
+        auction_result_version: stored.version,
         auction_event_id: Some(event.event_id),
         outcome: ChangeOutcome::Changed,
+        disposition: AuctionAcceptanceDisposition::MetadataApplied,
         created: false,
     })
 }

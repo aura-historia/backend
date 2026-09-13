@@ -14,12 +14,13 @@ Capture reliable source Auction evidence from crawler pages without giving crawl
   ```
 - It rejects unknown hosts, malformed IDs/path shapes, and query/fragment wrappers. It does not hash URLs or match names.
 - The checked-in Lot-tissimo fixture now has reviewed selector evidence for `rawAuctionName` and `rawAuctionLotNumber`.
-- The crawler maps this source key, catalogue URL, optional name, and lot label into the one current raw `auction` patch. Shared facts use `auctionMetadata`; no old raw spelling or schema discriminator was introduced.
-- Crawler still only captures immutable raw observations. Normalization and transactional Auction resolution remain outside crawler.
+- The crawler maps this source key, catalogue URL, optional name, lot label, and nonblank date-only `lotStartDate`/`lotEndDate` into the one current raw `auction` patch. They are respectively lot opening/close assertions, not Auction schedule assertions; `Live` never becomes a lot close. A `SET` context without source key remains reliable participation but cannot resolve membership. Shared facts use `auctionMetadata`; no old raw spelling or schema discriminator was introduced.
+- Crawler still only captures immutable raw observations. Unit coverage drives its current raw input through the actual raw normalizer; an isolated PostgreSQL raw-stream test captures participation first, then the fixture key/name, and proves canonical resolution after the later reliable identity. Normalization and transactional Auction resolution remain outside crawler.
+- Resolver source-key locking now serializes simultaneous typed and raw first discovery/fill transactions. Real PostgreSQL races prove one Auction/discovery event and two listing attachments; the callers wait in separate transactions rather than retrying an aborted transaction.
 
 ## Non-goals
 
-No generic URL rule, name-only resolution, source-wide timing inference, direct ProductListing/Auction writes, Auction browse/search, bids, outcomes, Party attribution, or session model.
+No generic URL rule, name-only resolution, source-wide timing inference, direct ProductListing/Auction writes, Auction browse/search, bids, outcomes, Party attribution, or session model. The current fixture has an empty `lotEndDate`; the mapper supports a nonblank value only as the exact labelled lot-close field, not as a broad source-time claim.
 
 ## Verification
 
@@ -37,6 +38,8 @@ cargo test -p product-service --all-features                                    
 cargo test -p product-listing-postgres --test product_listing_raw_normalization \
   --all-features should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata \
   -- --exact                                                                       PASS
+cargo test -p product-listing-postgres --test product_listing_raw_normalization \
+  --all-features should_attach_concurrent_ -- --nocapture                         PASS
 cargo test -p aura-historia-worker --lib --all-features                            PASS
 cargo test -p aura-historia-worker --test process_durability --all-features \
   should_persist_accepted_work_after_process_dies_before_handler_commit_t07 -- --exact  PASS

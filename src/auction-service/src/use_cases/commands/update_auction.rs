@@ -216,6 +216,16 @@ where
             .find_by_id(command.auction_id)
             .await?
             .ok_or(UpdateAuctionError::NotFound)?;
+        self.auctions
+            .in_transaction(&mut tx)
+            .lock_by_key(stored.auction.key())
+            .await?;
+        let stored = self
+            .auctions
+            .in_transaction(&mut tx)
+            .find_by_id(command.auction_id)
+            .await?
+            .ok_or(UpdateAuctionError::NotFound)?;
         if stored.version != command.expected_version {
             return Err(UpdateAuctionError::ConcurrencyConflict);
         }
@@ -514,6 +524,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AuctionRepository for FakeAuctionRepository {
+        async fn lock_by_key(&mut self, _key: &AuctionKey) -> Result<(), AuctionRepositoryError> {
+            Ok(())
+        }
+
         async fn find_by_id(
             &mut self,
             _id: AuctionId,
@@ -733,7 +747,7 @@ mod tests {
         ));
         let state = lock(&state);
         assert_eq!(1, state.begins);
-        assert_eq!(1, state.finds);
+        assert_eq!(2, state.finds);
         assert_eq!(0, state.policy_reads);
         assert_eq!(0, state.updates);
         assert_eq!(0, state.event_appends);

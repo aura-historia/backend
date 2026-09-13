@@ -319,12 +319,13 @@ where
         )
         .await?;
         let mut details = present_product_details(factual_details, &snapshot, request.currency)?;
-        details.item.auction_summary =
-            auction_summary_for_context(details.item.auction.as_ref(), &self.auctions).await?;
 
         tx.commit()
             .await
             .map_err(|_| GetProductListingError::CommitTransactionFailed)?;
+
+        details.item.auction_summary =
+            auction_summary_for_context(details.item.auction.as_ref(), &self.auctions).await?;
 
         if user_id.is_some()
             && details
@@ -661,6 +662,32 @@ mod tests {
 
     struct FakeFxRateSnapshotRepository {
         state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct CommitCheckingAuctionSummaryBatchReader {
+        state: SharedState,
+        summary: AuctionSummary,
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionSummaryBatchReader for CommitCheckingAuctionSummaryBatchReader {
+        async fn find_summaries(
+            &self,
+            auction_ids: &[auction_core::AuctionId],
+        ) -> Result<HashMap<auction_core::AuctionId, AuctionSummary>, AuctionSummaryBatchReadError>
+        {
+            assert_eq!(
+                1,
+                lock_state(&self.state).commit_count,
+                "detail transaction must commit before pooled Auction hydration"
+            );
+            assert_eq!(vec![self.summary.auction_id], auction_ids);
+            Ok(HashMap::from([(
+                self.summary.auction_id,
+                self.summary.clone(),
+            )]))
+        }
     }
 
     fn state() -> SharedState {
@@ -1115,6 +1142,61 @@ mod tests {
         assert_eq!(vec![snapshot.id()], state.fx_rate_id_requests);
         assert_eq!(0, state.latest_snapshot_count);
         assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_commit_detail_transaction_before_resolved_auction_summary_hydration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let auction_id = auction_core::AuctionId::new();
+        let mut details = factual_details()?;
+        details.item.auction = Some(ProductListingAuction::new(
+            Some(product_listing_core::product_listing::AuctionMembership::new(auction_id)),
+            None,
+            None,
+            None,
+        ));
+        lock_state(&state).find_details_result = Some(Ok(Some(details)));
+        prepare_current_snapshot(&state)?;
+        let auction_reader = CommitCheckingAuctionSummaryBatchReader {
+            state: Arc::clone(&state),
+            summary: AuctionSummary {
+                auction_id,
+                name: None,
+                format: None,
+                reported_status: None,
+                schedule: auction_core::AuctionSchedule::default(),
+            },
+        };
+        let handler = GetProductListingHandler::new(
+            FakeUnitOfWork {
+                state: Arc::clone(&state),
+            },
+            FakeDetailsReaderFactory {
+                state: Arc::clone(&state),
+            },
+            FakeFxRateSnapshotRepositoryFactory {
+                state: Arc::clone(&state),
+            },
+            auction_reader,
+        );
+
+        let result = handler
+            .execute(
+                &context(Principal::Anonymous),
+                request(Language::En, Currency::Eur),
+            )
+            .await?;
+
+        assert_eq!(
+            Some(auction_id),
+            result
+                .item
+                .auction_summary
+                .map(|summary| summary.auction_id)
+        );
+        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 

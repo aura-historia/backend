@@ -59,11 +59,11 @@ YAML/component validation proves the documentation artifact and internal refs. H
 
 Existing broad suites do not establish the requested Auction scenarios:
 
-- 06 records integration compilation with `--no-run`, not execution of a reliable-ID typed partner HTTP acceptance case. Audit did not establish real 100-listing grouping/concurrent-first-discovery/rollback acceptance coverage.
+- 06 records integration compilation with `--no-run`, not execution of a reliable-ID typed partner HTTP acceptance case. A current black-box API case now creates one typed partner listing with a reliable source Auction ID, then proves anonymous and hidden personalized catalogue serialization. It does not establish real 100-listing grouping/concurrent-first-discovery/rollback acceptance coverage.
 - 07 has successful correction/release SQL and a policy-only real HTTP flow, but lacks full raw/partner/admin race coverage.
 - 08 has one checked-in Lot-tissimo HTML source fixture and a separate **synthetic** `example.test` raw-to-normalizer test. That is not HTML → capture → worker → canonical acceptance. The requested two-lot, name-only, misleading banner, extended timed deadline, and live-start-not-lot-close fixture matrix is not established. No broad live-source coverage claim is justified.
 - 09 batches summaries in code, but response/schema conformance and full boundary coverage remain incomplete.
-- 10 HTTP coverage exercises an empty anonymous catalogue. Populated/personalized image redaction, withdrawal visibility, and query-count evidence are not proved by that test; SQL-reader tests cover only their own boundary.
+- 10 HTTP coverage exercised an empty anonymous catalogue. A current black-box API case now proves one populated typed-member catalogue plus hidden personalized Auction redaction. Personalized image redaction, withdrawal visibility, and query-count/one-connection evidence are still not proved by that case; SQL-reader tests cover only their own boundary.
 - 11's existing full percolator suite does not establish an Auction-specific saved-query/membership-correction match flow. Query-JSON predicate assertions do not substitute for persisted saved-search/worker acceptance.
 
 These are missing required work/evidence, **not deferred product features**. Close each owner before rerunning 12.
@@ -117,6 +117,9 @@ Linux, repository Rust toolchain, local Docker, pinned cached PostgreSQL/LocalSt
 | `cargo test -p product-listing-postgres --lib --all-features product_listing_auction_override::tests:: -- --nocapture` | PASS after SQL repair: 4 passed. |
 | `cargo test -p aura-historia-api --test api --all-features should_correct_and_release_product_listing_auction_context_without_public_domain_changes` | PASS: 1 black-box policy-only correction/release flow. |
 | `python3 -c 'import yaml; yaml.safe_load(open("docs/swagger.yaml"))'` | PASS after OpenAPI anchor/schema repair. |
+| `cargo test -p product-listing-postgres --test product_listing_raw_normalization --all-features should_attach_concurrent_ -- --nocapture` | PASS on current checkout: 2 passed — typed and raw same-source concurrent discovery attachment. |
+| `cargo test -p aura-historia-api --test api --all-features auctions::should_resolve_typed_partner_membership_and_redact_hidden_catalogue_auction_data -- --exact --nocapture` | PASS on current checkout: 1 passed — typed partner reliable-ID membership, populated anonymous catalogue, and serialized hidden Auction redaction. |
+| `cargo test -p aura-historia-worker --test product_opensearch --all-features -- --nocapture` | PASS on current checkout: 9 passed — real PostgreSQL → Sequin webhook → worker HTTP → LocalStack SQS → OpenSearch projection paths, rollback, redelivery, stale and tombstone cases. This suite does not assert an Auction membership document field. |
 
 The earlier whole-workspace rerun stopped at the then-failing A12-01 regressions. It remains historical evidence, not the current result. The source-key digest was subsequently tightened to the actual SHA-256 of the fixture key. The explicit SQL repair, transaction-scoped policy lock, OpenAPI repair, and focused HTTP acceptance are now present. Final complete gates must still be rerun after all owning acceptance work.
 
@@ -131,10 +134,10 @@ Not run in this audit: full worker/CDC black-box acceptance, every `/tests` targ
 | Required scenarios | Evidence and remaining limit |
 | --- | --- |
 | ID-01–09, ID-11–12; TIME core/policy cases | Current Auction core/service/adapter suites pass. No claim that pure tests prove memberships or concurrent SQL discovery. |
-| ID-10; MEM-01–09/17–18; ING-01–18 | Existing library/adapter evidence and current codecs inspected. Full grouping, raw rollback/replay, source isolation, typed partner and worker acceptance matrix remains unverified; A12-04. |
+| ID-10; MEM-01–09/17–18; ING-01–18 | Current black-box API proof covers one reliable-ID typed partner membership and populated catalogue. Current PostgreSQL acceptance also covers concurrent typed/raw first discovery attachment. Full grouping, raw rollback/replay, source isolation, and worker acceptance matrix remains unverified; A12-04. |
 | MEM-10–16/19; API-21 | Real SQL regressions and policy-only correction/release HTTP acceptance pass. Full raw/partner/admin race coverage remains A12-04. |
 | TIME-01–17 | Existing core/normalizer/reader tests pass at baseline; seven source fixture cases and whole runtime matrix not established. TIME-18 conditional local-day helper not claimed implemented/tested. |
-| API-01–20 | Existing API/reader/query suites pass within their tested scope. OpenAPI parses; populated catalogue, source-price guard and Auction-specific matching/privacy coverage still need owning verification. |
+| API-01–20 | Existing API/reader/query suites pass within their tested scope. OpenAPI parses; current API acceptance proves populated typed-member catalogue and hidden Auction data redaction. Source-price guard, withdrawal, query-count/one-connection, and broader Auction-specific matching/privacy coverage still need owning verification. |
 | DEV-01–04/06–08 | Static cleanup/fence inventory below; no universal PASS because required consumer acceptance remains incomplete. |
 | DEV-05/09 | **INCOMPLETE**: owning isolation evidence gaps and coordinated initialization/recapture not proved. |
 | DEV-10 | No shared reset, deploy, push, merge, remote purge, issue closure, or unauthorized action. |

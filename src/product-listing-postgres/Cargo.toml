@@ -36,6 +36,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 auction-postgres = { workspace = true }
+auction-service = { workspace = true }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
