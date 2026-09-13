@@ -1,0 +1,131 @@
+# Ordinary application project. Never combine its lifecycle with the platform project.
+x-app: &app
+  restart: unless-stopped
+  pull_policy: never
+  init: false
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [backend]
+  pids_limit: 256
+  mem_limit: 1g
+  cpus: 2
+  tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777"]
+  logging:
+    driver: local
+    options: { max-size: 10m, max-file: "3" }
+
+x-ca: &ca
+  type: bind
+  source: ${AURA_CONFIG_DIR:?Set host-owned config directory}/postgres-ca.pem
+  target: /run/aura/postgres-ca.pem
+  read_only: true
+  bind: { create_host_path: false }
+x-adc: &adc
+  type: bind
+  source: ${AURA_CONFIG_DIR:?Set host-owned config directory}/google-adc.json
+  target: /run/aura/google-adc.json
+  read_only: true
+  bind: { create_host_path: false }
+
+x-worker: &worker
+  <<: *app
+  image: ${WORKER_IMAGE:?Set immutable worker digest}
+  stop_grace_period: 300s
+  env_file:
+    - path: ${AURA_CONFIG_DIR:?}/worker.env
+      format: raw
+  volumes: [*ca]
+
+services:
+  api:
+    <<: *app
+    image: ${API_IMAGE:?Set immutable API digest}
+    stop_grace_period: 60s
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/api.env
+        format: raw
+    volumes: [*ca, *adc]
+
+  product-listing-opensearch:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: product-listing-opensearch
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_LISTING_OPENSEARCH:?Set source queue URL}
+  search-filter-projection:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: search-filter-projection
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_PROJECTION:?Set source queue URL}
+  search-filter-percolator:
+    <<: *worker
+    volumes: [*ca, *adc]
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: search-filter-percolator
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_PERCOLATOR:?Set source queue URL}
+  search-filter-match-notification:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: search-filter-match-notification
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_MATCH_NOTIFICATION:?Set source queue URL}
+  watchlist-notification:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: watchlist-notification
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_WATCHLIST_NOTIFICATION:?Set source queue URL}
+  product-content-assessment:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: product-content-assessment
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_CONTENT_ASSESSMENT:?Set source queue URL}
+  product-embedding:
+    <<: *worker
+    volumes: [*ca, *adc]
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: product-embedding
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_EMBEDDING:?Set source queue URL}
+  product-translation:
+    <<: *worker
+    volumes: [*ca, *adc]
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: product-translation
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_TRANSLATION:?Set source queue URL}
+  product-listing-normalization:
+    <<: *worker
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: product-listing-normalization
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_LISTING_NORMALIZATION:?Set source queue URL}
+  notification-delivery:
+    <<: *worker
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/worker.env
+        format: raw
+      - path: ${AURA_CONFIG_DIR:?}/notification-delivery.env
+        format: raw
+    environment:
+      AURA_HISTORIA_WORKER_SCOPE: notification-delivery
+      AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_NOTIFICATION_DELIVERY:?Set source queue URL}
+
+  cron:
+    <<: *app
+    image: ${CRON_IMAGE:?Set immutable cron digest}
+    stop_grace_period: 330s
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/cron.env
+        format: raw
+    volumes: [*ca, *adc]
+
+  crawler:
+    <<: *app
+    image: ${CRAWLER_IMAGE:?Set immutable crawler digest}
+    stop_grace_period: 330s
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/crawler.env
+        format: raw
+    volumes: [*ca, *adc]
+
+networks:
+  backend:
+    external: true
+    name: ${AURA_NETWORK:?Set environment-specific network}

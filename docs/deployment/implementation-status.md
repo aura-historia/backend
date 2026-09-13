@@ -14,7 +14,7 @@ Models: orchestrator GPT-6-Astra; delegation exposes no model selector. Requeste
 |---|---|
 | R1 | Accepted scope reduction; commit recorded below. Rejected08a removed, nonexistent migrator no longer required; no runtime changes |
 | R2 | Accepted locally: four images built and actually run; independent repeat smoke passed. Idle startup only, not deployment readiness |
-| R3 | Not started: ordinary platform/application Compose must actually launch full isolated backend |
+| R3 | Accepted isolated empty-stack startup/same-version restart; all13 apps, real Sequin/Caddy, platform state retained. Live-dev readiness still blocked |
 | R4 | Not started: thin flock/current/previous/incomplete host command; real A→B and failed candidate, workers/jobs/state survive |
 | R5 | Not started: instantiate existing NAT construct, attach actual DB Lambdas, deliver CA, prove approved dev connectivity |
 | R6 | Not started: environment-approved develop workflow around proven host command |
@@ -44,8 +44,22 @@ Implementer `8d339547-8a9a-464d-844a-261d3ecc03b9`; smoke draft/investigation `e
 
 Limits: idle startup only. No all-ten-scope, real provider/TLS/JWT authentication, SQS/Sequin custody, active-work drain, full Compose, A→B, reboot or live deployment acceptance. Canary checks cover probes/retained1MiB logs only. Runtime/infra/workflow code unchanged; no architecture deviation. Removing this slice does not alter existing runtimes or schemas; cached images retained, disposable fixture state removed.
 
+## R3 — ordinary Compose, isolated acceptance
+
+Baseline `5b8914085c0819c0d8cbdfbbe344128ff8919e04`, clean `task/#1412-deployment` before work. Capability commit pending recording. Runtime/Cargo/schema/search/infra/workflow sources unchanged; reused R2 binaries retain source identity `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`, not the tooling SHA.
+
+`deploy/compose/` now has ordinary separate platform/application/edge projects and nonsecret input example/runbook. Long-lived services use unless-stopped; applications are nonroot/read-only, default stop budgets60/300/330/330s. Platform volumes remain independent. Only Caddy publishes loopback HTTPS and joins an additional edge bridge; app/platform test network is internal. No renderer, secret materializer or new deployment framework.
+
+Actual test: `PYTHONDONTWRITEBYTECODE=1 python3 deploy/tests/smoke-compose.py` **PASS**, then independent post-repair repeat **PASS** within30min. Same three Compose files plus explicit test-only override, genuine fresh SQLx histories/TTL3/OpenSearch, three separate databases, Redis, Sequin. All13 apps ready/identity-matched; ten scopes complete source/DLQ checks and empty polls. Ten actual Sequin worker-DNS bindings, restricted-role active replication, pause_on_full and zero backfills verified. Caddy trusted local-CA/hostname HTTPS succeeds, untrusted CA rejects, safe GET matches API404. App-only stop/start exits0/removes runtime PG sessions, preserves platform/edge container IDs/start times/volume records, then all13 return ready; checked stores/histories remain empty/unchanged. Exact owned containers/volumes/networks/temp directories removed and independently checked absent. Test implementer reports one earlier exact-manifest Caddy pull. Independent review runs performed no builds or pulls.
+
+Failures repaired before acceptance: quoted tmpfs commas (base YAML); internal-only bridge could not publish Caddy port (Caddy-only edge bridge); invalid test ProductListingId; empty Compose IPAM normalization; draft Sequin endpoints replaced with real worker endpoints before final acceptance. Independent reviewer held volume/bind isolation gates; fixed exact project-owned local-volume and per-service fixture-bind allowlists, actual mount/env checks, backend network drift checks and revalidation before mutation/cleanup. No weakened runtime/security gates. **43 Python tests pass**, including negative ownership/storage/mount/network/provider cases. Reproduction/pins and operator inputs: `deploy/compose/README.md`.
+
+Investigation: `f3d64531-edaa-491d-8040-381d61c064b8` runtime; `55a8122e-dfac-497e-a3f6-65afe5b1ded4` platform. Provider implementer `94ea3bf5-1b95-4665-9980-bbb17187f611`; Compose test implementer `11034af4-0e2b-4ae8-9ece-505577a2e1ee`; integrator owns ordinary Compose/docs. Independent reviewer `94551bf9-97f7-491c-a977-1881984363b7` accepted **correctness and simplicity**, independently43 tests and full post-repair smoke, zero owned resources remaining. All GPT-6-Astra; no selectable Terra. Nonblocking Zoho-input count corrected.
+
+Acceptance limits: empty startup and same-version application restart only. SQS/ADC/JWKS doubles, not real provider/auth or active custody. No queue sends/purges, active CDC handling, A→B/bad-B, engine upgrade/reboot/TTL expiry, production acceptance or whole-stack no-egress proof. Sequin0.14.6 certificate verification, real-stage fresh initialization, OpenSearch trust/security bootstrap, approved provider credentials/queues/assets and host inputs remain real-deployment gates. Existing local-only bootstrap is not relabeled for real use. No general migration/backfill machinery added. Removal affects only these Compose/test/docs files; no existing runtime/schema changes, fixture resources removed, cached images retained.
+
 ## External and test gates
 
 No actual target host, AWS development account/region authorization, firewall/DNS authority, reviewer identities or real runtime secrets/CA supplied for execution. These block the corresponding live steps, not permission to invent them. R5–R8 live acceptance remains blocked. Existing source/template observations never prove a running deployment.
 
-R2 build-budget/startup gate is cleared by actual local execution. Next R3 must launch the complete backend with ordinary Compose; R4 must prove real A→B and bad-candidate behavior. No LocalStack Pro licensing/provider authority inferred. Prior full workspace library test timed out; not rerun for image/test/docs-only changes. No cloud/host workflows enabled.
+R2 images and R3 isolated empty-stack gates are cleared by actual local execution. R3 live-security/provider gates remain above; R4 must prove A→B and bad-candidate behavior, not merely repeat same-version startup. No LocalStack Pro licensing/provider authority inferred. Prior full workspace library test timed out; not rerun for Compose/test/docs-only changes. No cloud/host workflows enabled.

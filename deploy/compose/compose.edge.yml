@@ -1,0 +1,38 @@
+# Edge has independent lifecycle and persistent local CA state.
+services:
+  caddy:
+    image: ${CADDY_IMAGE:?Set reviewed Caddy immutable digest}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 60s
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 128
+    networks: [backend, edge]
+    # Local rehearsal only. Public-origin exposure is a separate reviewed milestone.
+    ports:
+      - "127.0.0.1:${AURA_HTTPS_PORT:?Set unused local HTTPS port}:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - type: bind
+        source: ${AURA_CONFIG_DIR:?}/caddy
+        target: /etc/caddy
+        read_only: true
+        bind: { create_host_path: false }
+    logging:
+      driver: local
+      options: { max-size: 10m, max-file: "3" }
+networks:
+  # Docker cannot publish a port from an internal-only network. Only Caddy joins
+  # this bridge; no application, provider fixture or database receives egress here.
+  edge: {}
+  backend:
+    external: true
+    name: ${AURA_NETWORK:?Set environment-specific network}
+volumes:
+  caddy-data:
+  caddy-config:
