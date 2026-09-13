@@ -23,8 +23,8 @@ use aura_historia_api::state::{
     AdminOverviewState, AdminProductListingAuctionsState, AppState, AuctionsState, BillingState,
     ListingSourcesState, NewsletterState, NotificationsState, OAuthState, PartiesState,
     PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, PublicAuctionsState, SearchFiltersState, UsersState, WatchlistState,
-    WebhooksState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, SearchFiltersState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -46,13 +46,16 @@ use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
 use listing_source_core::ListingSourceId;
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
-    SqlxListingSourceSearchReaderFactory,
+    SqlxListingSourceSearchReaderFactory, SqlxPublicListingSourceDetailsReaderFactory,
+    SqlxPublicListingSourceSearchReaderFactory,
 };
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
+use listing_source_service::use_cases::queries::get_public_listing_source_by_slug::GetPublicListingSourceBySlugHandler;
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
+use listing_source_service::use_cases::queries::search_public_listing_sources::SearchPublicListingSourcesHandler;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -1507,7 +1510,18 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         ),
-    )));
+    )))
+    .with_public_reads(
+        Arc::new(SearchPublicListingSourcesHandler::new(
+            unit_of_work.clone(),
+            SqlxPublicListingSourceSearchReaderFactory::new(),
+        )),
+        Arc::new(GetPublicListingSourceBySlugHandler::new(
+            unit_of_work.clone(),
+            SqlxPublicListingSourceDetailsReaderFactory::new(),
+        )),
+        PublicListingSourceReadBudget::new(4, std::time::Duration::from_millis(500)),
+    );
     let parties_state = PartiesState::new(
         Arc::new(create_party),
         Arc::new(get_party),
