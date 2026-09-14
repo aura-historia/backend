@@ -40,8 +40,6 @@
 
 - `admin-overview.md` — administrator overview source and count semantics.
 - `auction.md` — Auction domain contract and current implementation status.
-- `auction-implementation.md` — isolated Auction iteration ownership and reset plan.
-- `auction-iterations/` — per-iteration Auction handoffs and verification records; `12-release-audit.md` owns release blockers, reopened gates, source coverage, and reset-rehearsal status.
 - `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
 - `public-listing-source-search.md` — frozen #1634/#1602 public ListingSource collection and slug-read contract.
 - `public-listing-source-search-performance.md` — opt-in public ListingSource PostgreSQL plan and local timing record.
