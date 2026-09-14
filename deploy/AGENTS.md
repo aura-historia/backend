@@ -15,6 +15,7 @@
 - Ordinary releases do not restart stateful services, recreate volumes, purge queues or downgrade schemas.
 - Fresh initialization only. No incremental adoption, backfill engine or new migrator. Missing fictional migrator must not block current releases.
 - Host-owned restrictive env/CA/ADC files, never committed or printed. Dependency endpoints stay configurable; same-host Docker DNS is allowed.
+- Owner target: current development machine hosts the complete self-hosted dev stage; AWS dev remains separate, regional resources preferably eu-central-1. Target selection is not blanket mutation authority. Owner identifies local nginx/opensearch system services as obsolete deployments and permits their stop/removal; preserve their on-disk data unless deletion is explicitly scoped. Unrelated services stay untouched. AWS root access does not imply local sudo.
 - Live host/cloud/firewall/DNS/GitHub/prod mutations need explicit target authority and actual inputs. No guessed values or simulated success.
 - Integrator owns shared Cargo/locks, Compose/scripts/workflows/CDK wiring/docs. At most three disjoint implementers. Independent review asks correctness AND whether existing mechanisms can do materially less custom work.
 

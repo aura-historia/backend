@@ -12,6 +12,7 @@
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
 - `src/worker-queue-config.ts` own ten native worker scopes and queue settings. `src/constructs/worker-queues.ts` own separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
+- Owner prefers eu-central-1 for regional AWS resources; keep AWS dev separate from the current machine's self-hosted dev stage. Global-service exceptions need explicit review; do not infer mutation authority from root CLI credentials.
 - CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
 - Postgres is self-hosted. DB Lambdas require explicit stage/TLS (`verify-full` real / `disable` ephemeral). Opt-in `postgresLambdaConfig` supplies actual public CA layer `/opt/postgres-ca/root.pem`, hostname/port, per-function reservations and budget. Absent opt-in preserves legacy SSM CA-path-only contract; no proof of trust delivery. No RDS Proxy.
 - Infra own runtime glue: env vars, triggers, schedules, IAM, queue wiring, outputs, retention, alarms. Rust crates own business rules.
