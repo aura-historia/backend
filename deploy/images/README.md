@@ -1,6 +1,6 @@
 # Runnable native OCI images (R2)
 
-One ordinary multi-stage Dockerfile: shared locked Cargo build, four nonroot final images. No deployment framework, runtime initializer, startup wrapper or embedded credentials.
+One ordinary multi-stage Dockerfile: shared locked Cargo build, four nonroot application images plus a separate explicit dev-initializer target. No deployment framework, daemon startup initializer, startup wrapper or embedded credentials.
 
 | Target | Sole application executable / entrypoint | Default external stop budget |
 |---|---|---:|
@@ -53,6 +53,18 @@ docker --host unix:///var/run/docker.sock buildx build --builder default --load 
 ```
 
 Observed build37.1s; tested local image ID `sha256:e740ea04ebd5d3d70e6ac8822d390f8a3ceea90ae3465fc930644689ebc479ee`. Recipe was uncommitted during build; baseline label is traceability, not signed provenance. Pinned inputs do not promise bit-identical rebuilds. The image was run successfully in the [real Sequin TLS rehearsal](../tests/README.md); not published or activated on dev. It requires the [ordinary platform overlay and host CA/config](../compose/README.md#verified-sequin-postgresql-transport).
+
+## Explicit dev fresh initializer
+
+Target `bootstrap-dev` contains `/usr/local/bin/bootstrap-dev`, UID/GID10001, same pinned runtime/base/build inputs. Default command is help; no restart or application-startup wiring. Uses existing fresh SQLx initialization with exact `STAGE=dev` and verify-full CA, not a general migrator. Separate [Compose command and protected inputs](../compose/README.md#explicit-dev-fresh-initialization); never put initialization credentials into application env files.
+
+```sh
+docker --host unix:///var/run/docker.sock buildx build --builder default --load \
+  --target bootstrap-dev --build-arg COMMIT_SHA=13a4b822673e0a33ed0e90ddee4f90889a097d4a \
+  -t aura-historia-bootstrap-dev:probe-13a4b822 -f deploy/images/Dockerfile .
+```
+
+This records the actual rehearsal command: **1265.4s build passed**, local image `sha256:d5fcd8e90ce6b1e414559bcd0f8eca3dbb15796fdf35ee30d8a01054b25f7de7`. Rust/recipe changes were uncommitted during build; baseline label is traceability, **not provenance for a clean commit**. For releases build a verified clean source with its own SHA/new tag; do not relabel this rehearsal image. Actual TLS initialization/verification through Compose passed twice independently; [reproduction and limits](../tests/README.md#real-dev-fresh-initialization-rehearsal). No registry publication or live initialization.
 
 ## Isolated smoke helper
 

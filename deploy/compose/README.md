@@ -132,7 +132,33 @@ Use `compose.platform.yml` plus **ordinary** `compose.sequin-tls.yml` during exp
 
 No existing database is disposable by implication. Fresh-only flow: PostgreSQL/extensions → genuine current business/crawler SQLx histories → restricted runtime grants → five-table publication/slot → current OpenSearch definitions → workers → Sequin. Separate schema histories and Sequin metadata owner; runtime roles are never schema owners/superusers. Never stamp history because tables happen to exist.
 
-The test uses existing `bootstrap-local --initialize-fresh business|crawler` **only under its supported local/loopback restriction**. It is not a live-dev migrator; do not relabel real resources `test` to bypass it. A reviewed explicit real-stage fresh initialization procedure remains required before real-host use; no adoption/backfill/down-migration framework is requested.
+The R3 test uses existing `bootstrap-local --initialize-fresh business|crawler` **only under its supported local/loopback restriction**. Do not relabel real resources `test` to bypass it. The separate `bootstrap-dev` image/Compose path below now exercises exact dev policy and verified TLS; actual host inputs, permissions and setup authority remain required. No adoption/backfill/down-migration framework.
+
+### Explicit dev fresh initialization
+
+`compose.bootstrap-dev.yml` is a **separate one-shot project**, never part of platform `up` or ordinary application replacement. Both services default to help; initialization requires an explicit action. The image contains only the operator executable, not a daemon. Both target histories were initialized and verified in the [isolated real-image rehearsal](../tests/README.md#real-dev-fresh-initialization-rehearsal); this does not initialize this machine's live dev databases.
+
+Operator prerequisites:
+
+1. Obtain target setup authority. Provision separate empty business/crawler databases and initialization roles; use direct PostgreSQL, exclusive custody and the existing deployment `lock` flock for the entire setup/inspection session. No apps or competing schema writers. Never use an existing database merely because its stage says dev.
+2. Install/preload public `pg_ttl_index`3.0.0 for business. Existing SQL creates pg_trgm/unaccent and crawler pgcrypto; initializer needs the required DDL/extension/catalog permissions. Rehearsal uses a synthetic superuser, **not proof of least-privilege setup grants**. Existing fresh checks refuse any ledger/application objects/unknown schema or extension.
+3. Keep initialization inputs separate, e.g. root-controlled0700 `/etc/aura-historia/dev/bootstrap-dev/`. Its `business.env` and `crawler.env` are root-owned0600 and each contains exact `STAGE=dev`, `POSTGRES_SSL_MODE=verify-full` and **only its own** explicit URL (`BUSINESS_DATABASE_URL` or `LOCAL_DB_URL`). URLs require user/password/hostname/database. Supply actual protected values, never CLI credentials. `postgres-ca.pem` is public/readable by UID10001; Compose mounts it read-only. TLS hostname must match its certificate, including Docker DNS.
+4. In protected Compose selections, set `BOOTSTRAP_DEV_IMAGE` to the verified preloaded immutable image ID/digest, `AURA_DEV_INIT_CONFIG_DIR` to that separate directory and `AURA_NETWORK` to the existing dev backend network. No pulls/builds occur here. Do not print resolved Compose/env/container configuration.
+
+In the approved **already flock-held operator session**, from the reviewed checkout/installation, example commands use the conventional host paths below. They are not authorization to execute setup:
+
+```sh
+docker --host unix:///var/run/docker.sock compose --project-name aura-dev-bootstrap \
+  --env-file /etc/aura-historia/dev/compose.env -f deploy/compose/compose.bootstrap-dev.yml \
+  run --no-deps --name aura-dev-bootstrap-business bootstrap-business --initialize-fresh business &&
+docker --host unix:///var/run/docker.sock compose --project-name aura-dev-bootstrap \
+  --env-file /etc/aura-historia/dev/compose.env -f deploy/compose/compose.bootstrap-dev.yml \
+  run --no-deps --name aura-dev-bootstrap-crawler bootstrap-crawler --initialize-fresh crawler
+```
+
+Execute the second **only after** the first reports `INITIALIZED_BUSINESS`/exit0. Leave exited containers for inspection; no `--rm` or automatic retry. Fixed names also refuse blind reuse. After confirmed success, inspect and remove only these exact one-shot containers. Run separate `--verify business`/`--verify crawler` actions with read-only credentials to check histories; verification performs no DDL, migration-lock acquisition or history writes; normal PostgreSQL read locks still apply. It is not full schema-drift attestation.
+
+Business/crawler are **not atomic together**. Exit7 `UNKNOWN_OUTCOME`, forced exit8, interrupted output or detached Docker outcomes require independent inspection—never assume rollback or clear/retry. Nonfresh state is rejected, not adopted/repaired/reset. Normal completion has60s work/5s connection close/90s process bound; Compose stop allowance100s is not permission to retry a killed initializer. Runtime grants/publication/Sequin, actual TLS/firewall and provider checks remain separate. Remove/disable initializer credential access after setup; application containers must never inherit it.
 
 Additional concrete live gates:
 

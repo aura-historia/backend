@@ -15,6 +15,7 @@
   ],
   "excluded_tools": [
     { "package": "crawler", "binary": "bootstrap-local" },
+    { "package": "crawler", "binary": "bootstrap-dev" },
     { "package": "crawler", "binary": "demo" },
     { "package": "crawler", "binary": "demo-spider" },
     { "package": "crawler", "binary": "demo-scraper" },

@@ -1,4 +1,4 @@
-//! Private, fresh-only local operator tool; not a migration service or public test API.
+//! Private, fresh-only operator tools; not a migration service or public test API.
 //! Administrators are trusted. Operator must hold exclusive target custody and connect
 //! directly to PostgreSQL (no transaction pool/proxy). Advisory locks only coordinate
 //! cooperating initializers/migrators; they cannot fence arbitrary SQL writers.
@@ -58,6 +58,42 @@ DEPENDENCY_FAILED/VERIFICATION_FAILED=5; DEADLINE_EXCEEDED/CLEANUP_UNCONFIRMED=6
 UNKNOWN_OUTCOME=7; RUNTIME_FAILED/OUTPUT_FAILED/LEGACY_FAILED=8.
 ";
 
+const DEV_HELP: &str = "HELP
+bootstrap-dev --initialize-fresh business|crawler | --verify business|crawler | --help
+Explicit action required. No legacy fallback, dotenv, Docker, database creation or providers.
+Unix only. Required: exact STAGE=dev, POSTGRES_SSL_MODE=verify-full and
+POSTGRES_SSL_ROOT_CERT pointing to a readable trusted CA PEM. All other stages fail.
+Selected explicit URL only: BUSINESS_DATABASE_URL (business) or LOCAL_DB_URL (crawler),
+with username, password, TCP host and database; shared URL/TLS policy applies.
+PGSSLCERT/PGSSLKEY/PGSSLROOTCERT/PGOPTIONS are forbidden, even when empty.
+Operator must separately provision a fresh dev target, hold exclusive custody, trust
+administrators and connect directly to PostgreSQL (no transaction pool/proxy).
+Stage/TLS do not prove target identity or freshness. Locks fence cooperating tools only.
+Fresh initialization rejects any ledger, application object or unknown schema/extension.
+Business requires public/preloaded pg_ttl_index 3.0.0 with supported empty configuration;
+shipped SQL creates pg_trgm/unaccent if absent. Crawler permits/creates pgcrypto.
+Only embedded business (1) or crawler (6) transactional baselines are applied.
+No incremental upgrade, adoption, stamping, backfill, repair, reset, deletion or retry.
+--verify is read-only exact-history/availability verification: no migration lock or DDL;
+not full schema drift, TTL-worker health, provider readiness or artifact provenance proof.
+Targets are separate, NOT atomic. UNKNOWN_OUTCOME or forced/abnormal initialization
+termination requires independent inspection; never infer rollback or permission to retry.
+Bounds: work60s, close5s, process90s through teardown/output; statement30s, lock2s,
+idle/idle-in-transaction10s. Unix watchdog exits8 silently without core collection.
+Success exit0: INITIALIZED_BUSINESS, INITIALIZED_CRAWLER, VERIFIED_BUSINESS, VERIFIED_CRAWLER.
+Errors: USAGE_ERROR=2; CONFIG_ERROR/UNSUPPORTED_STAGE/UNSUPPORTED_PLATFORM=3;
+NOT_FRESH/PREREQUISITE_MISSING/UNSUPPORTED_SOURCE=4; DEPENDENCY_FAILED/VERIFICATION_FAILED=5;
+DEADLINE_EXCEEDED/CLEANUP_UNCONFIRMED=6; UNKNOWN_OUTCOME=7; RUNTIME_FAILED/OUTPUT_FAILED=8.
+";
+
+// Each binary chooses one fixed policy; neither CLI nor environment can switch it.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Entrypoint {
+    Local,
+    Dev,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Target {
     Business,
@@ -72,10 +108,16 @@ enum Command {
     Verify(Target),
 }
 
-fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, Failure> {
+fn parse(
+    entrypoint: Entrypoint,
+    args: impl IntoIterator<Item = OsString>,
+) -> Result<Command, Failure> {
     let mut args = args.into_iter();
     let Some(first) = args.next() else {
-        return Ok(Command::Legacy);
+        return match entrypoint {
+            Entrypoint::Local => Ok(Command::Legacy),
+            Entrypoint::Dev => Err(Failure::new(Code::Usage)),
+        };
     };
     let first = first.to_str().ok_or_else(|| Failure::new(Code::Usage))?;
     if first == "--help" && args.next().is_none() {
@@ -125,29 +167,47 @@ fn install_panic_hook() {
     }));
 }
 
+// The unchanged bootstrap-local entrypoint calls this wrapper; bootstrap-dev does not.
+#[allow(dead_code)]
 pub(super) fn main() -> ExitCode {
+    main_for(Entrypoint::Local)
+}
+
+pub(super) fn main_for(entrypoint: Entrypoint) -> ExitCode {
     watchdog(PROCESS_TIMEOUT);
     install_panic_hook();
     let mut possible_writes = false;
-    let result = dispatch(std::env::args_os().skip(1), &mut possible_writes);
+    let result = dispatch(
+        entrypoint,
+        std::env::args_os().skip(1),
+        &mut possible_writes,
+    );
     emit(result, possible_writes)
 }
 
 fn dispatch(
+    entrypoint: Entrypoint,
     args: impl IntoIterator<Item = OsString>,
     possible_writes: &mut bool,
 ) -> Result<&'static str, Failure> {
-    let command = parse(args)?; // Before env, runtime, dotenv or any dependency.
+    let command = parse(entrypoint, args)?; // Before env, runtime, dotenv or any dependency.
     if command == Command::Help {
-        return Ok(HELP);
+        return Ok(match entrypoint {
+            Entrypoint::Local => HELP,
+            Entrypoint::Dev => DEV_HELP,
+        });
     }
     let selected = match command {
-        Command::Initialize(target) => {
-            Some((target, true, config::load(target, true, std::env::var)?))
-        }
-        Command::Verify(target) => {
-            Some((target, false, config::load(target, false, std::env::var)?))
-        }
+        Command::Initialize(target) => Some((
+            target,
+            true,
+            config::load(entrypoint, target, true, std::env::var)?,
+        )),
+        Command::Verify(target) => Some((
+            target,
+            false,
+            config::load(entrypoint, target, false, std::env::var)?,
+        )),
         _ => None,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()

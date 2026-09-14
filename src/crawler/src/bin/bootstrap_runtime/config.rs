@@ -1,9 +1,10 @@
-use super::{Code, Failure, Target};
+use super::{Code, Entrypoint, Failure, Target};
 use crawler::local_db::parse_postgres_environment;
 use platform_postgres::{PostgresPoolConfig, PostgresPoolConfigError, PostgresTlsConfig};
 use std::{env::VarError, net::IpAddr};
 
 pub(super) fn load(
+    entrypoint: Entrypoint,
     target: Target,
     initialize: bool,
     get: impl FnMut(&'static str) -> Result<String, VarError>,
@@ -13,11 +14,12 @@ pub(super) fn load(
     }
     parse_postgres_environment(get, |get| {
         let stage = get("STAGE").ok_or(PostgresPoolConfigError::MissingInput("STAGE"))?;
-        // This local executable deliberately supports no real stage, including verification.
-        if !matches!(stage.as_str(), "local" | "ephemeral" | "test") {
-            return Err(Failure::new(Code::UnsupportedStage));
-        }
-        let tls = PostgresTlsConfig::from_lookup("crawler-bootstrap-local", |key| {
+        let app = match (entrypoint, stage.as_str()) {
+            (Entrypoint::Local, "local" | "ephemeral" | "test") => "crawler-bootstrap-local",
+            (Entrypoint::Dev, "dev") => "crawler-bootstrap-dev",
+            _ => return Err(Failure::new(Code::UnsupportedStage)),
+        };
+        let tls = PostgresTlsConfig::from_lookup(app, |key| {
             if key == "STAGE" {
                 Some(stage.clone())
             } else {
@@ -30,7 +32,7 @@ pub(super) fn load(
         };
         let url = get(key).ok_or(PostgresPoolConfigError::MissingInput(key))?;
         let config = PostgresPoolConfig::from_url(&url, 1, tls)?;
-        if initialize && !is_local_endpoint(config.host()) {
+        if entrypoint == Entrypoint::Local && initialize && !is_local_endpoint(config.host()) {
             return Err(Failure::new(Code::NonLocalEndpoint));
         }
         Ok(config)

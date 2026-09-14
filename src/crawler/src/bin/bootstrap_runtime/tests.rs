@@ -7,6 +7,10 @@ use std::{
     net::TcpListener,
 };
 
+#[cfg(unix)]
+#[path = "dev_tests.rs"]
+mod dev;
+
 type TestResult = Result<(), Box<dyn Error>>;
 const SECRET: &str = "sentinel_password_provider_body_private_path";
 
@@ -24,7 +28,7 @@ fn load(
     initialize: bool,
     values: &BTreeMap<&'static str, String>,
 ) -> Result<PostgresPoolConfig, Failure> {
-    config::load(target, initialize, |key| {
+    config::load(Entrypoint::Local, target, initialize, |key| {
         values.get(key).cloned().ok_or(VarError::NotPresent)
     })
 }
@@ -71,7 +75,10 @@ fn should_parse_only_frozen_cli() -> TestResult {
             Command::Verify(Target::Crawler),
         ),
     ] {
-        assert_eq!(parse(args.into_iter().map(OsString::from))?, expected);
+        assert_eq!(
+            parse(Entrypoint::Local, args.into_iter().map(OsString::from))?,
+            expected
+        );
     }
     Ok(())
 }
@@ -91,7 +98,11 @@ fn should_reject_invalid_cli_before_environment_or_runtime() {
         vec!["--initialize-fresh", "BUSINESS"],
     ] {
         let mut writes = false;
-        let result = dispatch(args.into_iter().map(OsString::from), &mut writes);
+        let result = dispatch(
+            Entrypoint::Local,
+            args.into_iter().map(OsString::from),
+            &mut writes,
+        );
         assert!(matches!(
             result,
             Err(Failure {
@@ -114,7 +125,7 @@ fn should_reject_nonunicode_cli_and_selected_env_without_lossy_conversion() -> T
         vec!["--help".into(), invalid.clone()],
     ] {
         assert!(matches!(
-            parse(args),
+            parse(Entrypoint::Local, args),
             Err(Failure {
                 code: Code::Usage,
                 ..
@@ -123,7 +134,7 @@ fn should_reject_nonunicode_cli_and_selected_env_without_lossy_conversion() -> T
     }
     for key in ["STAGE", "POSTGRES_SSL_MODE", "LOCAL_DB_URL", "PGOPTIONS"] {
         let values = environment("postgres://private_user:password@127.0.0.1/private_db");
-        let result = config::load(Target::Crawler, true, |name| {
+        let result = config::load(Entrypoint::Local, Target::Crawler, true, |name| {
             if name == key {
                 Err(VarError::NotUnicode(invalid.clone()))
             } else {
@@ -153,7 +164,7 @@ fn should_load_only_selected_url_and_shared_config() -> TestResult {
             environment("postgres://private_user:explicit_password@127.0.0.1/private_db");
         values.remove(other);
         let mut read = Vec::new();
-        let config = config::load(target, true, |key| {
+        let config = config::load(Entrypoint::Local, target, true, |key| {
             read.push(key);
             values.get(key).cloned().ok_or(VarError::NotPresent)
         })?;

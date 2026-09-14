@@ -28,6 +28,27 @@ Work deadline540s plus60s owned cleanup; use660s external timeout. Nonzero/unkno
 
 Limits: this proves the [shared-loopback stunnel boundary](../compose/README.md#verified-sequin-postgresql-transport), not Sequin-native end-to-end verified TLS, full worker custody, live CA/firewall safety, expired-certificate behavior, loaded operation, namespace replacement, host reboot or production readiness. PostgreSQL plaintext HBA is deliberate **test-only** fallback detection. Do not reuse fixture configuration in dev.
 
+## Real dev fresh-initialization rehearsal
+
+Runs the actual nonroot `bootstrap-dev` image through `compose.bootstrap-dev.yml`, with explicit **STAGE=dev**, verified TLS and Docker DNS. Disposable synthetic PostgreSQL16/pg_ttl_index3 only; not a live dev deployment or permission grant.
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 deploy/tests/smoke-bootstrap-dev.py \
+  --image sha256:d5fcd8e90ce6b1e414559bcd0f8eca3dbb15796fdf35ee30d8a01054b25f7de7 \
+  --source-sha 13a4b822673e0a33ed0e90ddee4f90889a097d4a
+```
+
+**Integrator PASS; independent exact-command repeat PASS; all109 deployment Python tests PASS.** Both embedded SQLx histories match checkout/baseline sources; rejected initialization and read-only verification preserve logical `pg_dump`/globals/database-inventory/TTL-config snapshots. Successful initialization changes only its selected DB. Invalid unselected URL is tolerated; this is not a claim about whether `getenv` reads it. Repeat initialization rejects `NOT_FRESH`. No Docker executable/socket in the one-shot container.
+
+Wrong CA/hostname/password require case peer + PostgreSQL PID + specific rejection signatures; valid TLS controls bracket each. Plaintext refusal has narrower evidence: server SSL off, successful authenticated plaintext control, attributed TCP receipt without authentication, and client completion before its connection timeout. Restricted-role verification succeeds with TLS, rejects plaintext and succeeds after restoration. No raw logs or synthetic secrets printed.
+
+Requires cached [initializer image](../images/README.md#explicit-dev-fresh-initializer), pinned PG fixture `sha256:1ef4f65fa354b5771def2872dc765c5cafb5c3f1e56ce1d394a6ad4af33279be`, local Unix Docker/Compose, OpenSSL and Git. Internal unique network, no published ports, bounded tmpfs PostgreSQL, private CLI/env/CA fixtures. Reviewed Compose bytes checked before parsing; model/runtime inputs checked before start. Test-only fixed peers are derived from the owned network for log attribution—not application topology.
+
+Work600s + cleanup90s; external timeout780s. Any acceptance/unknown-command failure retains the fixture and ownership/snapshot records. Inspect exact owners and completed command outcomes before cleanup/rerun. Both successful runs independently left zero owned containers/networks/directories. No global prune or cached-image removal.
+
+Limits: synthetic superuser initialization and read-only verifier, not real runtime write grants, complete DDL drift, TTL-worker health, crash/commit-loss coverage, cross-target atomicity or live authority. TTL worker is not started in this snapshot fixture. Plaintext HBA exists only to detect client fallback; never reuse it in dev. Image source label describes the baseline plus uncommitted implementation, not clean-source provenance. No new SQL, adoption, repair, incremental upgrade or backfill machinery.
+
 ## Build and run
 
 Requires local Linux/amd64 Docker at `/var/run/docker.sock`, Python3, the existing PostgreSQL fixture image and the reviewed application/helper images. Build instructions: `../images/README.md`. Public registry/package downloads occur during build/pull only; the smoke never pulls.

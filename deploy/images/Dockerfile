@@ -67,6 +67,15 @@ FROM runtime AS crawler
 COPY --from=build /app/target/release/server /usr/local/bin/server
 ENTRYPOINT ["/usr/local/bin/server"]
 
+# Explicit dev initialization only; never shipped inside a long-running application.
+FROM build AS dev-bootstrap-build
+RUN cargo build --release --locked -p crawler --bin bootstrap-dev
+
+FROM runtime AS bootstrap-dev
+COPY --from=dev-bootstrap-build /app/target/release/bootstrap-dev /usr/local/bin/bootstrap-dev
+ENTRYPOINT ["/usr/local/bin/bootstrap-dev"]
+CMD ["--help"]
+
 # Isolated smoke tooling only; never included in the four application images.
 FROM build AS smoke-build
 RUN cargo build --release --locked -p crawler --bin bootstrap-local
