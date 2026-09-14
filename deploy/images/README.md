@@ -40,6 +40,20 @@ Select exact image **digests/IDs**, not mutable tags or `latest`, for startup/de
 - Full configuration lives in crate rules: [`api`](../../src/aura-historia-api/AGENTS.md), [`worker`](../../src/aura-historia-worker/AGENTS.md), [`cron`](../../src/aura-historia-cron/AGENTS.md), [`crawler`](../../src/crawler/AGENTS.md).
 - API business defaults0.0.0.0:8080; worker0.0.0.0:8081 needs trusted network. API operations127.0.0.1:9080, cron127.0.0.1:8082, crawler operations127.0.0.1:9083 and review listener remain inside container namespace. Do not publish private probes. No fabricated healthy image healthcheck.
 
+## Sequin PostgreSQL TLS sidecar
+
+`Dockerfile.sequin-postgres-tls` builds **stock stunnel5.80**, not another application executable or Sequin fork. It uses the same pinned Bookworm base/signed20260901 snapshot and checks upstream tarball SHA-256 `6d0841d48de07cbbaf4a055919065bf7bb5ebc63cc15c97a2c76caa2bf285513`. Nonroot UID10001, SIGTERM, only stunnel plus its runtime libraries/CA package; no private credentials. Entrypoint: `/usr/local/bin/stunnel /run/aura/stunnel/stunnel.conf`.
+
+Build from repository root with a credential-free local Docker CLI configuration. Stdin provides only the Dockerfile, no repository/secret context. Example below uses the actual rehearsal baseline; for changed source use its actual SHA and a new tag.
+
+```sh
+docker --host unix:///var/run/docker.sock buildx build --builder default --load \
+  --build-arg COMMIT_SHA=8ac6f424f87de45e28fdeed657159cfd28f11e81 \
+  -t aura-historia-sequin-postgres-tls:probe-8ac6f424 - < deploy/images/Dockerfile.sequin-postgres-tls
+```
+
+Observed build37.1s; tested local image ID `sha256:e740ea04ebd5d3d70e6ac8822d390f8a3ceea90ae3465fc930644689ebc479ee`. Recipe was uncommitted during build; baseline label is traceability, not signed provenance. Pinned inputs do not promise bit-identical rebuilds. The image was run successfully in the [real Sequin TLS rehearsal](../tests/README.md); not published or activated on dev. It requires the [ordinary platform overlay and host CA/config](../compose/README.md#verified-sequin-postgresql-transport).
+
 ## Isolated smoke helper
 
 Fixture-only `smoke-build`/`smoke-helper` targets reuse Cargo output to build the existing `bootstrap-local` executable and add Python3. They are not application/release components. Production images contain neither Python nor bootstrap. The helper exists only to initialize genuine fresh fixture histories and run non-forwarding provider doubles/probes.

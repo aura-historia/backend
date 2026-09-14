@@ -6,6 +6,28 @@ Runs the **actual four application image entrypoints** against fresh PostgreSQL1
 
 This is **idle image startup/shutdown evidence**, not complete Compose, real SQS/Sequin custody, active-work drain, provider authentication/TLS, host reboot or A→B cutover. These are outside R2’s evidence; see the R3/R4 results above and their remaining gates.
 
+## Real Sequin TLS rehearsal
+
+`smoke-sequin-tls.py` launches stock Sequin0.14.6, PostgreSQL16, Redis and stunnel5.80 through the checked-in platform/TLS Compose files plus `sequin-tls.fixture.yml`. Synthetic SQL/WAL and a non-forwarding webhook only; no application/worker/search startup or cloud calls. Requires Python3/OpenSSL, local Docker/Compose and cached R3 images/helper plus the [built TLS sidecar](../images/README.md#sequin-postgresql-tls-sidecar).
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 -m unittest discover -s deploy/tests -p test_sequin_tls.py -v
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 deploy/tests/smoke-sequin-tls.py \
+  --tls-image sha256:e740ea04ebd5d3d70e6ac8822d390f8a3ceea90ae3465fc930644689ebc479ee
+```
+
+2026-09-14: **integrator PASS; independent repeat PASS; 24 guard tests pass**. Real metadata migrations and TLS SQL/WAL sessions (`pg_stat_ssl`); committed synthetic event delivered. Wrong metadata CA/hostname blocks migrations. Wrong source CA/hostname and server TLS refusal reject both SQL and WAL attempts; no source authorization/delivery, metadata stays healthy. Restoring trust reconnects the **same slot and sink**, delivers the committed event, creates no backfill. A separate backend container cannot connect to either plaintext loopback listener.
+
+Evidence uses pinned actual signatures: DBConnection2.7.0/Postgrex0.19.3 SQL failure PIDs are attributed via bounded stock release RPC reading existing connection state; SlotProducer failures require matching source/replication UUIDs. No connection options/credentials are returned. Stunnel failures must belong to the correct listener/connection and specific fault. A timeout or absent delivery alone cannot pass. Boolean-only diagnostics identify missing evidence.
+
+Isolation: internal bridge, no published ports, tmpfs database/Redis state, synthetic credentials/certificates, protected temporary directory. Exact reviewed Compose source hashes are checked **before parsing**; rendered model/env/mount/network policy is validated before startup. Actual resource ownership/configuration is verified after startup and before cleanup. No builds/pulls or inherited cloud credentials. Test logger keeps one1MiB file with compression disabled (Docker rejects this single-file limit with compression enabled).
+
+Work deadline540s plus60s owned cleanup; use660s external timeout. Nonzero/unknown Docker mutations retain resources and ownership journal for explicit inspection; do not blindly rerun. Cleanup removes only checked owned fixtures, never dev state or cached images. Successful integrator/reviewer runs confirmed cleanup. SIGKILL/host loss cannot promise cleanup.
+
+Limits: this proves the [shared-loopback stunnel boundary](../compose/README.md#verified-sequin-postgresql-transport), not Sequin-native end-to-end verified TLS, full worker custody, live CA/firewall safety, expired-certificate behavior, loaded operation, namespace replacement, host reboot or production readiness. PostgreSQL plaintext HBA is deliberate **test-only** fallback detection. Do not reuse fixture configuration in dev.
+
 ## Build and run
 
 Requires local Linux/amd64 Docker at `/var/run/docker.sock`, Python3, the existing PostgreSQL fixture image and the reviewed application/helper images. Build instructions: `../images/README.md`. Public registry/package downloads occur during build/pull only; the smoke never pulls.

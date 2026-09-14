@@ -1,0 +1,40 @@
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS build
+RUN rm /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z bookworm main' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z bookworm-security main' \
+        > /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential libssl-dev ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 120 \
+        https://www.stunnel.org/archive/5.x/stunnel-5.80.tar.gz -o /tmp/stunnel.tar.gz \
+    && printf '%s\n' '6d0841d48de07cbbaf4a055919065bf7bb5ebc63cc15c97a2c76caa2bf285513  /tmp/stunnel.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/stunnel.tar.gz --strip-components=1 \
+    && ./configure --prefix=/usr/local --disable-libwrap \
+    && make -j2 \
+    && strip src/stunnel
+
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+RUN rm /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z bookworm main' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z bookworm-security main' \
+        > /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends libssl3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 aura \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin aura
+COPY --from=build /src/src/stunnel /usr/local/bin/stunnel
+ARG COMMIT_SHA
+RUN test "${#COMMIT_SHA}" -eq 40 \
+    && printf '%s\n' "${COMMIT_SHA}" | grep -Eq '^[0-9a-f]{40}$'
+LABEL org.opencontainers.image.source="https://github.com/aura-historia/backend" \
+      org.opencontainers.image.revision="${COMMIT_SHA}" \
+      org.opencontainers.image.version="stunnel-5.80"
+USER 10001:10001
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/stunnel", "/run/aura/stunnel/stunnel.conf"]
