@@ -675,7 +675,7 @@ paths:
         \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nAllowed callers are Aura\
         \ Historia admins and users partnered with the target listing source.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
-        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested context (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction context, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
+        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested Auction/lot-facts patch (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction/lot-facts patch, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
         \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
         \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
@@ -12180,14 +12180,14 @@ components:
           nullable: true
         auction:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionContextData"
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
           nullable: true
-          description: Optional source-asserted lot context, including an optional resolved Auction ID.
+          description: Optional source-asserted Auction and lot facts, including an optional resolved Auction ID.
         auctionSummary:
           allOf:
             - $ref: "#/components/schemas/AuctionSummaryData"
           nullable: true
-          description: Current safe Auction metadata for a resolved membership. Omitted for no context or unresolved membership.
+          description: Current safe Auction metadata for a resolved membership. Omitted without resolved membership.
         created:
           type: string
           format: date-time
@@ -12778,7 +12778,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionTimesData"
           nullable: true
-    ProductListingAuctionContextData:
+    ProductListingAuctionFactsData:
       type: object
       additionalProperties: false
       required:
@@ -12789,11 +12789,11 @@ components:
           scheduledCloses,
           reportedClosedAt,
         ]
-      description: Public and history listing-owned lot facts. They never expose a source Auction key or shared Auction metadata.
+      description: Public and history listing-owned Auction and lot facts. Their presence has no separate meaning. They never expose a source Auction key or shared Auction metadata.
       properties:
         auctionId:
           type: string
-          description: Resolved Aura Auction TypeID. Omitted when membership is unresolved.
+          description: Resolved Aura Auction TypeID. Omitted when no resolved membership is present.
         lotNumber:
           type: string
           nullable: true
@@ -12970,7 +12970,7 @@ components:
           minimum: 0
         auction:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionContextData"
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
           nullable: true
     ProductListingChangedHistoryPayloadData:
       type: object
@@ -13102,12 +13102,12 @@ components:
             - AUCTION_CHANGED
         previous:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionContextData"
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
           nullable: true
         current:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionContextData"
-          nullable: trueുവനന്തപുരം】【：】【“】【assistant to=functions.edit_file  天天彩 ＿老司机՞ւ 天天买彩票】【。】【”】【 北京赛车怎么 _一本道  大发快三怎么看json->functions.edit_file code  天天中彩票开奖】【。】【”】【json_payload】【：】【“】【{
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
+          nullable: true
     ProductListingWithdrawalHistoryChangeData:
       type: object
       required:
@@ -15223,7 +15223,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit for no Auction context, or send an asserted nested lot-context patch. `null` is invalid. `auctionId` must identify an existing Auction for this ListingSource.
+          description: Omit for no Auction or lot changes, or send an asserted nested Auction/lot-facts patch. `null` is invalid. `auctionId` must identify an existing Auction for this ListingSource.
     PartnerProductListingBatchFailuresResponse:
       type: array
       description:
@@ -15325,9 +15325,9 @@ components:
 
         Availability, price, and each price estimate are tri-state: omitted preserves an existing
 
-        value, `null` clears it, and a concrete value replaces it. The auction context is omitted
+        value, `null` clears it, and a concrete value replaces it. The nested Auction/lot-facts patch is omitted
 
-        to preserve it or supplied as a nested leaf patch; `null` is invalid. Within an asserted context, lot/timing leaves
+        to preserve stored facts or supplied as a leaf patch; `null` is invalid. Within an asserted patch, lot/timing leaves
 
         omit to preserve, use `null` to clear, or provide a value to set. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. Upsert restores a withdrawn listing before current
 

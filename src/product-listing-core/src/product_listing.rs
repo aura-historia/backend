@@ -1088,7 +1088,52 @@ mod tests {
     }
 
     #[test]
-    fn should_coalesce_auction_context_replacement_and_clear() {
+    fn should_emit_standalone_lot_close_previous_and_current_values_only_for_a_real_change() {
+        let mut listing = rehydrated();
+        let scheduled_closes = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2);
+        let lot_facts =
+            ProductListingAuction::new(None, None, None, None, Some(scheduled_closes), None)
+                .unwrap_or_else(|error| panic!("auction facts: {error}"));
+
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.replace_auction(lot_facts.clone())
+        );
+
+        let Some(ProductListingEventPayload::Changed(changed)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected lot close change event");
+        };
+        let change = changed
+            .auction()
+            .unwrap_or_else(|| panic!("expected auction fact values"));
+        assert_eq!(&None, change.previous());
+        assert_eq!(&lot_facts, change.current());
+        assert_eq!(
+            None,
+            change
+                .current()
+                .as_ref()
+                .and_then(ProductListingAuction::auction_id)
+        );
+        assert_eq!(
+            Some(scheduled_closes),
+            change
+                .current()
+                .as_ref()
+                .and_then(ProductListingAuction::scheduled_closes)
+        );
+
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            listing.replace_auction(change.current().clone())
+        );
+        assert_eq!(None, listing.take_pending_event_payload());
+    }
+
+    #[test]
+    fn should_coalesce_listing_auction_facts_replacement_and_clear() {
         let mut listing = rehydrated();
         let auction = ProductListingAuction::new(
             None,
@@ -1098,7 +1143,7 @@ mod tests {
             None,
             None,
         )
-        .unwrap_or_else(|error| panic!("auction: {error}"));
+        .unwrap_or_else(|error| panic!("auction facts: {error}"));
 
         assert_eq!(
             Ok(ChangeOutcome::Changed),

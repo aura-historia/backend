@@ -8,7 +8,7 @@ Current PostgreSQL/Sequin flow with durable Standard SQS custody (#1558). See [a
 |---|---|---|
 | Postgres | Database | Business source of truth and transactional ProductListing/event writes. |
 | `product_listing_events` | Postgres table | ProductListing domain/enrichment event journal and CDC source. |
-| `auction_events` | Postgres table | Auction discovery/change journal, atomically persisted with accepted facts; no projection/worker consumer. |
+| `auction_events` | Postgres table | Auction discovery/change journal, atomically persisted with accepted facts; no projection/worker consumer yet. A future Auction-schedule notifier must use payload snapshots and never manufacture member ProductListing changes. |
 | `product_listing_raw_revisions` | Postgres table | Immutable raw ProductListing source evidence; CDC wake-up source for authoritative normalization only. |
 | `notification_deliveries` | Postgres table | Durable email-delivery intent and lease state. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |

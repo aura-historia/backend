@@ -106,7 +106,7 @@ pub enum InvalidProductListingAuction {
     BiddingOpensAfterScheduledCloses,
 }
 
-/// Optional source assertions about a listing's auction context.
+/// Optional source assertions about a listing's Auction and lot facts.
 ///
 /// This value owns only listing facts. Its optional Auction ID is a reference, not
 /// an Auction aggregate membership. An all-empty value normalizes to `None`.

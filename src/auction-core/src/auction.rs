@@ -338,6 +338,7 @@ mod tests {
     use domain_primitives::change_outcome::ChangeOutcome;
     use listing_source_core::ListingSourceId;
     use localization::{Language, Localized};
+    use time::macros::datetime;
     use url::Url;
 
     fn key() -> AuctionKey {
@@ -411,6 +412,42 @@ mod tests {
         assert_eq!(ChangeOutcome::Changed, auction.rename(name("Autumn sale")));
         assert_eq!(ChangeOutcome::Changed, auction.clear_name());
 
+        assert_eq!(None, auction.take_pending_event_payload());
+    }
+
+    #[test]
+    fn should_emit_schedule_previous_and_current_values_only_for_a_real_change() {
+        let mut auction =
+            Auction::create(new_auction()).unwrap_or_else(|error| panic!("valid auction: {error}"));
+        let _ = auction.take_pending_event_payload();
+        let previous = AuctionSchedule::default();
+        let current = AuctionSchedule::new(
+            None,
+            Some(datetime!(2026-10-18 16:00 UTC)),
+            Some(datetime!(2026-10-18 18:00 UTC)),
+            Some(datetime!(2026-10-18 19:00 UTC)),
+        )
+        .unwrap_or_else(|error| panic!("valid schedule: {error}"));
+
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            auction.replace_schedule(current.clone())
+        );
+
+        let Some(AuctionEventPayload::Changed(changed)) = auction.take_pending_event_payload()
+        else {
+            panic!("expected schedule change event");
+        };
+        let schedule = changed
+            .schedule()
+            .unwrap_or_else(|| panic!("expected schedule change values"));
+        assert_eq!(&previous, schedule.previous());
+        assert_eq!(&current, schedule.current());
+
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            auction.replace_schedule(current)
+        );
         assert_eq!(None, auction.take_pending_event_payload());
     }
 

@@ -24,22 +24,28 @@ PostgreSQL owns standalone source-scoped Auctions:
 
 - `auctions` has immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, a restrictive ListingSource foreign key, and optional localized metadata;
 - `auctions` holds optional exact UTC instants for each schedule role;
-- `auction_events` records immutable `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. It has no CDC or worker consumer.
+- `auction_events` records immutable `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads in the same transaction as Auction state. `AUCTION_CHANGED.schedule` retains whole previous/current schedules. It has no CDC or worker consumer yet.
 
 Administrators use `POST /api/v1/admin/auctions` and `GET`/`PATCH /api/v1/admin/auctions/{auctionId}`. Create requires `listingSourceId` and `sourceAuctionId`; duplicate source keys return `409 CONFLICT`. GET/PATCH require strict `auc_` TypeIDs. PATCH requires a positive `expectedVersion`; omitted fields remain unchanged and documented nullable fields clear with `null`. A retained Auction blocks ListingSource deletion. There is no Auction deletion endpoint.
 
 ## ProductListing association
 
-A ProductListing may have no Auction context, an asserted lot context without membership, or membership in one same-source Auction. The context holds optional `auctionId`, opaque `lotNumber`, one-based `cataloguePosition`, and qualified lot timing.
+A ProductListing owns optional Auction/lot facts: `auctionId`, opaque `lotNumber`, one-based `cataloguePosition`, and exact lot timestamps. Each fact is independent. A listing may have lot facts with no `auctionId`; that is a valid individually auctioned listing, not an unresolved or synthetic parent Auction.
 
-Partner writes use `auction.auctionId` only to associate a listing with an existing same-source Auction. Omit it to preserve membership; send `null` to clear membership; send an `auc_` ID to set membership. Partner writes cannot create Auctions or change Auction metadata. Omitted lot/timing leaves preserve current values; nullable leaves clear with `null`. Raw input has no Auction fields, and raw normalization preserves stored Auction context.
+Partner writes use `auction.auctionId` only to associate a listing with an existing same-source Auction. Omit it to preserve membership; send `null` to clear membership; send an `auc_` ID to set membership. Partner writes cannot create Auctions or change Auction metadata. Omitted lot/timing leaves preserve current values; nullable leaves clear with `null`. Raw input has no Auction fields, and raw normalization preserves stored Auction/lot facts.
 
 ## Time semantics
 
-Auction schedule roles (`biddingOpens`, `liveStarts`, `lotsBeginClosing`, and `scheduledEnd`) are optional direct RFC3339 exact instants, for example `"liveStarts": "2026-10-18T16:03:00Z"`. Source dates and source timezones are not retained for Auctions. Lot roles remain separate: bidding opens, scheduled closes, and exact reported closure.
+Auction schedule roles (`biddingOpens`, `liveStarts`, `lotsBeginClosing`, and `scheduledEnd`) are optional direct RFC3339 exact instants, for example `"liveStarts": "2026-10-18T16:03:00Z"`. Source dates and source timezones are not retained for Auctions. Lot roles remain separate: bidding opens, scheduled closes, and exact reported closure. An Auction schedule never fills, rewrites, or implies a listing's lot times.
 
 ## Reads and boundaries
 
 Public browsing is PostgreSQL-backed: `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. Reads use `Cache-Control: no-store`. The directory is newest-first and has scoped cursors; the catalogue returns visible active assigned listings ordered by `cataloguePosition ASC NULLS LAST` then listing UUID.
 
-ProductListing detail, search, similar-listing, and watchlist reads batch current resolved Auction summaries from PostgreSQL. Public data never exposes `sourceAuctionId` or persistence versions. Search supports exact resolved `auctionId` membership only; no Auction OpenSearch index or metadata fan-out exists.
+ProductListing detail, search, similar-listing, and watchlist reads batch current resolved Auction summaries from PostgreSQL. Standalone lot facts remain readable without a summary. Public data never exposes `sourceAuctionId` or persistence versions. Search supports exact resolved `auctionId` membership only; no Auction OpenSearch index or metadata fan-out exists.
+
+## Events and later notifications
+
+Changing a lot close creates a `PRODUCT_LISTING_CHANGED` payload with its previous/current listing facts. Changing a shared schedule creates an `AUCTION_CHANGED` payload with previous/current schedules; it does not create ProductListing changes for Auction members.
+
+Reminder and watchlist delivery are not implemented. A later consumer must durably consume these events, handle duplicate delivery and visibility/subscription rules, and use event payload snapshots rather than today's Auction row.

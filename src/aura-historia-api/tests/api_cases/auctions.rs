@@ -327,7 +327,8 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_attach_typed_partner_membership_and_redact_hidden_catalogue_auction_data() {
+async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hidden_catalogue_data()
+ {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
@@ -337,7 +338,7 @@ async fn should_attach_typed_partner_membership_and_redact_hidden_catalogue_auct
 
     let created_auction = client
         .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
-        .bearer_auth(String::from(admin_token))
+        .bearer_auth(String::from(admin_token.clone()))
         .json(&json!({
             "listingSourceId": source_id,
             "sourceAuctionId": source_auction_id,
@@ -414,6 +415,32 @@ async fn should_attach_typed_partner_membership_and_redact_hidden_catalogue_auct
     let product_listing_id = ProductListingId::try_from(product_listing_uuid)
         .unwrap_or_else(|error| panic!("invalid typed partner ProductListing ID: {error}"));
 
+    let updated_schedule = client
+        .patch(format!(
+            "{}/api/v1/admin/auctions/{auction_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(admin_token.clone()))
+        .json(&json!({
+            "expectedVersion": 1,
+            "schedule": {
+                "lotsBeginClosing": "2026-10-18T18:00:00Z"
+            }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to update shared Auction schedule: {error}"));
+    let (updated_schedule_status, updated_schedule_body) = json_response(updated_schedule).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        updated_schedule_status,
+        "response body: {updated_schedule_body}"
+    );
+    assert_eq!(
+        json!("2026-10-18T18:00:00Z"),
+        updated_schedule_body["schedule"]["lotsBeginClosing"]
+    );
+
     let filter_id = UserSearchFilterId::new();
     sqlx::query(
         "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'F12 hidden catalogue alerts', true, 'ACTIVE', '{}', 'en', 'EUR')",
@@ -486,6 +513,14 @@ async fn should_attach_typed_partner_membership_and_redact_hidden_catalogue_auct
     assert_eq!(
         json!("42"),
         anonymous_body["items"][0]["item"]["auction"]["lotNumber"]
+    );
+    assert_eq!(
+        json!("2026-10-18T16:03:00Z"),
+        anonymous_body["items"][0]["item"]["auction"]["scheduledCloses"]
+    );
+    assert_eq!(
+        json!("2026-10-18T18:00:00Z"),
+        anonymous_body["items"][0]["item"]["auctionSummary"]["schedule"]["lotsBeginClosing"]
     );
 
     let hidden_catalogue = client
