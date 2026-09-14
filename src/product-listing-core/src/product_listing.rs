@@ -2,8 +2,8 @@ use crate::description::Description;
 use crate::listing_availability::ListingAvailability;
 use crate::listing_lifecycle::ListingLifecycle;
 pub use crate::product_listing_auction::{
-    AuctionMembership, CataloguePosition, InvalidCataloguePosition, InvalidLotAuctionTiming,
-    InvalidLotNumber, LotAuctionTiming, LotNumber, ProductListingAuction,
+    CataloguePosition, InvalidCataloguePosition, InvalidLotNumber, InvalidProductListingAuction,
+    LotNumber, ProductListingAuction,
 };
 use crate::product_listing_event::{
     ProductListingChanged, ProductListingDiscovered, ProductListingEventPayload,
@@ -175,6 +175,7 @@ pub enum RecordListingSaleObservationError {
 impl ProductListing {
     /// Creates a listing from explicit, deterministic identity values.
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
+        let auction = ProductListingAuction::normalize(input.auction);
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
             title_slug_id: input.title_slug_id,
@@ -188,7 +189,7 @@ impl ProductListing {
             lifecycle: ListingLifecycle::Active,
             url: input.url,
             images: input.images,
-            auction: input.auction,
+            auction,
         })?;
         listing.pending_event_payload = Some(ProductListingEventPayload::Discovered(
             listing
@@ -218,7 +219,7 @@ impl ProductListing {
             lifecycle: state.lifecycle,
             url: state.url,
             images: state.images,
-            auction: state.auction,
+            auction: ProductListingAuction::normalize(state.auction),
             pending_event_payload: None,
             pending_image_baseline: None,
         })
@@ -437,6 +438,7 @@ impl ProductListing {
         auction: Option<ProductListingAuction>,
     ) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
+        let auction = ProductListingAuction::normalize(auction);
         if self.auction == auction {
             return Ok(ChangeOutcome::Unchanged);
         }
@@ -614,14 +616,15 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_an_empty_asserted_auction_context() {
+    fn should_normalize_an_empty_auction_context_to_no_auction_facts() {
         let mut source = input();
-        source.auction = Some(ProductListingAuction::new(None, None, None, None));
+        source.auction = ProductListingAuction::new(None, None, None, None, None, None)
+            .unwrap_or_else(|error| panic!("auction: {error}"));
 
         let listing =
             ProductListing::create(source).unwrap_or_else(|error| panic!("create: {error}"));
 
-        assert!(listing.auction().is_some());
+        assert!(listing.auction().is_none());
     }
 
     #[test]
@@ -802,28 +805,18 @@ mod tests {
         let final_url =
             Url::parse("https://shop.example/final").unwrap_or_else(|error| panic!("URL: {error}"));
         let first_auction = None;
-        let final_auction = Some(ProductListingAuction::new(
+        let final_auction = ProductListingAuction::new(
             None,
             Some(LotNumber::try_from("42").unwrap_or_else(|error| panic!("lot number: {error}"))),
             Some(
                 CataloguePosition::new(7)
                     .unwrap_or_else(|error| panic!("catalogue position: {error}")),
             ),
-            Some(
-                LotAuctionTiming::new(
-                    Some(auction_core::AuctionTime::instant(
-                        OffsetDateTime::UNIX_EPOCH,
-                        None,
-                    )),
-                    Some(auction_core::AuctionTime::instant(
-                        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
-                        None,
-                    )),
-                    None,
-                )
-                .unwrap_or_else(|error| panic!("auction timing: {error}")),
-            ),
-        ));
+            Some(OffsetDateTime::UNIX_EPOCH),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("auction: {error}"));
 
         listing
             .set_availability(ListingAvailability::Available)
@@ -1097,12 +1090,15 @@ mod tests {
     #[test]
     fn should_coalesce_auction_context_replacement_and_clear() {
         let mut listing = rehydrated();
-        let auction = Some(ProductListingAuction::new(
+        let auction = ProductListingAuction::new(
             None,
             Some(LotNumber::try_from("42").unwrap_or_else(|error| panic!("lot number: {error}"))),
             None,
             None,
-        ));
+            None,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("auction: {error}"));
 
         assert_eq!(
             Ok(ChangeOutcome::Changed),

@@ -366,10 +366,7 @@ async fn auction_summary_for_context<A>(
 where
     A: AuctionSummaryBatchReader,
 {
-    let Some(auction_id) = context
-        .and_then(ProductListingAuction::membership)
-        .map(|membership| membership.auction_id())
-    else {
+    let Some(auction_id) = context.and_then(ProductListingAuction::auction_id) else {
         return Ok(None);
     };
     let summaries = auctions.find_summaries(&[auction_id]).await?;
@@ -1151,12 +1148,9 @@ mod tests {
         let state = state();
         let auction_id = auction_core::AuctionId::new();
         let mut details = factual_details()?;
-        details.item.auction = Some(ProductListingAuction::new(
-            Some(product_listing_core::product_listing::AuctionMembership::new(auction_id)),
-            None,
-            None,
-            None,
-        ));
+        details.item.auction =
+            ProductListingAuction::new(Some(auction_id), None, None, None, None, None)
+                .unwrap_or_else(|error| panic!("valid Auction reference: {error}"));
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
         let auction_reader = CommitCheckingAuctionSummaryBatchReader {

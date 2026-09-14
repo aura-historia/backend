@@ -184,8 +184,7 @@ where
             .items
             .iter()
             .filter_map(|product| product.item.auction.as_ref())
-            .filter_map(|context| context.membership())
-            .map(|membership| membership.auction_id())
+            .filter_map(|context| context.auction_id())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
@@ -196,8 +195,7 @@ where
                 .item
                 .auction
                 .as_ref()
-                .and_then(|context| context.membership())
-                .map(|membership| membership.auction_id())
+                .and_then(|context| context.auction_id())
             {
                 product.item.auction_summary = Some(
                     auction_summaries

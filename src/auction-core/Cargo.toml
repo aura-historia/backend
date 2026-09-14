@@ -12,7 +12,7 @@ strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-time-tz = { workspace = true }
+
 url = { workspace = true }
 
 [dev-dependencies]

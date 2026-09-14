@@ -1,4 +1,4 @@
-use crate::AuctionTime;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuctionSchedulePoint {
@@ -28,18 +28,18 @@ pub struct InvalidAuctionSchedule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AuctionSchedule {
-    bidding_opens: Option<AuctionTime>,
-    live_starts: Option<AuctionTime>,
-    lots_begin_closing: Option<AuctionTime>,
-    scheduled_end: Option<AuctionTime>,
+    bidding_opens: Option<OffsetDateTime>,
+    live_starts: Option<OffsetDateTime>,
+    lots_begin_closing: Option<OffsetDateTime>,
+    scheduled_end: Option<OffsetDateTime>,
 }
 
 impl AuctionSchedule {
     pub fn new(
-        bidding_opens: Option<AuctionTime>,
-        live_starts: Option<AuctionTime>,
-        lots_begin_closing: Option<AuctionTime>,
-        scheduled_end: Option<AuctionTime>,
+        bidding_opens: Option<OffsetDateTime>,
+        live_starts: Option<OffsetDateTime>,
+        lots_begin_closing: Option<OffsetDateTime>,
+        scheduled_end: Option<OffsetDateTime>,
     ) -> Result<Self, InvalidAuctionSchedule> {
         let schedule = Self {
             bidding_opens,
@@ -51,36 +51,33 @@ impl AuctionSchedule {
         Ok(schedule)
     }
 
-    pub fn bidding_opens(&self) -> Option<&AuctionTime> {
-        self.bidding_opens.as_ref()
+    pub const fn bidding_opens(&self) -> Option<OffsetDateTime> {
+        self.bidding_opens
     }
 
-    pub fn live_starts(&self) -> Option<&AuctionTime> {
-        self.live_starts.as_ref()
+    pub const fn live_starts(&self) -> Option<OffsetDateTime> {
+        self.live_starts
     }
 
-    pub fn lots_begin_closing(&self) -> Option<&AuctionTime> {
-        self.lots_begin_closing.as_ref()
+    pub const fn lots_begin_closing(&self) -> Option<OffsetDateTime> {
+        self.lots_begin_closing
     }
 
-    pub fn scheduled_end(&self) -> Option<&AuctionTime> {
-        self.scheduled_end.as_ref()
+    pub const fn scheduled_end(&self) -> Option<OffsetDateTime> {
+        self.scheduled_end
     }
 
     fn validate(&self) -> Result<(), InvalidAuctionSchedule> {
         for (point, value) in [
-            (
-                AuctionSchedulePoint::BiddingOpens,
-                self.bidding_opens.as_ref(),
-            ),
-            (AuctionSchedulePoint::LiveStarts, self.live_starts.as_ref()),
+            (AuctionSchedulePoint::BiddingOpens, self.bidding_opens),
+            (AuctionSchedulePoint::LiveStarts, self.live_starts),
             (
                 AuctionSchedulePoint::LotsBeginClosing,
-                self.lots_begin_closing.as_ref(),
+                self.lots_begin_closing,
             ),
         ] {
-            if let (Some(value), Some(end)) = (value, self.scheduled_end.as_ref())
-                && value.is_after_in_same_precision_context(end)
+            if let (Some(value), Some(end)) = (value, self.scheduled_end)
+                && value > end
             {
                 return Err(InvalidAuctionSchedule {
                     first: point,
@@ -95,13 +92,7 @@ impl AuctionSchedule {
 #[cfg(test)]
 mod tests {
     use super::{AuctionSchedule, AuctionSchedulePoint, InvalidAuctionSchedule};
-    use crate::{AuctionTime, AuctionTimeZone};
-    use time::{Date, Month, macros::datetime};
-
-    fn berlin_timezone() -> AuctionTimeZone {
-        AuctionTimeZone::try_from("Europe/Berlin")
-            .unwrap_or_else(|error| panic!("valid test timezone: {error}"))
-    }
+    use time::macros::datetime;
 
     #[test]
     fn should_accept_an_empty_schedule() {
@@ -114,16 +105,10 @@ mod tests {
     #[test]
     fn should_reject_comparable_exact_milestone_after_scheduled_end() {
         let schedule = AuctionSchedule::new(
-            Some(AuctionTime::instant(
-                datetime!(2026-05-13 11:00 +02:00),
-                Some(berlin_timezone()),
-            )),
+            Some(datetime!(2026-05-13 11:00 +02:00)),
             None,
             None,
-            Some(AuctionTime::instant(
-                datetime!(2026-05-13 10:00 +02:00),
-                Some(berlin_timezone()),
-            )),
+            Some(datetime!(2026-05-13 10:00 +02:00)),
         );
 
         assert_eq!(
@@ -136,48 +121,15 @@ mod tests {
     }
 
     #[test]
-    fn should_compare_source_dates_only_in_the_same_declared_calendar_context() {
-        let earlier = Date::from_calendar_date(2026, Month::May, 13)
-            .unwrap_or_else(|error| panic!("valid test date: {error}"));
-        let later = Date::from_calendar_date(2026, Month::May, 14)
-            .unwrap_or_else(|error| panic!("valid test date: {error}"));
-
+    fn should_compare_all_schedule_instants() {
         assert!(
             AuctionSchedule::new(
-                Some(AuctionTime::date(later, Some(berlin_timezone()))),
+                Some(datetime!(2026-05-14 00:00 UTC)),
                 None,
                 None,
-                Some(AuctionTime::date(earlier, Some(berlin_timezone()))),
+                Some(datetime!(2026-05-13 23:00 UTC)),
             )
             .is_err()
-        );
-        assert!(
-            AuctionSchedule::new(
-                Some(AuctionTime::date(later, None)),
-                None,
-                None,
-                Some(AuctionTime::date(earlier, None)),
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn should_not_invent_a_midnight_comparison_for_mixed_precision() {
-        let date = Date::from_calendar_date(2026, Month::May, 13)
-            .unwrap_or_else(|error| panic!("valid test date: {error}"));
-
-        assert!(
-            AuctionSchedule::new(
-                Some(AuctionTime::date(date, Some(berlin_timezone()))),
-                None,
-                None,
-                Some(AuctionTime::instant(
-                    datetime!(2026-05-12 23:00 UTC),
-                    Some(berlin_timezone()),
-                )),
-            )
-            .is_ok()
         );
     }
 }

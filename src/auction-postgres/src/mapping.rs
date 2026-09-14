@@ -1,15 +1,15 @@
 use application::error::box_error;
 use auction_core::{
     Auction, AuctionDescription, AuctionFormat, AuctionId, AuctionKey, AuctionName,
-    AuctionReportedStatus, AuctionSchedule, AuctionTime, AuctionTimeZone, RehydratedAuctionState,
-    ReportedCatalogueLotCount, SourceAuctionId,
+    AuctionReportedStatus, AuctionSchedule, RehydratedAuctionState, ReportedCatalogueLotCount,
+    SourceAuctionId,
 };
 use auction_service::ports::{AuctionStorageVersion, StoredAuction};
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use std::str::FromStr;
-use time::{Date, OffsetDateTime};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -23,20 +23,15 @@ pub(crate) struct AuctionRow {
     pub description_language: Option<String>,
     pub catalogue_url: Option<String>,
     pub format: Option<String>,
+    pub bidding_opens_at: Option<OffsetDateTime>,
+    pub live_starts_at: Option<OffsetDateTime>,
+    pub lots_begin_closing_at: Option<OffsetDateTime>,
+    pub scheduled_end_at: Option<OffsetDateTime>,
     pub reported_status: Option<String>,
     pub reported_lot_count: Option<i64>,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-pub(crate) struct AuctionSchedulePointRow {
-    pub role: String,
-    pub precision: String,
-    pub instant_at: Option<OffsetDateTime>,
-    pub date_on: Option<Date>,
-    pub source_timezone: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -59,8 +54,6 @@ pub(crate) enum AuctionRowMappingError {
     ReportedLotCount,
     #[error("invalid auction version persisted")]
     Version,
-    #[error("invalid auction schedule point persisted")]
-    SchedulePoint,
     #[error("invalid auction schedule persisted")]
     Schedule,
 }
@@ -71,10 +64,7 @@ pub(crate) fn storage_version_to_i64(
     i64::try_from(version.into_inner()).map_err(|_| AuctionRowMappingError::Version)
 }
 
-pub(crate) fn map_stored_auction(
-    row: AuctionRow,
-    schedule_rows: Vec<AuctionSchedulePointRow>,
-) -> Result<StoredAuction, AuctionRowMappingError> {
+pub(crate) fn map_stored_auction(row: AuctionRow) -> Result<StoredAuction, AuctionRowMappingError> {
     let version = AuctionStorageVersion::try_from(row.version)
         .map_err(|_| AuctionRowMappingError::Version)?;
     let auction_id =
@@ -116,7 +106,13 @@ pub(crate) fn map_stored_auction(
                 .map_err(|_| AuctionRowMappingError::ReportedLotCount)
         })
         .transpose()?;
-    let schedule = map_schedule(schedule_rows)?;
+    let schedule = AuctionSchedule::new(
+        row.bidding_opens_at,
+        row.live_starts_at,
+        row.lots_begin_closing_at,
+        row.scheduled_end_at,
+    )
+    .map_err(|_| AuctionRowMappingError::Schedule)?;
     let auction = Auction::rehydrate(RehydratedAuctionState {
         id: auction_id,
         key: AuctionKey::new(listing_source_id, source_auction_id),
@@ -174,49 +170,6 @@ fn map_localized_description(
             Ok(Some(Localized::new(localization, payload)))
         }
         _ => Err(AuctionRowMappingError::LocalizedField),
-    }
-}
-
-fn map_schedule(
-    rows: Vec<AuctionSchedulePointRow>,
-) -> Result<AuctionSchedule, AuctionRowMappingError> {
-    let mut bidding_opens = None;
-    let mut live_starts = None;
-    let mut lots_begin_closing = None;
-    let mut scheduled_end = None;
-    for row in rows {
-        let value = map_time(&row)?;
-        let target = match row.role.as_str() {
-            "BIDDING_OPENS" => &mut bidding_opens,
-            "LIVE_STARTS" => &mut live_starts,
-            "LOTS_BEGIN_CLOSING" => &mut lots_begin_closing,
-            "SCHEDULED_END" => &mut scheduled_end,
-            _ => return Err(AuctionRowMappingError::SchedulePoint),
-        };
-        if target.replace(value).is_some() {
-            return Err(AuctionRowMappingError::SchedulePoint);
-        }
-    }
-    AuctionSchedule::new(
-        bidding_opens,
-        live_starts,
-        lots_begin_closing,
-        scheduled_end,
-    )
-    .map_err(|_| AuctionRowMappingError::Schedule)
-}
-
-fn map_time(row: &AuctionSchedulePointRow) -> Result<AuctionTime, AuctionRowMappingError> {
-    let timezone = row
-        .source_timezone
-        .as_deref()
-        .map(AuctionTimeZone::try_from)
-        .transpose()
-        .map_err(|_| AuctionRowMappingError::SchedulePoint)?;
-    match (row.precision.as_str(), row.instant_at, row.date_on) {
-        ("INSTANT", Some(at), None) => Ok(AuctionTime::instant(at, timezone)),
-        ("DATE", None, Some(on)) => Ok(AuctionTime::date(on, timezone)),
-        _ => Err(AuctionRowMappingError::SchedulePoint),
     }
 }
 

@@ -67,7 +67,6 @@ struct ProductListingPercolationDocument {
     event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<AuctionId>,
-    has_auction_context: bool,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
     title_de: Option<String>,
@@ -163,9 +162,7 @@ fn build_product_listing_percolation_document(
         auction_id: product
             .auction
             .as_ref()
-            .and_then(|auction| auction.membership())
-            .map(|membership| membership.auction_id()),
-        has_auction_context: product.auction.is_some(),
+            .and_then(|auction| auction.auction_id()),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -213,27 +210,19 @@ fn lot_position(
 fn exact_lot_bidding_opens_at(
     auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
 ) -> Option<OffsetDateTime> {
-    auction
-        .and_then(|auction| auction.timing())
-        .and_then(|timing| timing.bidding_opens())
-        .and_then(|time| time.exact_instant())
+    auction.and_then(|auction| auction.bidding_opens())
 }
 
 fn exact_lot_scheduled_closes_at(
     auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
 ) -> Option<OffsetDateTime> {
-    auction
-        .and_then(|auction| auction.timing())
-        .and_then(|timing| timing.scheduled_closes())
-        .and_then(|time| time.exact_instant())
+    auction.and_then(|auction| auction.scheduled_closes())
 }
 
 fn lot_reported_closed_at(
     auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
 ) -> Option<OffsetDateTime> {
-    auction
-        .and_then(|auction| auction.timing())
-        .and_then(|timing| timing.reported_closed_at())
+    auction.and_then(|auction| auction.reported_closed_at())
 }
 
 fn percolation_prices(
@@ -279,9 +268,7 @@ pub(crate) fn product_listing_document(
         auction_id: product
             .auction
             .as_ref()
-            .and_then(|auction| auction.membership())
-            .map(|membership| membership.auction_id()),
-        has_auction_context: product.auction.is_some(),
+            .and_then(|auction| auction.auction_id()),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -439,7 +426,6 @@ fn translated_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use auction_core::AuctionTime;
     use domain_primitives::event_id::EventId;
     use domain_primitives::query::range_query::RangeQuery;
     use fxrate_core::{
@@ -456,7 +442,7 @@ mod tests {
             ListingSaleObservation, ProductListingAuction, ProductListingPriceValuationBasis,
             ProductListingPricing,
         },
-        product_listing_auction::{CataloguePosition, LotAuctionTiming, LotNumber},
+        product_listing_auction::{CataloguePosition, LotNumber},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
@@ -636,19 +622,14 @@ mod tests {
         product.images = IndexSet::from([ProductListingImage::new(Url::parse(
             "https://shop.example.test/product_listings/blue-vase/image.jpg",
         )?)]);
-        product.auction = Some(ProductListingAuction::new(
+        product.auction = ProductListingAuction::new(
             None,
             Some(LotNumber::try_from("Lot 12")?),
             Some(CataloguePosition::new(12)?),
-            Some(LotAuctionTiming::new(
-                Some(AuctionTime::instant(OffsetDateTime::UNIX_EPOCH, None)),
-                Some(AuctionTime::instant(
-                    OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
-                    None,
-                )),
-                Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2)),
-            )?),
-        ));
+            Some(OffsetDateTime::UNIX_EPOCH),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2)),
+        )?;
         product.created = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
         product.updated = OffsetDateTime::UNIX_EPOCH + time::Duration::days(2);
 
@@ -683,21 +664,17 @@ mod tests {
     fn should_project_only_exact_lot_times_with_label_and_position()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut product = source()?;
+        let bidding_opens_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
         let scheduled_closes_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2);
         let reported_closed_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(3);
-        product.auction = Some(ProductListingAuction::new(
+        product.auction = ProductListingAuction::new(
             None,
             Some(LotNumber::try_from("Lot 12A")?),
             Some(CataloguePosition::new(12)?),
-            Some(LotAuctionTiming::new(
-                Some(AuctionTime::date(
-                    time::Date::from_calendar_date(2026, time::Month::May, 14)?,
-                    None,
-                )),
-                Some(AuctionTime::instant(scheduled_closes_at, None)),
-                Some(reported_closed_at),
-            )?),
-        ));
+            Some(bidding_opens_at),
+            Some(scheduled_closes_at),
+            Some(reported_closed_at),
+        )?;
 
         let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
             source: product.clone(),
@@ -711,7 +688,12 @@ mod tests {
                 document.get("lotLabel")
             );
             assert_eq!(Some(&serde_json::json!(12)), document.get("lotPosition"));
-            assert!(document.get("lotBiddingOpensAt").is_none());
+            assert_eq!(
+                Some(&serde_json::json!(
+                    bidding_opens_at.format(&time::format_description::well_known::Rfc3339)?
+                )),
+                document.get("lotBiddingOpensAt"),
+            );
             assert_eq!(
                 Some(&serde_json::json!(
                     scheduled_closes_at.format(&time::format_description::well_known::Rfc3339)?

@@ -35,9 +35,9 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 
 ## Auctions
 
-PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, optional canonical metadata, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion. `auction_schedule_points` holds at most one asserted row for each Auction-owned schedule role and is replaced only through the root Auction repository in the same transaction.
+PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, optional canonical metadata, four optional exact `timestamptz` schedule columns, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion.
 
-`auction_events` is an immutable journal of `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. The current schema version is `1`; state snapshot and semantic event commit atomically. It is retained for audit but has no CDC, projection, or worker route. Rehydration and event encoding validate canonical IDs, enum codes, localization pairs, URLs, schedule precision, timezones, and version values; invalid persisted state is an explicit operation error.
+`auction_events` is an immutable journal of `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. The current schema version is `1`; state snapshot and semantic event commit atomically. It has no CDC, projection, or worker route. Rehydration and event encoding validate canonical IDs, enum codes, localization pairs, URLs, RFC3339 instants, and version values; invalid persisted state is an explicit operation error.
 
 
 ## Credentials
@@ -55,7 +55,7 @@ The initial business schema requires a provisioned and preloaded `pg_ttl_index` 
 
 ## ProductListing events and revisions
 
-`product_listings` remains the authoritative ProductListing write model. Optional asserted auction context is owned by `product_listing_auction_contexts`; its optional timing row is `product_listing_lot_auction_timings`. Row absence means no auction-participation assertion, while a context row with all nullable leaves empty is an asserted empty context. These child rows are written and version-fenced only through the root ProductListing repository. Timing retains `INSTANT` versus `DATE` precision plus optional validated source timezone; `reported_closed_at` is exact only. Context rows have optional `auction_id` and a composite same-source Auction foreign key.
+`product_listings` remains the authoritative ProductListing write model. Its optional `auction_id`, lot label/order, and exact lot timestamp columns are listing-owned facts written and version-fenced only through the root ProductListing repository. All absent leaves mean no supplied fact; there is no context-presence row or boolean. A nullable composite foreign key ensures any Auction ID belongs to the listing's ListingSource, while independently auctioned listings may retain lot times without an Auction ID. The schedule check rejects bidding-open after scheduled-close.
 
 Its revision fields have separate purposes:
 

@@ -1,4 +1,4 @@
-use crate::mapping::{AuctionRow, AuctionSchedulePointRow, map_error, map_stored_auction};
+use crate::mapping::{AuctionRow, map_error, map_stored_auction};
 use application::{
     error::{BoxError, box_error},
     pagination::{Cursor, CursoredResult},
@@ -11,7 +11,6 @@ use auction_service::ports::{
 };
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use sqlx::{PgPool, Postgres, QueryBuilder};
-use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct SqlxAuctionDirectoryReader {
@@ -35,6 +34,10 @@ struct AuctionDirectoryRow {
     description_language: Option<String>,
     catalogue_url: Option<String>,
     format: Option<String>,
+    bidding_opens_at: Option<time::OffsetDateTime>,
+    live_starts_at: Option<time::OffsetDateTime>,
+    lots_begin_closing_at: Option<time::OffsetDateTime>,
+    scheduled_end_at: Option<time::OffsetDateTime>,
     reported_status: Option<String>,
     reported_lot_count: Option<i64>,
     version: i64,
@@ -44,63 +47,27 @@ struct AuctionDirectoryRow {
     listing_source_name: String,
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct JoinedAuctionDirectoryRow {
-    auction_id: uuid::Uuid,
-    listing_source_id: uuid::Uuid,
-    source_auction_id: String,
-    name_text: Option<String>,
-    name_language: Option<String>,
-    description_text: Option<String>,
-    description_language: Option<String>,
-    catalogue_url: Option<String>,
-    format: Option<String>,
-    reported_status: Option<String>,
-    reported_lot_count: Option<i64>,
-    version: i64,
-    created: time::OffsetDateTime,
-    updated: time::OffsetDateTime,
-    listing_source_slug_id: String,
-    listing_source_name: String,
-    role: Option<String>,
-    precision: Option<String>,
-    instant_at: Option<time::OffsetDateTime>,
-    date_on: Option<time::Date>,
-    source_timezone: Option<String>,
-}
-
-impl JoinedAuctionDirectoryRow {
-    fn auction(&self) -> AuctionDirectoryRow {
-        AuctionDirectoryRow {
+impl AuctionDirectoryRow {
+    fn auction(self) -> AuctionRow {
+        AuctionRow {
             auction_id: self.auction_id,
             listing_source_id: self.listing_source_id,
-            source_auction_id: self.source_auction_id.clone(),
-            name_text: self.name_text.clone(),
-            name_language: self.name_language.clone(),
-            description_text: self.description_text.clone(),
-            description_language: self.description_language.clone(),
-            catalogue_url: self.catalogue_url.clone(),
-            format: self.format.clone(),
-            reported_status: self.reported_status.clone(),
+            source_auction_id: self.source_auction_id,
+            name_text: self.name_text,
+            name_language: self.name_language,
+            description_text: self.description_text,
+            description_language: self.description_language,
+            catalogue_url: self.catalogue_url,
+            format: self.format,
+            bidding_opens_at: self.bidding_opens_at,
+            live_starts_at: self.live_starts_at,
+            lots_begin_closing_at: self.lots_begin_closing_at,
+            scheduled_end_at: self.scheduled_end_at,
+            reported_status: self.reported_status,
             reported_lot_count: self.reported_lot_count,
             version: self.version,
             created: self.created,
             updated: self.updated,
-            listing_source_slug_id: self.listing_source_slug_id.clone(),
-            listing_source_name: self.listing_source_name.clone(),
-        }
-    }
-
-    fn schedule_point(&self) -> Option<AuctionSchedulePointRow> {
-        match (&self.role, &self.precision) {
-            (Some(role), Some(precision)) => Some(AuctionSchedulePointRow {
-                role: role.clone(),
-                precision: precision.clone(),
-                instant_at: self.instant_at,
-                date_on: self.date_on,
-                source_timezone: self.source_timezone.clone(),
-            }),
-            _ => None,
         }
     }
 }
@@ -116,16 +83,9 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         let size_usize = usize::try_from(size).map_err(invalid_read_model)?;
         let limit = i64::try_from(size + 1).map_err(invalid_read_model)?;
 
-        // Page roots first, then join their owned schedule points. One statement gives
-        // every directory item one PostgreSQL statement snapshot without letting the
-        // one-to-many schedule join change cursor limits.
         let mut builder = QueryBuilder::<Postgres>::new(
-            "WITH selected AS (SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE TRUE",
         );
-        if request.schedule.is_some() {
-            builder.push(" JOIN auction_schedule_points schedule_filter ON schedule_filter.auction_id = a.auction_id");
-        }
-        builder.push(" WHERE TRUE");
         push_filters(&mut builder, request)?;
         if let Some(search_after) = cursor.search_after {
             builder
@@ -137,53 +97,21 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         }
         builder
             .push(" ORDER BY a.created DESC, a.auction_id DESC LIMIT ")
-            .push_bind(limit)
-            .push(") SELECT selected.auction_id, selected.listing_source_id, selected.source_auction_id, selected.name_text, selected.name_language, selected.description_text, selected.description_language, selected.catalogue_url, selected.format, selected.reported_status, selected.reported_lot_count, selected.version, selected.created, selected.updated, selected.listing_source_slug_id, selected.listing_source_name, point.role, point.precision, point.instant_at, point.date_on, point.source_timezone FROM selected LEFT JOIN auction_schedule_points point ON point.auction_id = selected.auction_id ORDER BY selected.created DESC, selected.auction_id DESC, point.role");
+            .push_bind(limit);
 
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
-        let joined = builder
-            .build_query_as::<JoinedAuctionDirectoryRow>()
+        let mut rows = builder
+            .build_query_as::<AuctionDirectoryRow>()
             .fetch_all(&mut *connection)
             .await
             .map_err(query_error)?;
-        let mut rows =
-            HashMap::<uuid::Uuid, (AuctionDirectoryRow, Vec<AuctionSchedulePointRow>)>::new();
-        let mut ordered_auction_ids = Vec::new();
-        for row in joined {
-            let auction_id = row.auction_id;
-            let (_, schedule) = rows.entry(auction_id).or_insert_with(|| {
-                ordered_auction_ids.push(auction_id);
-                (row.auction(), Vec::new())
-            });
-            if let Some(point) = row.schedule_point() {
-                schedule.push(point);
-            }
-        }
-        let has_more = ordered_auction_ids.len() > size_usize;
+        let has_more = rows.len() > size_usize;
         if has_more {
-            ordered_auction_ids.truncate(size_usize);
+            rows.truncate(size_usize);
         }
-        if ordered_auction_ids.is_empty() {
-            return Ok(CursoredResult {
-                items: Vec::new(),
-                cursor: Cursor {
-                    size,
-                    search_after: None,
-                },
-                total: None,
-            });
-        }
-
-        let items = ordered_auction_ids
+        let items = rows
             .into_iter()
-            .map(|auction_id| {
-                let (row, schedule_rows) = rows.remove(&auction_id).ok_or_else(|| {
-                    box_error(std::io::Error::other(
-                        "selected Auction vanished during directory mapping",
-                    ))
-                })?;
-                map_directory_item(row, schedule_rows)
-            })
+            .map(map_directory_item)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|source| AuctionDirectoryReadError::InvalidReadModel { source })?;
         let search_after = has_more.then(|| {
@@ -224,65 +152,45 @@ fn push_filters(
         let (Some(min), Some(max)) = (schedule.range.min, schedule.range.max) else {
             return Err(AuctionDirectoryReadError::InvalidReadModel {
                 source: box_error(std::io::Error::other(
-                    "Auction directory schedule filter has incomplete exact-instant range",
+                    "Auction directory schedule filter has incomplete range",
                 )),
             });
         };
         builder
-            .push(" AND schedule_filter.role = ")
-            .push_bind(schedule_role_code(schedule.role))
-            .push(" AND schedule_filter.precision = 'INSTANT' AND schedule_filter.instant_at >= ")
+            .push(" AND a.")
+            .push(schedule_column(schedule.role))
+            .push(" >= ")
             .push_bind(min)
-            .push(" AND schedule_filter.instant_at < ")
+            .push(" AND a.")
+            .push(schedule_column(schedule.role))
+            .push(" < ")
             .push_bind(max);
     }
     Ok(())
 }
 
-fn schedule_role_code(role: AuctionSchedulePoint) -> &'static str {
+fn schedule_column(role: AuctionSchedulePoint) -> &'static str {
     match role {
-        AuctionSchedulePoint::BiddingOpens => "BIDDING_OPENS",
-        AuctionSchedulePoint::LiveStarts => "LIVE_STARTS",
-        AuctionSchedulePoint::LotsBeginClosing => "LOTS_BEGIN_CLOSING",
-        AuctionSchedulePoint::ScheduledEnd => "SCHEDULED_END",
+        AuctionSchedulePoint::BiddingOpens => "bidding_opens_at",
+        AuctionSchedulePoint::LiveStarts => "live_starts_at",
+        AuctionSchedulePoint::LotsBeginClosing => "lots_begin_closing_at",
+        AuctionSchedulePoint::ScheduledEnd => "scheduled_end_at",
     }
 }
 
-fn map_directory_item(
-    row: AuctionDirectoryRow,
-    schedule_rows: Vec<AuctionSchedulePointRow>,
-) -> Result<PublicAuctionDirectoryItem, BoxError> {
+fn map_directory_item(row: AuctionDirectoryRow) -> Result<PublicAuctionDirectoryItem, BoxError> {
     let source_id = ListingSourceId::try_from(row.listing_source_id).map_err(box_error)?;
-    let stored = map_stored_auction(
-        AuctionRow {
-            auction_id: row.auction_id,
-            listing_source_id: row.listing_source_id,
-            source_auction_id: row.source_auction_id,
-            name_text: row.name_text,
-            name_language: row.name_language,
-            description_text: row.description_text,
-            description_language: row.description_language,
-            catalogue_url: row.catalogue_url,
-            format: row.format,
-            reported_status: row.reported_status,
-            reported_lot_count: row.reported_lot_count,
-            version: row.version,
-            created: row.created,
-            updated: row.updated,
-        },
-        schedule_rows,
-    )
-    .map_err(map_error)?;
+    let source = PublicAuctionDirectorySourceSummary {
+        listing_source_id: source_id,
+        slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id.clone()).map_err(box_error)?,
+        name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(box_error)?,
+    };
+    let stored = map_stored_auction(row.auction()).map_err(map_error)?;
     if stored.auction.key().listing_source_id() != source_id {
         return Err(box_error(std::io::Error::other(
             "persisted Auction source does not match its joined ListingSource",
         )));
     }
-    let source = PublicAuctionDirectorySourceSummary {
-        listing_source_id: source_id,
-        slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id).map_err(box_error)?,
-        name: ListingSourceName::try_from(row.listing_source_name).map_err(box_error)?,
-    };
     let auction = stored.auction;
     Ok(PublicAuctionDirectoryItem {
         auction_id: auction.id(),
@@ -314,22 +222,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_use_exact_persisted_schedule_role_codes() {
+    fn should_use_exact_persisted_schedule_column_names() {
         assert_eq!(
-            "BIDDING_OPENS",
-            schedule_role_code(AuctionSchedulePoint::BiddingOpens)
+            "bidding_opens_at",
+            schedule_column(AuctionSchedulePoint::BiddingOpens)
         );
         assert_eq!(
-            "LIVE_STARTS",
-            schedule_role_code(AuctionSchedulePoint::LiveStarts)
+            "live_starts_at",
+            schedule_column(AuctionSchedulePoint::LiveStarts)
         );
         assert_eq!(
-            "LOTS_BEGIN_CLOSING",
-            schedule_role_code(AuctionSchedulePoint::LotsBeginClosing)
+            "lots_begin_closing_at",
+            schedule_column(AuctionSchedulePoint::LotsBeginClosing)
         );
         assert_eq!(
-            "SCHEDULED_END",
-            schedule_role_code(AuctionSchedulePoint::ScheduledEnd)
+            "scheduled_end_at",
+            schedule_column(AuctionSchedulePoint::ScheduledEnd)
         );
     }
 }

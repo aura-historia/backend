@@ -744,13 +744,8 @@ paths:
                       lotNumber: "42A"
                       cataloguePosition: 7
                       timing:
-                        biddingOpens:
-                          precision: DATE
-                          on: "2025-05-01"
-                          sourceTimezone: Europe/Berlin
-                        scheduledCloses:
-                          precision: INSTANT
-                          at: "2025-05-10T12:30:00Z"
+                        biddingOpens: "2025-05-01T08:00:00Z"
+                        scheduledCloses: "2025-05-10T12:30:00Z"
                         reportedClosedAt: "2025-05-10T12:45:00Z"
               clear_images:
                 summary: Clear an existing product's images
@@ -1593,15 +1588,9 @@ paths:
                         auction:
                           lotNumber: "42A"
                           cataloguePosition: 7
-                          timing:
-                            biddingOpens:
-                              precision: DATE
-                              on: "2026-09-01"
-                              sourceTimezone: Europe/Berlin
-                            scheduledCloses:
-                              precision: INSTANT
-                              at: "2026-09-01T10:00:00Z"
-                            reportedClosedAt: "2026-09-01T10:15:00Z"
+                          biddingOpens: "2026-09-01T08:00:00Z"
+                          scheduledCloses: "2026-09-01T10:00:00Z"
+                          reportedClosedAt: "2026-09-01T10:15:00Z"
                       timestamp: "2026-09-01T10:00:00Z"
                     - eventType: PRODUCT_LISTING_CHANGED
                       productListingId: pl_5xdb465tg1enarx2knf04mxbxj
@@ -11996,7 +11985,6 @@ components:
         - eventId
         - source
         - sourceListingId
-        - hasAuctionContext
         - priceValuation
         - availability
         - lifecycle
@@ -12023,9 +12011,21 @@ components:
         auctionId:
           type: string
           description: Resolved Auction TypeID. Omitted when this listing has no resolved Auction membership.
-        hasAuctionContext:
-          type: boolean
-          description: True when the source asserts this listing is an auction offering, including unresolved membership.
+        lotBiddingOpensAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Listing-owned exact lot bidding-open instant. It is independent of `auctionId`.
+        lotScheduledClosesAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Listing-owned exact lot scheduled-close instant. It is independent of `auctionId`.
+        lotReportedClosedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Listing-owned observed close instant.
         auctionSummary:
           allOf:
             - $ref: "#/components/schemas/AuctionSummaryData"
@@ -12776,13 +12776,20 @@ components:
           example: 7
         timing:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionTimingData"
+            - $ref: "#/components/schemas/ProductListingAuctionTimesData"
           nullable: true
     ProductListingAuctionContextData:
       type: object
       additionalProperties: false
-      required: [lotNumber, cataloguePosition, timing]
-      description: Public and history lot context. It never exposes a source Auction key or metadata.
+      required:
+        [
+          lotNumber,
+          cataloguePosition,
+          biddingOpens,
+          scheduledCloses,
+          reportedClosedAt,
+        ]
+      description: Public and history listing-owned lot facts. They never expose a source Auction key or shared Auction metadata.
       properties:
         auctionId:
           type: string
@@ -12798,31 +12805,28 @@ components:
           maximum: 4294967295
           nullable: true
           description: Optional one-based source catalogue position.
-        timing:
-          allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionTimingData"
-          nullable: true
-
-    ProductListingAuctionTimingData:
-      type: object
-      additionalProperties: false
-      description: Nested lot-timing patch. Omit each leaf to preserve it, send null to clear it, or send a value to set it. Scheduled values preserve source precision; reported close is an exact observed fact.
-      properties:
         biddingOpens:
-          allOf:
-            - $ref: "#/components/schemas/AuctionTimeData"
+          type: string
+          format: date-time
           nullable: true
-          description: Omit to preserve; send null to clear; send a value to set.
         scheduledCloses:
-          allOf:
-            - $ref: "#/components/schemas/AuctionTimeData"
+          type: string
+          format: date-time
           nullable: true
-          description: Omit to preserve; send null to clear; send a value to set.
         reportedClosedAt:
           type: string
           format: date-time
           nullable: true
-          description: Omit to preserve; send null to clear; send an exact source-reported close time to set.
+
+    ProductListingAuctionTimesData:
+      type: object
+      additionalProperties: false
+      description: Omit each leaf to preserve it; send null to clear it; values are RFC3339 instants.
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        scheduledCloses: { type: string, format: date-time, nullable: true }
+        reportedClosedAt: { type: string, format: date-time, nullable: true }
+
     PriceEstimateData:
       type: object
       description: "Price estimate range for a product.
@@ -16721,54 +16725,19 @@ components:
       additionalProperties: false
       required: [biddingOpens, liveStarts, lotsBeginClosing, scheduledEnd]
       properties:
-        biddingOpens:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        liveStarts:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        lotsBeginClosing:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        scheduledEnd:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
     AuctionSchedulePatchData:
       type: object
       additionalProperties: false
-      description: Omitted roles are unchanged; `null` clears an asserted role.
+      description: Omitted roles are unchanged; `null` clears an asserted RFC3339 instant.
       properties:
-        biddingOpens:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        liveStarts:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        lotsBeginClosing:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-        scheduledEnd:
-          allOf: [{ $ref: "#/components/schemas/AuctionTimeData" }]
-          nullable: true
-    AuctionTimeData:
-      oneOf:
-        - type: object
-          additionalProperties: false
-          required: [precision, at]
-          properties:
-            precision: { type: string, enum: [INSTANT] }
-            at: { type: string, format: date-time }
-            sourceTimezone:
-              { type: string, description: Optional validated IANA timezone. }
-        - type: object
-          additionalProperties: false
-          required: [precision, on]
-          properties:
-            precision: { type: string, enum: [DATE] }
-            on: { type: string, format: date }
-            sourceTimezone:
-              { type: string, description: Optional validated IANA timezone. }
-      description: Exact instants retain their instant; date precision remains a date and is never converted to midnight.
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
     ProductListingSourceData:
       type: object
       description: ListingSource presentation hydrated for a ProductListing response.

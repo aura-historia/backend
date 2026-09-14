@@ -1,4 +1,4 @@
-use crate::mapping::{AuctionRow, AuctionSchedulePointRow, map_stored_auction};
+use crate::mapping::{AuctionRow, map_stored_auction};
 use application::error::box_error;
 use auction_service::ports::{
     PublicAuctionDetails, PublicAuctionDetailsReadError, PublicAuctionDetailsReader,
@@ -32,6 +32,10 @@ struct PublicAuctionDetailsRow {
     description_language: Option<String>,
     catalogue_url: Option<String>,
     format: Option<String>,
+    bidding_opens_at: Option<time::OffsetDateTime>,
+    live_starts_at: Option<time::OffsetDateTime>,
+    lots_begin_closing_at: Option<time::OffsetDateTime>,
+    scheduled_end_at: Option<time::OffsetDateTime>,
     reported_status: Option<String>,
     reported_lot_count: Option<i64>,
     version: i64,
@@ -69,7 +73,7 @@ impl PublicAuctionDetailsReader for SqlxPublicAuctionDetailsReader {
     ) -> Result<Option<PublicAuctionDetails>, PublicAuctionDetailsReadError> {
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
         let row = sqlx::query_as::<_, PublicAuctionDetailsRow>(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, s.referral_configuration, (SELECT COUNT(*) FROM product_listing_auction_contexts context JOIN product_listings listing ON listing.product_listing_id = context.product_listing_id WHERE context.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE a.auction_id = $1",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, s.referral_configuration, (SELECT COUNT(*) FROM product_listings listing WHERE listing.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE a.auction_id = $1",
         )
         .bind(auction_id.as_uuid())
         .fetch_optional(&mut *connection)
@@ -78,45 +82,35 @@ impl PublicAuctionDetailsReader for SqlxPublicAuctionDetailsReader {
         let Some(row) = row else {
             return Ok(None);
         };
-        let schedule_rows = sqlx::query_as::<_, AuctionSchedulePointRow>(
-            "SELECT role, precision, instant_at, date_on, source_timezone FROM auction_schedule_points WHERE auction_id = $1",
-        )
-        .bind(auction_id.as_uuid())
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(query_error)?;
-
-        map_details(row, schedule_rows)
-            .map(Some)
-            .map_err(read_model_error)
+        map_details(row).map(Some).map_err(read_model_error)
     }
 }
 
 fn map_details(
     row: PublicAuctionDetailsRow,
-    schedule_rows: Vec<AuctionSchedulePointRow>,
 ) -> Result<PublicAuctionDetails, PublicAuctionDetailsRowMappingError> {
     let source_id = ListingSourceId::try_from(row.listing_source_id)
         .map_err(|_| PublicAuctionDetailsRowMappingError::Auction)?;
-    let stored = map_stored_auction(
-        AuctionRow {
-            auction_id: row.auction_id,
-            listing_source_id: row.listing_source_id,
-            source_auction_id: row.source_auction_id,
-            name_text: row.name_text,
-            name_language: row.name_language,
-            description_text: row.description_text,
-            description_language: row.description_language,
-            catalogue_url: row.catalogue_url,
-            format: row.format,
-            reported_status: row.reported_status,
-            reported_lot_count: row.reported_lot_count,
-            version: row.version,
-            created: row.created,
-            updated: row.updated,
-        },
-        schedule_rows,
-    )
+    let stored = map_stored_auction(AuctionRow {
+        auction_id: row.auction_id,
+        listing_source_id: row.listing_source_id,
+        source_auction_id: row.source_auction_id,
+        name_text: row.name_text,
+        name_language: row.name_language,
+        description_text: row.description_text,
+        description_language: row.description_language,
+        catalogue_url: row.catalogue_url,
+        format: row.format,
+        bidding_opens_at: row.bidding_opens_at,
+        live_starts_at: row.live_starts_at,
+        lots_begin_closing_at: row.lots_begin_closing_at,
+        scheduled_end_at: row.scheduled_end_at,
+        reported_status: row.reported_status,
+        reported_lot_count: row.reported_lot_count,
+        version: row.version,
+        created: row.created,
+        updated: row.updated,
+    })
     .map_err(|_| PublicAuctionDetailsRowMappingError::Auction)?;
     if stored.auction.key().listing_source_id() != source_id {
         return Err(PublicAuctionDetailsRowMappingError::SourceMismatch);
@@ -194,6 +188,10 @@ mod tests {
             description_language: None,
             catalogue_url: None,
             format: Some("TIMED".to_owned()),
+            bidding_opens_at: None,
+            live_starts_at: None,
+            lots_begin_closing_at: None,
+            scheduled_end_at: None,
             reported_status: Some("SCHEDULED".to_owned()),
             reported_lot_count: Some(4),
             version: 1,
@@ -208,13 +206,10 @@ mod tests {
 
     #[test]
     fn should_map_safe_partnerize_source_configuration_and_auction_facts() {
-        let result = map_details(
-            row(Some(serde_json::json!({
-                "kind": "PARTNERIZE",
-                "camref": "auctioncampaign",
-            }))),
-            Vec::new(),
-        );
+        let result = map_details(row(Some(serde_json::json!({
+            "kind": "PARTNERIZE",
+            "camref": "auctioncampaign",
+        }))));
 
         assert!(matches!(
             result,
@@ -236,6 +231,6 @@ mod tests {
         let mut invalid = row(None);
         invalid.format = Some("timed".to_owned());
 
-        assert!(map_details(invalid, Vec::new()).is_err());
+        assert!(map_details(invalid).is_err());
     }
 }

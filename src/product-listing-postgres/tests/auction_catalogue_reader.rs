@@ -156,25 +156,14 @@ async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_
         .auction
         .as_ref()
         .unwrap_or_else(|| panic!("missing auction context"));
-    assert_eq!(
-        Some(auction_id),
-        context
-            .membership()
-            .map(|membership| membership.auction_id())
-    );
+    assert_eq!(Some(auction_id), context.auction_id());
     assert_eq!(
         Some(43),
         context
             .catalogue_position()
             .map(|position| position.value())
     );
-    assert_eq!(
-        Some(scheduled_close),
-        context
-            .timing()
-            .and_then(|timing| timing.scheduled_closes())
-            .and_then(auction_core::AuctionTime::exact_instant),
-    );
+    assert_eq!(Some(scheduled_close), context.scheduled_closes(),);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -311,26 +300,20 @@ async fn seed_listing(
 async fn attach_listing_to_auction(
     pool: &sqlx::PgPool,
     listing_id: ProductListingId,
-    source_id: ListingSourceId,
+    _source_id: ListingSourceId,
     auction_id: AuctionId,
     position: Option<i64>,
     scheduled_close: Option<OffsetDateTime>,
 ) {
-    sqlx::query("INSERT INTO product_listing_auction_contexts (product_listing_id, listing_source_id, auction_id, lot_number, catalogue_position) VALUES ($1, $2, $3, $4, $5)")
-        .bind(listing_id.as_uuid())
-        .bind(source_id.into_uuid())
-        .bind(auction_id.as_uuid())
-        .bind("Lot")
-        .bind(position)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("failed to attach listing to auction: {error}"));
-    if let Some(scheduled_close) = scheduled_close {
-        sqlx::query("INSERT INTO product_listing_lot_auction_timings (product_listing_id, scheduled_closes_precision, scheduled_closes_instant_at, scheduled_closes_source_timezone) VALUES ($1, 'INSTANT', $2, 'Europe/Berlin')")
-            .bind(listing_id.as_uuid())
-            .bind(scheduled_close)
-            .execute(pool)
-            .await
-            .unwrap_or_else(|error| panic!("failed to seed lot timing: {error}"));
-    }
+    sqlx::query(
+        "UPDATE product_listings SET auction_id = $1, lot_number = $2, catalogue_position = $3, lot_scheduled_closes_at = $4 WHERE product_listing_id = $5",
+    )
+    .bind(auction_id.as_uuid())
+    .bind("Lot")
+    .bind(position)
+    .bind(scheduled_close)
+    .bind(listing_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to attach listing to auction: {error}"));
 }

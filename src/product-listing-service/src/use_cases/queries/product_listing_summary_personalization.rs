@@ -257,7 +257,9 @@ fn redact_hidden_product_search_item(
             }
         })?;
     product.item.auction_id = None;
-    product.item.has_auction_context = false;
+    product.item.lot_bidding_opens_at = None;
+    product.item.lot_scheduled_closes_at = None;
+    product.item.lot_reported_closed_at = None;
     product.auction_summary = None;
     product.item.title = Some(Localized::new(language, hidden_title(language)));
     product.item.display_price = None;
@@ -315,7 +317,7 @@ mod tests {
         ProductListingSummaryPriceValuation, present_product_summaries_from_assessments,
     };
     use application::personalized::Personalized;
-    use auction_core::{AuctionSchedule, AuctionTime};
+    use auction_core::AuctionSchedule;
     use indexmap::IndexSet;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
@@ -357,7 +359,9 @@ mod tests {
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             auction_id: None,
-            has_auction_context: false,
+            lot_bidding_opens_at: None,
+            lot_scheduled_closes_at: None,
+            lot_reported_closed_at: None,
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(
                 product_listing_core::product_listing_price::ProductListingPrice::from(Price::new(
@@ -549,7 +553,9 @@ mod tests {
         let mut item = search_item(listing_source_id);
         item.product_listing_id = product_listing_id;
         item.auction_id = Some(auction_id);
-        item.has_auction_context = true;
+        item.lot_bidding_opens_at = Some(datetime!(2026-10-18 15:00 UTC));
+        item.lot_scheduled_closes_at = Some(datetime!(2026-10-18 16:00 UTC));
+        item.lot_reported_closed_at = Some(datetime!(2026-10-18 17:00 UTC));
         let source = ListingSourceSummary {
             listing_source_id,
             name: ListingSourceName::try_from("Source")
@@ -562,13 +568,8 @@ mod tests {
             name: None,
             format: None,
             reported_status: None,
-            schedule: AuctionSchedule::new(
-                None,
-                Some(AuctionTime::instant(datetime!(2026-10-18 16:00 UTC), None)),
-                None,
-                None,
-            )
-            .unwrap_or_else(|error| panic!("valid test auction schedule: {error}")),
+            schedule: AuctionSchedule::new(None, Some(datetime!(2026-10-18 16:00 UTC)), None, None)
+                .unwrap_or_else(|error| panic!("valid test auction schedule: {error}")),
         };
         let mut products = vec![Personalized {
             item: ProductListingSearchItemWithSource {
@@ -591,7 +592,9 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(None, summaries[0].item.auction_id);
-        assert!(!summaries[0].item.has_auction_context);
+        assert_eq!(None, summaries[0].item.lot_bidding_opens_at);
+        assert_eq!(None, summaries[0].item.lot_scheduled_closes_at);
+        assert_eq!(None, summaries[0].item.lot_reported_closed_at);
         assert!(summaries[0].item.auction_summary.is_none());
     }
 

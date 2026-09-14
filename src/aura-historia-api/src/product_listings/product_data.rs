@@ -1,6 +1,6 @@
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use application::operation_context::Principal;
-use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule, AuctionTime};
+use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule};
 use auction_service::ports::AuctionSummary;
 use axum::Json;
 use axum::http::{HeaderValue, header};
@@ -15,9 +15,7 @@ use notification_core::{
 };
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
-use product_listing_core::product_listing::{
-    LotAuctionTiming, ProductListingAuction, ProductListingPricing,
-};
+use product_listing_core::product_listing::{ProductListingAuction, ProductListingPricing};
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
@@ -158,7 +156,21 @@ pub(crate) struct ProductListingSummaryData {
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<AuctionId>,
-    has_auction_context: bool,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    lot_bidding_opens_at: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    lot_scheduled_closes_at: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    lot_reported_closed_at: Option<OffsetDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     auction_summary: Option<AuctionSummaryData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,32 +276,12 @@ pub(crate) struct ProductListingAuctionData {
     auction_id: Option<AuctionId>,
     lot_number: Option<String>,
     catalogue_position: Option<u32>,
-    timing: Option<LotAuctionTimingData>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LotAuctionTimingData {
-    bidding_opens: Option<AuctionTimeData>,
-    scheduled_closes: Option<AuctionTimeData>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    bidding_opens: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    scheduled_closes: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
     reported_closed_at: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "precision", rename_all = "SCREAMING_SNAKE_CASE")]
-enum AuctionTimeData {
-    Instant {
-        #[serde(with = "time::serde::rfc3339")]
-        at: OffsetDateTime,
-        #[serde(rename = "sourceTimezone", skip_serializing_if = "Option::is_none")]
-        source_timezone: Option<String>,
-    },
-    Date {
-        on: String,
-        #[serde(rename = "sourceTimezone", skip_serializing_if = "Option::is_none")]
-        source_timezone: Option<String>,
-    },
 }
 
 impl ProductListingDetailsData {
@@ -341,10 +333,14 @@ struct AuctionSummaryData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AuctionScheduleData {
-    bidding_opens: Option<AuctionTimeData>,
-    live_starts: Option<AuctionTimeData>,
-    lots_begin_closing: Option<AuctionTimeData>,
-    scheduled_end: Option<AuctionTimeData>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    bidding_opens: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    live_starts: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    lots_begin_closing: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    scheduled_end: Option<OffsetDateTime>,
 }
 
 impl From<AuctionSummary> for AuctionSummaryData {
@@ -365,10 +361,10 @@ impl From<AuctionSummary> for AuctionSummaryData {
 impl From<AuctionSchedule> for AuctionScheduleData {
     fn from(value: AuctionSchedule) -> Self {
         Self {
-            bidding_opens: value.bidding_opens().cloned().map(Into::into),
-            live_starts: value.live_starts().cloned().map(Into::into),
-            lots_begin_closing: value.lots_begin_closing().cloned().map(Into::into),
-            scheduled_end: value.scheduled_end().cloned().map(Into::into),
+            bidding_opens: value.bidding_opens(),
+            live_starts: value.live_starts(),
+            lots_begin_closing: value.lots_begin_closing(),
+            scheduled_end: value.scheduled_end(),
         }
     }
 }
@@ -376,45 +372,14 @@ impl From<AuctionSchedule> for AuctionScheduleData {
 impl From<ProductListingAuction> for ProductListingAuctionData {
     fn from(auction: ProductListingAuction) -> Self {
         Self {
-            auction_id: auction
-                .membership()
-                .map(|membership| membership.auction_id()),
+            auction_id: auction.auction_id(),
             lot_number: auction.lot_number().map(ToString::to_string),
             catalogue_position: auction
                 .catalogue_position()
                 .map(|position| position.value()),
-            timing: auction.timing().cloned().map(Into::into),
-        }
-    }
-}
-
-impl From<LotAuctionTiming> for LotAuctionTimingData {
-    fn from(timing: LotAuctionTiming) -> Self {
-        Self {
-            bidding_opens: timing.bidding_opens().cloned().map(Into::into),
-            scheduled_closes: timing.scheduled_closes().cloned().map(Into::into),
-            reported_closed_at: timing.reported_closed_at(),
-        }
-    }
-}
-
-impl From<AuctionTime> for AuctionTimeData {
-    fn from(value: AuctionTime) -> Self {
-        match value {
-            AuctionTime::Instant {
-                at,
-                source_timezone,
-            } => Self::Instant {
-                at,
-                source_timezone: source_timezone.map(String::from),
-            },
-            AuctionTime::Date {
-                on,
-                source_timezone,
-            } => Self::Date {
-                on: on.to_string(),
-                source_timezone: source_timezone.map(String::from),
-            },
+            bidding_opens: auction.bidding_opens(),
+            scheduled_closes: auction.scheduled_closes(),
+            reported_closed_at: auction.reported_closed_at(),
         }
     }
 }
@@ -551,7 +516,9 @@ impl ProductListingSummaryData {
             source: summary.source.into(),
             source_listing_id: summary.source_listing_id,
             auction_id: summary.auction_id,
-            has_auction_context: summary.has_auction_context,
+            lot_bidding_opens_at: summary.lot_bidding_opens_at,
+            lot_scheduled_closes_at: summary.lot_scheduled_closes_at,
+            lot_reported_closed_at: summary.lot_reported_closed_at,
             auction_summary: summary.auction_summary.map(Into::into),
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
@@ -643,12 +610,12 @@ pub(crate) fn product_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use auction_core::{AuctionName, AuctionTime};
+    use auction_core::AuctionName;
     use localization::Localized;
-    use time::macros::{date, datetime};
+    use time::macros::datetime;
 
     #[test]
-    fn should_serialize_only_safe_auction_summary_fields_with_time_precision() {
+    fn should_serialize_only_safe_auction_summary_fields_with_exact_timestamps() {
         let auction_id = AuctionId::new();
         let summary = AuctionSummary {
             auction_id,
@@ -661,9 +628,9 @@ mod tests {
             reported_status: Some(AuctionReportedStatus::Scheduled),
             schedule: AuctionSchedule::new(
                 None,
-                Some(AuctionTime::instant(datetime!(2026-10-18 16:00 UTC), None)),
+                Some(datetime!(2026-10-18 16:00 UTC)),
                 None,
-                Some(AuctionTime::date(date!(2026 - 10 - 19), None)),
+                Some(datetime!(2026-10-19 16:00 UTC)),
             )
             .unwrap_or_else(|error| panic!("valid test auction schedule: {error}")),
         };
@@ -684,12 +651,16 @@ mod tests {
             value.get("reportedStatus")
         );
         assert_eq!(
-            Some(&serde_json::Value::String("INSTANT".to_owned())),
-            value.pointer("/schedule/liveStarts/precision")
+            Some(&serde_json::Value::String(
+                "2026-10-18T16:00:00Z".to_owned()
+            )),
+            value.pointer("/schedule/liveStarts")
         );
         assert_eq!(
-            Some(&serde_json::Value::String("DATE".to_owned())),
-            value.pointer("/schedule/scheduledEnd/precision")
+            Some(&serde_json::Value::String(
+                "2026-10-19T16:00:00Z".to_owned()
+            )),
+            value.pointer("/schedule/scheduledEnd")
         );
         assert!(value.get("sourceAuctionId").is_none());
         assert!(value.get("version").is_none());

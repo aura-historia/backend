@@ -1,10 +1,10 @@
-use auction_core::{AuctionId, AuctionTime};
+use auction_core::AuctionId;
 use std::fmt;
 use time::OffsetDateTime;
 
 const MAX_LOT_NUMBER_BYTES: usize = 128;
 
-/// Source-assigned lot label. It is not an Auction aggregate membership reference.
+/// Source-assigned lot label.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LotNumber(String);
 
@@ -100,106 +100,65 @@ impl TryFrom<u64> for CataloguePosition {
     }
 }
 
-/// Optional timing assertions for one lot.
-///
-/// Exact instants are compared directly. Source dates are compared only when both
-/// carry the same declared calendar timezone. Mixed precision and timezone-less
-/// dates remain intentionally incomparable. A reported closure is always exact;
-/// it is an observed fact rather than a scheduled boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LotAuctionTiming {
-    bidding_opens: Option<AuctionTime>,
-    scheduled_closes: Option<AuctionTime>,
-    reported_closed_at: Option<OffsetDateTime>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidLotAuctionTiming {
+pub enum InvalidProductListingAuction {
     #[error("lot auction bidding opens after its scheduled close")]
     BiddingOpensAfterScheduledCloses,
 }
 
-impl LotAuctionTiming {
-    pub fn new(
-        bidding_opens: Option<AuctionTime>,
-        scheduled_closes: Option<AuctionTime>,
-        reported_closed_at: Option<OffsetDateTime>,
-    ) -> Result<Self, InvalidLotAuctionTiming> {
-        if bidding_opens
-            .as_ref()
-            .zip(scheduled_closes.as_ref())
-            .is_some_and(|(bidding_opens, scheduled_closes)| {
-                is_after_in_comparable_context(bidding_opens, scheduled_closes)
-            })
-        {
-            return Err(InvalidLotAuctionTiming::BiddingOpensAfterScheduledCloses);
-        }
-        Ok(Self {
-            bidding_opens,
-            scheduled_closes,
-            reported_closed_at,
-        })
-    }
-
-    pub fn bidding_opens(&self) -> Option<&AuctionTime> {
-        self.bidding_opens.as_ref()
-    }
-
-    pub fn scheduled_closes(&self) -> Option<&AuctionTime> {
-        self.scheduled_closes.as_ref()
-    }
-
-    pub const fn reported_closed_at(&self) -> Option<OffsetDateTime> {
-        self.reported_closed_at
-    }
-}
-
-/// Resolved, same-source Auction membership for one listing context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AuctionMembership {
-    auction_id: AuctionId,
-}
-
-impl AuctionMembership {
-    pub const fn new(auction_id: AuctionId) -> Self {
-        Self { auction_id }
-    }
-
-    pub const fn auction_id(self) -> AuctionId {
-        self.auction_id
-    }
-}
-
-/// Optional source assertions about the auction context of this listing.
+/// Optional source assertions about a listing's auction context.
 ///
-/// `None` outer context means no participation assertion. A present context with
-/// no membership is an unresolved auction offering; an empty present context is
-/// still a participation assertion.
+/// This value owns only listing facts. Its optional Auction ID is a reference, not
+/// an Auction aggregate membership. An all-empty value normalizes to `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductListingAuction {
-    membership: Option<AuctionMembership>,
+    auction_id: Option<AuctionId>,
     lot_number: Option<LotNumber>,
     catalogue_position: Option<CataloguePosition>,
-    timing: Option<LotAuctionTiming>,
+    bidding_opens: Option<OffsetDateTime>,
+    scheduled_closes: Option<OffsetDateTime>,
+    reported_closed_at: Option<OffsetDateTime>,
 }
 
 impl ProductListingAuction {
-    pub const fn new(
-        membership: Option<AuctionMembership>,
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        auction_id: Option<AuctionId>,
         lot_number: Option<LotNumber>,
         catalogue_position: Option<CataloguePosition>,
-        timing: Option<LotAuctionTiming>,
-    ) -> Self {
-        Self {
-            membership,
+        bidding_opens: Option<OffsetDateTime>,
+        scheduled_closes: Option<OffsetDateTime>,
+        reported_closed_at: Option<OffsetDateTime>,
+    ) -> Result<Option<Self>, InvalidProductListingAuction> {
+        if bidding_opens
+            .zip(scheduled_closes)
+            .is_some_and(|(bidding_opens, scheduled_closes)| bidding_opens > scheduled_closes)
+        {
+            return Err(InvalidProductListingAuction::BiddingOpensAfterScheduledCloses);
+        }
+
+        Ok((auction_id.is_some()
+            || lot_number.is_some()
+            || catalogue_position.is_some()
+            || bidding_opens.is_some()
+            || scheduled_closes.is_some()
+            || reported_closed_at.is_some())
+        .then_some(Self {
+            auction_id,
             lot_number,
             catalogue_position,
-            timing,
-        }
+            bidding_opens,
+            scheduled_closes,
+            reported_closed_at,
+        }))
     }
 
-    pub const fn membership(&self) -> Option<AuctionMembership> {
-        self.membership
+    pub fn normalize(auction: Option<Self>) -> Option<Self> {
+        auction.filter(|auction| !auction.is_empty())
+    }
+
+    pub const fn auction_id(&self) -> Option<AuctionId> {
+        self.auction_id
     }
 
     pub fn lot_number(&self) -> Option<&LotNumber> {
@@ -210,35 +169,32 @@ impl ProductListingAuction {
         self.catalogue_position
     }
 
-    pub fn timing(&self) -> Option<&LotAuctionTiming> {
-        self.timing.as_ref()
+    pub const fn bidding_opens(&self) -> Option<OffsetDateTime> {
+        self.bidding_opens
     }
-}
 
-fn is_after_in_comparable_context(left: &AuctionTime, right: &AuctionTime) -> bool {
-    match (
-        left.exact_instant(),
-        right.exact_instant(),
-        left.source_date(),
-        right.source_date(),
-        left.source_timezone(),
-        right.source_timezone(),
-    ) {
-        (Some(left), Some(right), _, _, _, _) => left > right,
-        (_, _, Some(left), Some(right), Some(left_timezone), Some(right_timezone))
-            if left_timezone == right_timezone =>
-        {
-            left > right
-        }
-        _ => false,
+    pub const fn scheduled_closes(&self) -> Option<OffsetDateTime> {
+        self.scheduled_closes
+    }
+
+    pub const fn reported_closed_at(&self) -> Option<OffsetDateTime> {
+        self.reported_closed_at
+    }
+
+    const fn is_empty(&self) -> bool {
+        self.auction_id.is_none()
+            && self.lot_number.is_none()
+            && self.catalogue_position.is_none()
+            && self.bidding_opens.is_none()
+            && self.scheduled_closes.is_none()
+            && self.reported_closed_at.is_none()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use auction_core::AuctionTimeZone;
-    use time::{Date, Month, macros::datetime};
+    use time::macros::datetime;
 
     #[test]
     fn should_validate_lot_number_and_catalogue_position() {
@@ -261,56 +217,52 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_date_precision_and_reject_comparable_open_after_close() {
-        let timezone = AuctionTimeZone::try_from("Europe/Berlin")
-            .unwrap_or_else(|error| panic!("valid timezone: {error}"));
-        let open = AuctionTime::date(
-            Date::from_calendar_date(2026, Month::May, 14)
-                .unwrap_or_else(|error| panic!("valid date: {error}")),
-            Some(timezone.clone()),
-        );
-        let close = AuctionTime::date(
-            Date::from_calendar_date(2026, Month::May, 13)
-                .unwrap_or_else(|error| panic!("valid date: {error}")),
-            Some(timezone),
-        );
-
+    fn should_normalize_all_empty_facts_to_no_auction_context() {
         assert_eq!(
-            Some(
-                Date::from_calendar_date(2026, Month::May, 14)
-                    .unwrap_or_else(|error| panic!("valid date: {error}"))
-            ),
-            open.source_date()
-        );
-        assert_eq!(None, open.exact_instant());
-        assert_eq!(
-            Err(InvalidLotAuctionTiming::BiddingOpensAfterScheduledCloses),
-            LotAuctionTiming::new(Some(open), Some(close), None)
+            Ok(None),
+            ProductListingAuction::new(None, None, None, None, None, None)
         );
     }
 
     #[test]
-    fn should_not_compare_mixed_or_timezone_less_date_precision() {
-        let date = Date::from_calendar_date(2026, Month::May, 14)
-            .unwrap_or_else(|error| panic!("valid date: {error}"));
-        let earlier = Date::from_calendar_date(2026, Month::May, 13)
-            .unwrap_or_else(|error| panic!("valid date: {error}"));
-
-        assert!(
-            LotAuctionTiming::new(
-                Some(AuctionTime::date(date, None)),
-                Some(AuctionTime::date(earlier, None)),
+    fn should_reject_bidding_open_after_scheduled_close() {
+        assert_eq!(
+            Err(InvalidProductListingAuction::BiddingOpensAfterScheduledCloses),
+            ProductListingAuction::new(
+                None,
+                None,
+                None,
+                Some(datetime!(2026-05-14 10:00 UTC)),
+                Some(datetime!(2026-05-13 10:00 UTC)),
                 None,
             )
-            .is_ok()
         );
-        assert!(
-            LotAuctionTiming::new(
-                Some(AuctionTime::date(date, None)),
-                Some(AuctionTime::instant(datetime!(2026-05-13 23:00 UTC), None)),
-                None,
-            )
-            .is_ok()
+    }
+
+    #[test]
+    fn should_preserve_direct_lot_timestamps() {
+        let auction = ProductListingAuction::new(
+            None,
+            None,
+            None,
+            Some(datetime!(2026-05-13 10:00 UTC)),
+            Some(datetime!(2026-05-14 10:00 UTC)),
+            Some(datetime!(2026-05-14 10:30 UTC)),
+        )
+        .unwrap_or_else(|error| panic!("auction: {error}"))
+        .unwrap_or_else(|| panic!("auction facts should be present"));
+
+        assert_eq!(
+            Some(datetime!(2026-05-13 10:00 UTC)),
+            auction.bidding_opens()
+        );
+        assert_eq!(
+            Some(datetime!(2026-05-14 10:00 UTC)),
+            auction.scheduled_closes()
+        );
+        assert_eq!(
+            Some(datetime!(2026-05-14 10:30 UTC)),
+            auction.reported_closed_at()
         );
     }
 }

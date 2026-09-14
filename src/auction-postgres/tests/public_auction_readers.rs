@@ -8,12 +8,12 @@ use auction_service::ports::{
 use domain_primitives::query::range_query::RangeQuery;
 use listing_source_core::ListingSourceId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
-use time::{Date, Month, OffsetDateTime, macros::datetime};
+use time::{OffsetDateTime, macros::datetime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_filter_directory_by_exact_schedule_role_with_half_open_bounds_and_exclude_dates() {
+async fn should_filter_directory_by_schedule_role_with_half_open_bounds() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "directory-schedule-source").await;
     let from = datetime!(2026-10-18 16:00 UTC);
@@ -21,11 +21,9 @@ async fn should_filter_directory_by_exact_schedule_role_with_half_open_bounds_an
     let included = seed_auction(&pool, source_id, "directory-included", 0).await;
     let excluded_upper = seed_auction(&pool, source_id, "directory-upper", 0).await;
     let wrong_role = seed_auction(&pool, source_id, "directory-wrong-role", 0).await;
-    let date_only = seed_auction(&pool, source_id, "directory-date-only", 0).await;
-    seed_instant_schedule(&pool, included, "LIVE_STARTS", from).await;
-    seed_instant_schedule(&pool, excluded_upper, "LIVE_STARTS", to).await;
-    seed_instant_schedule(&pool, wrong_role, "SCHEDULED_END", from).await;
-    seed_date_schedule(&pool, date_only, "LIVE_STARTS").await;
+    seed_schedule(&pool, included, "LIVE_STARTS", from).await;
+    seed_schedule(&pool, excluded_upper, "LIVE_STARTS", to).await;
+    seed_schedule(&pool, wrong_role, "SCHEDULED_END", from).await;
 
     let reader = SqlxAuctionDirectoryReader::new(pool);
     let page = reader
@@ -139,31 +137,27 @@ async fn seed_auction(
     auction_id
 }
 
-async fn seed_instant_schedule(
+async fn seed_schedule(
     pool: &sqlx::PgPool,
     auction_id: AuctionId,
     role: &str,
     instant: OffsetDateTime,
 ) {
-    sqlx::query("INSERT INTO auction_schedule_points (auction_id, role, precision, instant_at) VALUES ($1, $2, 'INSTANT', $3)")
-        .bind(auction_id.as_uuid())
-        .bind(role)
+    let query = match role {
+        "BIDDING_OPENS" => "UPDATE auctions SET bidding_opens_at = $1 WHERE auction_id = $2",
+        "LIVE_STARTS" => "UPDATE auctions SET live_starts_at = $1 WHERE auction_id = $2",
+        "LOTS_BEGIN_CLOSING" => {
+            "UPDATE auctions SET lots_begin_closing_at = $1 WHERE auction_id = $2"
+        }
+        "SCHEDULED_END" => "UPDATE auctions SET scheduled_end_at = $1 WHERE auction_id = $2",
+        _ => panic!("invalid Auction schedule role"),
+    };
+    sqlx::query(query)
         .bind(instant)
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("failed to seed instant schedule: {error}"));
-}
-
-async fn seed_date_schedule(pool: &sqlx::PgPool, auction_id: AuctionId, role: &str) {
-    let date = Date::from_calendar_date(2026, Month::October, 18)
-        .unwrap_or_else(|error| panic!("invalid fixture date: {error}"));
-    sqlx::query("INSERT INTO auction_schedule_points (auction_id, role, precision, date_on) VALUES ($1, $2, 'DATE', $3)")
         .bind(auction_id.as_uuid())
-        .bind(role)
-        .bind(date)
         .execute(pool)
         .await
-        .unwrap_or_else(|error| panic!("failed to seed date schedule: {error}"));
+        .unwrap_or_else(|error| panic!("failed to seed schedule: {error}"));
 }
 
 async fn seed_assigned_listing(
@@ -180,7 +174,7 @@ async fn seed_assigned_listing(
         .await
         .unwrap_or_else(|error| panic!("failed to begin listing fixture transaction: {error}"));
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, $7, $8, '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url, product_images, auction_id) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, $7, $8, '[]', $9)",
     )
     .bind(listing_id)
     .bind(format!("{source_listing_id}-000001"))
@@ -190,6 +184,7 @@ async fn seed_assigned_listing(
     .bind((lifecycle == "ACTIVE").then_some("AVAILABLE"))
     .bind(lifecycle)
     .bind(format!("https://example.com/{source_listing_id}"))
+    .bind(auction_id.as_uuid())
     .execute(&mut *transaction)
     .await
     .unwrap_or_else(|error| panic!("failed to seed assigned listing: {error}"));
@@ -199,13 +194,7 @@ async fn seed_assigned_listing(
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to seed listing event: {error}"));
-    sqlx::query("INSERT INTO product_listing_auction_contexts (product_listing_id, listing_source_id, auction_id) VALUES ($1, $2, $3)")
-        .bind(listing_id)
-        .bind(source_id.into_uuid())
-        .bind(auction_id.as_uuid())
-        .execute(&mut *transaction)
-        .await
-        .unwrap_or_else(|error| panic!("failed to attach listing to auction: {error}"));
+
     transaction
         .commit()
         .await

@@ -3,7 +3,7 @@ use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use crate::wire::parse_path_object_id;
 use application::patch_field::PatchField;
-use auction_core::{AuctionId, AuctionTime, AuctionTimeZone};
+use auction_core::AuctionId;
 use listing_source_core::ListingSourceId;
 use money::Price;
 use product_listing_core::description::Description;
@@ -18,7 +18,7 @@ use product_listing_service::use_cases::{
     CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use time::{Date, OffsetDateTime, format_description::well_known::Iso8601};
+use time::OffsetDateTime;
 use url::Url;
 
 pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
@@ -99,38 +99,18 @@ struct ProductListingAuctionData {
     #[serde(default)]
     catalogue_position: PatchValue<u64>,
     #[serde(default)]
-    timing: Option<LotAuctionTimingData>,
+    timing: Option<LotAuctionTimesData>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LotAuctionTimingData {
-    #[serde(default)]
-    bidding_opens: PatchValue<AuctionTimeData>,
-    #[serde(default)]
-    scheduled_closes: PatchValue<AuctionTimeData>,
+struct LotAuctionTimesData {
+    #[serde(default, deserialize_with = "patch_rfc3339")]
+    bidding_opens: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "patch_rfc3339")]
+    scheduled_closes: PatchValue<OffsetDateTime>,
     #[serde(default, deserialize_with = "patch_rfc3339")]
     reported_closed_at: PatchValue<OffsetDateTime>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(
-    tag = "precision",
-    rename_all = "SCREAMING_SNAKE_CASE",
-    deny_unknown_fields
-)]
-enum AuctionTimeData {
-    Instant {
-        #[serde(with = "time::serde::rfc3339")]
-        at: OffsetDateTime,
-        #[serde(default, rename = "sourceTimezone")]
-        source_timezone: Option<String>,
-    },
-    Date {
-        on: String,
-        #[serde(default, rename = "sourceTimezone")]
-        source_timezone: Option<String>,
-    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,48 +229,21 @@ impl ProductListingAuctionData {
             catalogue_position: catalogue_position_patch(self.catalogue_position)?,
             ..self
                 .timing
-                .map(LotAuctionTimingData::into_core)
+                .map(LotAuctionTimesData::into_core)
                 .transpose()?
                 .unwrap_or_default()
         })
     }
 }
 
-impl LotAuctionTimingData {
+impl LotAuctionTimesData {
     fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
         Ok(ProductListingAuctionPatch {
-            bidding_opens: auction_time_patch(self.bidding_opens)?,
-            scheduled_closes: auction_time_patch(self.scheduled_closes)?,
+            bidding_opens: patch_value(self.bidding_opens),
+            scheduled_closes: patch_value(self.scheduled_closes),
             reported_closed_at: patch_value(self.reported_closed_at),
             ..Default::default()
         })
-    }
-}
-
-impl AuctionTimeData {
-    fn into_core(self) -> Result<AuctionTime, ApiError> {
-        match self {
-            Self::Instant {
-                at,
-                source_timezone,
-            } => Ok(AuctionTime::instant(
-                at,
-                source_timezone.map(timezone).transpose()?,
-            )),
-            Self::Date {
-                on,
-                source_timezone,
-            } => {
-                let on = Date::parse(&on, &Iso8601::DATE).map_err(|_| {
-                    ApiError::bad_request(BAD_BODY_VALUE)
-                        .with_detail("auction timing date must use YYYY-MM-DD.")
-                })?;
-                Ok(AuctionTime::date(
-                    on,
-                    source_timezone.map(timezone).transpose()?,
-                ))
-            }
-        }
     }
 }
 
@@ -394,16 +347,6 @@ fn catalogue_position_patch(
     }
 }
 
-fn auction_time_patch(
-    value: PatchValue<AuctionTimeData>,
-) -> Result<PatchField<AuctionTime>, ApiError> {
-    match value {
-        PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Ok(PatchField::Clear),
-        PatchValue::Value(value) => value.into_core().map(PatchField::Set),
-    }
-}
-
 fn patch_value<T>(value: PatchValue<T>) -> PatchField<T> {
     match value {
         PatchValue::Omitted => PatchField::Unchanged,
@@ -426,13 +369,6 @@ where
                 .map_err(serde::de::Error::custom)
         }
     }
-}
-
-fn timezone(value: String) -> Result<AuctionTimeZone, ApiError> {
-    AuctionTimeZone::try_from(value).map_err(|_| {
-        ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("auction timing sourceTimezone must be a valid IANA timezone identifier.")
-    })
 }
 
 fn source_listing_id(value: String) -> Result<SourceListingId, ApiError> {
@@ -516,6 +452,16 @@ mod tests {
         assert_eq!(PatchField::Clear, auction.lot_number);
         assert_eq!(PatchField::Clear, auction.bidding_opens);
         assert!(matches!(auction.reported_closed_at, PatchField::Set(_)));
+    }
+
+    #[test]
+    fn should_reject_date_only_and_timezone_less_lot_timestamps() {
+        for timestamp in ["2026-05-01", "2026-05-01T12:00:00"] {
+            assert!(serde_json::from_str::<UpdateProductListingData>(&format!(
+                r#"{{"sourceListingId":"SKU-1","auction":{{"timing":{{"biddingOpens":"{timestamp}"}}}}}}"#
+            ))
+            .is_err());
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ pub mod auction_id;
 pub mod auction_key;
 pub mod auction_reported_status;
 pub mod auction_schedule;
-pub mod auction_time;
+
 pub mod reported_catalogue_lot_count;
 pub mod value_objects;
 
@@ -21,7 +21,7 @@ pub use auction_id::AuctionId;
 pub use auction_key::AuctionKey;
 pub use auction_reported_status::{AuctionReportedStatus, InvalidAuctionReportedStatus};
 pub use auction_schedule::{AuctionSchedule, AuctionSchedulePoint, InvalidAuctionSchedule};
-pub use auction_time::{AuctionTime, AuctionTimeZone, InvalidAuctionTimeZone};
+
 pub use reported_catalogue_lot_count::ReportedCatalogueLotCount;
 pub use value_objects::{
     AuctionDescription, AuctionName, InvalidAuctionDescription, InvalidAuctionName,

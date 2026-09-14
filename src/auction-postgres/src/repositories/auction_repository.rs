@@ -1,8 +1,6 @@
-use crate::mapping::{
-    AuctionRow, AuctionSchedulePointRow, map_error, map_stored_auction, storage_version_to_i64,
-};
+use crate::mapping::{AuctionRow, map_error, map_stored_auction, storage_version_to_i64};
 use application::error::box_error;
-use auction_core::{Auction, AuctionKey, AuctionTime};
+use auction_core::{Auction, AuctionKey};
 use auction_service::ports::{
     AuctionRepository, AuctionRepositoryError, AuctionStorageVersion, StoredAuction,
 };
@@ -28,30 +26,30 @@ impl AuctionRepository for SqlxAuctionRepository<'_> {
         &mut self,
         id: auction_core::AuctionId,
     ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = $1")
+        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = $1")
             .bind(id.as_uuid()).fetch_optional(&mut *self.connection).await.map_err(read_error)?;
-        load_optional(self.connection, row).await
+        load_optional(row)
     }
 
     async fn find_by_key(
         &mut self,
         key: &AuctionKey,
     ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2")
+        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2")
             .bind(key.listing_source_id().as_uuid()).bind(key.source_auction_id().as_ref()).fetch_optional(&mut *self.connection).await.map_err(read_error)?;
-        load_optional(self.connection, row).await
+        load_optional(row)
     }
 
     async fn insert(&mut self, auction: &Auction) -> Result<StoredAuction, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count, version, created, updated")
+        let row = sqlx::query_as::<_, AuctionRow>("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
             .bind(auction.id().as_uuid()).bind(auction.key().listing_source_id().as_uuid()).bind(auction.key().source_auction_id().as_ref())
             .bind(auction.name().map(|value| value.payload.as_ref())).bind(auction.name().map(|value| value.localization.as_str()))
             .bind(auction.description().map(|value| value.payload.as_ref())).bind(auction.description().map(|value| value.localization.as_str()))
             .bind(auction.catalogue_url().map(url::Url::as_str)).bind(auction.format().map(|value| value.as_str()))
+            .bind(auction.schedule().bidding_opens()).bind(auction.schedule().live_starts()).bind(auction.schedule().lots_begin_closing()).bind(auction.schedule().scheduled_end())
             .bind(auction.reported_status().map(|value| value.as_str())).bind(auction.reported_lot_count().map(|value| i64::from(value.value())))
             .fetch_one(&mut *self.connection).await.map_err(write_error)?;
-        replace_schedule(self.connection, auction).await?;
-        load(self.connection, row).await
+        load(row)
     }
 
     async fn update(
@@ -64,77 +62,26 @@ impl AuctionRepository for SqlxAuctionRepository<'_> {
                 source: map_error(error),
             }
         })?;
-        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, description_text=$3, description_language=$4, catalogue_url=$5, format=$6, reported_status=$7, reported_lot_count=$8, version=version+1, updated=now() WHERE auction_id=$9 AND version=$10 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count, version, created, updated")
+        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, description_text=$3, description_language=$4, catalogue_url=$5, format=$6, bidding_opens_at=$7, live_starts_at=$8, lots_begin_closing_at=$9, scheduled_end_at=$10, reported_status=$11, reported_lot_count=$12, version=version+1, updated=now() WHERE auction_id=$13 AND version=$14 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
             .bind(auction.name().map(|value| value.payload.as_ref())).bind(auction.name().map(|value| value.localization.as_str()))
             .bind(auction.description().map(|value| value.payload.as_ref())).bind(auction.description().map(|value| value.localization.as_str()))
             .bind(auction.catalogue_url().map(url::Url::as_str)).bind(auction.format().map(|value| value.as_str()))
+            .bind(auction.schedule().bidding_opens()).bind(auction.schedule().live_starts()).bind(auction.schedule().lots_begin_closing()).bind(auction.schedule().scheduled_end())
             .bind(auction.reported_status().map(|value| value.as_str())).bind(auction.reported_lot_count().map(|value| i64::from(value.value())))
             .bind(auction.id().as_uuid()).bind(expected_version)
             .fetch_optional(&mut *self.connection).await.map_err(write_error)?.ok_or(AuctionRepositoryError::ConcurrencyConflict)?;
-        replace_schedule(self.connection, auction).await?;
-        load(self.connection, row).await
+        load(row)
     }
 }
 
-async fn load_optional(
-    connection: &mut PgConnection,
-    row: Option<AuctionRow>,
-) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-    match row {
-        Some(row) => load(connection, row).await.map(Some),
-        None => Ok(None),
-    }
+fn load_optional(row: Option<AuctionRow>) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
+    row.map(load).transpose()
 }
 
-pub(crate) async fn load(
-    connection: &mut PgConnection,
-    row: AuctionRow,
-) -> Result<StoredAuction, AuctionRepositoryError> {
-    let schedule = schedule_rows(connection, row.auction_id).await?;
-    map_stored_auction(row, schedule).map_err(|error| {
-        AuctionRepositoryError::InvalidPersistedState {
-            source: map_error(error),
-        }
+pub(crate) fn load(row: AuctionRow) -> Result<StoredAuction, AuctionRepositoryError> {
+    map_stored_auction(row).map_err(|error| AuctionRepositoryError::InvalidPersistedState {
+        source: map_error(error),
     })
-}
-
-pub(crate) async fn schedule_rows(
-    connection: &mut PgConnection,
-    auction_id: uuid::Uuid,
-) -> Result<Vec<AuctionSchedulePointRow>, AuctionRepositoryError> {
-    sqlx::query_as::<_, AuctionSchedulePointRow>("SELECT role, precision, instant_at, date_on, source_timezone FROM auction_schedule_points WHERE auction_id=$1")
-        .bind(auction_id).fetch_all(&mut *connection).await.map_err(read_error)
-}
-
-async fn replace_schedule(
-    connection: &mut PgConnection,
-    auction: &Auction,
-) -> Result<(), AuctionRepositoryError> {
-    sqlx::query("DELETE FROM auction_schedule_points WHERE auction_id=$1")
-        .bind(auction.id().as_uuid())
-        .execute(&mut *connection)
-        .await
-        .map_err(write_error)?;
-    for (role, value) in [
-        ("BIDDING_OPENS", auction.schedule().bidding_opens()),
-        ("LIVE_STARTS", auction.schedule().live_starts()),
-        (
-            "LOTS_BEGIN_CLOSING",
-            auction.schedule().lots_begin_closing(),
-        ),
-        ("SCHEDULED_END", auction.schedule().scheduled_end()),
-    ] {
-        if let Some(value) = value {
-            let (precision, instant_at, date_on) = match value {
-                AuctionTime::Instant { at, .. } => ("INSTANT", Some(*at), None),
-                AuctionTime::Date { on, .. } => ("DATE", None, Some(*on)),
-            };
-            sqlx::query("INSERT INTO auction_schedule_points (auction_id, role, precision, instant_at, date_on, source_timezone) VALUES ($1,$2,$3,$4,$5,$6)")
-                .bind(auction.id().as_uuid()).bind(role).bind(precision).bind(instant_at).bind(date_on).bind(value.source_timezone().map(|zone| zone.as_str()))
-                .execute(&mut *connection).await.map_err(write_error)?;
-        }
-    }
-    Ok(())
 }
 
 fn read_error(error: sqlx::Error) -> AuctionRepositoryError {
@@ -170,8 +117,7 @@ mod tests {
     use crate::{SqlxAuctionEventAppenderFactory, SqlxAuctionRepositoryFactory};
     use application::transaction::{Transaction, UnitOfWork};
     use auction_core::{
-        AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, AuctionTime, NewAuction,
-        SourceAuctionId,
+        AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, NewAuction, SourceAuctionId,
     };
     use auction_service::ports::{
         AuctionEventAppender, AuctionEventAppenderFactory, AuctionRepositoryFactory,
@@ -212,13 +158,8 @@ mod tests {
             description: None,
             catalogue_url: None,
             format: Some(AuctionFormat::Timed),
-            schedule: AuctionSchedule::new(
-                Some(AuctionTime::instant(datetime!(2026-10-18 16:00 UTC), None)),
-                None,
-                None,
-                None,
-            )
-            .unwrap_or_else(|error| panic!("schedule: {error}")),
+            schedule: AuctionSchedule::new(Some(datetime!(2026-10-18 16:00 UTC)), None, None, None)
+                .unwrap_or_else(|error| panic!("schedule: {error}")),
             reported_status: None,
             reported_lot_count: None,
         })
@@ -256,11 +197,7 @@ mod tests {
         assert_eq!(Some(AuctionFormat::Timed), stored.auction.format());
         assert_eq!(
             Some(datetime!(2026-10-18 16:00 UTC)),
-            stored
-                .auction
-                .schedule()
-                .bidding_opens()
-                .and_then(AuctionTime::exact_instant)
+            stored.auction.schedule().bidding_opens()
         );
         let events: i64 =
             sqlx::query_scalar("SELECT count(*) FROM auction_events WHERE auction_id=$1")
@@ -312,13 +249,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("commit update: {error}"));
         assert_eq!(stored.version.next(), updated.version);
         assert_eq!(None, updated.auction.format());
-        let schedule_count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM auction_schedule_points WHERE auction_id=$1")
-                .bind(updated.auction.id().as_uuid())
-                .fetch_one(&pool)
-                .await
-                .unwrap_or_else(|error| panic!("count replaced schedule: {error}"));
-        assert_eq!(0, schedule_count);
+        assert_eq!(None, updated.auction.schedule().bidding_opens());
 
         let mut rolled_back = auction(source(&pool).await);
         let rollback_payload = rolled_back

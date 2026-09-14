@@ -217,7 +217,10 @@ where
                                         },
                                     )
                                 })?;
-                        if let Some(auction_id) = auction.membership().map(|v| v.auction_id()) {
+                        if let Some(auction_id) = auction
+                            .as_ref()
+                            .and_then(product_listing_core::product_listing::ProductListingAuction::auction_id)
+                        {
                             self.auction_references
                                 .in_transaction(&mut tx)
                                 .validate(auction_id, product.listing_source_id())
@@ -285,14 +288,17 @@ where
                                     },
                                 )
                             })?;
-                        if let Some(auction_id) = auction.membership().map(|v| v.auction_id()) {
+                        if let Some(auction_id) = auction
+                            .as_ref()
+                            .and_then(product_listing_core::product_listing::ProductListingAuction::auction_id)
+                        {
                             self.auction_references
                                 .in_transaction(&mut tx)
                                 .validate(auction_id, command.listing_source_id)
                                 .await
                                 .map_err(|e| AttemptError::Failed(e.into()))?;
                         }
-                        Some(auction)
+                        auction
                     }
                 };
                 let url = match command.url.clone() {
@@ -406,7 +412,7 @@ where
 fn apply_update(
     product: &mut ProductListing,
     command: &UpsertProductListingCommand,
-    auction: Option<product_listing_core::product_listing::ProductListingAuction>,
+    auction: Option<Option<product_listing_core::product_listing::ProductListingAuction>>,
 ) -> Result<(), UpsertProductListingError> {
     let mut pricing = product.pricing();
     apply_option(&mut pricing.price, command.price.clone());
@@ -441,7 +447,7 @@ fn apply_update(
         }
     };
     if let Some(auction) = auction {
-        product.replace_auction(Some(auction))?;
+        product.replace_auction(auction)?;
     }
     Ok(())
 }

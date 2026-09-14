@@ -247,8 +247,8 @@ mod tests {
                     "lotNumber":"42",
                     "cataloguePosition":7,
                     "timing":{
-                        "biddingOpens":{"precision":"DATE","on":"2026-08-23","sourceTimezone":"Europe/Berlin"},
-                        "scheduledCloses":{"precision":"INSTANT","at":"2026-08-24T12:00:00Z"},
+                        "biddingOpens":"2026-08-23T08:00:00Z",
+                        "scheduledCloses":"2026-08-24T12:00:00Z",
                         "reportedClosedAt":"2026-08-24T12:30:00Z"
                     }
                 }

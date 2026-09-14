@@ -19,8 +19,7 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListing, ProductListingAuction, ProductListingPricing,
-    RehydratedProductListingState,
+    ListingSaleObservation, ProductListing, ProductListingPricing, RehydratedProductListingState,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -73,20 +72,12 @@ struct ProductListingRow {
     url: String,
     product_images: serde_json::Value,
     embedding: Option<Vec<f32>>,
-    auction_context_product_listing_id: Option<uuid::Uuid>,
     auction_id: Option<uuid::Uuid>,
-    auction_lot_number: Option<String>,
-    auction_catalogue_position: Option<i64>,
-    auction_timing_product_listing_id: Option<uuid::Uuid>,
-    auction_bidding_opens_precision: Option<String>,
-    auction_bidding_opens_instant_at: Option<OffsetDateTime>,
-    auction_bidding_opens_date_on: Option<time::Date>,
-    auction_bidding_opens_source_timezone: Option<String>,
-    auction_scheduled_closes_precision: Option<String>,
-    auction_scheduled_closes_instant_at: Option<OffsetDateTime>,
-    auction_scheduled_closes_date_on: Option<time::Date>,
-    auction_scheduled_closes_source_timezone: Option<String>,
-    auction_reported_closed_at: Option<OffsetDateTime>,
+    lot_number: Option<String>,
+    catalogue_position: Option<i64>,
+    lot_bidding_opens_at: Option<OffsetDateTime>,
+    lot_scheduled_closes_at: Option<OffsetDateTime>,
+    lot_reported_closed_at: Option<OffsetDateTime>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
 }
@@ -131,26 +122,10 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, embedding,
-                auction_context.product_listing_id AS auction_context_product_listing_id,
-                auction_context.auction_id AS auction_id,
-                auction_context.lot_number AS auction_lot_number,
-                auction_context.catalogue_position AS auction_catalogue_position,
-                auction_timing.product_listing_id AS auction_timing_product_listing_id,
-                auction_timing.bidding_opens_precision AS auction_bidding_opens_precision,
-                auction_timing.bidding_opens_instant_at AS auction_bidding_opens_instant_at,
-                auction_timing.bidding_opens_date_on AS auction_bidding_opens_date_on,
-                auction_timing.bidding_opens_source_timezone AS auction_bidding_opens_source_timezone,
-                auction_timing.scheduled_closes_precision AS auction_scheduled_closes_precision,
-                auction_timing.scheduled_closes_instant_at AS auction_scheduled_closes_instant_at,
-                auction_timing.scheduled_closes_date_on AS auction_scheduled_closes_date_on,
-                auction_timing.scheduled_closes_source_timezone AS auction_scheduled_closes_source_timezone,
-                auction_timing.reported_closed_at AS auction_reported_closed_at,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at,
                 product_listings.created, product_listings.updated
             FROM product_listings
-            LEFT JOIN product_listing_auction_contexts auction_context
-                ON auction_context.product_listing_id = product_listings.product_listing_id
-            LEFT JOIN product_listing_lot_auction_timings auction_timing
-                ON auction_timing.product_listing_id = auction_context.product_listing_id
             WHERE product_listings.product_listing_id = $1
             "#,
         )
@@ -175,26 +150,10 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, embedding,
-                auction_context.product_listing_id AS auction_context_product_listing_id,
-                auction_context.auction_id AS auction_id,
-                auction_context.lot_number AS auction_lot_number,
-                auction_context.catalogue_position AS auction_catalogue_position,
-                auction_timing.product_listing_id AS auction_timing_product_listing_id,
-                auction_timing.bidding_opens_precision AS auction_bidding_opens_precision,
-                auction_timing.bidding_opens_instant_at AS auction_bidding_opens_instant_at,
-                auction_timing.bidding_opens_date_on AS auction_bidding_opens_date_on,
-                auction_timing.bidding_opens_source_timezone AS auction_bidding_opens_source_timezone,
-                auction_timing.scheduled_closes_precision AS auction_scheduled_closes_precision,
-                auction_timing.scheduled_closes_instant_at AS auction_scheduled_closes_instant_at,
-                auction_timing.scheduled_closes_date_on AS auction_scheduled_closes_date_on,
-                auction_timing.scheduled_closes_source_timezone AS auction_scheduled_closes_source_timezone,
-                auction_timing.reported_closed_at AS auction_reported_closed_at,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at,
                 product_listings.created, product_listings.updated
             FROM product_listings
-            LEFT JOIN product_listing_auction_contexts auction_context
-                ON auction_context.product_listing_id = product_listings.product_listing_id
-            LEFT JOIN product_listing_lot_auction_timings auction_timing
-                ON auction_timing.product_listing_id = auction_context.product_listing_id
             WHERE product_listings.listing_source_id = $1
               AND product_listings.source_listing_id = $2
             "#,
@@ -231,6 +190,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
+        let auction = auction_write_parts(product.auction());
         let version = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO product_listings (
@@ -239,10 +199,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 description_text, description_language, price_kind, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
-                availability, lifecycle, url, product_images
+                availability, lifecycle, url, product_images,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at
             ) VALUES (
                 $1, $2, $3, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18, $19, $20, $21, $22
+                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
             )
             RETURNING version
             "#,
@@ -281,13 +243,15 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
+        .bind(auction.auction_id)
+        .bind(auction.lot_number)
+        .bind(auction.catalogue_position)
+        .bind(auction.lot_bidding_opens_at)
+        .bind(auction.lot_scheduled_closes_at)
+        .bind(auction.lot_reported_closed_at)
         .fetch_one(&mut *self.connection)
         .await
         .map_err(ProductListingInsertSqlxError)?;
-
-        self.replace_auction_context(product.id(), product.listing_source_id(), product.auction())
-            .await
-            .map_err(ProductListingInsertSqlxError)?;
 
         let version = ProductListingStorageVersion::try_from(version)
             .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
@@ -319,6 +283,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
+        let auction = auction_write_parts(product.auction());
         let expected_version = i64::try_from(expected_version.into_inner())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let version = sqlx::query_scalar::<_, i64>(
@@ -345,10 +310,16 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 lifecycle = $17,
                 url = $18,
                 product_images = $19,
+                auction_id = $20,
+                lot_number = $21,
+                catalogue_position = $22,
+                lot_bidding_opens_at = $23,
+                lot_scheduled_closes_at = $24,
+                lot_reported_closed_at = $25,
                 version = version + 1,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $20 AND version = $21
+            WHERE product_listing_id = $26 AND version = $27
             RETURNING version
             "#,
         )
@@ -383,6 +354,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
+        .bind(auction.auction_id)
+        .bind(auction.lot_number)
+        .bind(auction.catalogue_position)
+        .bind(auction.lot_bidding_opens_at)
+        .bind(auction.lot_scheduled_closes_at)
+        .bind(auction.lot_reported_closed_at)
         .bind(product.id().as_uuid())
         .bind(expected_version)
         .fetch_optional(&mut *self.connection)
@@ -390,74 +367,9 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .map_err(ProductListingUpdateSqlxError)?
         .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
 
-        self.replace_auction_context(product.id(), product.listing_source_id(), product.auction())
-            .await
-            .map_err(ProductListingUpdateSqlxError)?;
-
         let version = ProductListingStorageVersion::try_from(version)
             .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
         Ok(Versioned::new(product.clone(), version))
-    }
-}
-
-impl SqlxProductListingRepository<'_> {
-    async fn replace_auction_context(
-        &mut self,
-        product_listing_id: ProductListingId,
-        listing_source_id: listing_source_core::ListingSourceId,
-        auction: Option<&ProductListingAuction>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM product_listing_auction_contexts WHERE product_listing_id = $1")
-            .bind(product_listing_id.as_uuid())
-            .execute(&mut *self.connection)
-            .await?;
-
-        let Some(auction) = auction else {
-            return Ok(());
-        };
-        let parts = auction_write_parts(auction);
-        sqlx::query(
-            r#"
-            INSERT INTO product_listing_auction_contexts (
-                product_listing_id, listing_source_id, auction_id, lot_number, catalogue_position
-            ) VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(product_listing_id.as_uuid())
-        .bind(listing_source_id.as_uuid())
-        .bind(parts.auction_id)
-        .bind(parts.lot_number)
-        .bind(parts.catalogue_position)
-        .execute(&mut *self.connection)
-        .await?;
-
-        let Some(timing) = parts.timing else {
-            return Ok(());
-        };
-        sqlx::query(
-            r#"
-            INSERT INTO product_listing_lot_auction_timings (
-                product_listing_id,
-                bidding_opens_precision, bidding_opens_instant_at, bidding_opens_date_on,
-                bidding_opens_source_timezone,
-                scheduled_closes_precision, scheduled_closes_instant_at, scheduled_closes_date_on,
-                scheduled_closes_source_timezone, reported_closed_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#,
-        )
-        .bind(product_listing_id.as_uuid())
-        .bind(timing.bidding_opens.precision)
-        .bind(timing.bidding_opens.instant_at)
-        .bind(timing.bidding_opens.date_on)
-        .bind(timing.bidding_opens.source_timezone)
-        .bind(timing.scheduled_closes.precision)
-        .bind(timing.scheduled_closes.instant_at)
-        .bind(timing.scheduled_closes.date_on)
-        .bind(timing.scheduled_closes.source_timezone)
-        .bind(timing.reported_closed_at)
-        .execute(&mut *self.connection)
-        .await?;
-        Ok(())
     }
 }
 
@@ -472,20 +384,12 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
         let source_listing_id = SourceListingId::try_from(row.source_listing_id)
             .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?;
         let auction = auction_from_parts(ProductListingAuctionParts {
-            context_product_listing_id: row.auction_context_product_listing_id,
             auction_id: row.auction_id,
-            lot_number: row.auction_lot_number,
-            catalogue_position: row.auction_catalogue_position,
-            timing_product_listing_id: row.auction_timing_product_listing_id,
-            bidding_opens_precision: row.auction_bidding_opens_precision,
-            bidding_opens_instant_at: row.auction_bidding_opens_instant_at,
-            bidding_opens_date_on: row.auction_bidding_opens_date_on,
-            bidding_opens_source_timezone: row.auction_bidding_opens_source_timezone,
-            scheduled_closes_precision: row.auction_scheduled_closes_precision,
-            scheduled_closes_instant_at: row.auction_scheduled_closes_instant_at,
-            scheduled_closes_date_on: row.auction_scheduled_closes_date_on,
-            scheduled_closes_source_timezone: row.auction_scheduled_closes_source_timezone,
-            reported_closed_at: row.auction_reported_closed_at,
+            lot_number: row.lot_number,
+            catalogue_position: row.catalogue_position,
+            lot_bidding_opens_at: row.lot_bidding_opens_at,
+            lot_scheduled_closes_at: row.lot_scheduled_closes_at,
+            lot_reported_closed_at: row.lot_reported_closed_at,
         })
         .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
         let product = ProductListing::rehydrate(RehydratedProductListingState {
@@ -1055,20 +959,12 @@ mod tests {
             url: "https://example.com/unit-product".to_owned(),
             product_images: json!([{ "url": "https://example.com/unit-product.jpg" }]),
             embedding: None,
-            auction_context_product_listing_id: None,
             auction_id: None,
-            auction_lot_number: None,
-            auction_catalogue_position: None,
-            auction_timing_product_listing_id: None,
-            auction_bidding_opens_precision: None,
-            auction_bidding_opens_instant_at: None,
-            auction_bidding_opens_date_on: None,
-            auction_bidding_opens_source_timezone: None,
-            auction_scheduled_closes_precision: None,
-            auction_scheduled_closes_instant_at: None,
-            auction_scheduled_closes_date_on: None,
-            auction_scheduled_closes_source_timezone: None,
-            auction_reported_closed_at: None,
+            lot_number: None,
+            catalogue_position: None,
+            lot_bidding_opens_at: None,
+            lot_scheduled_closes_at: None,
+            lot_reported_closed_at: None,
             created: now,
             updated: now,
         }

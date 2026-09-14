@@ -196,6 +196,10 @@ CREATE TABLE auctions (
     description_language text,
     catalogue_url text,
     format text,
+    bidding_opens_at timestamptz,
+    live_starts_at timestamptz,
+    lots_begin_closing_at timestamptz,
+    scheduled_end_at timestamptz,
     reported_status text,
     reported_lot_count bigint,
     version bigint NOT NULL DEFAULT 1,
@@ -215,26 +219,6 @@ CREATE TABLE auctions (
     CONSTRAINT auctions_description_localization_shape_check CHECK ((description_text IS NULL) = (description_language IS NULL))
 );
 
-CREATE TABLE auction_schedule_points (
-    auction_id uuid NOT NULL REFERENCES auctions(auction_id) ON DELETE CASCADE,
-    role text NOT NULL,
-    precision text NOT NULL,
-    instant_at timestamptz,
-    date_on date,
-    source_timezone text,
-    PRIMARY KEY (auction_id, role),
-    CONSTRAINT auction_schedule_points_role_check CHECK (role IN (
-        'BIDDING_OPENS', 'LIVE_STARTS', 'LOTS_BEGIN_CLOSING', 'SCHEDULED_END'
-    )),
-    CONSTRAINT auction_schedule_points_precision_check CHECK (precision IN ('INSTANT', 'DATE')),
-    CONSTRAINT auction_schedule_points_precision_shape_check CHECK (
-        (precision = 'INSTANT' AND instant_at IS NOT NULL AND date_on IS NULL)
-        OR (precision = 'DATE' AND date_on IS NOT NULL AND instant_at IS NULL)
-    )
-);
-
-CREATE INDEX auction_schedule_points_role_instant_idx
-    ON auction_schedule_points (role, instant_at) WHERE precision = 'INSTANT';
 
 CREATE TABLE auction_events (
     event_id uuid PRIMARY KEY,
@@ -556,6 +540,12 @@ CREATE TABLE product_listings (
         REFERENCES listing_sources(listing_source_id)
         ON DELETE RESTRICT,
     source_listing_id text NOT NULL,
+    auction_id uuid,
+    lot_number text,
+    catalogue_position bigint,
+    lot_bidding_opens_at timestamptz,
+    lot_scheduled_closes_at timestamptz,
+    lot_reported_closed_at timestamptz,
     title_text text,
     title_language text,
     description_text text,
@@ -579,6 +569,23 @@ CREATE TABLE product_listings (
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
     CONSTRAINT product_listings_title_slug_unique UNIQUE (product_listing_title_slug_id),
+    CONSTRAINT product_listings_auction_source_fk
+        FOREIGN KEY (auction_id, listing_source_id)
+        REFERENCES auctions(auction_id, listing_source_id) ON DELETE RESTRICT,
+    CONSTRAINT product_listings_lot_number_check CHECK (
+        lot_number IS NULL OR (
+            octet_length(lot_number) BETWEEN 1 AND 128
+            AND lot_number !~ '(^[[:space:]]|[[:space:]]$)'
+        )
+    ),
+    CONSTRAINT product_listings_catalogue_position_check CHECK (
+        catalogue_position IS NULL OR catalogue_position BETWEEN 1 AND 4294967295
+    ),
+    CONSTRAINT product_listings_lot_schedule_check CHECK (
+        lot_bidding_opens_at IS NULL
+        OR lot_scheduled_closes_at IS NULL
+        OR lot_bidding_opens_at <= lot_scheduled_closes_at
+    ),
     CONSTRAINT product_listings_source_listing_id_check CHECK (
         octet_length(source_listing_id) BETWEEN 1 AND 512
         AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
@@ -617,65 +624,8 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1)
 );
 
--- Listing-owned auction context. A row asserts participation; nullable auction_id
--- means the source offering is known but its Auction remains unresolved.
-ALTER TABLE product_listings
-    ADD CONSTRAINT product_listings_id_source_unique
-    UNIQUE (product_listing_id, listing_source_id);
-
-CREATE TABLE product_listing_auction_contexts (
-    product_listing_id uuid PRIMARY KEY,
-    listing_source_id uuid NOT NULL,
-    auction_id uuid,
-    lot_number text,
-    catalogue_position bigint,
-    CONSTRAINT product_listing_auction_contexts_listing_fk
-        FOREIGN KEY (product_listing_id, listing_source_id)
-        REFERENCES product_listings(product_listing_id, listing_source_id) ON DELETE CASCADE,
-    CONSTRAINT product_listing_auction_contexts_auction_source_fk
-        FOREIGN KEY (auction_id, listing_source_id)
-        REFERENCES auctions(auction_id, listing_source_id) ON DELETE RESTRICT,
-    CONSTRAINT product_listing_auction_contexts_lot_number_check CHECK (
-        lot_number IS NULL OR (
-            octet_length(lot_number) BETWEEN 1 AND 128
-            AND lot_number !~ '(^[[:space:]]|[[:space:]]$)'
-        )
-    ),
-    CONSTRAINT product_listing_auction_contexts_catalogue_position_check CHECK (
-        catalogue_position IS NULL OR catalogue_position BETWEEN 1 AND 4294967295
-    )
-);
-
-CREATE TABLE product_listing_lot_auction_timings (
-    product_listing_id uuid PRIMARY KEY
-        REFERENCES product_listing_auction_contexts(product_listing_id) ON DELETE CASCADE,
-    bidding_opens_precision text,
-    bidding_opens_instant_at timestamptz,
-    bidding_opens_date_on date,
-    bidding_opens_source_timezone text,
-    scheduled_closes_precision text,
-    scheduled_closes_instant_at timestamptz,
-    scheduled_closes_date_on date,
-    scheduled_closes_source_timezone text,
-    reported_closed_at timestamptz,
-    CONSTRAINT product_listing_lot_auction_timings_bidding_opens_shape_check CHECK (
-        (
-            (bidding_opens_precision IS NULL AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NULL AND bidding_opens_source_timezone IS NULL)
-            OR (bidding_opens_precision = 'INSTANT' AND bidding_opens_instant_at IS NOT NULL AND bidding_opens_date_on IS NULL)
-            OR (bidding_opens_precision = 'DATE' AND bidding_opens_instant_at IS NULL AND bidding_opens_date_on IS NOT NULL)
-        ) IS TRUE
-    ),
-    CONSTRAINT product_listing_lot_auction_timings_scheduled_closes_shape_check CHECK (
-        (
-            (scheduled_closes_precision IS NULL AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NULL AND scheduled_closes_source_timezone IS NULL)
-            OR (scheduled_closes_precision = 'INSTANT' AND scheduled_closes_instant_at IS NOT NULL AND scheduled_closes_date_on IS NULL)
-            OR (scheduled_closes_precision = 'DATE' AND scheduled_closes_instant_at IS NULL AND scheduled_closes_date_on IS NOT NULL)
-        ) IS TRUE
-    )
-);
-
-CREATE INDEX product_listing_auction_contexts_auction_catalogue_idx
-    ON product_listing_auction_contexts (auction_id, catalogue_position, product_listing_id);
+CREATE INDEX product_listings_auction_catalogue_idx
+    ON product_listings (auction_id, catalogue_position, product_listing_id);
 
 
 CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);

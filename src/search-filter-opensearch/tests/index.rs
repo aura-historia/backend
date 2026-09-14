@@ -1,5 +1,5 @@
 use application::pagination::Cursor;
-use auction_core::AuctionTime;
+
 use domain_primitives::event_id::EventId;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
@@ -17,7 +17,7 @@ use product_listing_core::{
     product_listing::{
         ProductListingAuction, ProductListingPriceValuationBasis, ProductListingPricing,
     },
-    product_listing_auction::{CataloguePosition, LotAuctionTiming, LotNumber},
+    product_listing_auction::{CataloguePosition, LotNumber},
     product_listing_image::ProductListingImage,
     product_listing_search::{ListingAvailabilityQuery, ProductListingSearch},
     source_listing_id::SourceListingId,
@@ -328,22 +328,14 @@ fn maximal_percolation_input() -> Result<ProductListingPercolationInput, Box<dyn
     source.images = IndexSet::from([ProductListingImage::new(Url::parse(
         "https://shop.example.test/product_listings/sku-1/image.jpg",
     )?)]);
-    source.auction = Some(ProductListingAuction::new(
+    source.auction = ProductListingAuction::new(
         None,
         Some(LotNumber::try_from("Lot 12")?),
         Some(CataloguePosition::new(12)?),
-        Some(LotAuctionTiming::new(
-            Some(AuctionTime::instant(
-                datetime!(2026-01-03 00:00:00 UTC),
-                None,
-            )),
-            Some(AuctionTime::instant(
-                datetime!(2026-01-04 00:00:00 UTC),
-                None,
-            )),
-            Some(datetime!(2026-01-05 00:00:00 UTC)),
-        )?),
-    ));
+        Some(datetime!(2026-01-03 00:00:00 UTC)),
+        Some(datetime!(2026-01-04 00:00:00 UTC)),
+        Some(datetime!(2026-01-05 00:00:00 UTC)),
+    )?;
     source.created = datetime!(2026-01-01 00:00:00 UTC);
     source.updated = datetime!(2026-01-02 00:00:00 UTC);
 

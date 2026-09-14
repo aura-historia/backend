@@ -476,7 +476,9 @@ mod tests {
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 auction_id: None,
-                has_auction_context: false,
+                lot_bidding_opens_at: None,
+                lot_scheduled_closes_at: None,
+                lot_reported_closed_at: None,
                 auction_summary: None,
                 title: Some(Localized {
                     localization: Language::En,

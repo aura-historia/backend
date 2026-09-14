@@ -13,7 +13,7 @@ use application::{
 };
 use auction_core::{
     AuctionDescription, AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, AuctionTime, ReplaceAuctionScheduleError, ReportedCatalogueLotCount,
+    AuctionSchedule, ReplaceAuctionScheduleError, ReportedCatalogueLotCount,
 };
 use domain_primitives::change_outcome::ChangeOutcome;
 use localization::{Language, Localized};
@@ -25,10 +25,10 @@ use user_service::use_cases::queries::check_user_admin::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AuctionSchedulePatch {
-    pub bidding_opens: PatchField<AuctionTime>,
-    pub live_starts: PatchField<AuctionTime>,
-    pub lots_begin_closing: PatchField<AuctionTime>,
-    pub scheduled_end: PatchField<AuctionTime>,
+    pub bidding_opens: PatchField<OffsetDateTime>,
+    pub live_starts: PatchField<OffsetDateTime>,
+    pub lots_begin_closing: PatchField<OffsetDateTime>,
+    pub scheduled_end: PatchField<OffsetDateTime>,
 }
 
 impl AuctionSchedulePatch {
@@ -229,22 +229,13 @@ fn apply_update(
     if command.schedule.is_changed() {
         let current = auction.schedule();
         let schedule = AuctionSchedule::new(
+            patch_option(current.bidding_opens(), &command.schedule.bidding_opens),
+            patch_option(current.live_starts(), &command.schedule.live_starts),
             patch_option(
-                current.bidding_opens().cloned(),
-                &command.schedule.bidding_opens,
-            ),
-            patch_option(
-                current.live_starts().cloned(),
-                &command.schedule.live_starts,
-            ),
-            patch_option(
-                current.lots_begin_closing().cloned(),
+                current.lots_begin_closing(),
                 &command.schedule.lots_begin_closing,
             ),
-            patch_option(
-                current.scheduled_end().cloned(),
-                &command.schedule.scheduled_end,
-            ),
+            patch_option(current.scheduled_end(), &command.schedule.scheduled_end),
         )
         .map_err(|source| UpdateAuctionError::InvalidSchedule {
             source: ReplaceAuctionScheduleError::InvalidSchedule(source),
@@ -309,5 +300,57 @@ impl From<AuctionEventAppendError> for UpdateAuctionError {
         Self::EventPersistenceFailed {
             source: Box::new(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use auction_core::{Auction, AuctionKey, NewAuction, SourceAuctionId};
+    use listing_source_core::ListingSourceId;
+    use time::macros::datetime;
+
+    #[test]
+    fn should_replace_one_schedule_instant() {
+        let mut auction = Auction::create(NewAuction {
+            id: AuctionId::new(),
+            key: AuctionKey::new(
+                ListingSourceId::new(),
+                SourceAuctionId::try_from("catalogue-42")
+                    .unwrap_or_else(|error| panic!("valid source Auction ID: {error}")),
+            ),
+            name: None,
+            description: None,
+            catalogue_url: None,
+            format: None,
+            schedule: AuctionSchedule::default(),
+            reported_status: None,
+            reported_lot_count: None,
+        })
+        .unwrap_or_else(|error| panic!("valid Auction: {error}"));
+        let command = UpdateAuctionCommand {
+            auction_id: auction.id(),
+            expected_version: AuctionStorageVersion::try_from(1_i64)
+                .unwrap_or_else(|error| panic!("valid Auction version: {error}")),
+            name: PatchField::Unchanged,
+            description: PatchField::Unchanged,
+            catalogue_url: PatchField::Unchanged,
+            format: PatchField::Unchanged,
+            schedule: AuctionSchedulePatch {
+                live_starts: PatchField::Set(datetime!(2026-10-18 16:03 UTC)),
+                ..Default::default()
+            },
+            reported_status: PatchField::Unchanged,
+            reported_lot_count: PatchField::Unchanged,
+        };
+
+        let outcome = apply_update(&mut auction, &command)
+            .unwrap_or_else(|error| panic!("valid schedule update: {error}"));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(
+            Some(datetime!(2026-10-18 16:03 UTC)),
+            auction.schedule().live_starts()
+        );
     }
 }

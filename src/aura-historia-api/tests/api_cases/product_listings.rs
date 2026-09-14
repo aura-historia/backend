@@ -8,7 +8,6 @@ use api_support::{
     seed_access_token_for, seed_current_fx_snapshot, seed_product, seed_user,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use auction_core::{AuctionTime, AuctionTimeZone};
 
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
@@ -23,8 +22,8 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        CataloguePosition, LotAuctionTiming, LotNumber, NewProductListing, ProductListing,
-        ProductListingAuction, ProductListingPricing,
+        CataloguePosition, LotNumber, NewProductListing, ProductListing, ProductListingAuction,
+        ProductListingPricing,
     },
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
@@ -45,7 +44,7 @@ use test_api::{
     AuraHistoriaApi, IntegrationTestService, aura_integration_test, get_opensearch_client,
     get_postgres_client, refresh_index,
 };
-use time::{Date, Duration, Month, OffsetDateTime, UtcOffset};
+use time::{Duration, OffsetDateTime, UtcOffset};
 use url::Url;
 
 const PRODUCTS_INDEX: &str = "product-listings";
@@ -765,8 +764,6 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
         + Duration::nanoseconds(123_456_789))
     .to_offset(source_offset);
     let lot_scheduled_closes = (lot_bidding_opens + Duration::hours(3)).to_offset(source_offset);
-    let source_timezone = AuctionTimeZone::try_from("Asia/Kolkata")
-        .unwrap_or_else(|error| panic!("valid source timezone: {error}"));
     let auction = ProductListingAuction::new(
         None,
         Some(
@@ -776,22 +773,12 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
             CataloguePosition::new(7)
                 .unwrap_or_else(|error| panic!("valid catalogue position: {error}")),
         ),
-        Some(
-            LotAuctionTiming::new(
-                Some(AuctionTime::date(
-                    Date::from_calendar_date(2026, Month::May, 14)
-                        .unwrap_or_else(|error| panic!("valid auction date: {error}")),
-                    Some(source_timezone.clone()),
-                )),
-                Some(AuctionTime::instant(
-                    lot_scheduled_closes,
-                    Some(source_timezone.clone()),
-                )),
-                Some((lot_scheduled_closes + Duration::minutes(15)).to_offset(source_offset)),
-            )
-            .unwrap_or_else(|error| panic!("valid auction timing: {error}")),
-        ),
-    );
+        Some(lot_bidding_opens),
+        Some(lot_scheduled_closes),
+        Some((lot_scheduled_closes + Duration::minutes(15)).to_offset(source_offset)),
+    )
+    .unwrap_or_else(|error| panic!("valid auction facts: {error}"))
+    .unwrap_or_else(|| panic!("non-empty auction facts should be retained"));
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
         title_slug_id: ProductListingSlugId::from_title_and_suffix(
@@ -831,37 +818,25 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let created_event_id = created_event.event_id;
 
     product
-        .replace_auction(Some(ProductListingAuction::new(
-            None,
-            Some(
-                LotNumber::try_from("43A")
-                    .unwrap_or_else(|error| panic!("valid replacement lot number: {error}")),
-            ),
-            Some(
-                CataloguePosition::new(8).unwrap_or_else(|error| {
+        .replace_auction(
+            ProductListingAuction::new(
+                None,
+                Some(
+                    LotNumber::try_from("43A")
+                        .unwrap_or_else(|error| panic!("valid replacement lot number: {error}")),
+                ),
+                Some(CataloguePosition::new(8).unwrap_or_else(|error| {
                     panic!("valid replacement catalogue position: {error}")
-                }),
-            ),
-            Some(
-                LotAuctionTiming::new(
-                    Some(AuctionTime::date(
-                        Date::from_calendar_date(2026, Month::May, 15).unwrap_or_else(|error| {
-                            panic!("valid replacement auction date: {error}")
-                        }),
-                        Some(source_timezone.clone()),
-                    )),
-                    Some(AuctionTime::instant(
-                        (lot_scheduled_closes + Duration::days(1)).to_offset(source_offset),
-                        Some(source_timezone.clone()),
-                    )),
-                    Some(
-                        (lot_scheduled_closes + Duration::days(1) + Duration::minutes(15))
-                            .to_offset(source_offset),
-                    ),
-                )
-                .unwrap_or_else(|error| panic!("valid replacement auction timing: {error}")),
-            ),
-        )))
+                })),
+                Some((lot_bidding_opens + Duration::days(1)).to_offset(source_offset)),
+                Some((lot_scheduled_closes + Duration::days(1)).to_offset(source_offset)),
+                Some(
+                    (lot_scheduled_closes + Duration::days(1) + Duration::minutes(15))
+                        .to_offset(source_offset),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("valid replacement auction facts: {error}")),
+        )
         .unwrap_or_else(|error| panic!("change auction: {error}"));
     let changed_event = stamp_product_listing_event(
         product_listing_id,
@@ -933,20 +908,9 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let discovered_auction = &discovered["payload"]["auction"];
     assert_eq!(json!("42A"), discovered_auction["lotNumber"]);
     assert_eq!(json!(7), discovered_auction["cataloguePosition"]);
-    assert_eq!(
-        json!("DATE"),
-        discovered_auction["timing"]["biddingOpens"]["precision"]
-    );
-    assert_eq!(
-        json!("2026-05-14"),
-        discovered_auction["timing"]["biddingOpens"]["on"]
-    );
-    assert_eq!(
-        json!("INSTANT"),
-        discovered_auction["timing"]["scheduledCloses"]["precision"]
-    );
-    assert!(discovered_auction["timing"]["scheduledCloses"]["at"].is_string());
-    assert!(discovered_auction["timing"]["reportedClosedAt"].is_string());
+    assert!(discovered_auction["biddingOpens"].is_string());
+    assert!(discovered_auction["scheduledCloses"].is_string());
+    assert!(discovered_auction["reportedClosedAt"].is_string());
 
     let changed = event("PRODUCT_LISTING_CHANGED");
     let changes = changed["payload"]["changes"]
@@ -957,16 +921,12 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let auction = &changes[0];
     assert_eq!(json!("42A"), auction["previous"]["lotNumber"]);
     assert_eq!(json!("43A"), auction["current"]["lotNumber"]);
-    assert_eq!(
-        json!("DATE"),
-        auction["previous"]["timing"]["biddingOpens"]["precision"]
-    );
-    assert_eq!(
-        json!("INSTANT"),
-        auction["current"]["timing"]["scheduledCloses"]["precision"]
-    );
-    assert!(auction["previous"]["timing"]["reportedClosedAt"].is_string());
-    assert!(auction["current"]["timing"]["reportedClosedAt"].is_string());
+    assert!(auction["previous"]["biddingOpens"].is_string());
+    assert!(auction["previous"]["scheduledCloses"].is_string());
+    assert!(auction["previous"]["reportedClosedAt"].is_string());
+    assert!(auction["current"]["biddingOpens"].is_string());
+    assert!(auction["current"]["scheduledCloses"].is_string());
+    assert!(auction["current"]["reportedClosedAt"].is_string());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

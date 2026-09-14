@@ -129,6 +129,7 @@ mod tests {
     use auction_core::AuctionId;
     use domain_primitives::query::range_query::RangeQuery;
     use money::MonetaryAmount;
+    use time::macros::datetime;
 
     #[test]
     fn should_preserve_usd_price_bounds_without_fx_conversion()
@@ -204,6 +205,41 @@ mod tests {
         assert_eq!(
             Some(&json!([auction_id.to_string()])),
             query.pointer("/bool/filter/0/terms/auctionId")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_filter_exact_lot_time_ranges_without_auction_membership()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Usd)
+            .with_lot_bidding_opens_query(RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00 UTC)),
+            })
+            .with_lot_scheduled_closes_query(RangeQuery {
+                min: Some(datetime!(2026-01-05 00:00 UTC)),
+                max: Some(datetime!(2026-01-06 00:00 UTC)),
+            });
+
+        let query = build_percolator_query(&search)?;
+
+        assert!(query.get("auctionId").is_none());
+        assert_eq!(
+            Some(&json!("2026-01-03T00:00:00Z")),
+            query.pointer("/bool/filter/0/range/lotBiddingOpensAt/gte")
+        );
+        assert_eq!(
+            Some(&json!("2026-01-04T00:00:00Z")),
+            query.pointer("/bool/filter/1/range/lotBiddingOpensAt/lt")
+        );
+        assert_eq!(
+            Some(&json!("2026-01-05T00:00:00Z")),
+            query.pointer("/bool/filter/2/range/lotScheduledClosesAt/gte")
+        );
+        assert_eq!(
+            Some(&json!("2026-01-06T00:00:00Z")),
+            query.pointer("/bool/filter/3/range/lotScheduledClosesAt/lt")
         );
         Ok(())
     }

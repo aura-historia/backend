@@ -82,10 +82,10 @@ impl Auction {
     #[doc(hidden)]
     pub fn rehydrate(state: RehydratedAuctionState) -> Result<Self, RehydrateAuctionError> {
         AuctionSchedule::new(
-            state.schedule.bidding_opens().cloned(),
-            state.schedule.live_starts().cloned(),
-            state.schedule.lots_begin_closing().cloned(),
-            state.schedule.scheduled_end().cloned(),
+            state.schedule.bidding_opens(),
+            state.schedule.live_starts(),
+            state.schedule.lots_begin_closing(),
+            state.schedule.scheduled_end(),
         )
         .map_err(RehydrateAuctionError::InvalidSchedule)?;
 
@@ -231,10 +231,10 @@ impl Auction {
         schedule: AuctionSchedule,
     ) -> Result<ChangeOutcome, ReplaceAuctionScheduleError> {
         AuctionSchedule::new(
-            schedule.bidding_opens().cloned(),
-            schedule.live_starts().cloned(),
-            schedule.lots_begin_closing().cloned(),
-            schedule.scheduled_end().cloned(),
+            schedule.bidding_opens(),
+            schedule.live_starts(),
+            schedule.lots_begin_closing(),
+            schedule.scheduled_end(),
         )
         .map_err(ReplaceAuctionScheduleError::InvalidSchedule)?;
         let previous = self.schedule.clone();

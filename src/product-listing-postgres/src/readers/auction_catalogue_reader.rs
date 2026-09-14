@@ -61,11 +61,11 @@ impl AuctionCatalogueReader for SqlxAuctionCatalogueReader<'_> {
         let user_id = request.user_id.map(|id| id.into_uuid());
 
         let mut select = product_details_select(DEFAULT_NOTIFICATION_STATES);
-        select.push_str(" WHERE auction_context.auction_id = $3 AND p.lifecycle = 'ACTIVE'");
+        select.push_str(" WHERE p.auction_id = $3 AND p.lifecycle = 'ACTIVE'");
         let rows = match request.cursor.search_after {
             None => {
                 select.push_str(
-                    " ORDER BY auction_context.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $4",
+                    " ORDER BY p.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $4",
                 );
                 sqlx::query_as::<_, ProductListingDetailsRow>(AssertSqlSafe(select))
                     .bind(requested_language)
@@ -77,7 +77,7 @@ impl AuctionCatalogueReader for SqlxAuctionCatalogueReader<'_> {
             }
             Some(cursor) if cursor.catalogue_position.is_some() => {
                 select.push_str(
-                    " AND (auction_context.catalogue_position IS NULL OR auction_context.catalogue_position > $4 OR (auction_context.catalogue_position = $4 AND p.product_listing_id > $5)) ORDER BY auction_context.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $6",
+                    " AND (p.catalogue_position IS NULL OR p.catalogue_position > $4 OR (p.catalogue_position = $4 AND p.product_listing_id > $5)) ORDER BY p.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $6",
                 );
                 sqlx::query_as::<_, ProductListingDetailsRow>(AssertSqlSafe(select))
                     .bind(requested_language)
@@ -91,7 +91,7 @@ impl AuctionCatalogueReader for SqlxAuctionCatalogueReader<'_> {
             }
             Some(cursor) => {
                 select.push_str(
-                    " AND auction_context.catalogue_position IS NULL AND p.product_listing_id > $4 ORDER BY auction_context.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $5",
+                    " AND p.catalogue_position IS NULL AND p.product_listing_id > $4 ORDER BY p.catalogue_position ASC NULLS LAST, p.product_listing_id ASC LIMIT $5",
                 );
                 sqlx::query_as::<_, ProductListingDetailsRow>(AssertSqlSafe(select))
                     .bind(requested_language)
@@ -148,14 +148,14 @@ fn cursor_for_item(
             "Auction catalogue item has no Auction context",
         ))
     })?;
-    let membership = context.membership().ok_or_else(|| {
+    let context_auction_id = context.auction_id().ok_or_else(|| {
         invalid(std::io::Error::other(
             "Auction catalogue item has unresolved Auction context",
         ))
     })?;
-    if membership.auction_id() != auction_id {
+    if context_auction_id != auction_id {
         return Err(invalid(std::io::Error::other(
-            "Auction catalogue item has another Auction membership",
+            "Auction catalogue item has another Auction ID",
         )));
     }
     Ok(AuctionCatalogueCursor {

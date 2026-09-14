@@ -7,7 +7,7 @@ use crate::{
 use application::patch_field::PatchField;
 use auction_core::{
     AuctionDescription, AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, AuctionTime, AuctionTimeZone, ReportedCatalogueLotCount, SourceAuctionId,
+    AuctionSchedule, ReportedCatalogueLotCount, SourceAuctionId,
 };
 use auction_service::{
     ports::AuctionStorageVersion,
@@ -21,7 +21,7 @@ use auction_service::{
 };
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
-use time::{Date, OffsetDateTime, format_description::well_known::Iso8601};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Deserialize)]
@@ -101,7 +101,7 @@ impl UpdateAuctionData {
             description: map_patch(self.description, auction_description)?,
             catalogue_url: clearable(self.catalogue_url),
             format: map_patch(self.format, auction_format)?,
-            schedule: self.schedule.into_patch()?,
+            schedule: self.schedule.into_patch(),
             reported_status: map_patch(self.reported_status, auction_status)?,
             reported_lot_count: map_patch(self.reported_lot_count, |value| {
                 Ok(ReportedCatalogueLotCount::new(value))
@@ -113,101 +113,48 @@ impl UpdateAuctionData {
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuctionScheduleData {
-    #[serde(default)]
-    bidding_opens: Option<AuctionTimeData>,
-    #[serde(default)]
-    live_starts: Option<AuctionTimeData>,
-    #[serde(default)]
-    lots_begin_closing: Option<AuctionTimeData>,
-    #[serde(default)]
-    scheduled_end: Option<AuctionTimeData>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    bidding_opens: Option<OffsetDateTime>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    live_starts: Option<OffsetDateTime>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    lots_begin_closing: Option<OffsetDateTime>,
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    scheduled_end: Option<OffsetDateTime>,
 }
 
 impl AuctionScheduleData {
     fn into_schedule(self) -> Result<AuctionSchedule, ApiError> {
         AuctionSchedule::new(
-            self.bidding_opens
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
-            self.live_starts
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
-            self.lots_begin_closing
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
-            self.scheduled_end
-                .map(AuctionTimeData::into_core)
-                .transpose()?,
+            self.bidding_opens,
+            self.live_starts,
+            self.lots_begin_closing,
+            self.scheduled_end,
         )
-        .map_err(|_| invalid_body("schedule has invalid comparable bounds."))
+        .map_err(|_| invalid_body("schedule has invalid bounds."))
     }
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuctionSchedulePatchData {
-    #[serde(default)]
-    bidding_opens: PatchValue<AuctionTimeData>,
-    #[serde(default)]
-    live_starts: PatchValue<AuctionTimeData>,
-    #[serde(default)]
-    lots_begin_closing: PatchValue<AuctionTimeData>,
-    #[serde(default)]
-    scheduled_end: PatchValue<AuctionTimeData>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    bidding_opens: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    live_starts: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    lots_begin_closing: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    scheduled_end: PatchValue<OffsetDateTime>,
 }
 
 impl AuctionSchedulePatchData {
-    fn into_patch(self) -> Result<AuctionSchedulePatch, ApiError> {
-        Ok(AuctionSchedulePatch {
-            bidding_opens: map_patch(self.bidding_opens, AuctionTimeData::into_core)?,
-            live_starts: map_patch(self.live_starts, AuctionTimeData::into_core)?,
-            lots_begin_closing: map_patch(self.lots_begin_closing, AuctionTimeData::into_core)?,
-            scheduled_end: map_patch(self.scheduled_end, AuctionTimeData::into_core)?,
-        })
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(
-    tag = "precision",
-    rename_all = "SCREAMING_SNAKE_CASE",
-    deny_unknown_fields
-)]
-enum AuctionTimeData {
-    Instant {
-        #[serde(with = "time::serde::rfc3339")]
-        at: OffsetDateTime,
-        #[serde(default, rename = "sourceTimezone")]
-        source_timezone: Option<String>,
-    },
-    Date {
-        on: String,
-        #[serde(default, rename = "sourceTimezone")]
-        source_timezone: Option<String>,
-    },
-}
-
-impl AuctionTimeData {
-    fn into_core(self) -> Result<AuctionTime, ApiError> {
-        match self {
-            Self::Instant {
-                at,
-                source_timezone,
-            } => Ok(AuctionTime::instant(
-                at,
-                source_timezone.map(timezone).transpose()?,
-            )),
-            Self::Date {
-                on,
-                source_timezone,
-            } => {
-                let on = Date::parse(&on, &Iso8601::DATE)
-                    .map_err(|_| invalid_body("schedule date must use YYYY-MM-DD."))?;
-                Ok(AuctionTime::date(
-                    on,
-                    source_timezone.map(timezone).transpose()?,
-                ))
-            }
+    fn into_patch(self) -> AuctionSchedulePatch {
+        AuctionSchedulePatch {
+            bidding_opens: clearable(self.bidding_opens),
+            live_starts: clearable(self.live_starts),
+            lots_begin_closing: clearable(self.lots_begin_closing),
+            scheduled_end: clearable(self.scheduled_end),
         }
     }
 }
@@ -259,68 +206,23 @@ impl From<AuctionAdminDetailsView> for AuctionAdminData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AuctionScheduleResponseData {
-    bidding_opens: Option<AuctionTimeResponseData>,
-    live_starts: Option<AuctionTimeResponseData>,
-    lots_begin_closing: Option<AuctionTimeResponseData>,
-    scheduled_end: Option<AuctionTimeResponseData>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    bidding_opens: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    live_starts: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    lots_begin_closing: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    scheduled_end: Option<OffsetDateTime>,
 }
 
 impl From<AuctionSchedule> for AuctionScheduleResponseData {
     fn from(value: AuctionSchedule) -> Self {
         Self {
-            bidding_opens: value
-                .bidding_opens()
-                .cloned()
-                .map(AuctionTimeResponseData::from),
-            live_starts: value
-                .live_starts()
-                .cloned()
-                .map(AuctionTimeResponseData::from),
-            lots_begin_closing: value
-                .lots_begin_closing()
-                .cloned()
-                .map(AuctionTimeResponseData::from),
-            scheduled_end: value
-                .scheduled_end()
-                .cloned()
-                .map(AuctionTimeResponseData::from),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "precision", rename_all = "SCREAMING_SNAKE_CASE")]
-enum AuctionTimeResponseData {
-    Instant {
-        #[serde(with = "time::serde::rfc3339")]
-        at: OffsetDateTime,
-        #[serde(rename = "sourceTimezone", skip_serializing_if = "Option::is_none")]
-        source_timezone: Option<String>,
-    },
-    Date {
-        on: String,
-        #[serde(rename = "sourceTimezone", skip_serializing_if = "Option::is_none")]
-        source_timezone: Option<String>,
-    },
-}
-
-impl From<AuctionTime> for AuctionTimeResponseData {
-    fn from(value: AuctionTime) -> Self {
-        match value {
-            AuctionTime::Instant {
-                at,
-                source_timezone,
-            } => Self::Instant {
-                at,
-                source_timezone: source_timezone.map(String::from),
-            },
-            AuctionTime::Date {
-                on,
-                source_timezone,
-            } => Self::Date {
-                on: on.to_string(),
-                source_timezone: source_timezone.map(String::from),
-            },
+            bidding_opens: value.bidding_opens(),
+            live_starts: value.live_starts(),
+            lots_begin_closing: value.lots_begin_closing(),
+            scheduled_end: value.scheduled_end(),
         }
     }
 }
@@ -363,11 +265,6 @@ fn auction_status(value: String) -> Result<AuctionReportedStatus, ApiError> {
     })
 }
 
-fn timezone(value: String) -> Result<AuctionTimeZone, ApiError> {
-    AuctionTimeZone::try_from(value)
-        .map_err(|_| invalid_body("sourceTimezone must be a valid IANA timezone identifier."))
-}
-
 fn map_patch<T, U>(
     value: PatchValue<T>,
     map: impl Fn(T) -> Result<U, ApiError>,
@@ -388,18 +285,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_map_create_payload_with_precise_schedule() -> Result<(), ApiError> {
+    fn should_map_create_payload_with_rfc3339_schedule() -> Result<(), ApiError> {
         let listing_source_id = ListingSourceId::new();
         let payload = serde_json::json!({
             "listingSourceId": listing_source_id,
             "sourceAuctionId": " sale / 42 ",
             "format": "TIMED",
             "schedule": {
-                "lotsBeginClosing": {
-                    "precision": "INSTANT",
-                    "at": "2026-10-18T16:03:00Z",
-                    "sourceTimezone": "Europe/Berlin"
-                }
+                "lotsBeginClosing": "2026-10-18T16:03:00Z"
             }
         });
         let command = CreateAuctionCommand::try_from(
@@ -409,7 +302,34 @@ mod tests {
 
         assert_eq!("sale / 42", command.source_auction_id.as_ref());
         assert_eq!(Some(AuctionFormat::Timed), command.format);
-        assert!(command.schedule.lots_begin_closing().is_some());
+        assert_eq!(
+            Some(time::macros::datetime!(2026-10-18 16:03 UTC)),
+            command.schedule.lots_begin_closing()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_serialize_schedule_as_direct_rfc3339_fields() -> Result<(), ApiError> {
+        let schedule = AuctionSchedule::new(
+            None,
+            Some(time::macros::datetime!(2026-10-18 16:03 UTC)),
+            None,
+            None,
+        )
+        .map_err(|_| invalid_body("invalid test schedule"))?;
+
+        let value = serde_json::to_value(AuctionScheduleResponseData::from(schedule))
+            .map_err(|_| invalid_body("failed to serialize test schedule"))?;
+
+        assert_eq!(
+            Some(&serde_json::Value::String(
+                "2026-10-18T16:03:00Z".to_owned()
+            )),
+            value.get("liveStarts")
+        );
+        assert!(value.get("precision").is_none());
+        assert!(value.get("sourceTimezone").is_none());
         Ok(())
     }
 

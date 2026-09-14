@@ -191,7 +191,9 @@ fn map_summary_fields(
         listing_source_id: document.listing_source_id,
         source_listing_id: document.source_listing_id,
         auction_id: document.auction_id,
-        has_auction_context: document.has_auction_context,
+        lot_bidding_opens_at: document.lot_bidding_opens_at,
+        lot_scheduled_closes_at: document.lot_scheduled_closes_at,
+        lot_reported_closed_at: document.lot_reported_closed_at,
         title,
         display_price,
         price_valuation,
@@ -932,7 +934,6 @@ mod tests {
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
             auction_id: None,
-            has_auction_context: false,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
@@ -1421,12 +1422,41 @@ mod tests {
         assert_eq!(None, summary.display_price);
         assert_eq!(document.listing_source_id, summary.listing_source_id);
         assert_eq!(document.source_listing_id, summary.source_listing_id);
+        assert_eq!(document.lot_bidding_opens_at, summary.lot_bidding_opens_at);
         assert_eq!(
             ProductListingSummaryPriceValuation::SaleObservation {
                 fx_rate_id,
                 observed_at: OffsetDateTime::UNIX_EPOCH,
             },
             summary.price_valuation
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_map_exact_lot_timestamps_without_auction_id() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut document = document()?;
+        document.lot_bidding_opens_at = Some(datetime!(2026-01-03 00:00 UTC));
+        document.lot_scheduled_closes_at = Some(datetime!(2026-01-04 00:00 UTC));
+        document.lot_reported_closed_at = Some(datetime!(2026-01-05 00:00 UTC));
+
+        let summary = map_summary_fields(
+            document.clone(),
+            Language::En,
+            resolve_price(&document, &price_filter(Currency::Usd, None)?)?,
+            price_valuation(&document, &price_filter(Currency::Usd, None)?)?,
+        )?;
+
+        assert_eq!(None, summary.auction_id);
+        assert_eq!(document.lot_bidding_opens_at, summary.lot_bidding_opens_at);
+        assert_eq!(
+            document.lot_scheduled_closes_at,
+            summary.lot_scheduled_closes_at
+        );
+        assert_eq!(
+            document.lot_reported_closed_at,
+            summary.lot_reported_closed_at
         );
         Ok(())
     }

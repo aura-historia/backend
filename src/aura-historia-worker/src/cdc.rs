@@ -17,7 +17,7 @@ use product_listing_service::ports::{ProductListingRawRevisionId, ProductListing
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
-use time::{Date, OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 use url::Url;
@@ -1135,12 +1135,6 @@ fn validate_auction_change(value: &Value) -> Result<(), CdcRouteError> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ValidatedAuctionTime {
-    Instant(OffsetDateTime),
-    Date(Date, Option<String>),
-}
-
 fn validate_auction(value: &Value, field: &str) -> Result<Option<Value>, CdcRouteError> {
     if value.is_null() {
         return Ok(None);
@@ -1148,23 +1142,30 @@ fn validate_auction(value: &Value, field: &str) -> Result<Option<Value>, CdcRout
     let object = required_object(value)?;
     require_exact_keys(
         object,
-        &["membership", "lotNumber", "cataloguePosition", "timing"],
+        &[
+            "auctionId",
+            "lotNumber",
+            "cataloguePosition",
+            "lotBiddingOpensAt",
+            "lotScheduledClosesAt",
+            "lotReportedClosedAt",
+        ],
         field,
     )?;
 
-    match require_value(object, "membership")? {
+    match require_value(object, "auctionId")? {
         Value::Null => {}
         Value::String(value) => {
             let auction_id = parse_canonical_storage_uuid(
                 value,
-                || invalid_product_listing_field(format!("{field}.membership")),
-                || noncanonical_product_listing_field(format!("{field}.membership")),
+                || invalid_product_listing_field(format!("{field}.auctionId")),
+                || noncanonical_product_listing_field(format!("{field}.auctionId")),
             )?;
             if auction_id.get_version_num() != 7 {
-                return Err(invalid_product_listing_field(format!("{field}.membership")));
+                return Err(invalid_product_listing_field(format!("{field}.auctionId")));
             }
         }
-        _ => return Err(invalid_product_listing_field(format!("{field}.membership"))),
+        _ => return Err(invalid_product_listing_field(format!("{field}.auctionId"))),
     }
     match require_value(object, "lotNumber")? {
         Value::Null => {}
@@ -1192,116 +1193,28 @@ fn validate_auction(value: &Value, field: &str) -> Result<Option<Value>, CdcRout
             }
         }
     }
-    validate_lot_auction_timing(require_value(object, "timing")?, field)?;
-
-    Ok(Some(value.clone()))
-}
-
-fn validate_lot_auction_timing(value: &Value, auction_field: &str) -> Result<(), CdcRouteError> {
-    if value.is_null() {
-        return Ok(());
-    }
-    let field = format!("{auction_field}.timing");
-    let object = required_object(value)?;
-    require_exact_keys(
-        object,
-        &["biddingOpens", "scheduledCloses", "reportedClosedAt"],
-        field.as_str(),
+    let bidding_opens = parse_nullable_timestamp(
+        require_value(object, "lotBiddingOpensAt")?,
+        format!("{field}.lotBiddingOpensAt").as_str(),
     )?;
-    let bidding_opens = validate_auction_time(
-        require_value(object, "biddingOpens")?,
-        format!("{field}.biddingOpens").as_str(),
-    )?;
-    let scheduled_closes = validate_auction_time(
-        require_value(object, "scheduledCloses")?,
-        format!("{field}.scheduledCloses").as_str(),
+    let scheduled_closes = parse_nullable_timestamp(
+        require_value(object, "lotScheduledClosesAt")?,
+        format!("{field}.lotScheduledClosesAt").as_str(),
     )?;
     let _reported_closed_at = parse_nullable_timestamp(
-        require_value(object, "reportedClosedAt")?,
-        format!("{field}.reportedClosedAt").as_str(),
+        require_value(object, "lotReportedClosedAt")?,
+        format!("{field}.lotReportedClosedAt").as_str(),
     )?;
-    if auction_time_is_after(bidding_opens.as_ref(), scheduled_closes.as_ref()) {
+    if bidding_opens
+        .zip(scheduled_closes)
+        .is_some_and(|(open, close)| open > close)
+    {
         return Err(CdcRouteError::InconsistentProductListingEvent {
             rule: format!("{field} bidding opens after scheduled close"),
         });
     }
-    Ok(())
-}
 
-fn validate_auction_time(
-    value: &Value,
-    field: &str,
-) -> Result<Option<ValidatedAuctionTime>, CdcRouteError> {
-    if value.is_null() {
-        return Ok(None);
-    }
-    let object = required_object(value)?;
-    let precision = require_string(object, "precision")?;
-    let source_timezone = validate_auction_timezone(
-        require_value(object, "sourceTimezone")?,
-        format!("{field}.sourceTimezone").as_str(),
-    )?;
-    match precision.as_str() {
-        "INSTANT" => {
-            require_exact_keys(object, &["precision", "instantAt", "sourceTimezone"], field)?;
-            let instant = parse_canonical_timestamp(
-                &require_string(object, "instantAt")?,
-                format!("{field}.instantAt").as_str(),
-            )?;
-            Ok(Some(ValidatedAuctionTime::Instant(instant)))
-        }
-        "DATE" => {
-            require_exact_keys(object, &["precision", "dateOn", "sourceTimezone"], field)?;
-            let date = parse_canonical_date(
-                &require_string(object, "dateOn")?,
-                format!("{field}.dateOn").as_str(),
-            )?;
-            Ok(Some(ValidatedAuctionTime::Date(date, source_timezone)))
-        }
-        _ => Err(invalid_product_listing_field(format!("{field}.precision"))),
-    }
-}
-
-fn validate_auction_timezone(value: &Value, field: &str) -> Result<Option<String>, CdcRouteError> {
-    match value {
-        Value::Null => Ok(None),
-        Value::String(value) if !value.is_empty() && !value.contains('\0') => {
-            use time_tz::TimeZone;
-
-            match time_tz::timezones::get_by_name(value) {
-                Some(timezone) if timezone.name() == value => Ok(Some(value.clone())),
-                Some(_) | None => Err(invalid_product_listing_field(field)),
-            }
-        }
-        _ => Err(invalid_product_listing_field(field)),
-    }
-}
-
-fn auction_time_is_after(
-    left: Option<&ValidatedAuctionTime>,
-    right: Option<&ValidatedAuctionTime>,
-) -> bool {
-    match (left, right) {
-        (Some(ValidatedAuctionTime::Instant(left)), Some(ValidatedAuctionTime::Instant(right))) => {
-            left > right
-        }
-        (
-            Some(ValidatedAuctionTime::Date(left, Some(left_timezone))),
-            Some(ValidatedAuctionTime::Date(right, Some(right_timezone))),
-        ) if left_timezone == right_timezone => left > right,
-        _ => false,
-    }
-}
-
-#[allow(deprecated)]
-fn parse_canonical_date(value: &str, field: &str) -> Result<Date, CdcRouteError> {
-    let format = time::format_description::parse("[year]-[month]-[day]")
-        .map_err(|_| invalid_product_listing_field(field))?;
-    let date = Date::parse(value, &format).map_err(|_| invalid_product_listing_field(field))?;
-    if date.to_string() != value {
-        return Err(noncanonical_product_listing_field(field));
-    }
-    Ok(date)
+    Ok(Some(value.clone()))
 }
 
 fn validate_lifecycle(
@@ -2615,10 +2528,12 @@ mod tests {
             .and_then(|record| record.get_mut("payload"))
         {
             payload["auction"] = serde_json::json!({
-                "membership": null,
+                "auctionId": null,
                 "lotNumber": null,
                 "cataloguePosition": null,
-                "timing": null
+                "lotBiddingOpensAt": null,
+                "lotScheduledClosesAt": null,
+                "lotReportedClosedAt": null
             });
         }
         if let Some(payload) = omitted_auction_membership
@@ -2628,7 +2543,7 @@ mod tests {
             .and_then(|payload| payload.get_mut("auction"))
             && let Some(auction) = payload.as_object_mut()
         {
-            auction.remove("membership");
+            auction.remove("auctionId");
         }
 
         let cases = vec![
@@ -2726,21 +2641,19 @@ mod tests {
                 ),
             ),
             (
-                "invalid lot auction instant",
+                "invalid lot auction timestamp",
                 product_event_change_with_payload(
                     "PRODUCT_LISTING_CHANGED",
                     "DOMAIN",
                     serde_json::json!({
                         "auction": {
                             "previous": {
-                                "membership": null,
+                                "auctionId": null,
                                 "lotNumber": null,
                                 "cataloguePosition": null,
-                                "timing": {
-                                    "biddingOpens": {"precision": "INSTANT", "instantAt": "not a timestamp", "sourceTimezone": null},
-                                    "scheduledCloses": null,
-                                    "reportedClosedAt": null
-                                }
+                                "lotBiddingOpensAt": "not a timestamp",
+                                "lotScheduledClosesAt": null,
+                                "lotReportedClosedAt": null
                             },
                             "current": null
                         }
@@ -2748,21 +2661,19 @@ mod tests {
                 ),
             ),
             (
-                "invalid lot auction timezone",
+                "date-only lot auction timestamp",
                 product_event_change_with_payload(
                     "PRODUCT_LISTING_CHANGED",
                     "DOMAIN",
                     serde_json::json!({
                         "auction": {
                             "previous": {
-                                "membership": null,
+                                "auctionId": null,
                                 "lotNumber": null,
                                 "cataloguePosition": null,
-                                "timing": {
-                                    "biddingOpens": {"precision": "DATE", "dateOn": "2025-01-01", "sourceTimezone": "Europe/NotAPlace"},
-                                    "scheduledCloses": null,
-                                    "reportedClosedAt": null
-                                }
+                                "lotBiddingOpensAt": "2025-01-01",
+                                "lotScheduledClosesAt": null,
+                                "lotReportedClosedAt": null
                             },
                             "current": null
                         }
@@ -2777,14 +2688,12 @@ mod tests {
                     serde_json::json!({
                         "auction": {
                             "previous": {
-                                "membership": null,
+                                "auctionId": null,
                                 "lotNumber": null,
                                 "cataloguePosition": null,
-                                "timing": {
-                                    "biddingOpens": {"precision": "INSTANT", "instantAt": "2025-01-02T00:00:00Z", "sourceTimezone": null},
-                                    "scheduledCloses": {"precision": "INSTANT", "instantAt": "2025-01-01T00:00:00Z", "sourceTimezone": null},
-                                    "reportedClosedAt": null
-                                }
+                                "lotBiddingOpensAt": "2025-01-02T00:00:00Z",
+                                "lotScheduledClosesAt": "2025-01-01T00:00:00Z",
+                                "lotReportedClosedAt": null
                             },
                             "current": null
                         }
@@ -2881,6 +2790,23 @@ mod tests {
                 "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
                 serde_json::json!({"images": {"previousCount": 2, "currentCount": 2}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "auction": {
+                        "previous": null,
+                        "current": {
+                            "auctionId": null,
+                            "lotNumber": "42A",
+                            "cataloguePosition": 7,
+                            "lotBiddingOpensAt": "2026-10-01T08:00:00Z",
+                            "lotScheduledClosesAt": "2026-10-05T18:32:00Z",
+                            "lotReportedClosedAt": null
+                        }
+                    }
+                }),
             ),
             product_event_change_with_payload(
                 "PRODUCT_LISTING_CHANGED",

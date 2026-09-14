@@ -1,5 +1,5 @@
 use application::error::{BoxError, box_error};
-use auction_core::{AuctionEventPayload, AuctionTime};
+use auction_core::AuctionEventPayload;
 use localization::{Language, Localized};
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
@@ -68,25 +68,29 @@ fn schedule(schedule: &auction_core::AuctionSchedule) -> Result<Value, AuctionEv
     }))
 }
 
-fn time(value: &AuctionTime) -> Result<Value, AuctionEventCodecError> {
-    match value {
-        AuctionTime::Instant {
-            at,
-            source_timezone,
-        } => Ok(json!({
-            "precision": "INSTANT", "at": at.format(&Rfc3339).map_err(AuctionEventCodecError::Time)?,
-            "sourceTimezone": source_timezone.as_ref().map(|value| value.as_str()),
-        })),
-        AuctionTime::Date {
-            on,
-            source_timezone,
-        } => Ok(json!({
-            "precision": "DATE", "on": on.to_string(),
-            "sourceTimezone": source_timezone.as_ref().map(|value| value.as_str()),
-        })),
-    }
+fn time(value: time::OffsetDateTime) -> Result<Value, AuctionEventCodecError> {
+    Ok(json!(
+        value
+            .format(&Rfc3339)
+            .map_err(AuctionEventCodecError::Time)?
+    ))
 }
 
 pub(crate) fn boxed(error: AuctionEventCodecError) -> BoxError {
     box_error(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::time;
+    use serde_json::json;
+    use time::macros::datetime;
+
+    #[test]
+    fn should_encode_schedule_time_as_direct_rfc3339_value() {
+        let value = time(datetime!(2026-10-18 16:03 UTC))
+            .unwrap_or_else(|error| panic!("valid schedule time: {error}"));
+
+        assert_eq!(json!("2026-10-18T16:03:00Z"), value);
+    }
 }

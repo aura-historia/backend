@@ -1,4 +1,4 @@
-use crate::mapping::{AuctionRow, AuctionSchedulePointRow, map_error, map_stored_auction};
+use crate::mapping::{AuctionRow, map_error, map_stored_auction};
 use application::error::box_error;
 use auction_core::AuctionId;
 use auction_service::ports::{
@@ -39,8 +39,8 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
                 source: box_error(error),
             }
         })?;
-        let joined = sqlx::query_as::<_, JoinedAuctionSummaryRow>(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, point.role, point.precision, point.instant_at, point.date_on, point.source_timezone FROM auctions a LEFT JOIN auction_schedule_points point ON point.auction_id = a.auction_id WHERE a.auction_id = ANY($1) ORDER BY a.auction_id, point.role",
+        let rows = sqlx::query_as::<_, AuctionRow>(
+            "SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = ANY($1)",
         )
         .bind(&auction_ids)
         .fetch_all(&mut *connection)
@@ -48,22 +48,10 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
         .map_err(|error| AuctionSummaryBatchReadError::QueryFailed {
             source: box_error(error),
         })?;
-        let mut auctions = HashMap::<uuid::Uuid, (AuctionRow, Vec<AuctionSchedulePointRow>)>::new();
-        for row in joined {
-            let auction_id = row.auction_id;
-            let (auction, schedule) = auctions
-                .entry(auction_id)
-                .or_insert_with(|| (row.auction(), Vec::new()));
-            if let Some(point) = row.schedule_point() {
-                schedule.push(point);
-            }
-            let _ = auction;
-        }
 
-        auctions
-            .into_values()
-            .map(|(row, schedule)| {
-                let stored = map_stored_auction(row, schedule).map_err(|error| {
+        rows.into_iter()
+            .map(|row| {
+                let stored = map_stored_auction(row).map_err(|error| {
                     AuctionSummaryBatchReadError::InvalidReadModel {
                         source: map_error(error),
                     }
@@ -84,71 +72,13 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct JoinedAuctionSummaryRow {
-    auction_id: uuid::Uuid,
-    listing_source_id: uuid::Uuid,
-    source_auction_id: String,
-    name_text: Option<String>,
-    name_language: Option<String>,
-    description_text: Option<String>,
-    description_language: Option<String>,
-    catalogue_url: Option<String>,
-    format: Option<String>,
-    reported_status: Option<String>,
-    reported_lot_count: Option<i64>,
-    version: i64,
-    created: time::OffsetDateTime,
-    updated: time::OffsetDateTime,
-    role: Option<String>,
-    precision: Option<String>,
-    instant_at: Option<time::OffsetDateTime>,
-    date_on: Option<time::Date>,
-    source_timezone: Option<String>,
-}
-
-impl JoinedAuctionSummaryRow {
-    fn auction(&self) -> AuctionRow {
-        AuctionRow {
-            auction_id: self.auction_id,
-            listing_source_id: self.listing_source_id,
-            source_auction_id: self.source_auction_id.clone(),
-            name_text: self.name_text.clone(),
-            name_language: self.name_language.clone(),
-            description_text: self.description_text.clone(),
-            description_language: self.description_language.clone(),
-            catalogue_url: self.catalogue_url.clone(),
-            format: self.format.clone(),
-            reported_status: self.reported_status.clone(),
-            reported_lot_count: self.reported_lot_count,
-            version: self.version,
-            created: self.created,
-            updated: self.updated,
-        }
-    }
-
-    fn schedule_point(&self) -> Option<AuctionSchedulePointRow> {
-        match (&self.role, &self.precision) {
-            (Some(role), Some(precision)) => Some(AuctionSchedulePointRow {
-                role: role.clone(),
-                precision: precision.clone(),
-                instant_at: self.instant_at,
-                date_on: self.date_on,
-                source_timezone: self.source_timezone.clone(),
-            }),
-            _ => None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use auction_core::AuctionTime;
     use auction_service::ports::AuctionSummaryBatchReader;
     use listing_source_core::ListingSourceId;
     use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
-    use time::macros::{date, datetime};
+    use time::macros::datetime;
 
     const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -158,7 +88,7 @@ mod tests {
         sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
             .bind(party_id)
             .bind(format!("party-{party_id}"))
-            .bind("Auction source operator")
+            .bind("Auction source")
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert party: {error}"));
@@ -173,39 +103,22 @@ mod tests {
         source_id
     }
 
-    async fn insert_auction(pool: &PgPool, auction_id: AuctionId, source_id: ListingSourceId) {
-        sqlx::query("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, format, reported_status) VALUES ($1, $2, $3, $4, $5)")
+    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    async fn should_batch_unique_auction_ids_and_reconstruct_flat_schedule() {
+        let pool = get_postgres_client().await;
+        let source_id = source(&pool).await;
+        let auction_id = AuctionId::new();
+        sqlx::query("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, format, reported_status, bidding_opens_at, scheduled_end_at) VALUES ($1, $2, $3, $4, $5, $6, $7)")
             .bind(auction_id.as_uuid())
             .bind(source_id.as_uuid())
             .bind("catalogue-42")
             .bind("TIMED")
             .bind("SCHEDULED")
-            .execute(pool)
-            .await
-            .unwrap_or_else(|error| panic!("insert auction: {error}"));
-    }
-
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-    async fn should_batch_unique_auction_ids_and_reconstruct_exact_and_date_schedule_points() {
-        let pool = get_postgres_client().await;
-        let source_id = source(&pool).await;
-        let auction_id = AuctionId::new();
-        insert_auction(&pool, auction_id, source_id).await;
-        sqlx::query("INSERT INTO auction_schedule_points (auction_id, role, precision, instant_at, date_on, source_timezone) VALUES ($1, $2, $3, $4, $5, $6), ($1, $7, $8, $9, $10, $11)")
-            .bind(auction_id.as_uuid())
-            .bind("BIDDING_OPENS")
-            .bind("INSTANT")
             .bind(datetime!(2026-10-18 16:00 UTC))
-            .bind(Option::<time::Date>::None)
-            .bind("Europe/Berlin")
-            .bind("SCHEDULED_END")
-            .bind("DATE")
-            .bind(Option::<time::OffsetDateTime>::None)
-            .bind(date!(2026-10-19))
-            .bind("Europe/Berlin")
+            .bind(datetime!(2026-10-19 16:00 UTC))
             .execute(&pool)
             .await
-            .unwrap_or_else(|error| panic!("insert schedule: {error}"));
+            .unwrap_or_else(|error| panic!("insert auction: {error}"));
 
         let summaries = SqlxAuctionSummaryBatchReader::new(pool)
             .find_summaries(&[auction_id, auction_id, AuctionId::new()])
@@ -223,41 +136,11 @@ mod tests {
         );
         assert_eq!(
             Some(datetime!(2026-10-18 16:00 UTC)),
-            summary
-                .schedule
-                .bidding_opens()
-                .and_then(AuctionTime::exact_instant)
+            summary.schedule.bidding_opens()
         );
-        assert!(matches!(
-            summary.schedule.scheduled_end(),
-            Some(AuctionTime::Date { on, source_timezone: Some(timezone) })
-                if *on == date!(2026-10-19) && timezone.as_str() == "Europe/Berlin"
-        ));
-    }
-
-    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-    async fn should_reject_invalid_persisted_schedule_timezone() {
-        let pool = get_postgres_client().await;
-        let source_id = source(&pool).await;
-        let auction_id = AuctionId::new();
-        insert_auction(&pool, auction_id, source_id).await;
-        sqlx::query("INSERT INTO auction_schedule_points (auction_id, role, precision, instant_at, source_timezone) VALUES ($1, $2, $3, $4, $5)")
-            .bind(auction_id.as_uuid())
-            .bind("BIDDING_OPENS")
-            .bind("INSTANT")
-            .bind(datetime!(2026-10-18 16:00 UTC))
-            .bind("Not/AZone")
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("insert corrupt schedule: {error}"));
-
-        let result = SqlxAuctionSummaryBatchReader::new(pool)
-            .find_summaries(&[auction_id])
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(AuctionSummaryBatchReadError::InvalidReadModel { .. })
-        ));
+        assert_eq!(
+            Some(datetime!(2026-10-19 16:00 UTC)),
+            summary.schedule.scheduled_end()
+        );
     }
 }

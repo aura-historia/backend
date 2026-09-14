@@ -34,7 +34,8 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        NewProductListing, ProductListing, ProductListingPricing, RehydrateProductListingError,
+        NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
+        RehydrateProductListingError,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
@@ -186,12 +187,9 @@ where
                     .and_then(|_| compose_product_listing_auction_patch(None, patch))
             })
             .transpose()
-            .map_err(|_| CreateProductListingError::InvalidProductListing)?;
-        if let Some(auction_id) = auction
-            .as_ref()
-            .and_then(|value| value.membership())
-            .map(|value| value.auction_id())
-        {
+            .map_err(|_| CreateProductListingError::InvalidProductListing)?
+            .flatten();
+        if let Some(auction_id) = auction.as_ref().and_then(ProductListingAuction::auction_id) {
             self.auction_references
                 .in_transaction(&mut tx)
                 .validate(auction_id, command.listing_source_id)
@@ -204,7 +202,7 @@ where
             source_listing_id: command.source_listing_id.clone(),
             title: command.title.clone(),
             description: command.description.clone(),
-            pricing: command.pricing.clone(),
+            pricing: command.pricing,
             availability: command.availability,
             url: command.url.clone(),
             images: command.images.clone(),

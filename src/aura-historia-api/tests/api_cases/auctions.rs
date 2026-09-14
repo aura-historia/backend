@@ -99,11 +99,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
             "name": {"language": "en", "text": "Autumn Decorative Arts"},
             "format": "TIMED",
             "schedule": {
-                "lotsBeginClosing": {
-                    "precision": "INSTANT",
-                    "at": "2026-10-18T16:03:00Z",
-                    "sourceTimezone": "Europe/Berlin"
-                }
+                "lotsBeginClosing": "2026-10-18T16:03:00Z"
             }
         }))
         .send()
@@ -124,11 +120,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
     assert_eq!(json!("TIMED"), updated_body["format"]);
     assert_eq!(json!(2), updated_body["expectedVersion"]);
     assert_eq!(
-        json!({
-            "precision": "INSTANT",
-            "at": "2026-10-18T16:03:00Z",
-            "sourceTimezone": "Europe/Berlin"
-        }),
+        json!("2026-10-18T16:03:00Z"),
         updated_body["schedule"]["lotsBeginClosing"]
     );
 
@@ -394,11 +386,8 @@ async fn should_attach_typed_partner_membership_and_redact_hidden_catalogue_auct
                 "lotNumber": "42",
                 "cataloguePosition": 42,
                 "timing": {
-                    "biddingOpens": { "precision": "DATE", "on": "2026-10-18" },
-                    "scheduledCloses": {
-                        "precision": "INSTANT",
-                        "at": "2026-10-18T16:03:00Z"
-                    }
+                    "biddingOpens": "2026-10-18T08:00:00Z",
+                    "scheduledCloses": "2026-10-18T16:03:00Z"
                 }
             }
         }]))

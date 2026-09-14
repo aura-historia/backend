@@ -54,7 +54,7 @@ impl ProductListingEventPayload {
             availability: state.availability,
             url: state.url,
             image_count: state.image_count,
-            auction: state.auction,
+            auction: ProductListingAuction::normalize(state.auction),
         }))
     }
 
@@ -75,7 +75,16 @@ impl ProductListingEventPayload {
                     previous_count: previous,
                     current_count: current,
                 }),
-            auction: value_change(state.auction, "auction")?.map(Box::new),
+            auction: value_change(
+                state.auction.map(|(previous, current)| {
+                    (
+                        ProductListingAuction::normalize(previous),
+                        ProductListingAuction::normalize(current),
+                    )
+                }),
+                "auction",
+            )?
+            .map(Box::new),
             lifecycle: state.lifecycle,
             sale_observation: sale_observation_change(state.sale_observation)?,
         };
@@ -218,7 +227,7 @@ impl ProductListingDiscovered {
             availability,
             url,
             image_count,
-            auction,
+            auction: ProductListingAuction::normalize(auction),
         }
     }
 

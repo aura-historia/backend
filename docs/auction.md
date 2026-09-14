@@ -23,7 +23,7 @@ An Auction key is:
 PostgreSQL owns standalone source-scoped Auctions:
 
 - `auctions` has immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, a restrictive ListingSource foreign key, and optional localized metadata;
-- `auction_schedule_points` holds at most one value for each Auction schedule role;
+- `auctions` holds optional exact UTC instants for each schedule role;
 - `auction_events` records immutable `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. It has no CDC or worker consumer.
 
 Administrators use `POST /api/v1/admin/auctions` and `GET`/`PATCH /api/v1/admin/auctions/{auctionId}`. Create requires `listingSourceId` and `sourceAuctionId`; duplicate source keys return `409 CONFLICT`. GET/PATCH require strict `auc_` TypeIDs. PATCH requires a positive `expectedVersion`; omitted fields remain unchanged and documented nullable fields clear with `null`. A retained Auction blocks ListingSource deletion. There is no Auction deletion endpoint.
@@ -36,7 +36,7 @@ Partner writes use `auction.auctionId` only to associate a listing with an exist
 
 ## Time semantics
 
-Auction times retain either an exact instant or a source calendar date, with a validated IANA source timezone when supplied. Date-only values never become midnight instants. Auction schedule roles are `BIDDING_OPENS`, `LIVE_STARTS`, `LOTS_BEGIN_CLOSING`, and `SCHEDULED_END`; lot roles are bidding opens, scheduled closes, and exact reported closure.
+Auction schedule roles (`biddingOpens`, `liveStarts`, `lotsBeginClosing`, and `scheduledEnd`) are optional direct RFC3339 exact instants, for example `"liveStarts": "2026-10-18T16:03:00Z"`. Source dates and source timezones are not retained for Auctions. Lot roles remain separate: bidding opens, scheduled closes, and exact reported closure.
 
 ## Reads and boundaries
 

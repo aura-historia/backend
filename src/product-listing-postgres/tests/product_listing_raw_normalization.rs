@@ -6,8 +6,7 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use auction_core::{
-    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, AuctionTime, NewAuction,
-    SourceAuctionId,
+    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, NewAuction, SourceAuctionId,
 };
 use auction_postgres::{SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory};
 use auction_service::ports::{AuctionRepository, AuctionRepositoryFactory};
@@ -92,14 +91,8 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
                         LotNumber::try_from("77")
                             .unwrap_or_else(|error| panic!("lot number: {error}")),
                     ),
-                    bidding_opens: PatchField::Set(AuctionTime::instant(
-                        datetime!(2026-10-01 08:00 UTC),
-                        None,
-                    )),
-                    scheduled_closes: PatchField::Set(AuctionTime::instant(
-                        datetime!(2026-10-05 18:32 UTC),
-                        None,
-                    )),
+                    bidding_opens: PatchField::Set(datetime!(2026-10-01 08:00 UTC)),
+                    scheduled_closes: PatchField::Set(datetime!(2026-10-05 18:32 UTC)),
                     ..Default::default()
                 }),
             },
@@ -108,7 +101,7 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
         .unwrap_or_else(|error| panic!("create typed listing: {error}"));
 
     let before = auction_lot_facts(&pool, result.product_listing_id.into_uuid()).await;
-    assert_eq!(*auction_id.as_uuid(), before.0);
+    assert_eq!(Some(*auction_id.as_uuid()), before.0);
 
     let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
     let generic_values = upsert_values("EUR 250");
@@ -155,12 +148,10 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
     assert_eq!(before, after);
     assert_eq!(
         (
-            *auction_id.as_uuid(),
-            "77".to_owned(),
-            "INSTANT".to_owned(),
-            datetime!(2026-10-01 08:00 UTC),
-            "INSTANT".to_owned(),
-            datetime!(2026-10-05 18:32 UTC),
+            Some(*auction_id.as_uuid()),
+            Some("77".to_owned()),
+            Some(datetime!(2026-10-01 08:00 UTC)),
+            Some(datetime!(2026-10-05 18:32 UTC)),
         ),
         before
     );
@@ -1284,15 +1275,13 @@ async fn auction_lot_facts(
     pool: &sqlx::PgPool,
     product_listing_id: uuid::Uuid,
 ) -> (
-    uuid::Uuid,
-    String,
-    String,
-    time::OffsetDateTime,
-    String,
-    time::OffsetDateTime,
+    Option<uuid::Uuid>,
+    Option<String>,
+    Option<time::OffsetDateTime>,
+    Option<time::OffsetDateTime>,
 ) {
     sqlx::query_as(
-        "SELECT context.auction_id, context.lot_number, timings.bidding_opens_precision, timings.bidding_opens_instant_at, timings.scheduled_closes_precision, timings.scheduled_closes_instant_at FROM product_listing_auction_contexts context JOIN product_listing_lot_auction_timings timings ON timings.product_listing_id = context.product_listing_id WHERE context.product_listing_id = $1",
+        "SELECT auction_id, lot_number, lot_bidding_opens_at, lot_scheduled_closes_at FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(product_listing_id)
     .fetch_one(pool)

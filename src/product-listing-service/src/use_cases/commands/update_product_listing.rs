@@ -200,10 +200,9 @@ where
                     .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
                 let auction = compose_product_listing_auction_patch(product.auction(), patch)
                     .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
-                if let Some(auction_id) = auction
-                    .membership()
-                    .map(|membership| membership.auction_id())
-                {
+                if let Some(auction_id) = auction.as_ref().and_then(
+                    product_listing_core::product_listing::ProductListingAuction::auction_id,
+                ) {
                     self.auction_references
                         .in_transaction(&mut tx)
                         .validate(auction_id, product.listing_source_id())
@@ -270,7 +269,7 @@ where
 fn apply_command(
     product: &mut ProductListing,
     command: UpdateProductListingCommand,
-    auction: Option<product_listing_core::product_listing::ProductListingAuction>,
+    auction: Option<Option<product_listing_core::product_listing::ProductListingAuction>>,
 ) -> Result<(), UpdateProductListingError> {
     let mut pricing = product.pricing();
     apply_optional_patch(&mut pricing.price, command.price);
@@ -303,7 +302,7 @@ fn apply_command(
         }
     }
     if let Some(auction) = auction {
-        product.replace_auction(Some(auction))?;
+        product.replace_auction(auction)?;
     }
     Ok(())
 }
