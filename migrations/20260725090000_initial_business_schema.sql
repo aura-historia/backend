@@ -448,13 +448,18 @@ CREATE TABLE product_listing_raw_normalization_diagnostics (
         REFERENCES product_listing_raw_normalizations (product_listing_raw_revision_id, normalizer_version)
         ON DELETE CASCADE,
     CONSTRAINT product_listing_raw_normalization_diagnostics_ordinal_check
-        CHECK (ordinal >= 1 AND ordinal <= 8),
+        CHECK (ordinal >= 1 AND ordinal <= 10),
     CONSTRAINT product_listing_raw_normalization_diagnostics_code_check
         CHECK (code IN (
             'AUCTION_REFERENCE_INVALID',
             'AUCTION_LOT_INVALID',
             'AUCTION_TIMING_INVALID',
-            'AUCTION_METADATA_INVALID',
+            'AUCTION_METADATA_NAME_INVALID',
+            'AUCTION_METADATA_DESCRIPTION_INVALID',
+            'AUCTION_METADATA_CATALOGUE_URL_INVALID',
+            'AUCTION_METADATA_FORMAT_INVALID',
+            'AUCTION_METADATA_REPORTED_STATUS_INVALID',
+            'AUCTION_METADATA_SCHEDULE_INVALID',
             'MEMBERSHIP_CHANGE_REQUIRES_CORRECTION'
         ))
 );
@@ -474,6 +479,28 @@ CREATE TABLE product_listing_raw_auction_acceptances (
         CHECK (auction_result_version >= 1),
     CONSTRAINT product_listing_raw_auction_acceptances_disposition_check
         CHECK (disposition IN ('CREATED', 'METADATA_APPLIED', 'NO_CHANGE'))
+);
+
+CREATE TABLE product_listing_raw_auction_acceptance_fields (
+    product_listing_raw_revision_id uuid NOT NULL,
+    normalizer_version smallint NOT NULL,
+    field_code text NOT NULL,
+    outcome text NOT NULL,
+    PRIMARY KEY (product_listing_raw_revision_id, normalizer_version, field_code),
+    FOREIGN KEY (product_listing_raw_revision_id, normalizer_version)
+        REFERENCES product_listing_raw_auction_acceptances (
+            product_listing_raw_revision_id,
+            normalizer_version
+        )
+        ON DELETE CASCADE,
+    CONSTRAINT product_listing_raw_auction_acceptance_fields_field_code_check CHECK (field_code IN (
+        'NAME', 'DESCRIPTION', 'CATALOGUE_URL', 'FORMAT', 'REPORTED_STATUS',
+        'REPORTED_LOT_COUNT', 'BIDDING_OPENS', 'LIVE_STARTS',
+        'LOTS_BEGIN_CLOSING', 'SCHEDULED_END'
+    )),
+    CONSTRAINT product_listing_raw_auction_acceptance_fields_outcome_check CHECK (outcome IN (
+        'FILLED', 'EQUAL', 'PROTECTED', 'CONFLICT', 'INVALID_SCHEDULE'
+    ))
 );
 
 CREATE TABLE partnerships (

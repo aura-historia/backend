@@ -68,7 +68,7 @@ pub struct CanonicalProductListingUpsert {
     pub isolate_raw_auction_membership_conflict: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalProductListingWriteResult {
     pub product_listing_id: ProductListingId,
     pub product_listing_event_id: Option<EventId>,

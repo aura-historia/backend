@@ -11,6 +11,7 @@ use crate::ports::{
 };
 use crate::product_listing_auction_patch::{
     ProductListingAuctionPatch, compose_product_listing_auction_patch,
+    validate_product_listing_auction_patch,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -23,7 +24,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use auction_service::EmbeddedAuctionMetadata;
+use auction_service::{EmbeddedAuctionMetadata, validate_embedded_auction_metadata_schedule};
 use domain_primitives::change_outcome::ChangeOutcome;
 
 use indexmap::IndexSet;
@@ -301,6 +302,17 @@ where
             Some(loaded) => {
                 let expected_version = loaded.version;
                 let mut product = loaded.value;
+                if let PatchField::Set(patch) = &command.auction {
+                    validate_product_listing_auction_patch(product.auction(), patch).map_err(
+                        |error| UpsertProductListingError::InvalidProductListing {
+                            source: box_error(error),
+                        },
+                    )?;
+                    validate_embedded_auction_metadata_schedule(&command.auction_metadata)
+                        .map_err(|error| UpsertProductListingError::InvalidProductListing {
+                            source: box_error(error),
+                        })?;
+                }
                 product.restore()?;
                 let auction = resolve_auction_context(
                     &self.auction_resolver,
@@ -342,6 +354,17 @@ where
                 ))
             }
             None => {
+                if let PatchField::Set(patch) = &command.auction {
+                    validate_product_listing_auction_patch(None, patch).map_err(|error| {
+                        UpsertProductListingError::InvalidProductListing {
+                            source: box_error(error),
+                        }
+                    })?;
+                    validate_embedded_auction_metadata_schedule(&command.auction_metadata)
+                        .map_err(|error| UpsertProductListingError::InvalidProductListing {
+                            source: box_error(error),
+                        })?;
+                }
                 let title_slug_id = self
                     .title_slug_generator
                     .generate(
@@ -755,10 +778,12 @@ impl From<ProductListingEventAppendError> for UpsertProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use auction_core::{AuctionTime, SourceAuctionId};
     use listing_source_core::ListingSourceId;
     use money::{Currency, MonetaryAmount};
     use product_listing_core::product_listing_event::ProductListingEventPayload;
     use product_listing_core::source_listing_id::SourceListingId;
+    use time::macros::datetime;
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
@@ -1332,6 +1357,47 @@ mod tests {
         let mut listing = listing_with_price(Some(ProductListingPrice::from(price(10))));
         listing.take_pending_event_payload();
         Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    fn invalid_shared_schedule_command() -> UpsertProductListingCommand {
+        let mut invalid = handler_command();
+        invalid.auction = PatchField::Set(ProductListingAuctionPatch {
+            source_auction_id: PatchField::Set(
+                SourceAuctionId::try_from("typed-schedule")
+                    .unwrap_or_else(|error| panic!("source Auction ID: {error}")),
+            ),
+            ..Default::default()
+        });
+        invalid.auction_metadata = EmbeddedAuctionMetadata {
+            bidding_opens: Some(AuctionTime::instant(datetime!(2026-10-19 10:00 UTC), None)),
+            scheduled_end: Some(AuctionTime::instant(datetime!(2026-10-18 10:00 UTC), None)),
+            ..Default::default()
+        };
+        invalid
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_typed_shared_schedule_for_new_and_existing_upserts() {
+        for existing in [None, Some(existing_listing())] {
+            let state = Arc::new(Mutex::new(HandlerState {
+                finds: VecDeque::from([existing]),
+                ..Default::default()
+            }));
+
+            assert!(matches!(
+                handler(&state)
+                    .execute(&handler_context(), invalid_shared_schedule_command())
+                    .await,
+                Err(UpsertProductListingError::InvalidProductListing { .. })
+            ));
+            let state = test_lock(&state);
+            assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+            assert_eq!(
+                (state.insert_calls, state.update_calls, state.event_calls),
+                (0, 0, 0)
+            );
+            assert_eq!(0, state.candidates.len());
+        }
     }
 
     #[tokio::test]

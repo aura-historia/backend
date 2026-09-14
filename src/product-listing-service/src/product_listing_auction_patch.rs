@@ -27,6 +27,16 @@ pub enum ComposeProductListingAuctionPatchError {
     Timing(#[source] InvalidLotAuctionTiming),
 }
 
+/// Validates the final lot context before an ordinary typed write resolves an
+/// Auction key or applies embedded Auction metadata. Membership is irrelevant
+/// to lot-timing validity, so this has no resolver or persistence side effect.
+pub fn validate_product_listing_auction_patch(
+    existing: Option<&ProductListingAuction>,
+    patch: &ProductListingAuctionPatch,
+) -> Result<(), ComposeProductListingAuctionPatchError> {
+    compose_product_listing_auction_patch(existing, None, patch).map(|_| ())
+}
+
 pub fn compose_product_listing_auction_patch(
     existing: Option<&ProductListingAuction>,
     membership: Option<AuctionMembership>,
@@ -199,6 +209,10 @@ mod tests {
             ..Default::default()
         };
 
+        assert!(matches!(
+            validate_product_listing_auction_patch(Some(&existing), &patch),
+            Err(ComposeProductListingAuctionPatchError::Timing(_))
+        ));
         assert!(matches!(
             compose_product_listing_auction_patch(Some(&existing), None, &patch),
             Err(ComposeProductListingAuctionPatchError::Timing(_))

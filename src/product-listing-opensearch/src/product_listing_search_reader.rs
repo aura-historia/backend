@@ -608,22 +608,28 @@ pub(crate) fn build_common_filter_clauses(
 
     apply_availability_filter(&mut filter, search.availability_query.as_ref());
 
-    for (query, field) in [
+    // Creation and update filters are inclusive at both bounds. Lot timing remains half-open so
+    // adjacent auction time windows do not overlap.
+    for (query, field, upper_bound) in [
         (
             &search.created_query,
             ProductListingDocumentSerdeField::Created,
+            "lte",
         ),
         (
             &search.updated_query,
             ProductListingDocumentSerdeField::Updated,
+            "lte",
         ),
         (
             &search.lot_bidding_opens_query,
             ProductListingDocumentSerdeField::LotBiddingOpensAt,
+            "lt",
         ),
         (
             &search.lot_scheduled_closes_query,
             ProductListingDocumentSerdeField::LotScheduledClosesAt,
+            "lt",
         ),
     ] {
         if let Some(min) = query.and_then(|query| query.min) {
@@ -636,7 +642,12 @@ pub(crate) fn build_common_filter_clauses(
             let value = max
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
-            filter.push(json!({ "range": { field.as_str(): { "lt": value } } }));
+            let bound = if upper_bound == "lte" {
+                json!({ "lte": value })
+            } else {
+                json!({ "lt": value })
+            };
+            filter.push(json!({ "range": { field.as_str(): bound } }));
         }
     }
 
@@ -1033,6 +1044,38 @@ mod tests {
                 .iter()
                 .all(|filter| !filter.to_string().contains("lte"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_inclusive_created_and_updated_ranges() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_created_query(domain_primitives::query::range_query::RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            })
+            .with_updated_query(domain_primitives::query::range_query::RangeQuery {
+                min: Some(datetime!(2026-01-05 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-06 00:00:00 UTC)),
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/created/gte") == Some(&json!("2026-01-03T00:00:00Z"))
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/created/lte") == Some(&json!("2026-01-04T00:00:00Z"))
+                && filter.pointer("/range/created/lt").is_none()
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/updated/gte") == Some(&json!("2026-01-05T00:00:00Z"))
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/updated/lte") == Some(&json!("2026-01-06T00:00:00Z"))
+                && filter.pointer("/range/updated/lt").is_none()
+        }));
         Ok(())
     }
 

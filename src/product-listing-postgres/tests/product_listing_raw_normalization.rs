@@ -255,6 +255,147 @@ async fn should_resolve_crawler_auction_and_fill_only_absent_embedded_metadata()
     );
     assert!(acceptance[0].3.is_some());
     assert!(acceptance[1].3.is_some());
+
+    let field_acceptance: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT normalization.revision, fields.field_code, fields.outcome \
+         FROM product_listing_raw_auction_acceptance_fields fields \
+         JOIN product_listing_raw_normalizations normalization \
+           ON normalization.product_listing_raw_revision_id = fields.product_listing_raw_revision_id \
+          AND normalization.normalizer_version = fields.normalizer_version \
+         ORDER BY normalization.revision, fields.field_code",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load Auction field acceptance evidence: {error}"));
+    assert_eq!(
+        vec![
+            (1, "CATALOGUE_URL".to_owned(), "FILLED".to_owned()),
+            (1, "FORMAT".to_owned(), "FILLED".to_owned()),
+            (1, "NAME".to_owned(), "FILLED".to_owned()),
+            (2, "CATALOGUE_URL".to_owned(), "CONFLICT".to_owned()),
+            (2, "FORMAT".to_owned(), "CONFLICT".to_owned()),
+            (2, "NAME".to_owned(), "CONFLICT".to_owned()),
+            (2, "REPORTED_LOT_COUNT".to_owned(), "FILLED".to_owned()),
+            (3, "CATALOGUE_URL".to_owned(), "CONFLICT".to_owned()),
+            (3, "FORMAT".to_owned(), "CONFLICT".to_owned()),
+            (3, "NAME".to_owned(), "CONFLICT".to_owned()),
+            (3, "REPORTED_LOT_COUNT".to_owned(), "EQUAL".to_owned()),
+        ],
+        field_acceptance
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_persist_invalid_composed_auction_schedule_field_outcomes() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-invalid-composed-schedule").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+
+    let mut opening = upsert_values("EUR 100");
+    opening["auction"] = json!({"action": "SET", "value": {
+        "sourceAuctionId": {"action": "SET", "value": "catalogue-invalid-composed-schedule"},
+        "auctionMetadata": {
+            "schedule": {
+                "biddingOpens": {
+                    "precision": "INSTANT",
+                    "value": "2026-10-19T10:00:00Z"
+                }
+            }
+        }
+    }});
+    let first = capture(
+        &unit_of_work,
+        &capture_writer,
+        crawler_raw_write(listing_source_id, opening.clone(), "invalid-composed-first"),
+    )
+    .await;
+
+    let mut earlier_end = opening;
+    earlier_end["auction"]["value"]["auctionMetadata"] = json!({
+        "schedule": {
+            "scheduledEnd": {
+                "precision": "INSTANT",
+                "value": "2026-10-18T10:00:00Z"
+            }
+        }
+    });
+    let second = capture(
+        &unit_of_work,
+        &capture_writer,
+        crawler_raw_write(listing_source_id, earlier_end, "invalid-composed-second"),
+    )
+    .await;
+    assert!(matches!(
+        first,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
+    ));
+    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) =
+        changed_parts(second);
+
+    let result = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work,
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
+        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .execute(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+        max_revisions_per_stream: 2,
+        pending_stream_limit: 1,
+    })
+    .await
+    .unwrap_or_else(|error| panic!("normalize invalid composed schedule: {error}"));
+    assert_eq!(
+        vec![
+            ProductListingRawNormalizationOutcome::Applied,
+            ProductListingRawNormalizationOutcome::NoChange,
+        ],
+        result
+            .revisions
+            .into_iter()
+            .map(|revision| revision.outcome)
+            .collect::<Vec<_>>()
+    );
+
+    let fields: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT normalization.revision, fields.field_code, fields.outcome \
+         FROM product_listing_raw_auction_acceptance_fields fields \
+         JOIN product_listing_raw_normalizations normalization \
+           ON normalization.product_listing_raw_revision_id = fields.product_listing_raw_revision_id \
+          AND normalization.normalizer_version = fields.normalizer_version \
+         ORDER BY normalization.revision, fields.field_code",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load invalid schedule acceptance fields: {error}"));
+    assert_eq!(
+        vec![
+            (1, "BIDDING_OPENS".to_owned(), "FILLED".to_owned()),
+            (2, "SCHEDULED_END".to_owned(), "INVALID_SCHEDULE".to_owned()),
+        ],
+        fields
+    );
+
+    let schedule_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM auction_schedule_points point \
+         JOIN auctions auction ON auction.auction_id = point.auction_id \
+         WHERE auction.listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count accepted schedule points: {error}"));
+    assert_eq!(1, schedule_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -1535,20 +1676,25 @@ async fn should_continue_capped_stream_across_keyset_cursor_and_reach_later_stre
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_advance_rejection_and_record_no_change_for_later_revisions() {
+async fn should_reject_malformed_timing_and_advance_to_later_revisions() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-rejection-source").await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+    let mut invalid_values = upsert_values("EUR 90");
+    invalid_values["auction"] = json!({
+        "action": "SET",
+        "value": {"timing": ["not", "an", "object"]}
+    });
     let invalid = capture(
         &unit_of_work,
         &capture_writer,
         raw_write(
             listing_source_id,
             RawProductListingOperation::Upsert,
-            json!({}),
-            json!({}),
-            "invalid",
+            invalid_values,
+            normalization_context(),
+            "malformed-timing",
         ),
     )
     .await;

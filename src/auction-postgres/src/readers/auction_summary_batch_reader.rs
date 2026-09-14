@@ -39,8 +39,8 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
                 source: box_error(error),
             }
         })?;
-        let rows = sqlx::query_as::<_, AuctionRow>(
-            "SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = ANY($1)",
+        let joined = sqlx::query_as::<_, JoinedAuctionSummaryRow>(
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, point.role, point.precision, point.instant_at, point.date_on, point.source_timezone FROM auctions a LEFT JOIN auction_schedule_points point ON point.auction_id = a.auction_id WHERE a.auction_id = ANY($1) ORDER BY a.auction_id, point.role",
         )
         .bind(&auction_ids)
         .fetch_all(&mut *connection)
@@ -48,33 +48,21 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
         .map_err(|error| AuctionSummaryBatchReadError::QueryFailed {
             source: box_error(error),
         })?;
-        let schedule_rows = sqlx::query_as::<_, ScheduleRow>(
-            "SELECT auction_id, role, precision, instant_at, date_on, source_timezone FROM auction_schedule_points WHERE auction_id = ANY($1)",
-        )
-        .bind(&auction_ids)
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(|error| AuctionSummaryBatchReadError::QueryFailed {
-            source: box_error(error),
-        })?;
-
-        let mut schedules = HashMap::<uuid::Uuid, Vec<AuctionSchedulePointRow>>::new();
-        for row in schedule_rows {
-            schedules
-                .entry(row.auction_id)
-                .or_default()
-                .push(AuctionSchedulePointRow {
-                    role: row.role,
-                    precision: row.precision,
-                    instant_at: row.instant_at,
-                    date_on: row.date_on,
-                    source_timezone: row.source_timezone,
-                });
+        let mut auctions = HashMap::<uuid::Uuid, (AuctionRow, Vec<AuctionSchedulePointRow>)>::new();
+        for row in joined {
+            let auction_id = row.auction_id;
+            let (auction, schedule) = auctions
+                .entry(auction_id)
+                .or_insert_with(|| (row.auction(), Vec::new()));
+            if let Some(point) = row.schedule_point() {
+                schedule.push(point);
+            }
+            let _ = auction;
         }
 
-        rows.into_iter()
-            .map(|row| {
-                let schedule = schedules.remove(&row.auction_id).unwrap_or_default();
+        auctions
+            .into_values()
+            .map(|(row, schedule)| {
                 let stored = map_stored_auction(row, schedule).map_err(|error| {
                     AuctionSummaryBatchReadError::InvalidReadModel {
                         source: map_error(error),
@@ -97,13 +85,60 @@ impl AuctionSummaryBatchReader for SqlxAuctionSummaryBatchReader {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct ScheduleRow {
+struct JoinedAuctionSummaryRow {
     auction_id: uuid::Uuid,
-    role: String,
-    precision: String,
+    listing_source_id: uuid::Uuid,
+    source_auction_id: String,
+    name_text: Option<String>,
+    name_language: Option<String>,
+    description_text: Option<String>,
+    description_language: Option<String>,
+    catalogue_url: Option<String>,
+    format: Option<String>,
+    reported_status: Option<String>,
+    reported_lot_count: Option<i64>,
+    version: i64,
+    created: time::OffsetDateTime,
+    updated: time::OffsetDateTime,
+    role: Option<String>,
+    precision: Option<String>,
     instant_at: Option<time::OffsetDateTime>,
     date_on: Option<time::Date>,
     source_timezone: Option<String>,
+}
+
+impl JoinedAuctionSummaryRow {
+    fn auction(&self) -> AuctionRow {
+        AuctionRow {
+            auction_id: self.auction_id,
+            listing_source_id: self.listing_source_id,
+            source_auction_id: self.source_auction_id.clone(),
+            name_text: self.name_text.clone(),
+            name_language: self.name_language.clone(),
+            description_text: self.description_text.clone(),
+            description_language: self.description_language.clone(),
+            catalogue_url: self.catalogue_url.clone(),
+            format: self.format.clone(),
+            reported_status: self.reported_status.clone(),
+            reported_lot_count: self.reported_lot_count,
+            version: self.version,
+            created: self.created,
+            updated: self.updated,
+        }
+    }
+
+    fn schedule_point(&self) -> Option<AuctionSchedulePointRow> {
+        match (&self.role, &self.precision) {
+            (Some(role), Some(precision)) => Some(AuctionSchedulePointRow {
+                role: role.clone(),
+                precision: precision.clone(),
+                instant_at: self.instant_at,
+                date_on: self.date_on,
+                source_timezone: self.source_timezone.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

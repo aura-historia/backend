@@ -45,13 +45,64 @@ struct AuctionDirectoryRow {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct ScheduleRow {
+struct JoinedAuctionDirectoryRow {
     auction_id: uuid::Uuid,
-    role: String,
-    precision: String,
+    listing_source_id: uuid::Uuid,
+    source_auction_id: String,
+    name_text: Option<String>,
+    name_language: Option<String>,
+    description_text: Option<String>,
+    description_language: Option<String>,
+    catalogue_url: Option<String>,
+    format: Option<String>,
+    reported_status: Option<String>,
+    reported_lot_count: Option<i64>,
+    version: i64,
+    created: time::OffsetDateTime,
+    updated: time::OffsetDateTime,
+    listing_source_slug_id: String,
+    listing_source_name: String,
+    role: Option<String>,
+    precision: Option<String>,
     instant_at: Option<time::OffsetDateTime>,
     date_on: Option<time::Date>,
     source_timezone: Option<String>,
+}
+
+impl JoinedAuctionDirectoryRow {
+    fn auction(&self) -> AuctionDirectoryRow {
+        AuctionDirectoryRow {
+            auction_id: self.auction_id,
+            listing_source_id: self.listing_source_id,
+            source_auction_id: self.source_auction_id.clone(),
+            name_text: self.name_text.clone(),
+            name_language: self.name_language.clone(),
+            description_text: self.description_text.clone(),
+            description_language: self.description_language.clone(),
+            catalogue_url: self.catalogue_url.clone(),
+            format: self.format.clone(),
+            reported_status: self.reported_status.clone(),
+            reported_lot_count: self.reported_lot_count,
+            version: self.version,
+            created: self.created,
+            updated: self.updated,
+            listing_source_slug_id: self.listing_source_slug_id.clone(),
+            listing_source_name: self.listing_source_name.clone(),
+        }
+    }
+
+    fn schedule_point(&self) -> Option<AuctionSchedulePointRow> {
+        match (&self.role, &self.precision) {
+            (Some(role), Some(precision)) => Some(AuctionSchedulePointRow {
+                role: role.clone(),
+                precision: precision.clone(),
+                instant_at: self.instant_at,
+                date_on: self.date_on,
+                source_timezone: self.source_timezone.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -65,8 +116,11 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         let size_usize = usize::try_from(size).map_err(invalid_read_model)?;
         let limit = i64::try_from(size + 1).map_err(invalid_read_model)?;
 
+        // Page roots first, then join their owned schedule points. One statement gives
+        // every directory item one PostgreSQL statement snapshot without letting the
+        // one-to-many schedule join change cursor limits.
         let mut builder = QueryBuilder::<Postgres>::new(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id",
+            "WITH selected AS (SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id",
         );
         if request.schedule.is_some() {
             builder.push(" JOIN auction_schedule_points schedule_filter ON schedule_filter.auction_id = a.auction_id");
@@ -83,19 +137,33 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         }
         builder
             .push(" ORDER BY a.created DESC, a.auction_id DESC LIMIT ")
-            .push_bind(limit);
+            .push_bind(limit)
+            .push(") SELECT selected.auction_id, selected.listing_source_id, selected.source_auction_id, selected.name_text, selected.name_language, selected.description_text, selected.description_language, selected.catalogue_url, selected.format, selected.reported_status, selected.reported_lot_count, selected.version, selected.created, selected.updated, selected.listing_source_slug_id, selected.listing_source_name, point.role, point.precision, point.instant_at, point.date_on, point.source_timezone FROM selected LEFT JOIN auction_schedule_points point ON point.auction_id = selected.auction_id ORDER BY selected.created DESC, selected.auction_id DESC, point.role");
 
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
-        let mut rows = builder
-            .build_query_as::<AuctionDirectoryRow>()
+        let joined = builder
+            .build_query_as::<JoinedAuctionDirectoryRow>()
             .fetch_all(&mut *connection)
             .await
             .map_err(query_error)?;
-        let has_more = rows.len() > size_usize;
-        if has_more {
-            rows.truncate(size_usize);
+        let mut rows =
+            HashMap::<uuid::Uuid, (AuctionDirectoryRow, Vec<AuctionSchedulePointRow>)>::new();
+        let mut ordered_auction_ids = Vec::new();
+        for row in joined {
+            let auction_id = row.auction_id;
+            let (_, schedule) = rows.entry(auction_id).or_insert_with(|| {
+                ordered_auction_ids.push(auction_id);
+                (row.auction(), Vec::new())
+            });
+            if let Some(point) = row.schedule_point() {
+                schedule.push(point);
+            }
         }
-        if rows.is_empty() {
+        let has_more = ordered_auction_ids.len() > size_usize;
+        if has_more {
+            ordered_auction_ids.truncate(size_usize);
+        }
+        if ordered_auction_ids.is_empty() {
             return Ok(CursoredResult {
                 items: Vec::new(),
                 cursor: Cursor {
@@ -106,32 +174,14 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
             });
         }
 
-        let auction_ids = rows.iter().map(|row| row.auction_id).collect::<Vec<_>>();
-        let schedule_rows = sqlx::query_as::<_, ScheduleRow>(
-            "SELECT auction_id, role, precision, instant_at, date_on, source_timezone FROM auction_schedule_points WHERE auction_id = ANY($1)",
-        )
-        .bind(&auction_ids)
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(query_error)?;
-        let mut schedules = HashMap::<uuid::Uuid, Vec<AuctionSchedulePointRow>>::new();
-        for row in schedule_rows {
-            schedules
-                .entry(row.auction_id)
-                .or_default()
-                .push(AuctionSchedulePointRow {
-                    role: row.role,
-                    precision: row.precision,
-                    instant_at: row.instant_at,
-                    date_on: row.date_on,
-                    source_timezone: row.source_timezone,
-                });
-        }
-
-        let items = rows
+        let items = ordered_auction_ids
             .into_iter()
-            .map(|row| {
-                let schedule_rows = schedules.remove(&row.auction_id).unwrap_or_default();
+            .map(|auction_id| {
+                let (row, schedule_rows) = rows.remove(&auction_id).ok_or_else(|| {
+                    box_error(std::io::Error::other(
+                        "selected Auction vanished during directory mapping",
+                    ))
+                })?;
                 map_directory_item(row, schedule_rows)
             })
             .collect::<Result<Vec<_>, _>>()

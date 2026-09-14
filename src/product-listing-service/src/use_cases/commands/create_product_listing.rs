@@ -22,11 +22,12 @@ use auction_service::{
         AuctionEventAppenderFactory, AuctionMetadataPolicyRepositoryFactory,
         AuctionRepositoryFactory,
     },
-    resolve_auction_for_listing,
+    resolve_auction_for_listing, validate_embedded_auction_metadata_schedule,
 };
 
 use crate::product_listing_auction_patch::{
     ProductListingAuctionPatch, compose_product_listing_auction_patch,
+    validate_product_listing_auction_patch,
 };
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
@@ -250,6 +251,12 @@ where
                 .await?;
         }
 
+        if let Some(patch) = &command.auction {
+            validate_product_listing_auction_patch(None, patch)
+                .map_err(|_| CreateProductListingError::InvalidProductListing)?;
+            validate_embedded_auction_metadata_schedule(&command.auction_metadata)
+                .map_err(|_| CreateProductListingError::InvalidProductListing)?;
+        }
         let membership = self
             .auction_resolver
             .resolve(
@@ -662,9 +669,11 @@ mod tests {
     };
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
+    use auction_core::AuctionTime;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use time::macros::datetime;
 
     #[derive(Default)]
     struct State {
@@ -877,6 +886,32 @@ mod tests {
             ),
             PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired
         ));
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_typed_shared_schedule_before_resolver_or_listing_write() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut invalid = command();
+        invalid.auction = Some(ProductListingAuctionPatch {
+            source_auction_id: PatchField::Set(
+                SourceAuctionId::try_from("typed-schedule")
+                    .unwrap_or_else(|error| panic!("source Auction ID: {error}")),
+            ),
+            ..Default::default()
+        });
+        invalid.auction_metadata = EmbeddedAuctionMetadata {
+            bidding_opens: Some(AuctionTime::instant(datetime!(2026-10-19 10:00 UTC), None)),
+            scheduled_end: Some(AuctionTime::instant(datetime!(2026-10-18 10:00 UTC), None)),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            handler(&state).execute(&context(), invalid).await,
+            Err(CreateProductListingError::InvalidProductListing)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.inserts, state.events), (0, 0));
     }
 
     #[tokio::test]

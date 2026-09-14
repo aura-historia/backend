@@ -28,7 +28,7 @@ use product_listing_core::{
     title::Title,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-use serde_json::Value;
+
 use std::{collections::BTreeMap, str::FromStr};
 use strum::IntoEnumIterator;
 use time::{
@@ -133,10 +133,11 @@ pub struct ProductListingRawValuesAuction {
     pub lot_number: ProductListingRawValuesPatch<String>,
     #[serde(default = "raw_patch_unchanged")]
     pub catalogue_position: ProductListingRawValuesPatch<u64>,
-    /// Timing is decoded separately so an invalid optional assertion cannot reject unrelated
-    /// current raw values. The outer auction object remains strict.
+    /// The current timing protocol is decoded with the outer raw contract. A
+    /// malformed action, field, or structural type rejects the raw revision;
+    /// only supported values that fail source interpretation are optional loss.
     #[serde(default)]
-    pub timing: Option<Value>,
+    pub timing: Option<ProductListingRawValuesLotAuctionTiming>,
     /// Listing-embedded shared metadata is a candidate only. The transactional resolver applies
     /// the fill-only authority policy after this pure normalization boundary.
     #[serde(default)]
@@ -269,7 +270,12 @@ pub enum ProductListingRawValuesNormalizationDiagnostic {
     AuctionReferenceInvalid,
     AuctionLotInvalid,
     AuctionTimingInvalid,
-    AuctionMetadataInvalid,
+    AuctionMetadataNameInvalid,
+    AuctionMetadataDescriptionInvalid,
+    AuctionMetadataCatalogueUrlInvalid,
+    AuctionMetadataFormatInvalid,
+    AuctionMetadataReportedStatusInvalid,
+    AuctionMetadataScheduleInvalid,
     MembershipChangeRequiresCorrection,
 }
 
@@ -279,7 +285,14 @@ impl ProductListingRawValuesNormalizationDiagnostic {
             Self::AuctionTimingInvalid => "AUCTION_TIMING_INVALID",
             Self::AuctionReferenceInvalid => "AUCTION_REFERENCE_INVALID",
             Self::AuctionLotInvalid => "AUCTION_LOT_INVALID",
-            Self::AuctionMetadataInvalid => "AUCTION_METADATA_INVALID",
+            Self::AuctionMetadataNameInvalid => "AUCTION_METADATA_NAME_INVALID",
+            Self::AuctionMetadataDescriptionInvalid => "AUCTION_METADATA_DESCRIPTION_INVALID",
+            Self::AuctionMetadataCatalogueUrlInvalid => "AUCTION_METADATA_CATALOGUE_URL_INVALID",
+            Self::AuctionMetadataFormatInvalid => "AUCTION_METADATA_FORMAT_INVALID",
+            Self::AuctionMetadataReportedStatusInvalid => {
+                "AUCTION_METADATA_REPORTED_STATUS_INVALID"
+            }
+            Self::AuctionMetadataScheduleInvalid => "AUCTION_METADATA_SCHEDULE_INVALID",
             Self::MembershipChangeRequiresCorrection => "MEMBERSHIP_CHANGE_REQUIRES_CORRECTION",
         }
     }
@@ -639,8 +652,6 @@ pub enum LotAuctionTimingField {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingRawValuesAuctionNormalizationError {
-    #[error("auction timing does not match the current contract")]
-    TimingContract(#[source] serde_json::Error),
     #[error("auction metadata is invalid")]
     Metadata(#[source] ProductListingRawValuesAuctionMetadataNormalizationError),
     #[error("lot number is invalid")]
@@ -701,18 +712,11 @@ fn normalize_auction_patch(
     match patch {
         ProductListingRawValuesPatch::Set(raw) => {
             let mut diagnostics = Vec::new();
-            let metadata =
-                match normalize_auction_metadata(raw.auction_metadata, base_url, fallback_language)
-                {
-                    Ok(metadata) => metadata,
-                    Err(_) => {
-                        push_diagnostic(
-                            &mut diagnostics,
-                            ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid,
-                        );
-                        ProductListingRawValuesAuctionMetadataResolved::default()
-                    }
-                };
+            let (metadata, metadata_diagnostics) =
+                normalize_auction_metadata(raw.auction_metadata, base_url, fallback_language);
+            for diagnostic in metadata_diagnostics {
+                push_diagnostic(&mut diagnostics, diagnostic);
+            }
             if matches!(&raw.source_auction_id, ProductListingRawValuesPatch::Clear) {
                 push_diagnostic(
                     &mut diagnostics,
@@ -746,10 +750,7 @@ fn normalize_auction_patch(
                 }
             };
             let timing = match raw.timing {
-                Some(raw_timing) => match serde_json::from_value(raw_timing)
-                    .map_err(ProductListingRawValuesAuctionNormalizationError::TimingContract)
-                    .and_then(normalize_lot_auction_timing)
-                {
+                Some(raw_timing) => match normalize_lot_auction_timing(raw_timing) {
                     Ok(timing) => timing,
                     Err(_) => {
                         push_diagnostic(
@@ -857,98 +858,185 @@ fn normalize_auction_metadata(
     raw: ProductListingRawValuesAuctionMetadata,
     base_url: &Url,
     fallback_language: Option<Language>,
-) -> Result<
+) -> (
     ProductListingRawValuesAuctionMetadataResolved,
-    ProductListingRawValuesAuctionMetadataNormalizationError,
-> {
-    let description = raw
-        .description
-        .map(AuctionDescription::try_from)
-        .transpose()
-        .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::Description)?;
-    let description_language = description
-        .as_ref()
-        .and_then(|value| detect_language(value.as_ref()))
-        .or(fallback_language);
-    let description = description
-        .map(|value| {
-            description_language
-                .map(|language| Localized::new(language, value))
-                .ok_or(
-                    ProductListingRawValuesAuctionMetadataNormalizationError::DescriptionLanguage,
-                )
-        })
-        .transpose()?;
-    let name = raw
-        .name
-        .map(AuctionName::try_from)
-        .transpose()
-        .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::Name)?;
-    let name = name
-        .map(|value| {
-            detect_language(value.as_ref())
-                .or(description_language)
-                .map(|language| Localized::new(language, value))
-                .ok_or(ProductListingRawValuesAuctionMetadataNormalizationError::NameLanguage)
-        })
-        .transpose()?;
-    let catalogue_url = raw
-        .catalogue_url
-        .map(|value| Url::parse(value.as_str()).or_else(|_| base_url.join(value.as_str())))
-        .transpose()
-        .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::CatalogueUrl)?;
-    let format = raw
-        .format
-        .as_deref()
-        .map(AuctionFormat::from_str)
-        .transpose()
-        .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::Format)?;
-    let reported_status = raw
+    Vec<ProductListingRawValuesNormalizationDiagnostic>,
+) {
+    let mut diagnostics = Vec::new();
+
+    let (description, description_language) = match raw.description {
+        Some(value) => match AuctionDescription::try_from(value) {
+            Ok(value) => {
+                let language = detect_language(value.as_ref()).or(fallback_language);
+                match language {
+                    Some(language) => (Some(Localized::new(language, value)), Some(language)),
+                    None => {
+                        push_diagnostic(
+                            &mut diagnostics,
+                            ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataDescriptionInvalid,
+                        );
+                        (None, None)
+                    }
+                }
+            }
+            Err(_) => {
+                push_diagnostic(
+                    &mut diagnostics,
+                    ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataDescriptionInvalid,
+                );
+                (None, None)
+            }
+        },
+        None => (None, fallback_language),
+    };
+
+    let name = match raw.name {
+        Some(value) => match AuctionName::try_from(value) {
+            Ok(value) => match detect_language(value.as_ref()).or(description_language) {
+                Some(language) => Some(Localized::new(language, value)),
+                None => {
+                    push_diagnostic(
+                        &mut diagnostics,
+                        ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataNameInvalid,
+                    );
+                    None
+                }
+            },
+            Err(_) => {
+                push_diagnostic(
+                    &mut diagnostics,
+                    ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataNameInvalid,
+                );
+                None
+            }
+        },
+        None => None,
+    };
+
+    let catalogue_url = match raw.catalogue_url {
+        Some(value) => {
+            match Url::parse(value.as_str()).or_else(|_| base_url.join(value.as_str())) {
+                Ok(value) => Some(value),
+                Err(_) => {
+                    push_diagnostic(
+                    &mut diagnostics,
+                    ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataCatalogueUrlInvalid,
+                );
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    let format = match raw.format.as_deref().map(AuctionFormat::from_str) {
+        Some(Ok(value)) => Some(value),
+        Some(Err(_)) => {
+            push_diagnostic(
+                &mut diagnostics,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataFormatInvalid,
+            );
+            None
+        }
+        None => None,
+    };
+    let reported_status = match raw
         .reported_status
         .as_deref()
         .map(AuctionReportedStatus::from_str)
-        .transpose()
-        .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::ReportedStatus)?;
+    {
+        Some(Ok(value)) => Some(value),
+        Some(Err(_)) => {
+            push_diagnostic(
+                &mut diagnostics,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataReportedStatusInvalid,
+            );
+            None
+        }
+        None => None,
+    };
+    let (bidding_opens, live_starts, lots_begin_closing, scheduled_end) =
+        normalize_auction_metadata_schedule(raw.schedule, &mut diagnostics);
+
+    (
+        ProductListingRawValuesAuctionMetadataResolved {
+            name,
+            description,
+            catalogue_url,
+            format,
+            reported_status,
+            reported_lot_count: raw.reported_lot_count.map(ReportedCatalogueLotCount::new),
+            bidding_opens,
+            live_starts,
+            lots_begin_closing,
+            scheduled_end,
+        },
+        diagnostics,
+    )
+}
+
+fn normalize_auction_metadata_schedule(
+    raw: ProductListingRawValuesAuctionMetadataSchedule,
+    diagnostics: &mut Vec<ProductListingRawValuesNormalizationDiagnostic>,
+) -> (
+    Option<AuctionTime>,
+    Option<AuctionTime>,
+    Option<AuctionTime>,
+    Option<AuctionTime>,
+) {
     let bidding_opens = normalize_auction_metadata_time(
-        raw.schedule.bidding_opens,
+        raw.bidding_opens,
         "biddingOpens",
         LotAuctionTimingField::BiddingOpens,
-    )?;
+    );
     let live_starts = normalize_auction_metadata_time(
-        raw.schedule.live_starts,
+        raw.live_starts,
         "liveStarts",
         LotAuctionTimingField::BiddingOpens,
-    )?;
+    );
     let lots_begin_closing = normalize_auction_metadata_time(
-        raw.schedule.lots_begin_closing,
+        raw.lots_begin_closing,
         "lotsBeginClosing",
         LotAuctionTimingField::ScheduledCloses,
-    )?;
+    );
     let scheduled_end = normalize_auction_metadata_time(
-        raw.schedule.scheduled_end,
+        raw.scheduled_end,
         "scheduledEnd",
         LotAuctionTimingField::ScheduledCloses,
-    )?;
-    AuctionSchedule::new(
+    );
+    let (Ok(bidding_opens), Ok(live_starts), Ok(lots_begin_closing), Ok(scheduled_end)) = (
+        bidding_opens,
+        live_starts,
+        lots_begin_closing,
+        scheduled_end,
+    ) else {
+        push_diagnostic(
+            diagnostics,
+            ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataScheduleInvalid,
+        );
+        return (None, None, None, None);
+    };
+
+    if AuctionSchedule::new(
         bidding_opens.clone(),
         live_starts.clone(),
         lots_begin_closing.clone(),
         scheduled_end.clone(),
     )
-    .map_err(ProductListingRawValuesAuctionMetadataNormalizationError::Schedule)?;
+    .is_err()
+    {
+        push_diagnostic(
+            diagnostics,
+            ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataScheduleInvalid,
+        );
+        return (None, None, None, None);
+    }
 
-    Ok(ProductListingRawValuesAuctionMetadataResolved {
-        name,
-        description,
-        catalogue_url,
-        format,
-        reported_status,
-        reported_lot_count: raw.reported_lot_count.map(ReportedCatalogueLotCount::new),
+    (
         bidding_opens,
         live_starts,
         lots_begin_closing,
         scheduled_end,
-    })
+    )
 }
 
 fn normalize_auction_metadata_time(
@@ -1279,7 +1367,12 @@ mod tests {
                 "AUCTION_REFERENCE_INVALID",
                 "AUCTION_LOT_INVALID",
                 "AUCTION_TIMING_INVALID",
-                "AUCTION_METADATA_INVALID",
+                "AUCTION_METADATA_NAME_INVALID",
+                "AUCTION_METADATA_DESCRIPTION_INVALID",
+                "AUCTION_METADATA_CATALOGUE_URL_INVALID",
+                "AUCTION_METADATA_FORMAT_INVALID",
+                "AUCTION_METADATA_REPORTED_STATUS_INVALID",
+                "AUCTION_METADATA_SCHEDULE_INVALID",
                 "MEMBERSHIP_CHANGE_REQUIRES_CORRECTION",
             ]
         );
@@ -1759,7 +1852,6 @@ mod tests {
         raw_values["auction"] = set(json!({
             "sourceAuctionId": {"action": "SET", "value": " "},
             "lotNumber": {"action": "SET", "value": ""},
-            "timing": "not-a-timing-object",
             "auctionMetadata": {"format": "timed"}
         }));
         let input = input(
@@ -1778,8 +1870,7 @@ mod tests {
             vec![
                 ProductListingRawValuesNormalizationDiagnostic::AuctionReferenceInvalid,
                 ProductListingRawValuesNormalizationDiagnostic::AuctionLotInvalid,
-                ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
-                ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid,
+                ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataFormatInvalid,
             ],
             resolved.diagnostics
         );
@@ -1787,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_auction_clear_and_ignore_invalid_optional_timing()
+    fn should_preserve_auction_clear_and_reject_malformed_timing_protocol()
     -> Result<(), crate::NormalizationInputError> {
         let mut clear_auction = upsert_values();
         clear_auction["auction"] = clear();
@@ -1813,22 +1904,81 @@ mod tests {
             invalid_timing,
             context(),
         )?;
-        let ProductListingRawValuesNormalizationOutcome::Resolved(invalid_resolved) =
-            ProductListingRawValuesNormalizer::new().normalize(&invalid_input)
+        assert!(matches!(
+            ProductListingRawValuesNormalizer::new().normalize(&invalid_input),
+            ProductListingRawValuesNormalizationOutcome::Invalid(
+                ProductListingRawValuesNormalizationError::InvalidRawValues(_)
+            )
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_malformed_current_timing_protocol()
+    -> Result<(), crate::NormalizationInputError> {
+        for malformed_timing in [
+            json!({"scheduledCloses": {"action": "NOT_A_SUPPORTED_ACTION"}}),
+            json!({"auctionEnd": "2026-10-18T18:00:00Z"}),
+            json!(["not", "an", "object"]),
+        ] {
+            let mut raw_values = upsert_values();
+            raw_values["auction"] = set(json!({"timing": malformed_timing}));
+            let input = input(
+                RawProductListingOperation::Upsert,
+                PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+                raw_values,
+                context(),
+            )?;
+
+            assert!(matches!(
+                ProductListingRawValuesNormalizer::new().normalize(&input),
+                ProductListingRawValuesNormalizationOutcome::Invalid(
+                    ProductListingRawValuesNormalizationError::InvalidRawValues(_)
+                )
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_isolate_supported_timing_value_that_cannot_be_interpreted()
+    -> Result<(), crate::NormalizationInputError> {
+        let mut raw_values = upsert_values();
+        raw_values["auction"] = set(json!({
+            "sourceAuctionId": {"action": "SET", "value": "catalogue-42"},
+            "timing": {
+                "scheduledCloses": {
+                    "action": "SET",
+                    "value": {"precision": "INSTANT", "value": "not-a-date"}
+                }
+            }
+        }));
+        let input = input(
+            RawProductListingOperation::Upsert,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            raw_values,
+            context(),
+        )?;
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
         else {
-            panic!("invalid optional timing should not reject the raw revision");
+            panic!("supported bad source date must remain an optional loss");
+        };
+        let ProductListingRawValuesPatch::Set(auction) = resolved.auction else {
+            panic!("valid source reference must remain accepted");
         };
         assert!(matches!(
-            invalid_resolved.title,
-            ProductListingRawValuesPatch::Set(_)
-        ));
-        assert!(matches!(
-            invalid_resolved.auction,
-            ProductListingRawValuesPatch::Set(_)
+            auction.source_auction_id,
+            ProductListingRawValuesPatch::Set(value) if value.to_string() == "catalogue-42"
         ));
         assert_eq!(
+            ProductListingRawValuesPatch::Unchanged,
+            auction.scheduled_closes
+        );
+        assert_eq!(
             vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
-            invalid_resolved.diagnostics
+            resolved.diagnostics
         );
         Ok(())
     }
@@ -1932,12 +2082,71 @@ mod tests {
             panic!("invalid optional metadata should not reject the raw revision");
         };
         assert_eq!(
-            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataInvalid],
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataFormatInvalid],
             resolved.diagnostics
         );
         assert_eq!(
             ProductListingRawValuesAuctionMetadataResolved::default(),
             resolved.auction_metadata
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_independent_metadata_when_shared_schedule_is_invalid()
+    -> Result<(), crate::NormalizationInputError> {
+        let mut raw_values = upsert_values();
+        raw_values["auction"] = set(json!({
+            "sourceAuctionId": {"action": "SET", "value": "catalogue-42"},
+            "auctionMetadata": {
+                "name": "Autumn Decorative Arts",
+                "catalogueUrl": "https://example.test/catalogues/autumn",
+                "format": "TIMED",
+                "reportedLotCount": 42,
+                "schedule": {
+                    "biddingOpens": {"precision": "INSTANT", "value": "2026-10-19T10:00:00Z"},
+                    "scheduledEnd": {"precision": "INSTANT", "value": "2026-10-18T10:00:00Z"}
+                }
+            }
+        }));
+        let input = input(
+            RawProductListingOperation::Upsert,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            raw_values,
+            context(),
+        )?;
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            ProductListingRawValuesNormalizer::new().normalize(&input)
+        else {
+            panic!("invalid optional schedule should not reject the raw revision");
+        };
+        assert_eq!(
+            Some("Autumn Decorative Arts"),
+            resolved
+                .auction_metadata
+                .name
+                .as_ref()
+                .map(|value| value.payload.as_ref())
+        );
+        assert_eq!(
+            Some("https://example.test/catalogues/autumn"),
+            resolved
+                .auction_metadata
+                .catalogue_url
+                .as_ref()
+                .map(Url::as_str)
+        );
+        assert!(matches!(
+            resolved.auction_metadata.format,
+            Some(AuctionFormat::Timed)
+        ));
+        assert!(resolved.auction_metadata.reported_lot_count.is_some());
+        assert!(resolved.auction_metadata.bidding_opens.is_none());
+        assert!(resolved.auction_metadata.scheduled_end.is_none());
+        assert_eq!(
+            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionMetadataScheduleInvalid],
+            resolved.diagnostics
         );
         Ok(())
     }
@@ -1955,19 +2164,12 @@ mod tests {
             malformed_timing,
             context(),
         )?;
-        let ProductListingRawValuesNormalizationOutcome::Resolved(malformed_timing_resolved) =
-            ProductListingRawValuesNormalizer::new().normalize(&malformed_timing_input)
-        else {
-            panic!("malformed optional timing should not reject the raw revision");
-        };
         assert!(matches!(
-            malformed_timing_resolved.auction,
-            ProductListingRawValuesPatch::Set(_)
+            ProductListingRawValuesNormalizer::new().normalize(&malformed_timing_input),
+            ProductListingRawValuesNormalizationOutcome::Invalid(
+                ProductListingRawValuesNormalizationError::InvalidRawValues(_)
+            )
         ));
-        assert_eq!(
-            vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
-            malformed_timing_resolved.diagnostics
-        );
 
         let mut malformed_outer_auction = upsert_values();
         malformed_outer_auction["auction"] = set(json!({"unexpected": "value"}));

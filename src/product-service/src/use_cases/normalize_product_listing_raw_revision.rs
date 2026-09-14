@@ -479,6 +479,7 @@ where
                             auction_result_version: receipt.auction_result_version,
                             auction_event_id: receipt.auction_event_id,
                             disposition: receipt.disposition,
+                            metadata_fields: receipt.metadata_fields,
                         });
                 completion.next_product_listing_id = Some(write.product_listing_id);
                 completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
@@ -1998,7 +1999,10 @@ mod tests {
             "action": "SET",
             "value": {
                 "timing": {
-                    "reportedClosedAt": {"precision": "DATE", "value": "2026-05-13"}
+                    "reportedClosedAt": {
+                        "action": "SET",
+                        "value": {"precision": "DATE", "value": "2026-05-13"}
+                    }
                 }
             }
         }))?;

@@ -7,7 +7,7 @@ use auction_core::{
     AuctionDescription, AuctionFormat, AuctionName, AuctionReportedStatus, AuctionTime,
     AuctionTimeZone, ReportedCatalogueLotCount, SourceAuctionId,
 };
-use auction_service::EmbeddedAuctionMetadata;
+use auction_service::{EmbeddedAuctionMetadata, validate_embedded_auction_metadata_schedule};
 use listing_source_core::ListingSourceId;
 use money::Price;
 use product_listing_core::description::Description;
@@ -327,7 +327,7 @@ impl EmbeddedAuctionMetadataData {
 
 impl EmbeddedAuctionScheduleData {
     fn into_core(self) -> Result<EmbeddedAuctionMetadata, ApiError> {
-        Ok(EmbeddedAuctionMetadata {
+        let metadata = EmbeddedAuctionMetadata {
             bidding_opens: self
                 .bidding_opens
                 .map(AuctionTimeData::into_core)
@@ -345,7 +345,12 @@ impl EmbeddedAuctionScheduleData {
                 .map(AuctionTimeData::into_core)
                 .transpose()?,
             ..EmbeddedAuctionMetadata::default()
-        })
+        };
+        validate_embedded_auction_metadata_schedule(&metadata).map_err(|_| {
+            ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail("auction schedule has invalid comparable bounds.")
+        })?;
+        Ok(metadata)
     }
 }
 
@@ -639,6 +644,44 @@ mod tests {
                 .unwrap_or_else(|| panic!("null auction must fail"))
                 .code()
         );
+    }
+
+    #[test]
+    fn should_reject_invalid_shared_schedule_for_each_partner_write_codec() {
+        let listing_source_id = ListingSourceId::new();
+        let create: CreateProductListingData = serde_json::from_str(
+            r#"{
+                "sourceListingId":"SKU-1",
+                "title":{"text":"Listing","language":"en"},
+                "description":{"text":"Description","language":"en"},
+                "url":"https://example.com/listing",
+                "images":[],
+                "auction":{"sourceAuctionId":"sale-42","metadata":{"schedule":{
+                    "biddingOpens":{"precision":"INSTANT","at":"2026-10-19T10:00:00Z"},
+                    "scheduledEnd":{"precision":"INSTANT","at":"2026-10-18T10:00:00Z"}
+                }}}
+            }"#,
+        )
+        .unwrap_or_else(|error| panic!("valid create JSON shape: {error}"));
+        let update: UpdateProductListingData = serde_json::from_str(
+            r#"{"sourceListingId":"SKU-1","auction":{"sourceAuctionId":"sale-42","metadata":{"schedule":{"biddingOpens":{"precision":"INSTANT","at":"2026-10-19T10:00:00Z"},"scheduledEnd":{"precision":"INSTANT","at":"2026-10-18T10:00:00Z"}}}}}"#,
+        )
+        .unwrap_or_else(|error| panic!("valid update JSON shape: {error}"));
+        let upsert: UpsertProductListingData = serde_json::from_str(
+            r#"{"sourceListingId":"SKU-1","auction":{"sourceAuctionId":"sale-42","metadata":{"schedule":{"biddingOpens":{"precision":"INSTANT","at":"2026-10-19T10:00:00Z"},"scheduledEnd":{"precision":"INSTANT","at":"2026-10-18T10:00:00Z"}}}}}"#,
+        )
+        .unwrap_or_else(|error| panic!("valid upsert JSON shape: {error}"));
+
+        for result in [
+            create.into_command(listing_source_id).map(|_| ()),
+            update.into_key_and_command(listing_source_id).map(|_| ()),
+            upsert.into_command(listing_source_id).map(|_| ()),
+        ] {
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("invalid comparable schedule must fail"));
+            assert_eq!(BAD_BODY_VALUE, error.code());
+        }
     }
 
     #[test]

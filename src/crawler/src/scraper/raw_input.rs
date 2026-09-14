@@ -127,10 +127,7 @@ fn crawler_auction_patch(
             source_auction_id: optional_set_patch(evidence.source_auction_id.clone()),
             lot_number: optional_set_patch(evidence.lot_number.clone()),
             catalogue_position: ProductListingRawValuesPatch::Unchanged,
-            timing: has_timing
-                .then(|| serde_json::to_value(timing))
-                .transpose()
-                .map_err(NormalizationInputError::JsonSerialization)?,
+            timing: has_timing.then_some(timing),
             auction_metadata: ProductListingRawValuesAuctionMetadata {
                 name: evidence.name.clone(),
                 description: None,

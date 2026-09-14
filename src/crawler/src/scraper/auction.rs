@@ -4,6 +4,7 @@
 //! both its source-key path and any page selectors with a checked-in fixture.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use serde_json::Value;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +29,60 @@ pub(crate) fn extract_lot_tissimo_auction(
     raw: &RawExtractedProduct,
     html: &str,
 ) -> Option<CrawlerAuctionEvidence> {
+    let LotTissimoLotUrl {
+        locale,
+        catalogue_collection,
+        auctioneer,
+        catalogue,
+        source_auction_id,
+        source_lot_id,
+    } = lot_tissimo_lot_url(candidate_url)?;
+
+    let mut catalogue_url = candidate_url.clone();
+    catalogue_url.set_path(&format!(
+        "/{locale}/{catalogue_collection}/{auctioneer}/{catalogue}"
+    ));
+    catalogue_url.set_query(None);
+    catalogue_url.set_fragment(None);
+    let catalogue_url = catalogue_url.to_string();
+
+    let dates = data_layer_lot_dates(html, source_lot_id.as_str(), source_auction_id.as_str());
+
+    Some(CrawlerAuctionEvidence {
+        source_auction_id: Some(source_auction_id),
+        name: raw_attribute(raw, "rawAuctionName"),
+        catalogue_url: Some(catalogue_url),
+        lot_number: raw_attribute(raw, "rawAuctionLotNumber"),
+        // These source data-layer fields are date-only. They are lot facts,
+        // not Auction schedule facts, and a `Live` type label is not a close.
+        lot_bidding_opens: dates.as_ref().and_then(|dates| dates.bidding_opens.clone()),
+        lot_scheduled_closes: dates.and_then(|dates| dates.scheduled_closes),
+    })
+}
+
+/// Returns whether this URL can use the fixture-backed Lot-tissimo evidence rule.
+///
+/// Its auction facts may occur outside `<main>`, so the scraper must fingerprint
+/// the full source document before allowing the main-only fast path.
+pub(crate) fn requires_lot_tissimo_full_document_fingerprint(candidate_url: &Url) -> bool {
+    lot_tissimo_lot_url(candidate_url).is_some()
+}
+
+struct LotTissimoLotUrl {
+    locale: String,
+    catalogue_collection: String,
+    auctioneer: String,
+    catalogue: String,
+    source_auction_id: String,
+    source_lot_id: String,
+}
+
+struct LotTissimoLotDates {
+    bidding_opens: Option<String>,
+    scheduled_closes: Option<String>,
+}
+
+fn lot_tissimo_lot_url(candidate_url: &Url) -> Option<LotTissimoLotUrl> {
     let host = candidate_url.host_str()?;
     if !matches!(host, "lot-tissimo.com" | "www.lot-tissimo.com")
         || candidate_url.scheme() != "https"
@@ -51,43 +106,125 @@ pub(crate) fn extract_lot_tissimo_auction(
         return None;
     }
     let source_auction_id = catalogue.strip_prefix("catalogue-id-")?;
-    if source_auction_id.is_empty()
-        || lot
-            .strip_prefix("lot-")
-            .is_none_or(|source_lot_id| source_lot_id.is_empty())
-    {
+    let source_lot_id = lot.strip_prefix("lot-")?;
+    if source_auction_id.is_empty() || source_lot_id.is_empty() {
         return None;
     }
 
-    let mut catalogue_url = candidate_url.clone();
-    catalogue_url.set_path(&format!(
-        "/{locale}/{catalogue_collection}/{auctioneer}/{catalogue}"
-    ));
-    catalogue_url.set_query(None);
-    catalogue_url.set_fragment(None);
-    let catalogue_url = catalogue_url.to_string();
-
-    Some(CrawlerAuctionEvidence {
-        source_auction_id: Some(source_auction_id.to_owned()),
-        name: raw_attribute(raw, "rawAuctionName"),
-        catalogue_url: Some(catalogue_url),
-        lot_number: raw_attribute(raw, "rawAuctionLotNumber"),
-        // These source data-layer fields are date-only. They are lot facts,
-        // not Auction schedule facts, and a `Live` type label is not a close.
-        lot_bidding_opens: data_layer_string(html, "lotStartDate"),
-        lot_scheduled_closes: data_layer_string(html, "lotEndDate"),
+    Some(LotTissimoLotUrl {
+        locale: (*locale).to_owned(),
+        catalogue_collection: (*catalogue_collection).to_owned(),
+        auctioneer: (*auctioneer).to_owned(),
+        catalogue: (*catalogue).to_owned(),
+        source_auction_id: source_auction_id.to_owned(),
+        source_lot_id: source_lot_id.to_owned(),
     })
 }
 
-/// Reads one exact quoted data-layer value. The caller has already qualified the
-/// source and URL namespace; this parser never scans generic crawler pages.
-fn data_layer_string(html: &str, field: &str) -> Option<String> {
-    let key = format!("\"{field}\"");
-    let after_key = html.split_once(key.as_str())?.1;
-    let after_colon = after_key.split_once(':')?.1;
-    let value = after_colon.trim_start().strip_prefix('\"')?;
-    let value = value.split_once('\"')?.0.trim();
-    (!value.is_empty()).then(|| value.to_owned())
+/// Selects only the Lot-tissimo data-layer record for this URL's lot and catalogue.
+///
+/// The provider pushes JavaScript-wrapped object literals. This scanner extracts
+/// balanced object payloads without executing JavaScript, then decodes their
+/// fixture-backed JSON object shape. Conflicting matching records are omitted
+/// rather than letting document order choose canonical lot timing.
+fn data_layer_lot_dates(
+    html: &str,
+    source_lot_id: &str,
+    source_auction_id: &str,
+) -> Option<LotTissimoLotDates> {
+    let matching_records = data_layer_objects(html)
+        .into_iter()
+        .filter(|record| {
+            record.get("lotId").and_then(Value::as_str) == Some(source_lot_id)
+                && record.get("catalogueId").and_then(Value::as_str) == Some(source_auction_id)
+        })
+        .collect::<Vec<_>>();
+    (!matching_records.is_empty()).then(|| LotTissimoLotDates {
+        bidding_opens: agreed_data_layer_date(&matching_records, "lotStartDate"),
+        scheduled_closes: agreed_data_layer_date(&matching_records, "lotEndDate"),
+    })
+}
+
+fn agreed_data_layer_date(records: &[Value], field: &str) -> Option<String> {
+    let values = records
+        .iter()
+        .map(|record| {
+            record
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    (values.len() == 1)
+        .then(|| values.into_iter().next().flatten())
+        .flatten()
+}
+
+fn data_layer_objects(html: &str) -> Vec<Value> {
+    const PREFIX: &str = "window.dataLayer.push(";
+    let mut remaining = html;
+    let mut records = Vec::new();
+    while let Some(after_prefix) = remaining.split_once(PREFIX).map(|(_, value)| value) {
+        let Some(object_start) = after_prefix.find('{') else {
+            remaining = after_prefix;
+            continue;
+        };
+        let after_start = &after_prefix[object_start..];
+        let Some(object_len) = balanced_object_len(after_start) else {
+            remaining = after_start;
+            continue;
+        };
+        if let Some(record) = parse_data_layer_object(&after_start[..object_len]) {
+            records.push(record);
+        }
+        remaining = &after_start[object_len..];
+    }
+    records
+}
+
+fn parse_data_layer_object(value: &str) -> Option<Value> {
+    if let Ok(record) = serde_json::from_str(value) {
+        return Some(record);
+    }
+
+    // The checked-in provider object is JSON-shaped JavaScript with one trailing
+    // property comma. Permit exactly that source syntax after object bounds are
+    // proven; do not evaluate or broadly rewrite fetched script.
+    let before_closing_brace = value.strip_suffix('}')?.trim_end();
+    let before_comma = before_closing_brace.strip_suffix(',')?.trim_end();
+    serde_json::from_str(&format!("{before_comma}}}")).ok()
+}
+
+fn balanced_object_len(value: &str) -> Option<usize> {
+    let mut depth = 0_u32;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, byte) in value.bytes().enumerate() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match byte {
+            b'\'' | b'\"' => quote = Some(byte),
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn is_lot_tissimo_locale(value: &str) -> bool {
@@ -171,6 +308,18 @@ mod tests {
     }
 
     #[test]
+    fn should_require_full_document_fingerprint_for_qualified_lot_tissimo_lot_urls() {
+        let qualified = Url::parse(LOT_URL).unwrap_or_else(|error| panic!("fixture URL: {error}"));
+        let non_auction = Url::parse("https://www.lot-tissimo.com/de-de/catalogues")
+            .unwrap_or_else(|error| panic!("fixture URL: {error}"));
+
+        assert!(requires_lot_tissimo_full_document_fingerprint(&qualified));
+        assert!(!requires_lot_tissimo_full_document_fingerprint(
+            &non_auction
+        ));
+    }
+
+    #[test]
     fn should_reject_unproven_hosts_wrappers_and_path_shapes() {
         let raw = raw();
         for url in [
@@ -185,6 +334,49 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    #[test]
+    fn should_use_only_the_data_layer_record_for_the_current_lot() {
+        let html = LOT_TISSIMO_HTML
+            .replacen(
+                "<script> window.dataLayer = window.dataLayer || [];",
+                r#"<script>window.dataLayer.push({"lotId":"other-lot","catalogueId":"leipzig10033","lotEndDate":"2026-12-31"});</script>
+<script> window.dataLayer = window.dataLayer || [];"#,
+                1,
+            )
+            .replacen(
+                "\"lotEndDate\" : \"\"",
+                "\"lotEndDate\" : \"2026-04-18\"",
+                1,
+            );
+        let url = Url::parse(LOT_URL).unwrap_or_else(|error| panic!("fixture URL: {error}"));
+
+        let evidence = extract_lot_tissimo_auction(&url, &raw(), &html)
+            .unwrap_or_else(|| panic!("fixture URL must remain qualified"));
+
+        assert_eq!(Some("2026-04-18".to_owned()), evidence.lot_scheduled_closes);
+    }
+
+    #[test]
+    fn should_omit_conflicting_dates_from_multiple_matching_data_layer_records() {
+        let html = LOT_TISSIMO_HTML
+            .replacen(
+                "\"lotEndDate\" : \"\"",
+                "\"lotEndDate\" : \"2026-04-18\"",
+                1,
+            )
+            .replacen(
+                "</script>",
+                r#"window.dataLayer.push({"lotId":"a2850590-e73c-4cce-9386-b3fd00b49bfd","catalogueId":"leipzig10033","lotEndDate":"2026-04-19"});</script>"#,
+                1,
+            );
+        let url = Url::parse(LOT_URL).unwrap_or_else(|error| panic!("fixture URL: {error}"));
+
+        let evidence = extract_lot_tissimo_auction(&url, &raw(), &html)
+            .unwrap_or_else(|| panic!("fixture URL must remain qualified"));
+
+        assert_eq!(None, evidence.lot_scheduled_closes);
     }
 
     #[test]

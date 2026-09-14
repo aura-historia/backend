@@ -1,13 +1,17 @@
 use application::error::BoxError;
 use async_trait::async_trait;
 use auction_core::AuctionId;
-use auction_service::{AuctionAcceptanceDisposition, ports::AuctionStorageVersion};
+use auction_service::{
+    AuctionAcceptanceDisposition, AuctionMetadataAcceptanceOutcome,
+    ports::{AuctionMetadataField, AuctionStorageVersion},
+};
 use domain_primitives::event_id::EventId;
 use listing_source_core::ListingSourceId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::ProductListingNormalizationInput;
 use product_listing_service::ports::{ProductListingRawRevisionId, ProductListingRawStreamId};
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +65,8 @@ pub struct ProductListingRawAuctionAcceptance {
     pub auction_result_version: AuctionStorageVersion,
     pub auction_event_id: Option<EventId>,
     pub disposition: AuctionAcceptanceDisposition,
+    /// Outcomes for source-asserted Auction metadata fields, keyed by canonical field code.
+    pub metadata_fields: BTreeMap<AuctionMetadataField, AuctionMetadataAcceptanceOutcome>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

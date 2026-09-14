@@ -1,5 +1,8 @@
 use crate::{
-    metadata_acceptance::{EmbeddedAuctionMetadata, apply_embedded_auction_metadata},
+    metadata_acceptance::{
+        EmbeddedAuctionMetadata, apply_embedded_auction_metadata,
+        asserted_embedded_auction_metadata_fields, asserted_metadata_acceptance_fields,
+    },
     ports::{
         AuctionEventAppender, AuctionEventAppenderFactory, AuctionMetadataPolicyRepository,
         AuctionMetadataPolicyRepositoryFactory, AuctionRepository, AuctionRepositoryError,
@@ -11,6 +14,7 @@ use auction_core::{Auction, AuctionId, AuctionKey, AuctionSchedule, NewAuction, 
 use domain_primitives::change_outcome::ChangeOutcome;
 use domain_primitives::event_id::EventId;
 use listing_source_core::ListingSourceId;
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 /// Canonical outcome of accepting listing-embedded Auction metadata.
@@ -33,13 +37,18 @@ impl AuctionAcceptanceDisposition {
 
 /// Result of resolving one reliable source auction reference inside a caller-owned transaction.
 /// It deliberately exposes no adapter data or raw revision identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuctionWriteReceipt {
     pub auction_id: AuctionId,
     pub auction_result_version: AuctionStorageVersion,
     pub auction_event_id: Option<EventId>,
     pub outcome: ChangeOutcome,
     pub disposition: AuctionAcceptanceDisposition,
+    /// Acceptance decisions for asserted metadata fields only.
+    pub metadata_fields: BTreeMap<
+        crate::ports::AuctionMetadataField,
+        crate::metadata_acceptance::AuctionMetadataAcceptanceOutcome,
+    >,
     pub created: bool,
 }
 
@@ -176,6 +185,7 @@ where
             auction_event_id: Some(event.event_id),
             outcome: ChangeOutcome::Changed,
             disposition: AuctionAcceptanceDisposition::Created,
+            metadata_fields: asserted_embedded_auction_metadata_fields(&request.metadata),
             created: true,
         });
     };
@@ -199,6 +209,7 @@ where
             auction_event_id: None,
             outcome: ChangeOutcome::Unchanged,
             disposition: AuctionAcceptanceDisposition::NoChange,
+            metadata_fields: asserted_metadata_acceptance_fields(&acceptance.fields),
             created: false,
         });
     }
@@ -229,6 +240,7 @@ where
         auction_event_id: Some(event.event_id),
         outcome: ChangeOutcome::Changed,
         disposition: AuctionAcceptanceDisposition::MetadataApplied,
+        metadata_fields: asserted_metadata_acceptance_fields(&acceptance.fields),
         created: false,
     })
 }

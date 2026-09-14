@@ -11,6 +11,7 @@ use crate::ports::{
 };
 use crate::product_listing_auction_patch::{
     ProductListingAuctionPatch, compose_product_listing_auction_patch,
+    validate_product_listing_auction_patch,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -18,7 +19,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use auction_service::EmbeddedAuctionMetadata;
+use auction_service::{EmbeddedAuctionMetadata, validate_embedded_auction_metadata_schedule};
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use money::Price;
@@ -309,6 +310,10 @@ where
     let PatchField::Set(patch) = &command.auction else {
         return Ok(None);
     };
+    validate_product_listing_auction_patch(existing, patch)
+        .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
+    validate_embedded_auction_metadata_schedule(&command.auction_metadata)
+        .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
     let membership = resolver
         .resolve(
             tx,
@@ -492,6 +497,7 @@ impl From<ProductListingEventAppendError> for UpdateProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use auction_core::{AuctionTime, SourceAuctionId};
     use listing_source_core::ListingSourceId;
     use localization::{Language, Localized};
     use money::{Currency, MonetaryAmount};
@@ -504,6 +510,7 @@ mod tests {
         source_listing_id::SourceListingId,
         title::Title,
     };
+    use time::macros::datetime;
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
@@ -552,6 +559,39 @@ mod tests {
             auction,
         })
         .unwrap_or_else(|error| panic!("valid listing should be created: {error}"))
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_typed_shared_schedule_before_update_resolver() {
+        let command = UpdateProductListingCommand {
+            auction: PatchField::Set(ProductListingAuctionPatch {
+                source_auction_id: PatchField::Set(
+                    SourceAuctionId::try_from("typed-schedule")
+                        .unwrap_or_else(|error| panic!("source Auction ID: {error}")),
+                ),
+                ..Default::default()
+            }),
+            auction_metadata: EmbeddedAuctionMetadata {
+                bidding_opens: Some(AuctionTime::instant(datetime!(2026-10-19 10:00 UTC), None)),
+                scheduled_end: Some(AuctionTime::instant(datetime!(2026-10-18 10:00 UTC), None)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut tx = ();
+
+        assert!(matches!(
+            resolve_auction_context(
+                &NoopPartnerProductListingAuctionResolver,
+                &mut tx,
+                ProductListingId::new(),
+                ListingSourceId::new(),
+                None,
+                &command,
+            )
+            .await,
+            Err(UpdateProductListingError::InvalidProductListing)
+        ));
     }
 
     #[test]

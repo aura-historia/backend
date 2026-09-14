@@ -247,6 +247,26 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
             .execute(&mut *self.connection)
             .await
             .map_err(persistence)?;
+
+            for (field, outcome) in acceptance.metadata_fields {
+                sqlx::query(
+                    r#"
+                    INSERT INTO product_listing_raw_auction_acceptance_fields (
+                        product_listing_raw_revision_id,
+                        normalizer_version,
+                        field_code,
+                        outcome
+                    ) VALUES ($1, $2, $3, $4)
+                    "#,
+                )
+                .bind(completion.product_listing_raw_revision_id.as_uuid())
+                .bind(normalizer_version)
+                .bind(field.as_str())
+                .bind(outcome.as_str())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(persistence)?;
+            }
         }
 
         let updated = sqlx::query(
