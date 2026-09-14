@@ -53,7 +53,7 @@ export interface LambdaEgressOutput {
   readonly natGateways: readonly LambdaEgressNatOutput[];
 }
 
-/** Offline network foundation only. Does not attach Lambdas, export stacks, or configure PG. */
+/** Data-stack networking for opt-in DB Lambda attachment; PostgreSQL firewall remains operator-owned. */
 export class LambdaEgress extends Construct {
   readonly output: LambdaEgressOutput;
 

@@ -1,9 +1,14 @@
-# 09a — offline Lambda-egress foundation
+# 09a — historical Lambda-egress foundation
+
+**Standalone status superseded by R5.** The opt-in application now instantiates this construct
+and attaches actual DB Lambdas; see [`postgres-lambda-r5.md`](postgres-lambda-r5.md).
+The original slice evidence below remains historical, not the active deployment roadmap.
+No live acceptance is claimed.
 
 Baseline: `b89d8942194f1ca676b487a9a89febb6f502f462`.
 This slice is **not complete iteration 09**, deployment readiness, or network acceptance.
-No application instantiates the construct. No cloud/host changes or secrets needed.
-Shared README/AGENTS and rollout status index this contract; no deployment entrypoint is added.
+At that checkpoint no application instantiated the construct; no cloud/host changes or secrets were needed.
+R5 adds the explicit application entrypoint; absent opt-in still preserves legacy templates.
 
 ## Files and public contract
 
@@ -14,7 +19,7 @@ Shared README/AGENTS and rollout status index this contract; no deployment entry
 - `LambdaEgress.output`: typed VPC, public/private subnet handles, dedicated SG,
   stage/account/region, and NAT records containing AZ, public subnet, NAT ID,
   EIP allocation ID and public IPv4. EIP values are CloudFormation tokens, not allocated addresses.
-  No automatic CloudFormation outputs/exports or cross-stack wiring.
+  The construct itself has no automatic outputs; R5 application wiring now exports NAT IPv4 and passes handles to compute.
 
 Pinned CDK `2.268.0` L2 `Vpc` requests AZ context even with explicit AZs.
 Use L1 VPC plus an attributes-only L2 handle to **that newly declared VPC**;
@@ -27,7 +32,7 @@ No architecture rule changed.
 
 | Input | Contract |
 |---|---|
-| `stage` | Explicit `dev`, `prod`, or `ephemeral`; same resource shape, no automatic local emulation |
+| `stage` | Construct accepts explicit `dev`, `prod`, or `ephemeral`; R5 application opt-in permits only `dev`/`prod` |
 | `environment` | Literal nonzero 12-digit AWS account and region; enclosing stack must match both |
 | `ipProtocol` | Exactly `IPV4` |
 | `vpcCidr` | Canonical RFC1918 IPv4 network, /16–/28 |
@@ -73,15 +78,15 @@ Existing ts-jest TS151002 warnings remain. Unsilenced synth also warns W3010 abo
 Integrator reran on cached pinned Node26.8.2: fresh `tsc --noEmit`, full Jest **201 pass**, and all three CLI synth stages **pass**. Synth used `--no-lookups`, disabled AWS shared-config/credential files and metadata access, explicit installed ts-node app, and suppressed template stdout. Existing deprecated-CDK/Node20-provider/unversioned-artifact warnings remain. Independent reviewer `f93c35bb-70ed-4d25-96e1-36f4d6035e98` accepted; separately146 tests,76 negative/2 valid-limit probes and both synthetic-consumer dependency paths pass. Eleven current application templates/410 resources unchanged by importing the unused construct. These are offline structural results, not network proof.
 No live AWS/PG/provider tests, SDK calls, bootstrap, deployment, firewall or host changes.
 
-Before later attachment: owner verifies account/AZ availability, CIDR capacity/conflicts,
+Before live R5 activation: owner verifies account/AZ availability, CIDR capacity/conflicts,
 NAT/EIP quotas and costs; resolves actual deployed EIPs for narrow external PG firewall rules;
 proves outbound source IP, denied destinations and AZ failure behavior; supplies PG DNS/SAN,
-CA delivery, verified TLS, rotation/overlap and connection budgets. Lambda ENI IAM,
-separated identities, cross-stack integration, runtime/provider reachability and actual rollback
-rehearsal remain later gates. Network synth does not prove any of these.
+verified TLS, rotation/overlap and connection budgets. R5 adds CA asset delivery, Lambda ENI IAM
+and cross-stack integration offline. Actual mounted trust, separated SQL identities,
+runtime/provider reachability and rollback rehearsal remain live gates; synth proves none of those.
 
 ## Rollback
 
-While uninstantiated: remove this fragment, the construct and its test file. No infrastructure or data rollback.
-After any future attachment/deployment: code removal alone is unsafe; coordinate Lambda detachment,
+Historical uninstantiated removal was source-only. R5 now consumes the construct; remove consumers
+first if withdrawing unused code. After any attachment/deployment, removal alone is unsafe; coordinate Lambda detachment,
 NAT/EIP lifetime and external firewall allowlists before deleting network resources.

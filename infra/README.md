@@ -16,6 +16,7 @@ synthesized for:
 bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, SSM dynamic refs
+src/postgres-lambda-config.ts # explicit opt-in local DB Lambda networking/CA inputs
 src/worker-queue-config.ts # typed native worker scopes, timing, retention, alarms
 src/parameters.ts          # deployment artifact version input
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
@@ -24,7 +25,8 @@ src/constructs/            # focused infrastructure modules
   cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
-  lambda-egress.ts         # standalone hybrid IPv4 NAT/EIP foundation, NOT instantiated
+  lambda-egress.ts         # opt-in data-stack IPv4 NAT/EIPs for DB Lambdas
+  postgres-ca.ts           # public CA Lambda layer; no runtime secret fetch
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # existing Shopify Lambda queue and DLQ
@@ -33,23 +35,23 @@ src/constructs/            # focused infrastructure modules
 
 ```
 
-## PostgreSQL TLS integration gate
+## PostgreSQL TLS and opt-in Lambda attachment
 
-Hybrid work remains on a non-deploying integration branch. **Do not activate this configuration before CA delivery, network and identity prerequisites are implemented and approved.** Deployment status: `docs/deployment/implementation-status.md`.
+R5 wires the actual DB Lambdas to private subnets/NAT and delivers a public CA layer. **Offline-tested, not live-accepted.** Enable only with an approved target and the staged procedure in [`postgres-lambda-r5.md`](postgres-lambda-r5.md). Current status: `docs/deployment/implementation-status.md`.
 
-Every DB-using Lambda now receives `STAGE` and `POSTGRES_SSL_MODE`. Dev/prod require `verify-full` plus `POSTGRES_SSL_ROOT_CERT`, whose file path comes from `/postgres/{stage}/ssl-root-cert-path`. The CA must already exist at that path in the approved Lambda runtime/configuration; CDK does not materialize it. Missing/invalid CA blocks startup. Ephemeral explicitly uses `disable`. This is a configuration contract, not proof of Internet reachability or completed Lambda secret handoff.
+Without `--context postgresLambdaConfig=/absolute/operator.json`, templates remain legacy: dev/prod use `verify-full` with a CA path from `/postgres/{stage}/ssl-root-cert-path`, but no CA delivery or VPC attachment. Opt-in uses the configured DNS hostname/port and a content-addressed layer at `/opt/postgres-ca/root.pem`. Only the four catalog-marked DB Lambdas receive it; ephemeral rejects opt-in and retains explicit `disable`. Missing/invalid CA blocks startup. This does not prove Internet reachability or authorize deployment.
 
 All native constructors share that policy, including crawler URLs and cron's dedicated session. Native credentials may use `POSTGRES_PASSWORD_FILE` (0400/0600) instead of `POSTGRES_PASSWORD`; both together fail. Root CA files are nonsecret and at most 1 MiB. Do not set ambient `PGSSLCERT`, `PGSSLKEY`, `PGSSLROOTCERT` or `PGOPTIONS`. Supplied CA plus WebPKI trust is documented in deployment ADR-004; client certificates are not supported yet.
 
-Keep total connections within the reviewed inventory budget: ten worker pools + both API pools + cron pool **and one dedicated session** + crawler business/local pools + Lambda reserved concurrency × per-function pool + Sequin + migration/backup sessions + reserve. Defaults of two connections are per process, not an environment budget. Lambda concurrency/network enforcement lands in the approved prerequisite iteration.
+Keep total connections within the reviewed host budget: ten worker pools + both API pools + cron pool **and one dedicated session** + crawler business/local pools + Lambda pools + Sequin + bootstrap/backup sessions + reserve. Opt-in requires per-function reservations and checks `lambdaConnectionBudget >= 2 × sum(reservations)`; Shopify polling is capped at its reservation. This is only an active-invocation estimate: warm/frozen/retiring Lambda environments can retain extra sessions. It is **not** a server-wide connection cap.
 
 Certificate rotation: install old+new trust bundle first, restart/recycle each client through lifecycle controls, rotate server certificate, verify fresh connections, then remove old trust. Existing pools and published Lambda environment snapshots do not refresh themselves. Never roll secrets back with old code. No live rotation performed here.
 
-## Hybrid Lambda-egress foundation
+## Lambda egress
 
 `LambdaEgress` synthesizes an explicit IPv4 VPC, public NAT subnets, private Lambda subnets, owned EIPs and dedicated no-ingress SG. `SINGLE` versus `PER_AZ` is an explicit cost/availability choice; DB egress requires exact public `/32` and port plus a separate explicit HTTPS policy. Account/region/AZs/CIDRs are required literal inputs, never discovery or guessed live values.
 
-**Not instantiated by this application.** Existing stack/resource identities, invocation targets and network attachment remain unchanged. No Lambda attachment, runtime identity/CA delivery, firewall mutation or verified reachability. Construct contract, operator inputs, validation and limits: [`lambda-egress-09a.md`](lambda-egress-09a.md). Future bootstrap consumes these typed handles only after review/approval; EIP tokens are not allocated addresses.
+Opt-in instantiates `LambdaEgress` in data, exports NAT IPv4 outputs, and attaches only DB Lambdas in compute. Function/role/queue identities stay stable. The dedicated SG has no ingress; function code is denied ENI management while the Lambda service retains it. No firewall mutation or verified reachability is implied. Network contract and historical evidence: [`lambda-egress-09a.md`](lambda-egress-09a.md); executable integration and operator gates: [`postgres-lambda-r5.md`](postgres-lambda-r5.md). EIP tokens become addresses only after an authorized data-stack deployment.
 
 ## Common commands
 
@@ -79,21 +81,20 @@ Dev CloudFront owns the wildcard alias `*.dev.aura-historia.com`; the API URL st
 `api.dev.aura-historia.com`. This avoids stale exact DNS targets blocking distribution
 creation. Prod uses the exact alias `api.aura-historia.com`.
 
-Deployments should use `cdk deploy --all` without hotswap. CI uses
-CloudFormation change sets (`--method change-set`) so stack updates keep
-CloudFormation's normal rollback semantics.
+Legacy CI uses all-stack CloudFormation change sets (`--method change-set`), without hotswap. **Do not use that all-stack path for first R5 activation:** deploy data separately, complete external firewall/TLS/schema gates, then explicitly authorize compute. Dependencies do not create an operator approval pause. Existing workflows do not supply the R5 opt-in; no new workflow is enabled.
 
 Deployments do not require a full CDK bootstrap stack in the target account/region.
 Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
-templates and any future file assets under the stage prefix (`${stage}/`). Lambda
-ZIPs and scheduled Fargate images are still referenced as prebuilt S3/ECR
-artifacts keyed by `CommitSHA`, not as CDK-managed assets. The retired periodic
-matcher ECS image is no longer built or referenced by CDK.
+templates and the opt-in public CA asset under the stage prefix (`${stage}/`). Lambda
+ZIPs remain prebuilt S3 artifacts keyed by `CommitSHA`, not CDK-managed assets.
+The retired periodic matcher ECS image is no longer built or referenced by CDK.
 
 Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
-points compute resources back to the previously uploaded artifacts.
+points compute resources back to the previously uploaded artifacts. That does not revert
+network/CA configuration or database effects. Retain and review the current trust inputs;
+never roll credentials or schema back with application code.
 
 ## Native processes
 
