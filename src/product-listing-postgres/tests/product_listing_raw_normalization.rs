@@ -5,15 +5,12 @@ use application::{
     patch_field::PatchField,
     transaction::{Transaction, UnitOfWork},
 };
-use auction_core::{AuctionFormat, AuctionKey, AuctionTime, SourceAuctionId};
-use auction_postgres::{
-    SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
-    SqlxAuctionRepositoryFactory,
+use auction_core::{
+    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, AuctionTime, NewAuction,
+    SourceAuctionId,
 };
-use auction_service::{
-    EmbeddedAuctionMetadata,
-    ports::{AuctionRepository, AuctionRepositoryFactory},
-};
+use auction_postgres::{SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory};
+use auction_service::ports::{AuctionRepository, AuctionRepositoryFactory};
 use listing_source_core::ListingSourceId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing::LotNumber;
@@ -24,9 +21,8 @@ use product_listing_normalization::{
 };
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,
-    SqlxProductListingAuctionOverrideRepositoryFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::{
     ports::{
@@ -37,7 +33,6 @@ use product_listing_service::{
     product_listing_auction_patch::ProductListingAuctionPatch,
     use_cases::{
         CreateProductListingCommand, CreateProductListingHandler, CreateProductListingUseCase,
-        commands::create_product_listing::AuctionMembershipResolver,
     },
 };
 use product_service::ports::{
@@ -60,140 +55,17 @@ use time::macros::datetime;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_attach_concurrent_typed_listings_to_one_source_key_auction() {
-    let pool = get_postgres_client().await;
-    let listing_source_id = seed_listing_source(&pool, "typed-source-key-race").await;
-    let source_auction_id = SourceAuctionId::try_from("typed-catalogue-42")
-        .unwrap_or_else(|error| panic!("source auction ID: {error}"));
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let handler = || {
-        CreateProductListingHandler::new_with_auction_resolver(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-            AuctionMembershipResolver::new(
-                SqlxAuctionRepositoryFactory::new(),
-                SqlxAuctionEventAppenderFactory::new(),
-                SqlxAuctionMetadataPolicyRepositoryFactory::new(),
-                SqlxProductListingAuctionOverrideRepositoryFactory::new(),
-            ),
-        )
-    };
-    let command = |source_listing_id: &str| CreateProductListingCommand {
-        listing_source_id,
-        source_listing_id: product_listing_core::source_listing_id::SourceListingId::try_from(
-            source_listing_id,
-        )
-        .unwrap_or_else(|error| panic!("source listing ID: {error}")),
-        title: None,
-        description: None,
-        pricing: Default::default(),
-        availability: None,
-        url: url::Url::parse(&format!("https://example.test/{source_listing_id}"))
-            .unwrap_or_else(|error| panic!("listing URL: {error}")),
-        images: Default::default(),
-        auction: Some(ProductListingAuctionPatch {
-            source_auction_id: PatchField::Set(source_auction_id.clone()),
-            ..Default::default()
-        }),
-        auction_metadata: EmbeddedAuctionMetadata {
-            format: Some(AuctionFormat::Timed),
-            ..Default::default()
-        },
-    };
-    let context = OperationContext {
-        principal: Principal::System,
-        request_id: RequestId::new("typed-source-key-race"),
-        correlation_id: CorrelationId::new("typed-source-key-race"),
-    };
-
-    let mut gate = unit_of_work
-        .begin()
-        .await
-        .unwrap_or_else(|error| panic!("begin source-key gate: {error}"));
-    let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(gate.connection())
-        .await
-        .unwrap_or_else(|error| panic!("load source-key gate pid: {error}"));
-    SqlxAuctionRepositoryFactory::new()
-        .in_transaction(&mut gate)
-        .lock_by_key(&AuctionKey::new(
-            listing_source_id,
-            source_auction_id.clone(),
-        ))
-        .await
-        .unwrap_or_else(|error| panic!("lock source key: {error}"));
-
-    let first = handler();
-    let second = handler();
-    let writes = async {
-        tokio::join!(
-            first.execute(&context, command("typed-listing-a")),
-            second.execute(&context, command("typed-listing-b")),
-        )
-    };
-    tokio::pin!(writes);
-    support::assert_blocked(&pool, blocker_pid, 2, writes.as_mut())
-        .await
-        .unwrap_or_else(|error| panic!("typed source-key writes should wait: {error}"));
-    gate.commit()
-        .await
-        .unwrap_or_else(|error| panic!("release source-key gate: {error}"));
-
-    let (first, second) = tokio::time::timeout(Duration::from_secs(20), writes)
-        .await
-        .unwrap_or_else(|error| panic!("timed out typed source-key writes: {error}"));
-    first.unwrap_or_else(|error| panic!("first typed source-key write: {error}"));
-    second.unwrap_or_else(|error| panic!("second typed source-key write: {error}"));
-
-    let auction_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2",
-    )
-    .bind(listing_source_id.into_uuid())
-    .bind(source_auction_id.as_ref())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("count source-key auctions: {error}"));
-    let event_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM auction_events event JOIN auctions auction ON auction.auction_id = event.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
-    )
-    .bind(listing_source_id.into_uuid())
-    .bind(source_auction_id.as_ref())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("count source-key events: {error}"));
-    let attachment_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_listing_auction_contexts context JOIN auctions auction ON auction.auction_id = context.auction_id WHERE auction.listing_source_id = $1 AND auction.source_auction_id = $2",
-    )
-    .bind(listing_source_id.into_uuid())
-    .bind(source_auction_id.as_ref())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("count source-key attachments: {error}"));
-    assert_eq!(1, auction_count);
-    assert_eq!(1, event_count);
-    assert_eq!(2, attachment_count);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_update() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-preserves-auction-source").await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let source_auction_id = SourceAuctionId::try_from("preserved-auction")
-        .unwrap_or_else(|error| panic!("source auction ID: {error}"));
-    let typed_handler = CreateProductListingHandler::new_with_auction_resolver(
+    let auction_id = create_auction(&unit_of_work, listing_source_id, "preserved-auction").await;
+    let typed_handler = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
-        AuctionMembershipResolver::new(
-            SqlxAuctionRepositoryFactory::new(),
-            SqlxAuctionEventAppenderFactory::new(),
-            SqlxAuctionMetadataPolicyRepositoryFactory::new(),
-            SqlxProductListingAuctionOverrideRepositoryFactory::new(),
-        ),
+        SqlxAuctionReferenceValidatorFactory::new(),
     );
     let result = typed_handler
         .execute(
@@ -215,7 +87,7 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
                     .unwrap_or_else(|error| panic!("listing URL: {error}")),
                 images: Default::default(),
                 auction: Some(ProductListingAuctionPatch {
-                    source_auction_id: PatchField::Set(source_auction_id),
+                    auction_id: PatchField::Set(auction_id),
                     lot_number: PatchField::Set(
                         LotNumber::try_from("77")
                             .unwrap_or_else(|error| panic!("lot number: {error}")),
@@ -230,16 +102,13 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
                     )),
                     ..Default::default()
                 }),
-                auction_metadata: EmbeddedAuctionMetadata {
-                    format: Some(AuctionFormat::Timed),
-                    ..Default::default()
-                },
             },
         )
         .await
         .unwrap_or_else(|error| panic!("create typed listing: {error}"));
 
     let before = auction_lot_facts(&pool, result.product_listing_id.into_uuid()).await;
+    assert_eq!(*auction_id.as_uuid(), before.0);
 
     let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
     let generic_values = upsert_values("EUR 250");
@@ -286,7 +155,7 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
     assert_eq!(before, after);
     assert_eq!(
         (
-            before.0,
+            *auction_id.as_uuid(),
             "77".to_owned(),
             "INSTANT".to_owned(),
             datetime!(2026-10-01 08:00 UTC),
@@ -1371,6 +1240,44 @@ async fn concurrent_normalization(max_revisions: u32) -> Result<(), Box<dyn std:
             .is_empty()
     );
     Ok(())
+}
+
+async fn create_auction(
+    unit_of_work: &SqlxUnitOfWork,
+    listing_source_id: ListingSourceId,
+    source_auction_id: &str,
+) -> AuctionId {
+    let auction = Auction::create(NewAuction {
+        id: AuctionId::new(),
+        key: AuctionKey::new(
+            listing_source_id,
+            SourceAuctionId::try_from(source_auction_id)
+                .unwrap_or_else(|error| panic!("source auction ID: {error}")),
+        ),
+        name: None,
+        description: None,
+        catalogue_url: None,
+        format: Some(AuctionFormat::Timed),
+        schedule: AuctionSchedule::default(),
+        reported_status: None,
+        reported_lot_count: None,
+    })
+    .unwrap_or_else(|error| panic!("create auction: {error}"));
+    let auction_id = auction.id();
+    let mut transaction = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin auction fixture transaction: {error}"));
+    SqlxAuctionRepositoryFactory::new()
+        .in_transaction(&mut transaction)
+        .insert(&auction)
+        .await
+        .unwrap_or_else(|error| panic!("insert auction fixture: {error}"));
+    transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit auction fixture transaction: {error}"));
+    auction_id
 }
 
 async fn auction_lot_facts(

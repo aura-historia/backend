@@ -290,142 +290,7 @@ paths:
           {
             description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
           }
-  /api/v1/admin/product-listings/{productListingId}/auction-context:
-    get:
-      summary: Get ProductListing Auction context administration state
-      operationId: getAdminProductListingAuctionContext
-      tags: [Auctions]
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ProductListingIdPath"
-      responses:
-        "200":
-          description: Current context and policy versions.
-          headers:
-            ETag:
-              description: Strong `"plv-{listing}-apv-{policy}"` validator for correction/release.
-              schema: { type: string }
-            Cache-Control:
-              schema: { type: string, example: no-store }
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "#/components/schemas/AdminProductListingAuctionContextData",
-                }
-        "400": { description: Invalid ProductListing ID (`INVALID_OBJECT_ID`). }
-        "401":
-          {
-            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
-          }
-        "403": { description: Administrator authority required (`FORBIDDEN`). }
-        "404":
-          { description: ProductListing missing (`PRODUCT_LISTING_NOT_FOUND`). }
-        "503":
-          {
-            description: Temporary persistence failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).,
-          }
-  /api/v1/admin/product-listings/{productListingId}/auction-corrections:
-    post:
-      summary: Correct ProductListing Auction context
-      operationId: correctAdminProductListingAuctionContext
-      tags: [Auctions]
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ProductListingIdPath"
-        - $ref: "#/components/parameters/ProductListingAuctionContextIfMatch"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              {
-                $ref: "#/components/schemas/CorrectProductListingAuctionContextData",
-              }
-      responses:
-        "200":
-          description: Context corrected. Policy is active even when facts were already equal.
-          headers:
-            ETag:
-              schema: { type: string }
-            Cache-Control:
-              schema: { type: string, example: no-store }
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "#/components/schemas/AdminProductListingAuctionContextWriteResultData",
-                }
-        "400":
-          {
-            description: Invalid body/header (`BAD_BODY_VALUE` or `BAD_HEADER_VALUE`).,
-          }
-        "401":
-          {
-            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
-          }
-        "403": { description: Administrator authority required (`FORBIDDEN`). }
-        "404":
-          { description: ProductListing missing (`PRODUCT_LISTING_NOT_FOUND`). }
-        "409":
-          {
-            description: Stale state,
-            withdrawn listing,
-            invalid current membership,
-            or source mismatch (`CONFLICT`).,
-          }
-        "503":
-          {
-            description: Temporary persistence failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).,
-          }
-  /api/v1/admin/product-listings/{productListingId}/auction-override:
-    delete:
-      summary: Release ProductListing Auction override
-      operationId: releaseAdminProductListingAuctionOverride
-      tags: [Auctions]
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ProductListingIdPath"
-        - $ref: "#/components/parameters/ProductListingAuctionContextIfMatch"
-      responses:
-        "200":
-          description: Override released without changing ProductListing facts.
-          headers:
-            ETag:
-              schema: { type: string }
-            Cache-Control:
-              schema: { type: string, example: no-store }
-          content:
-            application/json:
-              schema:
-                {
-                  $ref: "#/components/schemas/AdminProductListingAuctionContextWriteResultData",
-                }
-        "400":
-          {
-            description: Invalid ProductListing ID or If-Match (`INVALID_OBJECT_ID` or `BAD_HEADER_VALUE`).,
-          }
-        "401":
-          {
-            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
-          }
-        "403": { description: Administrator authority required (`FORBIDDEN`). }
-        "404":
-          { description: ProductListing missing (`PRODUCT_LISTING_NOT_FOUND`). }
-        "409":
-          {
-            description: Stale state or unavailable safe capture floor (`CONFLICT`).,
-          }
-        "503":
-          {
-            description: Temporary persistence failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).,
-          }
+
   /api/v1/listing-sources/{listingSourceId}/product-listings:
     post:
       summary: Batch create product-listings (Partner API)
@@ -638,9 +503,9 @@ paths:
 
         omit a leaf to preserve it, send `null` to clear a clearable lot/timing leaf, or send a value to set it.
 
-        `auction.sourceAuctionId` is non-clearable: omit it to preserve membership or send a key to resolve it. A different
+        `auction.auctionId` must name an existing Auction for this ListingSource. Omit it to preserve membership, send
 
-        current key returns `409 CONFLICT` and requires explicit correction. The complete batch contract is
+        `null` to clear membership, or send an ID to set it. The complete batch contract is
 
         validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
@@ -810,7 +675,7 @@ paths:
         \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nAllowed callers are Aura\
         \ Historia admins and users partnered with the target listing source.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
-        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested context (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction context, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `sourceAuctionId` is non-clearable: omit to preserve membership or provide a key to resolve/fill it; a different current key returns `409 CONFLICT` pending explicit correction. A withdrawn\n  listing is restored before current facts\
+        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested context (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction context, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
         \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
         \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
@@ -12107,12 +11972,7 @@ components:
       required: true
       description: Strict `pl_` UUIDv7 ProductListing TypeID.
       schema: { type: string }
-    ProductListingAuctionContextIfMatch:
-      name: If-Match
-      in: header
-      required: true
-      description: 'Strong validator from the admin Auction-context GET response: "plv-{listing}-apv-{policy}". Weak, wildcard, or malformed values are rejected.'
-      schema: { type: string }
+
   schemas:
     ActorData:
       oneOf:
@@ -12893,17 +12753,13 @@ components:
     ProductListingAuctionData:
       type: object
       additionalProperties: false
-      description: Partner ProductListing nested write patch. The outer object participates even when empty. Omit a lot/timing leaf to preserve it, send null to clear a clearable leaf, or send a value to set it. Omit non-clearable `sourceAuctionId` to preserve membership or supply a reliable key to resolve it; null is invalid. `metadata` is fill-only; ordinary writes cannot change an existing membership.
+      description: Partner ProductListing nested write patch. `auctionId` must identify an existing Auction for the same ListingSource. Omit it to preserve membership, send null to clear membership, or send a value to set it. Omit a lot/timing leaf to preserve it, send null to clear a clearable leaf, or send a value to set it.
       properties:
-        sourceAuctionId:
+        auctionId:
           type: string
-          maxLength: 512
-          description: Optional non-null/non-clearable reliable source Auction key. Omit to preserve membership; null is invalid. Outer Unicode whitespace is trimmed; case and internal whitespace are preserved.
-          example: spring-sale-2026
-        metadata:
-          allOf:
-            - $ref: "#/components/schemas/EmbeddedAuctionMetadataData"
-          description: Optional fill-only shared Auction metadata, applied only when `sourceAuctionId` is supplied.
+          nullable: true
+          description: Existing same-ListingSource Aura Auction TypeID. Omit to preserve membership; send null to clear it.
+          example: auc_01jgfjjz4ne2g0000000000000
         lotNumber:
           type: string
           maxLength: 128
@@ -12946,136 +12802,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionTimingData"
           nullable: true
-    AdminProductListingAuctionContextData:
-      type: object
-      additionalProperties: false
-      required:
-        [
-          productListingId,
-          listingSourceId,
-          auction,
-          expectedVersion,
-          expectedAuctionPolicyVersion,
-          auctionContextOverrideActive,
-        ]
-      properties:
-        productListingId: { type: string }
-        listingSourceId: { type: string }
-        auction:
-          allOf:
-            [
-              {
-                $ref: "#/components/schemas/AdminProductListingAuctionContextValueData",
-              },
-            ]
-          nullable: true
-        expectedVersion: { type: integer, format: int64, minimum: 1 }
-        expectedAuctionPolicyVersion:
-          { type: integer, format: int64, minimum: 0 }
-        auctionContextOverrideActive: { type: boolean }
-    AdminProductListingAuctionContextValueData:
-      type: object
-      additionalProperties: false
-      required: [auctionId, lotNumber, cataloguePosition, timing]
-      properties:
-        auctionId:
-          {
-            type: string,
-            nullable: true,
-            description: Resolved Aura Auction TypeID; null means unresolved membership.,
-          }
-        lotNumber: { type: string, nullable: true }
-        cataloguePosition:
-          { type: integer, format: int32, minimum: 1, nullable: true }
-        timing:
-          allOf:
-            [{ $ref: "#/components/schemas/ProductListingAuctionTimingData" }]
-    CorrectProductListingAuctionContextData:
-      type: object
-      additionalProperties: false
-      required: [expectedCurrentAuctionId, replacement, reason]
-      properties:
-        expectedCurrentAuctionId:
-          {
-            type: string,
-            nullable: true,
-            description: Expected current resolved Auction TypeID; null expects no resolved membership.,
-          }
-        replacement:
-          allOf:
-            [
-              {
-                $ref: "#/components/schemas/AdminProductListingAuctionContextValueData",
-              },
-            ]
-          nullable: true
-          description: Complete replacement; null retracts the Auction assertion.
-        reason:
-          {
-            type: string,
-            minLength: 1,
-            maxLength: 1024,
-            description: Restricted audit reason. Never returned by this API.,
-          }
-    AdminProductListingAuctionContextWriteResultData:
-      type: object
-      additionalProperties: false
-      required:
-        [productListingId, expectedVersion, expectedAuctionPolicyVersion]
-      properties:
-        productListingId: { type: string }
-        expectedVersion: { type: integer, format: int64, minimum: 1 }
-        expectedAuctionPolicyVersion:
-          { type: integer, format: int64, minimum: 0 }
-    EmbeddedAuctionMetadataData:
-      type: object
-      additionalProperties: false
-      properties:
-        name:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
-        description:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
-        catalogueUrl:
-          type: string
-          format: uri
-          nullable: true
-        format:
-          type: string
-          enum: [LIVE, TIMED]
-          nullable: true
-        reportedStatus:
-          type: string
-          enum: [SCHEDULED, IN_PROGRESS, ENDED, POSTPONED, CANCELLED]
-          nullable: true
-        reportedLotCount:
-          type: integer
-          format: int32
-          minimum: 0
-          nullable: true
-        schedule:
-          type: object
-          additionalProperties: false
-          properties:
-            biddingOpens:
-              allOf:
-                - $ref: "#/components/schemas/AuctionTimeData"
-              nullable: true
-            liveStarts:
-              allOf:
-                - $ref: "#/components/schemas/AuctionTimeData"
-              nullable: true
-            lotsBeginClosing:
-              allOf:
-                - $ref: "#/components/schemas/AuctionTimeData"
-              nullable: true
-            scheduledEnd:
-              allOf:
-                - $ref: "#/components/schemas/AuctionTimeData"
-              nullable: true
+
     ProductListingAuctionTimingData:
       type: object
       additionalProperties: false
@@ -15492,7 +15219,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit for no Auction context, or send an asserted nested lot-context patch. `null` is invalid. `sourceAuctionId` resolves shared Auction membership and optional embedded metadata is fill-only.
+          description: Omit for no Auction context, or send an asserted nested lot-context patch. `null` is invalid. `auctionId` must identify an existing Auction for this ListingSource.
     PartnerProductListingBatchFailuresResponse:
       type: array
       description:
@@ -15585,7 +15312,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit to leave unchanged. Send an object to apply nested lot/timing leaf patches. `sourceAuctionId` resolves/fills Auction membership; a different current key returns `409 CONFLICT` pending correction. `null` is invalid.
+          description: Omit to leave unchanged. Send an object to apply nested lot/timing leaf patches. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send null to clear it, or send an ID to set it. `null` for `auction` is invalid.
     UpsertProductListingData:
       type: object
       additionalProperties: false
@@ -15598,9 +15325,7 @@ components:
 
         to preserve it or supplied as a nested leaf patch; `null` is invalid. Within an asserted context, lot/timing leaves
 
-        omit to preserve, use `null` to clear, or provide a value to set. `sourceAuctionId` is non-clearable and resolves or fills
-
-        Auction membership only when provided; a different existing key requires explicit correction and returns `409 CONFLICT`. Upsert restores a withdrawn listing before current
+        omit to preserve, use `null` to clear, or provide a value to set. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. Upsert restores a withdrawn listing before current
 
         facts apply. Images and URL use the field-specific rules documented below.
 
@@ -15670,7 +15395,7 @@ components:
         auction:
           allOf:
             - $ref: "#/components/schemas/ProductListingAuctionData"
-          description: Omit to preserve the current context or send an object to apply nested leaf patches. `sourceAuctionId` resolves/fills Auction membership; a different current key requires correction. `null` is invalid.
+          description: Omit to preserve the current context or send an object to apply nested leaf patches. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send null to clear it, or send an ID to set it. `null` for `auction` is invalid.
     WoocommerceProductWebhookImageData:
       type: object
       description: Image object extracted from a WooCommerce product payload.

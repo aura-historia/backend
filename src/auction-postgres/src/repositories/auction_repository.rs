@@ -167,23 +167,18 @@ fn write_error(error: sqlx::Error) -> AuctionRepositoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
-        SqlxAuctionRepositoryFactory,
-    };
+    use crate::{SqlxAuctionEventAppenderFactory, SqlxAuctionRepositoryFactory};
     use application::transaction::{Transaction, UnitOfWork};
     use auction_core::{
         AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, AuctionTime, NewAuction,
         SourceAuctionId,
     };
     use auction_service::ports::{
-        AuctionEventAppender, AuctionEventAppenderFactory, AuctionMetadataField,
-        AuctionMetadataPolicyAudit, AuctionMetadataPolicyRepository,
-        AuctionMetadataPolicyRepositoryFactory, AuctionRepositoryFactory, stamp_auction_event,
+        AuctionEventAppender, AuctionEventAppenderFactory, AuctionRepositoryFactory,
+        stamp_auction_event,
     };
-    use domain_primitives::event_id::EventId;
     use listing_source_core::ListingSourceId;
-    use std::collections::BTreeSet;
+
     use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
     use time::macros::datetime;
 
@@ -231,7 +226,7 @@ mod tests {
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-    async fn should_persist_schedule_event_and_field_protection_atomically() {
+    async fn should_persist_schedule_and_event_atomically() {
         let pool = get_postgres_client().await;
         let source_id = source(&pool).await;
         let mut auction = auction(source_id);
@@ -254,17 +249,7 @@ mod tests {
             .append(&event)
             .await
             .unwrap_or_else(|error| panic!("event: {error}"));
-        SqlxAuctionMetadataPolicyRepositoryFactory::new()
-            .in_transaction(&mut tx)
-            .protect(&AuctionMetadataPolicyAudit {
-                audit_id: EventId::new(),
-                auction_id: auction.id(),
-                actor_label: "SYSTEM".to_owned(),
-                recorded_at: datetime!(2026-01-01 00:00 UTC),
-                fields: BTreeSet::from([AuctionMetadataField::Format]),
-            })
-            .await
-            .unwrap_or_else(|error| panic!("policy: {error}"));
+
         tx.commit()
             .await
             .unwrap_or_else(|error| panic!("commit: {error}"));
@@ -283,15 +268,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap_or_else(|error| panic!("events: {error}"));
-        let protected: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM auction_metadata_field_protections WHERE auction_id=$1",
-        )
-        .bind(auction.id().as_uuid())
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("protection: {error}"));
         assert_eq!(1, events);
-        assert_eq!(1, protected);
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -366,17 +343,7 @@ mod tests {
             .append(&rollback_event)
             .await
             .unwrap_or_else(|error| panic!("append rollback event: {error}"));
-        SqlxAuctionMetadataPolicyRepositoryFactory::new()
-            .in_transaction(&mut rollback_tx)
-            .protect(&AuctionMetadataPolicyAudit {
-                audit_id: EventId::new(),
-                auction_id: rolled_back.id(),
-                actor_label: "SYSTEM".to_owned(),
-                recorded_at: datetime!(2026-01-01 00:00 UTC),
-                fields: BTreeSet::from([AuctionMetadataField::Format]),
-            })
-            .await
-            .unwrap_or_else(|error| panic!("protect rollback policy: {error}"));
+
         drop(rollback_tx);
         let rolled_back_count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM auctions WHERE auction_id=$1")
@@ -391,15 +358,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap_or_else(|error| panic!("count rolled back events: {error}"));
-        let rolled_back_protections: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM auction_metadata_field_protections WHERE auction_id=$1",
-        )
-        .bind(rolled_back.id().as_uuid())
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("count rolled back protections: {error}"));
         assert_eq!(0, rolled_back_events);
-        assert_eq!(0, rolled_back_protections);
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]

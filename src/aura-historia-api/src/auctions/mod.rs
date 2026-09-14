@@ -1,4 +1,3 @@
-pub mod admin_product_listing_context;
 pub mod create_auction;
 pub mod get_auction;
 pub mod public_auctions;

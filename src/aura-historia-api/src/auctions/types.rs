@@ -10,7 +10,7 @@ use auction_core::{
     AuctionSchedule, AuctionTime, AuctionTimeZone, ReportedCatalogueLotCount, SourceAuctionId,
 };
 use auction_service::{
-    ports::{AuctionMetadataField, AuctionStorageVersion},
+    ports::AuctionStorageVersion,
     use_cases::{
         commands::{
             create_auction::CreateAuctionCommand,
@@ -226,7 +226,7 @@ pub(crate) struct AuctionAdminData {
     reported_status: Option<&'static str>,
     reported_lot_count: Option<u32>,
     expected_version: u64,
-    protected_fields: Vec<&'static str>,
+
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -249,11 +249,7 @@ impl From<AuctionAdminDetailsView> for AuctionAdminData {
                 .reported_lot_count
                 .map(ReportedCatalogueLotCount::value),
             expected_version: value.version.into_inner(),
-            protected_fields: value
-                .protected_fields
-                .into_iter()
-                .map(AuctionMetadataField::as_str)
-                .collect(),
+
             created: value.created,
             updated: value.updated,
         }

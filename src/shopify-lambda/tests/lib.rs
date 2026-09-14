@@ -1,7 +1,3 @@
-use auction_postgres::{
-    SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
-    SqlxAuctionRepositoryFactory,
-};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use lambda_runtime::{Context, LambdaEvent};
@@ -11,9 +7,8 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_normalization::SourcePayload;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,
-    SqlxProductListingAuctionOverrideRepositoryFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::CaptureProductListingRawObservationHandler;
 use product_service::use_cases::{
@@ -1022,10 +1017,6 @@ async fn normalize_pending_shopify_revisions(pool: sqlx::PgPool) -> usize {
         SqlxProductListingRawNormalizationWriterFactory::new(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
-        SqlxAuctionRepositoryFactory::new(),
-        SqlxAuctionEventAppenderFactory::new(),
-        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
-        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
         SqlxPendingProductListingRawStreamReader::new(pool),
     );
     normalizer

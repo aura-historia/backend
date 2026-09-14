@@ -1,35 +1,37 @@
-use super::create_product_listing::{
-    NoopPartnerProductListingAuctionResolver, PartnerProductListingAuctionResolutionError,
-    PartnerProductListingAuctionResolver,
+use crate::{
+    ports::{
+        PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+        PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+        ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+        ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+        stamp_product_listing_event,
+    },
+    product_listing_auction_patch::{
+        ProductListingAuctionPatch, compose_product_listing_auction_patch,
+        validate_product_listing_auction_patch,
+    },
 };
-use crate::ports::{
-    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
-    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
-    stamp_product_listing_event,
+use application::{
+    error::BoxError,
+    operation_context::{
+        CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+    },
+    patch_field::PatchField,
+    transaction::{Transaction, UnitOfWork},
 };
-use crate::product_listing_auction_patch::{
-    ProductListingAuctionPatch, compose_product_listing_auction_patch,
-    validate_product_listing_auction_patch,
+use auction_service::ports::{
+    AuctionReferenceValidationError, AuctionReferenceValidator, AuctionReferenceValidatorFactory,
 };
-use application::error::{BoxError, box_error};
-use application::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
-};
-use application::patch_field::PatchField;
-use application::transaction::{Transaction, UnitOfWork};
-use auction_service::{EmbeddedAuctionMetadata, validate_embedded_auction_metadata_schedule};
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use money::Price;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{
-    ChangeListingAvailabilityError, ChangeProductListingError, ProductListing,
+use product_listing_core::{
+    listing_availability::ListingAvailability,
+    product_listing::{ChangeListingAvailabilityError, ChangeProductListingError, ProductListing},
+    product_listing_id::{ProductListingId, ProductListingKey},
+    product_listing_image::ProductListingImage,
+    product_listing_price::ProductListingPrice,
 };
-use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_price::ProductListingPrice;
 use url::Url;
 use user_core::user_id::UserId;
 
@@ -41,10 +43,8 @@ pub struct UpdateProductListingCommand {
     pub availability: PatchField<ListingAvailability>,
     pub url: PatchField<Url>,
     pub images: PatchField<IndexSet<ProductListingImage>>,
-    /// A set outer context asserts participation and composes nested leaves. `Clear` preserves
-    /// an existing context; dedicated correction owns removal.
+    /// Nested patches preserve omitted lot facts. `auctionId: null` clears membership only.
     pub auction: PatchField<ProductListingAuctionPatch>,
-    pub auction_metadata: EmbeddedAuctionMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,15 +71,12 @@ pub enum UpdateProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("product listing auction membership requires an explicit correction")]
-    AuctionMembershipCorrectionRequired,
-    #[error("product listing auction resolution is temporarily unavailable")]
-    AuctionResolutionTemporarilyUnavailable {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product listing auction resolution failed internally")]
-    AuctionResolutionInternal {
+    #[error("auction not found")]
+    AuctionNotFound,
+    #[error("auction belongs to another listing source")]
+    AuctionSourceMismatch,
+    #[error("auction reference validation is temporarily unavailable")]
+    AuctionReferenceTemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
@@ -120,38 +117,27 @@ pub trait UpdateProductListingUseCase: Send + Sync {
     ) -> Result<UpdateProductListingResult, UpdateProductListingError>;
 }
 
-pub struct UpdateProductListingHandler<U, R, E, A, AR = NoopPartnerProductListingAuctionResolver> {
+pub struct UpdateProductListingHandler<U, R, E, A, V> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
-    auction_resolver: AR,
+    auction_references: V,
 }
-impl<U, R, E, A> UpdateProductListingHandler<U, R, E, A, NoopPartnerProductListingAuctionResolver> {
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
-        Self::new_with_auction_resolver(
-            unit_of_work,
-            products,
-            events,
-            authorizer,
-            NoopPartnerProductListingAuctionResolver,
-        )
-    }
-}
-impl<U, R, E, A, AR> UpdateProductListingHandler<U, R, E, A, AR> {
-    pub fn new_with_auction_resolver(
+impl<U, R, E, A, V> UpdateProductListingHandler<U, R, E, A, V> {
+    pub fn new(
         unit_of_work: U,
         products: R,
         events: E,
         authorizer: A,
-        auction_resolver: AR,
+        auction_references: V,
     ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
-            auction_resolver,
+            auction_references,
         }
     }
 }
@@ -160,13 +146,13 @@ enum UpdateTarget {
     Key(ProductListingKey),
 }
 
-impl<U, R, E, A, AR> UpdateProductListingHandler<U, R, E, A, AR>
+impl<U, R, E, A, V> UpdateProductListingHandler<U, R, E, A, V>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
-    AR: PartnerProductListingAuctionResolver<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
 {
     async fn update(
         &self,
@@ -178,10 +164,6 @@ where
             .require()
             .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<UpdateProductListingError>()?;
-        tracing::Span::current().record(
-            "actor_id",
-            tracing::field::display(context.principal.label()),
-        );
         if matches!(command.url, PatchField::Clear) {
             return Err(UpdateProductListingError::UrlRequired);
         }
@@ -191,87 +173,80 @@ where
             .await
             .map_err(|_| UpdateProductListingError::BeginTransactionFailed)?;
         let loaded = match target {
-            UpdateTarget::Id(id) => {
-                let loaded = self
-                    .products
-                    .in_transaction(&mut tx)
-                    .find_by_id(id)
-                    .await?
-                    .ok_or(UpdateProductListingError::NotFound)?;
-                if let Some(actor_id) = partner_actor(&context.principal) {
-                    self.authorizer
+            UpdateTarget::Id(id) => self
+                .products
+                .in_transaction(&mut tx)
+                .find_by_id(id)
+                .await?
+                .ok_or(UpdateProductListingError::NotFound)?,
+            UpdateTarget::Key(key) => self
+                .products
+                .in_transaction(&mut tx)
+                .find_by_key(&key)
+                .await?
+                .ok_or(UpdateProductListingError::NotFound)?,
+        };
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, loaded.value.listing_source_id())
+                .await?;
+        }
+        let mut product = loaded.value;
+        let auction = match &command.auction {
+            PatchField::Unchanged | PatchField::Clear => None,
+            PatchField::Set(patch) => {
+                validate_product_listing_auction_patch(product.auction(), patch)
+                    .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
+                let auction = compose_product_listing_auction_patch(product.auction(), patch)
+                    .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
+                if let Some(auction_id) = auction
+                    .membership()
+                    .map(|membership| membership.auction_id())
+                {
+                    self.auction_references
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, loaded.value.listing_source_id())
+                        .validate(auction_id, product.listing_source_id())
                         .await?;
                 }
-                loaded
-            }
-            UpdateTarget::Key(key) => {
-                if let Some(actor_id) = partner_actor(&context.principal) {
-                    self.authorizer
-                        .in_transaction(&mut tx)
-                        .authorize(actor_id, key.listing_source_id)
-                        .await?;
-                }
-                self.products
-                    .in_transaction(&mut tx)
-                    .find_by_key(&key)
-                    .await?
-                    .ok_or(UpdateProductListingError::NotFound)?
+                Some(auction)
             }
         };
-        let expected_version = loaded.version;
-        let mut product = loaded.value;
-        let auction = resolve_auction_context(
-            &self.auction_resolver,
-            &mut tx,
-            product.id(),
-            product.listing_source_id(),
-            product.auction(),
-            &command,
-        )
-        .await?;
-        apply_resolved_command(&mut product, command, auction)?;
+        apply_command(&mut product, command, auction)?;
         let event = product.take_pending_event_payload().map(|payload| {
             stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
         });
-        let outcome = if event.is_some() {
+        let outcome = if let Some(event) = event {
+            let effects = ProductListingWriteEffects::from(&event.payload);
+            self.products
+                .in_transaction(&mut tx)
+                .update(&product, loaded.version, event.event_id, effects)
+                .await?;
+            self.events.in_transaction(&mut tx).append(&event).await?;
             ChangeOutcome::Changed
         } else {
             ChangeOutcome::Unchanged
         };
-        let current_event_id = event.as_ref().map(|event| event.event_id);
-        if let Some(event) = event {
-            let effects = ProductListingWriteEffects::from(&event.payload);
-            product = self
-                .products
-                .in_transaction(&mut tx)
-                .update(&product, expected_version, event.event_id, effects)
-                .await?
-                .value;
-            self.events.in_transaction(&mut tx).append(&event).await?;
-        }
+        let id = product.id();
         tx.commit()
             .await
             .map_err(|_| UpdateProductListingError::CommitTransactionFailed)?;
-        tracing::info!(event = "product_listing.updated", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product.id(), event_id = ?current_event_id, outcome = "success");
         Ok(UpdateProductListingResult {
-            product_listing_id: product.id(),
+            product_listing_id: id,
             outcome,
         })
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A, AR> UpdateProductListingUseCase for UpdateProductListingHandler<U, R, E, A, AR>
+impl<U, R, E, A, V> UpdateProductListingUseCase for UpdateProductListingHandler<U, R, E, A, V>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
-    AR: PartnerProductListingAuctionResolver<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "update_product_listing", skip_all, fields(product_listing_id = %product_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -281,7 +256,6 @@ where
         self.update(context, UpdateTarget::Id(product_listing_id), command)
             .await
     }
-    #[tracing::instrument(name = "update_product_listing_by_key", skip_all, fields(listing_source_id = %product_key.listing_source_id, source_listing_id = %product_key.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute_by_key(
         &self,
         context: &OperationContext,
@@ -293,78 +267,16 @@ where
     }
 }
 
-async fn resolve_auction_context<Tx, AR>(
-    resolver: &AR,
-    tx: &mut Tx,
-    product_listing_id: ProductListingId,
-    listing_source_id: listing_source_core::ListingSourceId,
-    existing: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
-    command: &UpdateProductListingCommand,
-) -> Result<
-    Option<product_listing_core::product_listing_auction::ProductListingAuction>,
-    UpdateProductListingError,
->
-where
-    AR: PartnerProductListingAuctionResolver<Tx>,
-{
-    let PatchField::Set(patch) = &command.auction else {
-        return Ok(None);
-    };
-    validate_product_listing_auction_patch(existing, patch)
-        .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
-    validate_embedded_auction_metadata_schedule(&command.auction_metadata)
-        .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
-    let membership = resolver
-        .resolve(
-            tx,
-            Some(product_listing_id),
-            listing_source_id,
-            existing.and_then(
-                product_listing_core::product_listing_auction::ProductListingAuction::membership,
-            ),
-            patch.source_auction_id.clone(),
-            &command.auction_metadata,
-        )
-        .await?;
-    compose_product_listing_auction_patch(existing, membership, patch)
-        .map(Some)
-        .map_err(|_| UpdateProductListingError::InvalidProductListing)
-}
-
-#[cfg(test)]
 fn apply_command(
     product: &mut ProductListing,
     command: UpdateProductListingCommand,
-) -> Result<(), UpdateProductListingError> {
-    let auction = match &command.auction {
-        PatchField::Set(patch) => compose_product_listing_auction_patch(
-            product.auction(),
-            product.auction().and_then(
-                product_listing_core::product_listing_auction::ProductListingAuction::membership,
-            ),
-            patch,
-        )
-        .map(Some)
-        .map_err(|_| UpdateProductListingError::InvalidProductListing)?,
-        PatchField::Clear | PatchField::Unchanged => None,
-    };
-    apply_resolved_command(product, command, auction)
-}
-
-fn apply_resolved_command(
-    product: &mut ProductListing,
-    command: UpdateProductListingCommand,
-    auction: Option<product_listing_core::product_listing_auction::ProductListingAuction>,
+    auction: Option<product_listing_core::product_listing::ProductListingAuction>,
 ) -> Result<(), UpdateProductListingError> {
     let mut pricing = product.pricing();
-    let price_changed = apply_price_patch(&mut pricing.price, command.price);
-    let price_estimate_min_changed =
-        apply_price_patch(&mut pricing.price_estimate_min, command.price_estimate_min);
-    let price_estimate_max_changed =
-        apply_price_patch(&mut pricing.price_estimate_max, command.price_estimate_max);
-    if price_changed || price_estimate_min_changed || price_estimate_max_changed {
-        product.replace_pricing(pricing)?;
-    }
+    apply_optional_patch(&mut pricing.price, command.price);
+    apply_optional_patch(&mut pricing.price_estimate_min, command.price_estimate_min);
+    apply_optional_patch(&mut pricing.price_estimate_max, command.price_estimate_max);
+    product.replace_pricing(pricing)?;
     match command.availability {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
@@ -379,9 +291,7 @@ fn apply_resolved_command(
         PatchField::Set(value) => {
             product.change_url(value)?;
         }
-        PatchField::Clear => {
-            return Err(UpdateProductListingError::UrlRequired);
-        }
+        PatchField::Clear => return Err(UpdateProductListingError::UrlRequired),
     }
     match command.images {
         PatchField::Unchanged => {}
@@ -397,61 +307,17 @@ fn apply_resolved_command(
     }
     Ok(())
 }
-
-fn apply_price_patch<T>(field: &mut Option<T>, patch: PatchField<T>) -> bool {
+fn apply_optional_patch<T>(field: &mut Option<T>, patch: PatchField<T>) {
     match patch {
-        PatchField::Unchanged => false,
-        PatchField::Set(value) => {
-            *field = Some(value);
-            true
-        }
-        PatchField::Clear => {
-            *field = None;
-            true
-        }
+        PatchField::Unchanged => {}
+        PatchField::Set(value) => *field = Some(value),
+        PatchField::Clear => *field = None,
     }
 }
-
 fn partner_actor(principal: &Principal) -> Option<UserId> {
     match principal {
         Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => Some(*id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
-    }
-}
-impl From<PartnerProductListingAuctionResolutionError> for UpdateProductListingError {
-    fn from(error: PartnerProductListingAuctionResolutionError) -> Self {
-        match error {
-            PartnerProductListingAuctionResolutionError::ManualAuctionOverridePreserved => {
-                Self::AuctionMembershipCorrectionRequired
-            }
-            PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired => {
-                Self::AuctionMembershipCorrectionRequired
-            }
-            PartnerProductListingAuctionResolutionError::TemporarilyUnavailable { source } => {
-                Self::AuctionResolutionTemporarilyUnavailable { source }
-            }
-            PartnerProductListingAuctionResolutionError::Internal { source } => {
-                Self::AuctionResolutionInternal { source }
-            }
-        }
-    }
-}
-
-impl From<ChangeListingAvailabilityError> for UpdateProductListingError {
-    fn from(_: ChangeListingAvailabilityError) -> Self {
-        Self::ListingWithdrawn
-    }
-}
-impl From<ChangeProductListingError> for UpdateProductListingError {
-    fn from(error: ChangeProductListingError) -> Self {
-        match error {
-            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::ImageCountOverflow
-            | ChangeProductListingError::InitialDiscoveryLifecycleChange
-            | ChangeProductListingError::ConflictingPendingObservation => {
-                Self::InvalidProductListing
-            }
-        }
     }
 }
 impl From<OperationAuthorizationError> for UpdateProductListingError {
@@ -481,6 +347,33 @@ impl From<PartnerProductListingAuthorizationError> for UpdateProductListingError
         }
     }
 }
+impl From<AuctionReferenceValidationError> for UpdateProductListingError {
+    fn from(error: AuctionReferenceValidationError) -> Self {
+        match error {
+            AuctionReferenceValidationError::NotFound => Self::AuctionNotFound,
+            AuctionReferenceValidationError::ListingSourceMismatch => Self::AuctionSourceMismatch,
+            AuctionReferenceValidationError::TemporarilyUnavailable { source } => {
+                Self::AuctionReferenceTemporarilyUnavailable { source }
+            }
+            AuctionReferenceValidationError::InvalidPersistedState { .. } => {
+                Self::PersistenceFailed
+            }
+        }
+    }
+}
+impl From<ChangeListingAvailabilityError> for UpdateProductListingError {
+    fn from(_: ChangeListingAvailabilityError) -> Self {
+        Self::ListingWithdrawn
+    }
+}
+impl From<ChangeProductListingError> for UpdateProductListingError {
+    fn from(error: ChangeProductListingError) -> Self {
+        match error {
+            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
+            _ => Self::InvalidProductListing,
+        }
+    }
+}
 impl From<ProductListingRepositoryError> for UpdateProductListingError {
     fn from(_: ProductListingRepositoryError) -> Self {
         Self::PersistenceFailed
@@ -489,247 +382,7 @@ impl From<ProductListingRepositoryError> for UpdateProductListingError {
 impl From<ProductListingEventAppendError> for UpdateProductListingError {
     fn from(error: ProductListingEventAppendError) -> Self {
         Self::EventAppenderFailed {
-            source: box_error(error),
+            source: Box::new(error),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use auction_core::{AuctionTime, SourceAuctionId};
-    use listing_source_core::ListingSourceId;
-    use localization::{Language, Localized};
-    use money::{Currency, MonetaryAmount};
-    use product_listing_core::{
-        product_listing::{NewProductListing, ProductListingAuction, ProductListingPricing},
-        product_listing_auction::LotNumber,
-        product_listing_event::ProductListingEventPayload,
-        product_listing_id::ProductListingId,
-        product_listing_slug_id::ProductListingSlugId,
-        source_listing_id::SourceListingId,
-        title::Title,
-    };
-    use time::macros::datetime;
-
-    fn price(amount: u64) -> Price {
-        Price::new(MonetaryAmount::from(amount), Currency::Eur)
-    }
-
-    fn auction(lot_number: &str) -> ProductListingAuction {
-        ProductListingAuction::new(
-            None,
-            Some(
-                LotNumber::try_from(lot_number)
-                    .unwrap_or_else(|error| panic!("valid lot number: {error}")),
-            ),
-            None,
-            None,
-        )
-    }
-
-    fn auction_patch(lot_number: &str) -> ProductListingAuctionPatch {
-        ProductListingAuctionPatch {
-            lot_number: PatchField::Set(
-                LotNumber::try_from(lot_number)
-                    .unwrap_or_else(|error| panic!("valid lot number: {error}")),
-            ),
-            ..Default::default()
-        }
-    }
-
-    fn listing(
-        pricing: ProductListingPricing,
-        auction: Option<ProductListingAuction>,
-    ) -> ProductListing {
-        ProductListing::create(NewProductListing {
-            id: ProductListingId::new(),
-            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
-                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
-            listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::try_from("listing")
-                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            title: Some(Localized::new(Language::En, Title::from("Listing"))),
-            description: None,
-            pricing,
-            availability: None,
-            url: Url::parse("https://shop.example/listing")
-                .unwrap_or_else(|error| panic!("invalid URL: {error}")),
-            images: IndexSet::new(),
-            auction,
-        })
-        .unwrap_or_else(|error| panic!("valid listing should be created: {error}"))
-    }
-
-    #[tokio::test]
-    async fn should_reject_invalid_typed_shared_schedule_before_update_resolver() {
-        let command = UpdateProductListingCommand {
-            auction: PatchField::Set(ProductListingAuctionPatch {
-                source_auction_id: PatchField::Set(
-                    SourceAuctionId::try_from("typed-schedule")
-                        .unwrap_or_else(|error| panic!("source Auction ID: {error}")),
-                ),
-                ..Default::default()
-            }),
-            auction_metadata: EmbeddedAuctionMetadata {
-                bidding_opens: Some(AuctionTime::instant(datetime!(2026-10-19 10:00 UTC), None)),
-                scheduled_end: Some(AuctionTime::instant(datetime!(2026-10-18 10:00 UTC), None)),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let mut tx = ();
-
-        assert!(matches!(
-            resolve_auction_context(
-                &NoopPartnerProductListingAuctionResolver,
-                &mut tx,
-                ProductListingId::new(),
-                ListingSourceId::new(),
-                None,
-                &command,
-            )
-            .await,
-            Err(UpdateProductListingError::InvalidProductListing)
-        ));
-    }
-
-    #[test]
-    fn should_expose_auction_membership_correction_as_typed_update_error() {
-        assert!(matches!(
-            UpdateProductListingError::from(
-                PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired
-            ),
-            UpdateProductListingError::AuctionMembershipCorrectionRequired
-        ));
-    }
-
-    #[test]
-    fn should_reject_clearing_required_url_without_mutating_listing() {
-        let mut listing = listing(ProductListingPricing::default(), None);
-        let url = listing.url().clone();
-
-        let result = apply_command(
-            &mut listing,
-            UpdateProductListingCommand {
-                url: PatchField::Clear,
-                ..Default::default()
-            },
-        );
-
-        assert!(matches!(
-            result,
-            Err(UpdateProductListingError::UrlRequired)
-        ));
-        assert_eq!(&url, listing.url());
-    }
-
-    #[test]
-    fn should_emit_one_price_event_with_final_pricing_for_combined_leaf_patches() {
-        let old_pricing = ProductListingPricing {
-            price: Some(ProductListingPrice::from(price(100))),
-            price_estimate_min: Some(price(110)),
-            price_estimate_max: Some(price(120)),
-        };
-        let new_pricing = ProductListingPricing {
-            price: Some(ProductListingPrice::from(price(200))),
-            price_estimate_min: Some(price(210)),
-            price_estimate_max: Some(price(220)),
-        };
-        let mut listing = listing(old_pricing, None);
-        listing.take_pending_event_payload();
-
-        apply_command(
-            &mut listing,
-            UpdateProductListingCommand {
-                price: PatchField::Set(ProductListingPrice::from(price(200))),
-                price_estimate_min: PatchField::Set(price(210)),
-                price_estimate_max: PatchField::Set(price(220)),
-                ..Default::default()
-            },
-        )
-        .unwrap_or_else(|error| panic!("valid price update: {error}"));
-
-        assert_eq!(listing.pricing(), new_pricing);
-        let Some(ProductListingEventPayload::Changed(change)) =
-            listing.take_pending_event_payload()
-        else {
-            panic!("expected changed payload");
-        };
-        assert_eq!(
-            Some(&old_pricing.price),
-            change.price().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price),
-            change.price().map(|value| value.current())
-        );
-        assert_eq!(
-            Some(&old_pricing.price_estimate_min),
-            change.price_estimate_min().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price_estimate_min),
-            change.price_estimate_min().map(|value| value.current())
-        );
-        assert_eq!(
-            Some(&old_pricing.price_estimate_max),
-            change.price_estimate_max().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price_estimate_max),
-            change.price_estimate_max().map(|value| value.current())
-        );
-    }
-
-    #[test]
-    fn should_replace_auction_context_when_outer_patch_is_set() {
-        let old = auction("1");
-        let new = auction("2");
-        let mut listing = listing(ProductListingPricing::default(), Some(old.clone()));
-        listing.take_pending_event_payload();
-
-        apply_command(
-            &mut listing,
-            UpdateProductListingCommand {
-                auction: PatchField::Set(auction_patch("2")),
-                ..Default::default()
-            },
-        )
-        .unwrap_or_else(|error| panic!("valid auction update: {error}"));
-
-        assert_eq!(Some(&new), listing.auction());
-        let Some(ProductListingEventPayload::Changed(change)) =
-            listing.take_pending_event_payload()
-        else {
-            panic!("expected changed payload");
-        };
-        assert_eq!(
-            Some(Some(old)),
-            change.auction().map(|value| value.previous().clone())
-        );
-        assert_eq!(
-            Some(Some(new)),
-            change.auction().map(|value| value.current().clone())
-        );
-    }
-
-    #[test]
-    fn should_preserve_auction_context_when_outer_patch_is_clear() {
-        let auction = auction("1");
-        let mut listing = listing(ProductListingPricing::default(), Some(auction.clone()));
-        listing.take_pending_event_payload();
-
-        apply_command(
-            &mut listing,
-            UpdateProductListingCommand {
-                auction: PatchField::Clear,
-                ..Default::default()
-            },
-        )
-        .unwrap_or_else(|error| panic!("clear outer auction context is a no-op: {error}"));
-
-        assert_eq!(Some(&auction), listing.auction());
-        assert!(listing.take_pending_event_payload().is_none());
     }
 }

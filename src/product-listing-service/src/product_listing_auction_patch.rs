@@ -1,5 +1,5 @@
 use application::patch_field::PatchField;
-use auction_core::{AuctionTime, SourceAuctionId};
+use auction_core::{AuctionId, AuctionTime};
 use product_listing_core::product_listing::{
     AuctionMembership, CataloguePosition, InvalidLotAuctionTiming, LotAuctionTiming, LotNumber,
     ProductListingAuction,
@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 /// accidentally replace unrelated lot facts.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingAuctionPatch {
-    pub source_auction_id: PatchField<SourceAuctionId>,
+    pub auction_id: PatchField<AuctionId>,
     pub lot_number: PatchField<LotNumber>,
     pub catalogue_position: PatchField<CataloguePosition>,
     pub bidding_opens: PatchField<AuctionTime>,
@@ -27,19 +27,16 @@ pub enum ComposeProductListingAuctionPatchError {
     Timing(#[source] InvalidLotAuctionTiming),
 }
 
-/// Validates the final lot context before an ordinary typed write resolves an
-/// Auction key or applies embedded Auction metadata. Membership is irrelevant
-/// to lot-timing validity, so this has no resolver or persistence side effect.
+/// Validates the final listing-owned Auction facts before an ordinary typed write.
 pub fn validate_product_listing_auction_patch(
     existing: Option<&ProductListingAuction>,
     patch: &ProductListingAuctionPatch,
 ) -> Result<(), ComposeProductListingAuctionPatchError> {
-    compose_product_listing_auction_patch(existing, None, patch).map(|_| ())
+    compose_product_listing_auction_patch(existing, patch).map(|_| ())
 }
 
 pub fn compose_product_listing_auction_patch(
     existing: Option<&ProductListingAuction>,
-    membership: Option<AuctionMembership>,
     patch: &ProductListingAuctionPatch,
 ) -> Result<ProductListingAuction, ComposeProductListingAuctionPatchError> {
     let existing_timing = existing.and_then(ProductListingAuction::timing);
@@ -67,7 +64,13 @@ pub fn compose_product_listing_auction_patch(
         || timing.scheduled_closes().is_some()
         || timing.reported_closed_at().is_some();
     Ok(ProductListingAuction::new(
-        membership,
+        apply_option_patch(
+            existing
+                .and_then(ProductListingAuction::membership)
+                .map(AuctionMembership::auction_id),
+            patch.auction_id.clone(),
+        )
+        .map(AuctionMembership::new),
         apply_option_patch(
             existing
                 .and_then(ProductListingAuction::lot_number)
@@ -122,7 +125,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = compose_product_listing_auction_patch(Some(&existing), None, &patch)
+        let result = compose_product_listing_auction_patch(Some(&existing), &patch)
             .unwrap_or_else(|error| panic!("composition: {error}"));
 
         assert_eq!(Some("new"), result.lot_number().map(LotNumber::as_str));
@@ -168,7 +171,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = compose_product_listing_auction_patch(Some(&existing), None, &patch)
+        let result = compose_product_listing_auction_patch(Some(&existing), &patch)
             .unwrap_or_else(|error| panic!("composition: {error}"));
 
         assert!(result.lot_number().is_none());
@@ -214,7 +217,7 @@ mod tests {
             Err(ComposeProductListingAuctionPatchError::Timing(_))
         ));
         assert!(matches!(
-            compose_product_listing_auction_patch(Some(&existing), None, &patch),
+            compose_product_listing_auction_patch(Some(&existing), &patch),
             Err(ComposeProductListingAuctionPatchError::Timing(_))
         ));
     }

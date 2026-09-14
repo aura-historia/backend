@@ -1,12 +1,10 @@
-use super::{AuctionMetadataField, StoredAuction};
+use super::StoredAuction;
 use application::error::BoxError;
 use auction_core::AuctionId;
-use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuctionDetails {
     pub stored: StoredAuction,
-    pub protected_fields: BTreeSet<AuctionMetadataField>,
 }
 
 #[derive(Debug, thiserror::Error)]

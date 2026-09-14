@@ -1,14 +1,14 @@
 # Auctions
 
-**Status:** crawler and raw Auction ingestion are removed. Typed Auction/listing paths and their policy subsystem remain pending iteration 2 simplification. The [iteration 12 audit](auction-iterations/12-release-audit.md) records current policy/release limitations; its correction guarantees are required contracts, not verified working behavior.
+**Status:** standalone Auction administration and public reads are available. Partners associate a ProductListing with an existing same-source Auction by internal `auctionId`.
 
 ## Scope
 
-An Auction is Aura's source-scoped record of one sale occasion. It supports discovery, cataloguing, metadata correction, and public reads. It is **not** an execution platform: no bids, winners, payments, results, auctioneer Party attribution, venue, sessions, global merge, physical-object deduplication, or reminder delivery are in scope.
+An Auction is Aura's source-scoped record of one sale occasion. It supports cataloguing and public reads. It is not an execution platform: bids, winners, payments, results, venue, sessions, global merge, physical-object deduplication, and reminders are out of scope.
 
 ## Identity
 
-`auction-core` owns `AuctionId` (`auc_` strict UUIDv7 TypeID). `auc` is registered in the [object-ID registry](object-ids.md). PostgreSQL stores its backing UUID.
+`auction-core` owns `AuctionId` (`auc_` strict UUIDv7 TypeID). PostgreSQL stores its backing UUID.
 
 An Auction key is:
 
@@ -16,69 +16,30 @@ An Auction key is:
 (ListingSourceId, SourceAuctionId)
 ```
 
-`SourceAuctionId` is a trimmed, opaque source value: 1–512 UTF-8 bytes after outer Unicode-whitespace trimming, no NUL, and exact preservation of case, punctuation, and internal whitespace. It is unique only within its ListingSource. Names, schedules, URLs, lot labels, Parties, and source operators are not key parts. There is no crawler URL or name matching.
+`SourceAuctionId` is a trimmed, opaque source value: 1–512 UTF-8 bytes after outer Unicode-whitespace trimming, no NUL, and exact preservation of case, punctuation, and internal whitespace. It is unique only within its ListingSource. Names, schedules, URLs, lot labels, Parties, and source operators are not key parts.
 
-## Current persistence and administration
+## Persistence and administration
 
-PostgreSQL is authoritative for standalone source-scoped Auctions. The initial business schema owns:
+PostgreSQL owns standalone source-scoped Auctions:
 
-- `auctions`, with immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, restrictive ListingSource foreign key, and optional localized metadata;
-- bounded `auction_schedule_points`, one row per asserted schedule role;
-- immutable `auction_events` for `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads using the established journal convention and schema value `1`; it has no CDC or worker consumer;
-- restricted `auction_metadata_policy_audits` and closed-world `auction_metadata_field_protections` for fields touched by an administrator.
+- `auctions` has immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, a restrictive ListingSource foreign key, and optional localized metadata;
+- `auction_schedule_points` holds at most one value for each Auction schedule role;
+- `auction_events` records immutable `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. It has no CDC or worker consumer.
 
-`auction-service` has authenticated-administrator create, update, and detail use cases. They use one caller-owned PostgreSQL transaction for root state, journal write, and policy audit. Admin creation protects supplied fields; an explicit update protects every touched field, including a clear or equal write. A policy-only touch advances the Auction storage version and audit state, but appends no false domain event. Audit actor labels are validated before persistence (nonempty, no NUL, at most 512 UTF-8 bytes).
+Administrators use `POST /api/v1/admin/auctions` and `GET`/`PATCH /api/v1/admin/auctions/{auctionId}`. Create requires `listingSourceId` and `sourceAuctionId`; duplicate source keys return `409 CONFLICT`. GET/PATCH require strict `auc_` TypeIDs. PATCH requires a positive `expectedVersion`; omitted fields remain unchanged and documented nullable fields clear with `null`. A retained Auction blocks ListingSource deletion. There is no Auction deletion endpoint.
 
-Standalone Auction administration exposes: `POST /api/v1/admin/auctions`, `GET /api/v1/admin/auctions/{auctionId}`, and `PATCH /api/v1/admin/auctions/{auctionId}`. They require the persisted administrator role and always return `Cache-Control: no-store`. Create requires immutable `listingSourceId` and `sourceAuctionId`, returns `201` plus the detail `Location`, and rejects duplicate source keys with `409 CONFLICT`. GET/PATCH require strict `auc_` TypeIDs; bare UUIDs and wrong prefixes return `400 INVALID_OBJECT_ID`. PATCH requires a positive `expectedVersion`; omitted fields remain unchanged and explicit `null` clears only documented metadata/schedule fields. Its response exposes the resulting `expectedVersion` and closed-world `protectedFields` for administration only. Exact schedule instants and date-only values retain their precision. Public routes are listed below.
+## ProductListing association
 
-Typed partner listing writes use the transactional embedded-metadata policy: they fill only an absent, unprotected shared field. Equal, protected, and conflicting candidates do not replace shared facts. Resolver, typed partner writes, and admin create/update serialize one source key with a transaction-scoped PostgreSQL advisory lock before source-key lookup or mutation; admin update reloads after the lock before its expected-version check. Raw normalization does not resolve, create, or mutate Auctions. No path retries work inside a failed PostgreSQL transaction. Admin duplicate-key and expected-version conflicts remain explicit; an existing listing's A-to-B key change still requires correction.
+A ProductListing may have no Auction context, an asserted lot context without membership, or membership in one same-source Auction. The context holds optional `auctionId`, opaque `lotNumber`, one-based `cataloguePosition`, and qualified lot timing.
 
-A retained Auction blocks ListingSource deletion, including ID-only, ended, and cancelled Auctions. There is no Auction deletion endpoint or lifecycle.
-
-The initial business schema changed directly. Local disposable PostgreSQL state must be recreated through the established test harness or an explicitly authorized local reset before running a checkout with this schema; no shared database, queue, or remote environment was reset here.
-
-## Current ProductListing context
-
-There are three distinct listing values:
-
-| Stored value | Meaning |
-| --- | --- |
-| `None` | No reliable auction-participation assertion. |
-| `Some` with no membership | Auction participation is asserted but source identity is unresolved. |
-| `Some` with `AuctionMembership` | The listing is assigned to one same-source Auction. |
-
-An asserted empty context never collapses to `None`. The context holds optional `AuctionMembership`, opaque `LotNumber`, one-based `CataloguePosition`, and qualified lot timing. A lot remains one ProductListing even if it describes multiple physical objects. Reliable `SourceAuctionId` resolves or creates an Auction inside the caller-owned ProductListing transaction; name, URL, and timing never infer identity.
-
-Typed partner creation accepts omitted or `null` auction as no assertion. Typed writes can supply `auction.sourceAuctionId`; the same source key resolves/creates one Auction and embedded metadata can fill absent shared fields. Existing membership plus a different reliable key fails with `MEMBERSHIP_CHANGE_REQUIRES_CORRECTION`; no second Auction is created for that rejected reassignment. Typed update/upsert omits auction to preserve it and rejects `null`. Raw revisions contain no Auction field; raw normalization preserves any stored membership and lot facts. No key is inferred from name, URL, or timing.
-
-Crawler extraction is a generic raw producer. It has no Auction, lot, source-ID, URL-namespace, provider-fingerprint, timing, or metadata extraction. Auction-site pages follow the same generic product flow as other pages. The raw contract contains no Auction field or placeholder, and raw normalization never clears or changes stored membership or lot facts.
-
-The administrator-only complete-context correction takes a transaction-scoped PostgreSQL advisory lock for the listing before checking listing/policy expectations. Direct partner Auction writes take that same lock before reading policy; release takes it before reading its expected listing version. This serializes absent-policy creation and policy-only correction/release decisions without advancing listing domain/projection revisions. It checks both the ProductListing version and an independent auction-policy version; absent policy is version `0`. A correction may remove the outer assertion, leave it unresolved, or assign a same-source Auction. It requires a trimmed nonblank restricted reason (1–1,024 bytes), rejects withdrawn listings, retains unrelated listing state, and activates a listing-owned override barrier even when the final context is unchanged. The reason, actor/audit data, and policy state are never public Listing history or discovery data.
-
-Raw normalization does not inspect or change Auction policy, membership, or lot facts. Typed partner create/update/upsert attempts to alter an existing listing's Auction context conflict atomically while an override is active. An administrator can release the barrier only with matching listing/policy versions. Release changes policy only: it appends no ProductListing event and does not alter listing facts. Its raw-capture generation and stream floors remain policy implementation detail pending iteration 2 removal.
+Partner writes use `auction.auctionId` only to associate a listing with an existing same-source Auction. Omit it to preserve membership; send `null` to clear membership; send an `auc_` ID to set membership. Partner writes cannot create Auctions or change Auction metadata. Omitted lot/timing leaves preserve current values; nullable leaves clear with `null`. Raw input has no Auction fields, and raw normalization preserves stored Auction context.
 
 ## Time semantics
 
-Auction times in `auction-core` retain either an exact instant or a source calendar date, with a validated IANA source timezone when supplied. Date-only values never become midnight instants. Exact comparisons and current exact-time filters use only instants; date-only values remain visible but do not match them.
-
-Auction schedule roles are `BIDDING_OPENS`, `LIVE_STARTS`, `LOTS_BEGIN_CLOSING`, and `SCHEDULED_END`. Lot roles are `bidding_opens`, `scheduled_closes`, and exact `reported_closed_at`. Auction-level milestones are never copied into lot deadlines. Passing a scheduled time never changes status, availability, sale observation, or result.
-
-Current listing search and saved filters expose half-open `[min, max)` exact-instant filters named `lotBiddingOpens` and `lotScheduledCloses`. They exclude absent/date-only values and never represent auction-level milestones. `lotReportedClosedAt` is projected for current listing facts but is not a filter in this iteration.
-
-## Metadata policy
-
-A reliable source key is sufficient for grouping, not for arbitrary metadata replacement. Embedded metadata from typed listing/partner writes may fill only absent, unprotected shared Auction fields. Equal fields are no-ops; conflicts and protected fields are preserved. Administrators can set or clear named fields with expected-version checking; every explicitly touched field remains protected, including a cleared value. Policy-only changes write restricted audit data and do not invent domain events.
-
-Auction discovery and semantic metadata changes use `AUCTION_DISCOVERED` and `AUCTION_CHANGED`. Listing membership/context changes remain ProductListing domain changes. Raw normalization records only its ordinary completion outcome; it has no Auction evidence, acceptance receipt, or Auction-specific diagnostic persistence.
+Auction times retain either an exact instant or a source calendar date, with a validated IANA source timezone when supplied. Date-only values never become midnight instants. Auction schedule roles are `BIDDING_OPENS`, `LIVE_STARTS`, `LOTS_BEGIN_CLOSING`, and `SCHEDULED_END`; lot roles are bidding opens, scheduled closes, and exact reported closure.
 
 ## Reads and boundaries
 
-Public browsing is PostgreSQL-backed: `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. Detail returns safe source data, explicit schedule values, source `reportedLotCount`, and separate current `visibleListingCount`; it never claims catalogue completeness. Directory uses fixed `created DESC, auction_id DESC` keyset order and may filter exact instant schedule points by explicit role using `[from,to)`, excluding date-only values. Catalogue returns only visible active assigned listings, uses the normal personalized ProductListing detail presentation, orders `cataloguePosition ASC NULLS LAST` then backing listing UUID, and has an Auction-scoped cursor. These reads use `Cache-Control: no-store`; an ID-only Auction and an empty visible catalogue are valid. Listing full-text search remains OpenSearch and exposes an exact `auctionId` filter over resolved listing-owned membership only. Repeated strict `auc_` IDs OR together (maximum 100 distinct IDs) and intersect other filters before pagination; unresolved/no-context listings never match. Saved-search codecs and percolation use the same filter and tier policy as `listingSourceId`. Auction metadata is batch-hydrated from PostgreSQL; no Auction OpenSearch index or metadata fan-out projection is planned.
+Public browsing is PostgreSQL-backed: `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. Reads use `Cache-Control: no-store`. The directory is newest-first and has scoped cursors; the catalogue returns visible active assigned listings ordered by `cataloguePosition ASC NULLS LAST` then listing UUID.
 
-The directory, catalogue, and existing listing reads preserve current visibility, image assessment, localization, FX, and referral-url behavior. Existing ProductListing detail, search, similar, and watchlist reads now batch current resolved Auction summaries from PostgreSQL. A summary contains only Auction ID, optional localized name, format, reported status, and qualified schedule. No context remains no context; an asserted context without membership remains unresolved; a resolved ID missing from the authoritative batch is an integrity failure, not an unresolved result. Search remains eventually consistent for listing-owned facts while its Auction summary is current; no shared metadata is indexed or fanned out. Public data never exposes source auction keys, correction reasons, actor details, authority state, or persistence versions.
-
-## Breaking development rewrite
-
-This is a direct development-only rewrite of raw/API/event/index contracts in their owning iterations, without a successor compatibility version, legacy reader, dual write, field alias, backfill, or migration bridge. Existing correctness counters—aggregate versions, raw stream revisions, event IDs, policy CAS, and projection fences—remain.
-
-Current raw observations remain immutable during normal operation. Incompatible disposable development data must be reset and recaptured only under explicit authorization. The release audit records affected storage, available harness tooling, and partial clean-initialization evidence. No coordinated development reset/recapture rehearsal or shared-environment reset command is verified. Rollback requires a complete matching earlier checkout and its compatible disposable data/index/queue/fixture set; binaries alone are insufficient.
+ProductListing detail, search, similar-listing, and watchlist reads batch current resolved Auction summaries from PostgreSQL. Public data never exposes `sourceAuctionId` or persistence versions. Search supports exact resolved `auctionId` membership only; no Auction OpenSearch index or metadata fan-out exists.

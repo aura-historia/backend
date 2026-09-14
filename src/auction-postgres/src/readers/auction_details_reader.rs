@@ -1,11 +1,7 @@
 use crate::{mapping::AuctionRow, repositories::auction_repository::load};
 use application::error::box_error;
-use auction_service::ports::{
-    AuctionDetails, AuctionDetailsReadError, AuctionDetailsReader, AuctionMetadataField,
-};
+use auction_service::ports::{AuctionDetails, AuctionDetailsReadError, AuctionDetailsReader};
 use sqlx::PgPool;
-use std::collections::BTreeSet;
-use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct SqlxAuctionDetailsReader {
@@ -65,28 +61,6 @@ impl AuctionDetailsReader for SqlxAuctionDetailsReader {
                     AuctionDetailsReadError::Internal { source }
                 }
             })?;
-        let codes = sqlx::query_scalar::<_, String>(
-            "SELECT field_code FROM auction_metadata_field_protections WHERE auction_id=$1",
-        )
-        .bind(id.as_uuid())
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(|error| AuctionDetailsReadError::TemporarilyUnavailable {
-            source: box_error(error),
-        })?;
-        let protected_fields = codes
-            .into_iter()
-            .map(|code| {
-                AuctionMetadataField::from_str(&code).map_err(|error| {
-                    AuctionDetailsReadError::InvalidPersistedState {
-                        source: box_error(error),
-                    }
-                })
-            })
-            .collect::<Result<BTreeSet<_>, _>>()?;
-        Ok(Some(AuctionDetails {
-            stored,
-            protected_fields,
-        }))
+        Ok(Some(AuctionDetails { stored }))
     }
 }

@@ -2,12 +2,12 @@
 
 ## Purpose
 
-- Own PostgreSQL Auction repository, schedule rows, event journal, metadata-protection audit, details reader, and batched safe summary reader.
+- Own PostgreSQL Auction repository, schedule rows, event journal, details reader, and batched safe summary reader.
 
 ## Core Design
 
 - Rows and SQL stay private. Rehydration validates all persisted IDs, values, enum codes, localization pairs, schedule precision, and timezones. Summary and directory hydration each read Auction roots and schedule points in one joined statement. Directory pagination selects roots in a CTE before joining bounded owned schedule rows, so the one-to-many join cannot change cursor limits.
-- Repository and journal/policy writers bind to caller-owned `SqlxTransaction`. Source-key writers take a transaction-scoped advisory lock before lookup/create/fill; Auction updates use root CAS and replace bounded owned schedule rows in that transaction.
+- Repository and journal writers bind to caller-owned `SqlxTransaction`. Auction updates use root CAS and replace bounded owned schedule rows in that transaction.
 - `auctions.listing_source_id` is restrictive. ListingSource deletion is blocked by retained Auctions.
 
 ## Verification

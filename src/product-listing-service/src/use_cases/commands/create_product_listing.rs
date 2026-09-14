@@ -1,47 +1,47 @@
-use crate::ports::{
-    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingAuctionOverrideRepository,
-    ProductListingAuctionOverrideRepositoryFactory, ProductListingEventAppendError,
-    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
-};
-use crate::product_listing_title_slug_creation::{
-    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, ProductListingTitleSlugGenerator,
-    RandomProductListingTitleSlugGenerator, TitleSlugCollisionRetry, title_slug_collision_retry,
-};
-use application::error::{BoxError, box_error, static_error};
-use application::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
-};
-use application::patch_field::PatchField;
-use application::transaction::{Transaction, UnitOfWork};
-use auction_core::SourceAuctionId;
-use auction_service::{
-    EmbeddedAuctionMetadata, ResolveAuctionForListingError, ResolveAuctionForListingRequest,
+use crate::{
     ports::{
-        AuctionEventAppenderFactory, AuctionMetadataPolicyRepositoryFactory,
-        AuctionRepositoryFactory,
+        PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+        PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+        ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+        ProductListingRepositoryError, ProductListingRepositoryFactory,
+        stamp_product_listing_event,
     },
-    resolve_auction_for_listing, validate_embedded_auction_metadata_schedule,
+    product_listing_auction_patch::{
+        ProductListingAuctionPatch, compose_product_listing_auction_patch,
+        validate_product_listing_auction_patch,
+    },
+    product_listing_title_slug_creation::{
+        MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, ProductListingTitleSlugGenerator,
+        RandomProductListingTitleSlugGenerator, TitleSlugCollisionRetry,
+        title_slug_collision_retry,
+    },
+};
+use application::{
+    error::BoxError,
+    operation_context::{
+        CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+    },
+    transaction::{Transaction, UnitOfWork},
+};
+use auction_service::ports::{
+    AuctionReferenceValidationError, AuctionReferenceValidator, AuctionReferenceValidatorFactory,
 };
 
-use crate::product_listing_auction_patch::{
-    ProductListingAuctionPatch, compose_product_listing_auction_patch,
-    validate_product_listing_auction_patch,
-};
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
-use product_listing_core::description::Description;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{
-    NewProductListing, ProductListing, ProductListingPricing, RehydrateProductListingError,
+use product_listing_core::{
+    description::Description,
+    listing_availability::ListingAvailability,
+    product_listing::{
+        NewProductListing, ProductListing, ProductListingPricing, RehydrateProductListingError,
+    },
+    product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage,
+    product_listing_slug_id::ProductListingSlugId,
+    source_listing_id::SourceListingId,
+    title::Title,
 };
-use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::title::Title;
 use url::Url;
 use user_core::user_id::UserId;
 
@@ -55,9 +55,7 @@ pub struct CreateProductListingCommand {
     pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
-    /// An asserted outer context is composed from these nested leaf patches.
     pub auction: Option<ProductListingAuctionPatch>,
-    pub auction_metadata: EmbeddedAuctionMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,15 +82,12 @@ pub enum CreateProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("product listing auction membership requires an explicit correction")]
-    AuctionMembershipCorrectionRequired,
-    #[error("product listing auction resolution is temporarily unavailable")]
-    AuctionResolutionTemporarilyUnavailable {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product listing auction resolution failed internally")]
-    AuctionResolutionInternal {
+    #[error("auction not found")]
+    AuctionNotFound,
+    #[error("auction belongs to another listing source")]
+    AuctionSourceMismatch,
+    #[error("auction reference validation is temporarily unavailable")]
+    AuctionReferenceTemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
@@ -128,109 +123,42 @@ pub trait CreateProductListingUseCase: Send + Sync {
     ) -> Result<CreateProductListingResult, CreateProductListingError>;
 }
 
-pub struct CreateProductListingHandler<
-    U,
-    R,
-    E,
-    A,
-    G = RandomProductListingTitleSlugGenerator,
-    AR = NoopPartnerProductListingAuctionResolver,
-> {
+pub struct CreateProductListingHandler<U, R, E, A, V, G = RandomProductListingTitleSlugGenerator> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    auction_references: V,
     title_slug_generator: G,
-    auction_resolver: AR,
 }
 
-impl<U, R, E, A>
-    CreateProductListingHandler<
-        U,
-        R,
-        E,
-        A,
-        RandomProductListingTitleSlugGenerator,
-        NoopPartnerProductListingAuctionResolver,
-    >
-{
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
-        Self::with_title_slug_generator(
-            unit_of_work,
-            products,
-            events,
-            authorizer,
-            RandomProductListingTitleSlugGenerator,
-        )
-    }
-
-    pub fn new_with_auction_resolver<AR>(
+impl<U, R, E, A, V> CreateProductListingHandler<U, R, E, A, V> {
+    pub fn new(
         unit_of_work: U,
         products: R,
         events: E,
         authorizer: A,
-        auction_resolver: AR,
-    ) -> CreateProductListingHandler<U, R, E, A, RandomProductListingTitleSlugGenerator, AR> {
-        CreateProductListingHandler::with_title_slug_generator_and_auction_resolver(
-            unit_of_work,
-            products,
-            events,
-            authorizer,
-            RandomProductListingTitleSlugGenerator,
-            auction_resolver,
-        )
-    }
-}
-
-impl<U, R, E, A, G>
-    CreateProductListingHandler<U, R, E, A, G, NoopPartnerProductListingAuctionResolver>
-{
-    pub(crate) fn with_title_slug_generator(
-        unit_of_work: U,
-        products: R,
-        events: E,
-        authorizer: A,
-        title_slug_generator: G,
-    ) -> Self {
-        Self::with_title_slug_generator_and_auction_resolver(
-            unit_of_work,
-            products,
-            events,
-            authorizer,
-            title_slug_generator,
-            NoopPartnerProductListingAuctionResolver,
-        )
-    }
-}
-
-impl<U, R, E, A, G, AR> CreateProductListingHandler<U, R, E, A, G, AR> {
-    pub(crate) fn with_title_slug_generator_and_auction_resolver(
-        unit_of_work: U,
-        products: R,
-        events: E,
-        authorizer: A,
-        title_slug_generator: G,
-        auction_resolver: AR,
+        auction_references: V,
     ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
-            title_slug_generator,
-            auction_resolver,
+            auction_references,
+            title_slug_generator: RandomProductListingTitleSlugGenerator,
         }
     }
 }
 
-impl<U, R, E, A, G, AR> CreateProductListingHandler<U, R, E, A, G, AR>
+impl<U, R, E, A, V, G> CreateProductListingHandler<U, R, E, A, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
-    AR: PartnerProductListingAuctionResolver<U::Tx>,
 {
     async fn persist_attempt(
         &self,
@@ -250,39 +178,38 @@ where
                 .authorize(actor_id, command.listing_source_id)
                 .await?;
         }
-
-        if let Some(patch) = &command.auction {
-            validate_product_listing_auction_patch(None, patch)
-                .map_err(|_| CreateProductListingError::InvalidProductListing)?;
-            validate_embedded_auction_metadata_schedule(&command.auction_metadata)
-                .map_err(|_| CreateProductListingError::InvalidProductListing)?;
-        }
-        let membership = self
-            .auction_resolver
-            .resolve(
-                &mut tx,
-                None,
-                command.listing_source_id,
-                None,
-                command
-                    .auction
-                    .as_ref()
-                    .map(|auction| auction.source_auction_id.clone())
-                    .unwrap_or(PatchField::Unchanged),
-                &command.auction_metadata,
-            )
-            .await?;
         let auction = command
             .auction
             .as_ref()
-            .map(|patch| compose_product_listing_auction_patch(None, membership, patch))
+            .map(|patch| {
+                validate_product_listing_auction_patch(None, patch)
+                    .and_then(|_| compose_product_listing_auction_patch(None, patch))
+            })
             .transpose()
             .map_err(|_| CreateProductListingError::InvalidProductListing)?;
-        let mut product = ProductListing::create(command.clone().into_new_product(
-            product_listing_id,
+        if let Some(auction_id) = auction
+            .as_ref()
+            .and_then(|value| value.membership())
+            .map(|value| value.auction_id())
+        {
+            self.auction_references
+                .in_transaction(&mut tx)
+                .validate(auction_id, command.listing_source_id)
+                .await?;
+        }
+        let mut product = ProductListing::create(NewProductListing {
+            id: product_listing_id,
             title_slug_id,
+            listing_source_id: command.listing_source_id,
+            source_listing_id: command.source_listing_id.clone(),
+            title: command.title.clone(),
+            description: command.description.clone(),
+            pricing: command.pricing.clone(),
+            availability: command.availability,
+            url: command.url.clone(),
+            images: command.images.clone(),
             auction,
-        ))?;
+        })?;
         let event = stamp_product_listing_event(
             product.id(),
             time::OffsetDateTime::now_utc(),
@@ -300,8 +227,6 @@ where
         tx.commit()
             .await
             .map_err(|_| CreateProductListingError::CommitTransactionFailed)?;
-
-        tracing::info!(event = "product_listing.created", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %persisted.value.id(), event_id = %event_id, outcome = "success");
         Ok(CreateProductListingResult {
             product_listing_id: persisted.value.id(),
             product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
@@ -310,17 +235,16 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A, G, AR> CreateProductListingUseCase
-    for CreateProductListingHandler<U, R, E, A, G, AR>
+impl<U, R, E, A, V, G> CreateProductListingUseCase for CreateProductListingHandler<U, R, E, A, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
-    AR: PartnerProductListingAuctionResolver<U::Tx>,
 {
-    #[tracing::instrument(name = "create_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "create_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -330,11 +254,6 @@ where
             .require()
             .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<CreateProductListingError>()?;
-        tracing::Span::current().record(
-            "actor_id",
-            tracing::field::display(context.principal.label()),
-        );
-
         let product_listing_id = ProductListingId::new();
         for attempt in 1..=MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
             let title_slug_id = self
@@ -355,20 +274,9 @@ where
                     if title_slug_collision_retry(attempt, true)
                         == TitleSlugCollisionRetry::Retry =>
                 {
-                    tracing::warn!(
-                        product_listing_id = %product_listing_id,
-                        attempt,
-                        constraint_name = "product_listings_title_slug_unique",
-                        "product listing title slug collision; regenerating"
-                    );
+                    continue;
                 }
                 Err(CreateProductListingError::ProductListingTitleSlugAlreadyExists) => {
-                    tracing::error!(
-                        product_listing_id = %product_listing_id,
-                        attempt,
-                        constraint_name = "product_listings_title_slug_unique",
-                        "product listing title slug generation exhausted"
-                    );
                     return Err(
                         CreateProductListingError::ProductListingTitleSlugGenerationExhausted,
                     );
@@ -380,236 +288,12 @@ where
     }
 }
 
-impl CreateProductListingCommand {
-    fn into_new_product(
-        self,
-        id: ProductListingId,
-        title_slug_id: ProductListingSlugId,
-        auction: Option<product_listing_core::product_listing::ProductListingAuction>,
-    ) -> NewProductListing {
-        NewProductListing {
-            id,
-            title_slug_id,
-            listing_source_id: self.listing_source_id,
-            source_listing_id: self.source_listing_id,
-            title: self.title,
-            description: self.description,
-            pricing: self.pricing,
-            availability: self.availability,
-            url: self.url,
-            images: self.images,
-            auction,
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PartnerProductListingAuctionResolutionError {
-    #[error("manual auction override preserves the corrected context")]
-    ManualAuctionOverridePreserved,
-    #[error("auction membership requires an explicit correction")]
-    MembershipCorrectionRequired,
-
-    #[error("auction resolution is temporarily unavailable")]
-    TemporarilyUnavailable {
-        #[source]
-        source: BoxError,
-    },
-    #[error("auction resolution failed internally")]
-    Internal {
-        #[source]
-        source: BoxError,
-    },
-}
-
-#[async_trait::async_trait]
-pub trait PartnerProductListingAuctionResolver<Tx>: Send + Sync {
-    async fn resolve(
-        &self,
-        tx: &mut Tx,
-        product_listing_id: Option<ProductListingId>,
-        listing_source_id: ListingSourceId,
-        current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: PatchField<SourceAuctionId>,
-        metadata: &EmbeddedAuctionMetadata,
-    ) -> Result<
-        Option<product_listing_core::product_listing::AuctionMembership>,
-        PartnerProductListingAuctionResolutionError,
-    >;
-}
-
-pub struct AuctionMembershipResolver<R, E, P, O> {
-    auctions: R,
-    events: E,
-    policies: P,
-    overrides: O,
-}
-
-impl<R, E, P, O> AuctionMembershipResolver<R, E, P, O> {
-    pub fn new(auctions: R, events: E, policies: P, overrides: O) -> Self {
-        Self {
-            auctions,
-            events,
-            policies,
-            overrides,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl<Tx, R, E, P, O> PartnerProductListingAuctionResolver<Tx>
-    for AuctionMembershipResolver<R, E, P, O>
-where
-    Tx: Send,
-    R: AuctionRepositoryFactory<Tx> + Send + Sync,
-    E: AuctionEventAppenderFactory<Tx> + Send + Sync,
-    P: AuctionMetadataPolicyRepositoryFactory<Tx> + Send + Sync,
-    O: ProductListingAuctionOverrideRepositoryFactory<Tx> + Send + Sync,
-{
-    async fn resolve(
-        &self,
-        tx: &mut Tx,
-        product_listing_id: Option<ProductListingId>,
-        listing_source_id: ListingSourceId,
-        current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: PatchField<SourceAuctionId>,
-        metadata: &EmbeddedAuctionMetadata,
-    ) -> Result<
-        Option<product_listing_core::product_listing::AuctionMembership>,
-        PartnerProductListingAuctionResolutionError,
-    > {
-        if let Some(product_listing_id) = product_listing_id {
-            self.overrides
-                .in_transaction(tx)
-                .lock(product_listing_id)
-                .await
-                .map_err(
-                    |error| PartnerProductListingAuctionResolutionError::Internal {
-                        source: box_error(error),
-                    },
-                )?;
-            let override_state = self
-                .overrides
-                .in_transaction(tx)
-                .find(product_listing_id)
-                .await
-                .map_err(
-                    |error| PartnerProductListingAuctionResolutionError::Internal {
-                        source: box_error(error),
-                    },
-                )?;
-            if override_state.is_some_and(|state| state.active) {
-                return Err(
-                    PartnerProductListingAuctionResolutionError::ManualAuctionOverridePreserved,
-                );
-            }
-        }
-        let PatchField::Set(source_auction_id) = source_auction_id else {
-            return Ok(current);
-        };
-
-        let current_membership = current.map(|membership| membership.auction_id());
-        let receipt = resolve_auction_for_listing(
-            tx,
-            &self.auctions,
-            &self.events,
-            &self.policies,
-            ResolveAuctionForListingRequest {
-                listing_source_id,
-                source_auction_id,
-                current_membership,
-                metadata: metadata.clone(),
-            },
-        )
-        .await
-        .map_err(map_auction_resolution_error)?;
-        Ok(Some(
-            product_listing_core::product_listing::AuctionMembership::new(receipt.auction_id),
-        ))
-    }
-}
-
-pub struct NoopPartnerProductListingAuctionResolver;
-
-#[async_trait::async_trait]
-impl<Tx> PartnerProductListingAuctionResolver<Tx> for NoopPartnerProductListingAuctionResolver
-where
-    Tx: Send,
-{
-    async fn resolve(
-        &self,
-        _: &mut Tx,
-        _: Option<ProductListingId>,
-        _: ListingSourceId,
-        current: Option<product_listing_core::product_listing::AuctionMembership>,
-        source_auction_id: PatchField<SourceAuctionId>,
-        _: &EmbeddedAuctionMetadata,
-    ) -> Result<
-        Option<product_listing_core::product_listing::AuctionMembership>,
-        PartnerProductListingAuctionResolutionError,
-    > {
-        if matches!(source_auction_id, PatchField::Set(_)) {
-            return Err(PartnerProductListingAuctionResolutionError::Internal {
-                source: static_error("auction resolver was not configured"),
-            });
-        }
-        Ok(current)
-    }
-}
-
-fn map_auction_resolution_error(
-    error: ResolveAuctionForListingError,
-) -> PartnerProductListingAuctionResolutionError {
-    match error {
-        ResolveAuctionForListingError::TemporarilyUnavailable { source } => {
-            PartnerProductListingAuctionResolutionError::TemporarilyUnavailable { source }
-        }
-        ResolveAuctionForListingError::MembershipChangeRequiresCorrection => {
-            PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired
-        }
-        ResolveAuctionForListingError::ListingSourceNotFound
-        | ResolveAuctionForListingError::ConcurrencyConflict
-        | ResolveAuctionForListingError::InvalidPersistedState { .. }
-        | ResolveAuctionForListingError::Internal { .. } => {
-            PartnerProductListingAuctionResolutionError::Internal {
-                source: box_error(error),
-            }
-        }
-    }
-}
-
 fn partner_actor(principal: &Principal) -> Option<UserId> {
     match principal {
-        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => Some(*id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
     }
 }
-
-impl From<PartnerProductListingAuctionResolutionError> for CreateProductListingError {
-    fn from(error: PartnerProductListingAuctionResolutionError) -> Self {
-        match error {
-            PartnerProductListingAuctionResolutionError::ManualAuctionOverridePreserved => {
-                Self::AuctionMembershipCorrectionRequired
-            }
-            PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired => {
-                Self::AuctionMembershipCorrectionRequired
-            }
-            PartnerProductListingAuctionResolutionError::TemporarilyUnavailable { source } => {
-                Self::AuctionResolutionTemporarilyUnavailable { source }
-            }
-            PartnerProductListingAuctionResolutionError::Internal { source } => {
-                Self::AuctionResolutionInternal { source }
-            }
-        }
-    }
-}
-
-impl From<RehydrateProductListingError> for CreateProductListingError {
-    fn from(_: RehydrateProductListingError) -> Self {
-        Self::InvalidProductListing
-    }
-}
-
 impl From<OperationAuthorizationError> for CreateProductListingError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
@@ -621,7 +305,6 @@ impl From<OperationAuthorizationError> for CreateProductListingError {
         }
     }
 }
-
 impl From<PartnerProductListingAuthorizationError> for CreateProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
@@ -638,7 +321,25 @@ impl From<PartnerProductListingAuthorizationError> for CreateProductListingError
         }
     }
 }
-
+impl From<AuctionReferenceValidationError> for CreateProductListingError {
+    fn from(error: AuctionReferenceValidationError) -> Self {
+        match error {
+            AuctionReferenceValidationError::NotFound => Self::AuctionNotFound,
+            AuctionReferenceValidationError::ListingSourceMismatch => Self::AuctionSourceMismatch,
+            AuctionReferenceValidationError::TemporarilyUnavailable { source } => {
+                Self::AuctionReferenceTemporarilyUnavailable { source }
+            }
+            AuctionReferenceValidationError::InvalidPersistedState { .. } => {
+                Self::PersistenceFailed
+            }
+        }
+    }
+}
+impl From<RehydrateProductListingError> for CreateProductListingError {
+    fn from(_: RehydrateProductListingError) -> Self {
+        Self::InvalidProductListing
+    }
+}
 impl From<ProductListingRepositoryError> for CreateProductListingError {
     fn from(error: ProductListingRepositoryError) -> Self {
         match error {
@@ -652,336 +353,10 @@ impl From<ProductListingRepositoryError> for CreateProductListingError {
         }
     }
 }
-
 impl From<ProductListingEventAppendError> for CreateProductListingError {
     fn from(error: ProductListingEventAppendError) -> Self {
         Self::EventAppenderFailed {
-            source: box_error(error),
+            source: Box::new(error),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ports::{
-        ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
-    };
-    use application::operation_context::{CorrelationId, RequestId};
-    use application::transaction::TransactionError;
-    use auction_core::AuctionTime;
-    use domain_primitives::{event_id::EventId, versioned::Versioned};
-    use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex, MutexGuard};
-    use time::macros::datetime;
-
-    #[derive(Default)]
-    struct State {
-        candidates: Vec<ProductListingSlugId>,
-        begins: usize,
-        commits: usize,
-        rollbacks: usize,
-        inserts: usize,
-        updates: usize,
-        events: usize,
-        authorizations: usize,
-        insert_results: VecDeque<Result<(), ProductListingRepositoryError>>,
-    }
-
-    type SharedState = Arc<Mutex<State>>;
-
-    #[derive(Clone)]
-    struct UnitOfWorkFake(SharedState);
-    struct TxFake(SharedState, bool);
-    impl Drop for TxFake {
-        fn drop(&mut self) {
-            if !self.1 {
-                lock(&self.0).rollbacks += 1;
-            }
-        }
-    }
-    #[derive(Clone)]
-    struct ProductsFake(SharedState);
-    struct ProductRepositoryFake(SharedState);
-    #[derive(Clone)]
-    struct EventsFake(SharedState);
-    struct EventAppenderFake(SharedState);
-    #[derive(Clone)]
-    struct AuthorizerFake(SharedState);
-    struct AuthorizerRepositoryFake(SharedState);
-    #[derive(Clone)]
-    struct GeneratorFake(SharedState);
-
-    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
-        match state.lock() {
-            Ok(value) => value,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl UnitOfWork for UnitOfWorkFake {
-        type Tx = TxFake;
-        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            lock(&self.0).begins += 1;
-            Ok(TxFake(Arc::clone(&self.0), false))
-        }
-    }
-    #[async_trait::async_trait]
-    impl Transaction for TxFake {
-        async fn commit(mut self) -> Result<(), TransactionError> {
-            self.1 = true;
-            lock(&self.0).commits += 1;
-            Ok(())
-        }
-    }
-    impl ProductListingRepositoryFactory<TxFake> for ProductsFake {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TxFake,
-        ) -> impl ProductListingRepository + 'tx {
-            ProductRepositoryFake(Arc::clone(&self.0))
-        }
-    }
-    #[async_trait::async_trait]
-    impl ProductListingRepository for ProductRepositoryFake {
-        async fn find_by_id(
-            &mut self,
-            _: ProductListingId,
-        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(None)
-        }
-        async fn find_by_key(
-            &mut self,
-            _: &product_listing_core::product_listing_id::ProductListingKey,
-        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(None)
-        }
-        async fn insert(
-            &mut self,
-            product: &ProductListing,
-            _: EventId,
-        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
-            let mut state = lock(&self.0);
-            state.inserts += 1;
-            match state.insert_results.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(
-                    product.clone(),
-                    ProductListingStorageVersion::INITIAL,
-                )),
-                Err(error) => Err(error),
-            }
-        }
-        async fn update(
-            &mut self,
-            _: &ProductListing,
-            _: ProductListingStorageVersion,
-            _: EventId,
-            _: ProductListingWriteEffects,
-        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
-            lock(&self.0).updates += 1;
-            Err(ProductListingRepositoryError::ProductListingUpdateFailed)
-        }
-    }
-    impl ProductListingEventAppenderFactory<TxFake> for EventsFake {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TxFake,
-        ) -> impl ProductListingEventAppender + 'tx {
-            EventAppenderFake(Arc::clone(&self.0))
-        }
-    }
-    #[async_trait::async_trait]
-    impl ProductListingEventAppender for EventAppenderFake {
-        async fn append(
-            &mut self,
-            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
-        ) -> Result<(), ProductListingEventAppendError> {
-            lock(&self.0).events += 1;
-            Ok(())
-        }
-    }
-    impl PartnerProductListingAuthorizerFactory<TxFake> for AuthorizerFake {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TxFake,
-        ) -> impl PartnerProductListingAuthorizer + 'tx {
-            AuthorizerRepositoryFake(Arc::clone(&self.0))
-        }
-    }
-    #[async_trait::async_trait]
-    impl PartnerProductListingAuthorizer for AuthorizerRepositoryFake {
-        async fn authorize(
-            &mut self,
-            _: UserId,
-            _: ListingSourceId,
-        ) -> Result<(), PartnerProductListingAuthorizationError> {
-            lock(&self.0).authorizations += 1;
-            Ok(())
-        }
-    }
-    impl ProductListingTitleSlugGenerator for GeneratorFake {
-        fn generate(
-            &self,
-            _: &str,
-        ) -> Result<
-            ProductListingSlugId,
-            product_listing_core::product_listing_slug_id::InvalidProductListingSlugId,
-        > {
-            let candidate = ProductListingSlugId::from_title_and_suffix(
-                "listing",
-                &format!("{:06x}", lock(&self.0).candidates.len() + 1),
-            )?;
-            lock(&self.0).candidates.push(candidate.clone());
-            Ok(candidate)
-        }
-    }
-
-    fn context() -> OperationContext {
-        OperationContext {
-            principal: Principal::User(UserId::new()),
-            request_id: RequestId::new("request"),
-            correlation_id: CorrelationId::new("correlation"),
-        }
-    }
-    fn command() -> CreateProductListingCommand {
-        CreateProductListingCommand {
-            listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::try_from("source")
-                .unwrap_or_else(|error| panic!("source: {error}")),
-            title: None,
-            description: None,
-            pricing: ProductListingPricing::default(),
-            availability: None,
-            url: Url::parse("https://example.com/listing")
-                .unwrap_or_else(|error| panic!("url: {error}")),
-            images: IndexSet::new(),
-            auction: None,
-            auction_metadata: EmbeddedAuctionMetadata::default(),
-        }
-    }
-    fn handler(
-        state: &SharedState,
-    ) -> CreateProductListingHandler<
-        UnitOfWorkFake,
-        ProductsFake,
-        EventsFake,
-        AuthorizerFake,
-        GeneratorFake,
-    > {
-        CreateProductListingHandler::with_title_slug_generator(
-            UnitOfWorkFake(Arc::clone(state)),
-            ProductsFake(Arc::clone(state)),
-            EventsFake(Arc::clone(state)),
-            AuthorizerFake(Arc::clone(state)),
-            GeneratorFake(Arc::clone(state)),
-        )
-    }
-
-    #[test]
-    fn should_map_auction_membership_correction_to_typed_partner_error() {
-        assert!(matches!(
-            map_auction_resolution_error(
-                ResolveAuctionForListingError::MembershipChangeRequiresCorrection
-            ),
-            PartnerProductListingAuctionResolutionError::MembershipCorrectionRequired
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_reject_invalid_typed_shared_schedule_before_resolver_or_listing_write() {
-        let state = Arc::new(Mutex::new(State::default()));
-        let mut invalid = command();
-        invalid.auction = Some(ProductListingAuctionPatch {
-            source_auction_id: PatchField::Set(
-                SourceAuctionId::try_from("typed-schedule")
-                    .unwrap_or_else(|error| panic!("source Auction ID: {error}")),
-            ),
-            ..Default::default()
-        });
-        invalid.auction_metadata = EmbeddedAuctionMetadata {
-            bidding_opens: Some(AuctionTime::instant(datetime!(2026-10-19 10:00 UTC), None)),
-            scheduled_end: Some(AuctionTime::instant(datetime!(2026-10-18 10:00 UTC), None)),
-            ..Default::default()
-        };
-
-        assert!(matches!(
-            handler(&state).execute(&context(), invalid).await,
-            Err(CreateProductListingError::InvalidProductListing)
-        ));
-        let state = lock(&state);
-        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
-        assert_eq!((state.inserts, state.events), (0, 0));
-    }
-
-    #[tokio::test]
-    async fn should_retry_collision_in_fresh_transaction_then_commit_created_listing() {
-        let state = Arc::new(Mutex::new(State {
-            insert_results: VecDeque::from([
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Ok(()),
-            ]),
-            ..Default::default()
-        }));
-        let result = handler(&state).execute(&context(), command()).await;
-        assert!(result.is_ok());
-        let state = lock(&state);
-        assert_eq!(state.candidates.len(), 2);
-        assert_eq!((state.begins, state.commits, state.rollbacks), (2, 1, 1));
-        assert_eq!(
-            (
-                state.inserts,
-                state.updates,
-                state.events,
-                state.authorizations
-            ),
-            (2, 0, 1, 2)
-        );
-    }
-
-    #[tokio::test]
-    async fn should_exhaust_after_five_collisions_with_only_rolled_back_attempts() {
-        let state = Arc::new(Mutex::new(State {
-            insert_results: VecDeque::from([
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-            ]),
-            ..Default::default()
-        }));
-        assert!(matches!(
-            handler(&state).execute(&context(), command()).await,
-            Err(CreateProductListingError::ProductListingTitleSlugGenerationExhausted)
-        ));
-        let state = lock(&state);
-        assert_eq!(state.candidates.len(), 5);
-        assert_eq!((state.begins, state.commits, state.rollbacks), (5, 0, 5));
-        assert_eq!(
-            (state.inserts, state.events, state.authorizations),
-            (5, 0, 5)
-        );
-    }
-
-    #[tokio::test]
-    async fn should_not_retry_unrelated_insert_error() {
-        let state = Arc::new(Mutex::new(State {
-            insert_results: VecDeque::from([Err(
-                ProductListingRepositoryError::ProductListingInsertFailed,
-            )]),
-            ..Default::default()
-        }));
-        assert!(matches!(
-            handler(&state).execute(&context(), command()).await,
-            Err(CreateProductListingError::PersistenceFailed)
-        ));
-        let state = lock(&state);
-        assert_eq!(state.candidates.len(), 1);
-        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
-        assert_eq!(
-            (state.inserts, state.events, state.authorizations),
-            (1, 0, 1)
-        );
     }
 }

@@ -89,8 +89,8 @@
 - `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
 - `src/aura-historia-cron/AGENTS.md` — `aura-historia-cron` crate.
 - `src/auction-core/AGENTS.md` — pure Auction aggregate, identity, events, and schedule values.
-- `src/auction-service/AGENTS.md` — Auction application use cases, ports, and metadata authority policy.
-- `src/auction-postgres/AGENTS.md` — Auction PostgreSQL repository, journal, policy storage, and details reader.
+- `src/auction-service/AGENTS.md` — Auction application use cases, ports, and administrator authorization.
+- `src/auction-postgres/AGENTS.md` — Auction PostgreSQL repository, journal, and details reader.
 - `src/billing-service/AGENTS.md — canonical billing service/use-case crate.
 
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.

@@ -1,6 +1,4 @@
-use crate::ports::{
-    AuctionDetailsReadError, AuctionDetailsReader, AuctionMetadataField, AuctionStorageVersion,
-};
+use crate::ports::{AuctionDetailsReadError, AuctionDetailsReader, AuctionStorageVersion};
 use application::{
     error::{BoxError, static_error},
     operation_context::{OperationContext, Principal},
@@ -10,7 +8,7 @@ use auction_core::{
     AuctionSchedule, ReportedCatalogueLotCount,
 };
 use localization::{Language, Localized};
-use std::collections::BTreeSet;
+
 use time::OffsetDateTime;
 use url::Url;
 use user_service::use_cases::queries::check_user_admin::{
@@ -29,7 +27,7 @@ pub struct AuctionAdminDetailsView {
     pub reported_status: Option<AuctionReportedStatus>,
     pub reported_lot_count: Option<ReportedCatalogueLotCount>,
     pub version: AuctionStorageVersion,
-    pub protected_fields: BTreeSet<AuctionMetadataField>,
+
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -125,37 +123,11 @@ impl AuctionAdminDetailsView {
             reported_status: auction.reported_status(),
             reported_lot_count: auction.reported_lot_count(),
             version: stored.version,
-            protected_fields: details.protected_fields,
+
             created: stored.created,
             updated: stored.updated,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum AuctionAuditActorLabelError {
-    #[error("auction audit actor label is empty")]
-    Empty,
-    #[error("auction audit actor label contains NUL")]
-    Nul,
-    #[error("auction audit actor label exceeds 512 UTF-8 bytes")]
-    TooLong,
-}
-
-pub(crate) fn auction_audit_actor_label(
-    context: &OperationContext,
-) -> Result<String, AuctionAuditActorLabelError> {
-    let label = context.principal.label();
-    if label.is_empty() {
-        return Err(AuctionAuditActorLabelError::Empty);
-    }
-    if label.contains('\0') {
-        return Err(AuctionAuditActorLabelError::Nul);
-    }
-    if label.len() > 512 {
-        return Err(AuctionAuditActorLabelError::TooLong);
-    }
-    Ok(label)
 }
 
 pub(crate) async fn ensure_admin<A, E>(
