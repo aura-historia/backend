@@ -104,8 +104,10 @@ approval and a scoped assumed role, **not root credentials**. Review change sets
 NAT/EIP, transfer and IPv4 charges apply; review quotas, CIDR capacity and account AZ access first.
 
 **Current target gate:** legacy AWS dev teardown is partially executed. API stack deletion is blocked
-by the old CloudFront distribution's pricing-plan subscription; compute/data remain intact. Do not
-start new deployment or retry deletion blindly. Exact operation/state and authorized scope are in
+by external root API mapping `o7vx2a` on `api.aura-historia.com` pointing at the legacy dev stage.
+CloudFront/WAF removal completed after owner cancelled its plan; compute/data remain intact.
+Mapping removal affects a production-facing hostname and requires separate explicit authority.
+Preserve domain/DNS/certificate; do not start new deployment or retry deletion blindly. Exact operation/state and authorized scope are in
 `../docs/deployment/implementation-status.md`.
 
 1. Approve target account/region, data-stack changes, CA provenance, endpoints, roles and budget.
