@@ -175,19 +175,6 @@ fn split_concatenated_word(word: &str) -> Vec<String> {
 
 fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
     match fixture_path {
-        path if path.contains("lot-tissimo") => {
-            for needle in [
-                "id: LotId",
-                "id: ClientName",
-                "id: lot-is-ended",
-                "property: og:title",
-                "property: og:description",
-                "Kunstauktionshaus Leipzig",
-                "cdn.globalauctionplatform.com",
-            ] {
-                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
-            }
-        }
         path if path.contains("chairish") => {
             for needle in [
                 "property: og:product-id",

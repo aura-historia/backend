@@ -1,40 +1,33 @@
 use crate::ports::{
     PendingProductListingRawStreamCursor, PendingProductListingRawStreamPageRequest,
-    PendingProductListingRawStreamReader, ProductListingRawAuctionAcceptance,
-    ProductListingRawNormalizationCompletion, ProductListingRawNormalizationHead,
-    ProductListingRawNormalizationOutcome, ProductListingRawNormalizationPortError,
-    ProductListingRawNormalizationWriter, ProductListingRawNormalizationWriterFactory,
-    ProductListingRawRevisionReader,
+    PendingProductListingRawStreamReader, ProductListingRawNormalizationCompletion,
+    ProductListingRawNormalizationHead, ProductListingRawNormalizationOutcome,
+    ProductListingRawNormalizationPortError, ProductListingRawNormalizationWriter,
+    ProductListingRawNormalizationWriterFactory, ProductListingRawRevisionReader,
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
-use auction_service::ports::{
-    AuctionEventAppenderFactory, AuctionMetadataPolicyRepositoryFactory, AuctionRepositoryFactory,
-};
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use product_listing_normalization::error::NormalizationFailureScope;
 use product_listing_normalization::{
     ListingAvailabilityQuickCheck, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
-    ProductListingRawValuesAuctionMetadataResolved, ProductListingRawValuesNormalizationDiagnostic,
     ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
     ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
     ProductListingRawValuesResolved,
 };
 use product_listing_service::canonical_product_listing_write::{
-    CanonicalProductListingUpsert, CanonicalProductListingWriteError,
-    CanonicalProductListingWriter, CanonicalProductListingWriterDependencies,
+    CanonicalProductListingNonAuctionUpsert, CanonicalProductListingWriteError,
+    CanonicalProductListingWriter,
 };
 use product_listing_service::ports::{
-    ProductListingAuctionOverrideRepositoryFactory, ProductListingEventAppenderFactory,
-    ProductListingRawAuctionCapture, ProductListingRawRevisionId, ProductListingRawStreamId,
+    ProductListingEventAppenderFactory, ProductListingRawRevisionId, ProductListingRawStreamId,
     ProductListingRepositoryFactory,
 };
-use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
 use std::time::Instant;
 use time::OffsetDateTime;
 
-pub const NORMALIZER_VERSION: u16 = 5;
+pub const NORMALIZER_VERSION: u16 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NormalizeProductListingRawRevisionMode {
@@ -174,32 +167,22 @@ pub trait NormalizeProductListingRawRevisionUseCase: Send + Sync {
     ) -> Result<NormalizeProductListingRawRevisionResult, NormalizeProductListingRawRevisionError>;
 }
 
-pub struct NormalizeProductListingRawRevisionHandler<U, W, R, E, AR, AE, AP, AO, P> {
+pub struct NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
     unit_of_work: U,
     raw_normalizations: W,
     products: R,
     events: E,
-    auctions: AR,
-    auction_events: AE,
-    auction_policies: AP,
-    auction_overrides: AO,
     pending_streams: P,
     normalizer: ProductListingRawValuesNormalizer,
 }
 
-impl<U, W, R, E, AR, AE, AP, AO, P>
-    NormalizeProductListingRawRevisionHandler<U, W, R, E, AR, AE, AP, AO, P>
-{
+impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         raw_normalizations: W,
         products: R,
         events: E,
-        auctions: AR,
-        auction_events: AE,
-        auction_policies: AP,
-        auction_overrides: AO,
         pending_streams: P,
     ) -> Self {
         Self {
@@ -207,27 +190,18 @@ impl<U, W, R, E, AR, AE, AP, AO, P>
             raw_normalizations,
             products,
             events,
-            auctions,
-            auction_events,
-            auction_policies,
-            auction_overrides,
             pending_streams,
             normalizer: ProductListingRawValuesNormalizer::new(),
         }
     }
 }
 
-impl<U, W, R, E, AR, AE, AP, AO, P>
-    NormalizeProductListingRawRevisionHandler<U, W, R, E, AR, AE, AP, AO, P>
+impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
 where
     U: UnitOfWork,
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
-    AR: AuctionRepositoryFactory<U::Tx>,
-    AE: AuctionEventAppenderFactory<U::Tx>,
-    AP: AuctionMetadataPolicyRepositoryFactory<U::Tx>,
-    AO: ProductListingAuctionOverrideRepositoryFactory<U::Tx>,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
 {
     async fn drain_stream(
@@ -395,22 +369,11 @@ where
                         Some("SOURCE_LISTING_ID_MISMATCH"),
                     ));
                 }
-                let mut command = canonical_upsert(head.listing_source_id, resolved.as_ref());
-                command.raw_auction_capture = Some(ProductListingRawAuctionCapture {
-                    product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
-                    revision: revision.revision,
-                    capture_generation: revision.capture_generation,
-                });
-                let write = match CanonicalProductListingWriter::upsert_in_transaction(
+                let command = canonical_upsert(head.listing_source_id, resolved.as_ref());
+                let write = match CanonicalProductListingWriter::upsert_non_auction_in_transaction(
                     tx,
-                    CanonicalProductListingWriterDependencies {
-                        products: &self.products,
-                        events: &self.events,
-                        auctions: &self.auctions,
-                        auction_events: &self.auction_events,
-                        auction_policies: &self.auction_policies,
-                        auction_overrides: &self.auction_overrides,
-                    },
+                    &self.products,
+                    &self.events,
                     head.product_listing_id,
                     command,
                 )
@@ -445,42 +408,8 @@ where
                     },
                     Some(write.product_listing_id),
                     write.product_listing_event_id,
-                    if write.auction_context_override_preserved {
-                        Some("MANUAL_AUCTION_OVERRIDE_PRESERVED")
-                    } else {
-                        None
-                    },
+                    None,
                 );
-                let mut diagnostics = resolved.diagnostics.clone();
-                if write.auction_membership_conflict_preserved {
-                    push_diagnostic(
-                        &mut diagnostics,
-                        ProductListingRawValuesNormalizationDiagnostic::MembershipChangeRequiresCorrection,
-                    );
-                }
-                if write.auction_timing_preserved {
-                    push_diagnostic(
-                        &mut diagnostics,
-                        ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid,
-                    );
-                }
-                if completion.error_code.is_none() {
-                    completion.error_code = diagnostics
-                        .first()
-                        .copied()
-                        .map(ProductListingRawValuesNormalizationDiagnostic::as_str);
-                }
-                completion.diagnostics = diagnostics;
-                completion.auction_acceptance =
-                    write
-                        .auction_acceptance
-                        .map(|receipt| ProductListingRawAuctionAcceptance {
-                            auction_id: receipt.auction_id,
-                            auction_result_version: receipt.auction_result_version,
-                            auction_event_id: receipt.auction_event_id,
-                            disposition: receipt.disposition,
-                            metadata_fields: receipt.metadata_fields,
-                        });
                 completion.next_product_listing_id = Some(write.product_listing_id);
                 completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
                 Ok(completion)
@@ -489,17 +418,12 @@ where
     }
 }
 
-impl<U, W, R, E, AR, AE, AP, AO, P>
-    NormalizeProductListingRawRevisionHandler<U, W, R, E, AR, AE, AP, AO, P>
+impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
 where
     U: UnitOfWork,
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
-    AR: AuctionRepositoryFactory<U::Tx>,
-    AE: AuctionEventAppenderFactory<U::Tx>,
-    AP: AuctionMetadataPolicyRepositoryFactory<U::Tx>,
-    AO: ProductListingAuctionOverrideRepositoryFactory<U::Tx>,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
 {
     async fn execute_inner(
@@ -619,17 +543,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, W, R, E, AR, AE, AP, AO, P> NormalizeProductListingRawRevisionUseCase
-    for NormalizeProductListingRawRevisionHandler<U, W, R, E, AR, AE, AP, AO, P>
+impl<U, W, R, E, P> NormalizeProductListingRawRevisionUseCase
+    for NormalizeProductListingRawRevisionHandler<U, W, R, E, P>
 where
     U: UnitOfWork + Send + Sync,
     W: ProductListingRawNormalizationWriterFactory<U::Tx> + Send + Sync,
     R: ProductListingRepositoryFactory<U::Tx> + Send + Sync,
     E: ProductListingEventAppenderFactory<U::Tx> + Send + Sync,
-    AR: AuctionRepositoryFactory<U::Tx> + Send + Sync,
-    AE: AuctionEventAppenderFactory<U::Tx> + Send + Sync,
-    AP: AuctionMetadataPolicyRepositoryFactory<U::Tx> + Send + Sync,
-    AO: ProductListingAuctionOverrideRepositoryFactory<U::Tx> + Send + Sync,
     P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader + Send + Sync,
 {
     #[tracing::instrument(name = "normalize_product_listing_raw_revision", skip_all)]
@@ -730,8 +650,8 @@ fn normalization_failure_code(error: &NormalizeProductListingRawRevisionError) -
 fn canonical_upsert(
     listing_source_id: listing_source_core::ListingSourceId,
     resolved: &ProductListingRawValuesResolved,
-) -> CanonicalProductListingUpsert {
-    CanonicalProductListingUpsert {
+) -> CanonicalProductListingNonAuctionUpsert {
+    CanonicalProductListingNonAuctionUpsert {
         listing_source_id,
         source_listing_id: resolved.source_listing_id.clone(),
         title: to_patch(&resolved.title),
@@ -748,52 +668,12 @@ fn canonical_upsert(
             ProductListingRawValuesPatch::Clear => PatchField::Clear,
             ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
         },
-        auction: auction_patch(&resolved.auction),
-        auction_metadata: auction_metadata(&resolved.auction_metadata),
-        raw_auction_capture: None,
-        isolate_raw_auction_membership_conflict: true,
-    }
-}
-
-fn auction_metadata(
-    metadata: &ProductListingRawValuesAuctionMetadataResolved,
-) -> auction_service::EmbeddedAuctionMetadata {
-    auction_service::EmbeddedAuctionMetadata {
-        name: metadata.name.clone(),
-        description: metadata.description.clone(),
-        catalogue_url: metadata.catalogue_url.clone(),
-        format: metadata.format,
-        reported_status: metadata.reported_status,
-        reported_lot_count: metadata.reported_lot_count,
-        bidding_opens: metadata.bidding_opens.clone(),
-        live_starts: metadata.live_starts.clone(),
-        lots_begin_closing: metadata.lots_begin_closing.clone(),
-        scheduled_end: metadata.scheduled_end.clone(),
     }
 }
 
 fn to_patch<T: Clone>(patch: &ProductListingRawValuesPatch<T>) -> PatchField<T> {
     match patch {
         ProductListingRawValuesPatch::Set(value) => PatchField::Set(value.clone()),
-        ProductListingRawValuesPatch::Clear => PatchField::Clear,
-        ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
-    }
-}
-
-fn auction_patch(
-    patch: &ProductListingRawValuesPatch<
-        product_listing_normalization::ProductListingRawValuesAuctionPatch,
-    >,
-) -> PatchField<ProductListingAuctionPatch> {
-    match patch {
-        ProductListingRawValuesPatch::Set(value) => PatchField::Set(ProductListingAuctionPatch {
-            source_auction_id: to_patch(&value.source_auction_id),
-            lot_number: to_patch(&value.lot_number),
-            catalogue_position: to_patch(&value.catalogue_position),
-            bidding_opens: to_patch(&value.bidding_opens),
-            scheduled_closes: to_patch(&value.scheduled_closes),
-            reported_closed_at: to_patch(&value.reported_closed_at),
-        }),
         ProductListingRawValuesPatch::Clear => PatchField::Clear,
         ProductListingRawValuesPatch::Unchanged => PatchField::Unchanged,
     }
@@ -842,21 +722,9 @@ fn completion(
         outcome,
         product_listing_id,
         product_listing_event_id,
-        diagnostics: Vec::new(),
-        auction_acceptance: None,
         error_code,
         next_product_listing_id: head.product_listing_id,
         next_source_listing_id: head.source_listing_id.clone(),
-    }
-}
-
-fn push_diagnostic(
-    diagnostics: &mut Vec<ProductListingRawValuesNormalizationDiagnostic>,
-    diagnostic: ProductListingRawValuesNormalizationDiagnostic,
-) {
-    if !diagnostics.contains(&diagnostic) {
-        diagnostics.push(diagnostic);
-        diagnostics.sort_unstable();
     }
 }
 
@@ -899,7 +767,6 @@ fn normalization_error_code(error: &ProductListingRawValuesNormalizationError) -
         ProductListingRawValuesNormalizationError::Text(_) => "TEXT_NORMALIZATION_INVALID",
         ProductListingRawValuesNormalizationError::Price(_) => "PRICE_NORMALIZATION_INVALID",
         ProductListingRawValuesNormalizationError::ImageUrl(_) => "IMAGE_URL_NORMALIZATION_INVALID",
-        ProductListingRawValuesNormalizationError::Auction(_) => "AUCTION_TIMING_INVALID",
         ProductListingRawValuesNormalizationError::Availability(_) => {
             "AVAILABILITY_NORMALIZATION_INVALID"
         }
@@ -919,1194 +786,5 @@ fn map_port_error(
         error @ ProductListingRawNormalizationPortError::InvalidPersistedState { .. } => {
             NormalizeProductListingRawRevisionError::InvalidPersistedState { source: error }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use application::transaction::TransactionError;
-    use auction_service::ports::{
-        AuctionEvent, AuctionEventAppendError, AuctionEventAppender, AuctionEventAppenderFactory,
-        AuctionMetadataField, AuctionMetadataPolicyAudit, AuctionMetadataPolicyRepository,
-        AuctionMetadataPolicyRepositoryError, AuctionMetadataPolicyRepositoryFactory,
-        AuctionRepository, AuctionRepositoryError, AuctionRepositoryFactory, StoredAuction,
-    };
-    use listing_source_core::ListingSourceId;
-    use product_listing_core::product_listing_id::ProductListingId;
-    use product_listing_normalization::{
-        NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
-        RawProductListingPayloadFormat, RawProductListingValues, SourcePayload,
-    };
-    use product_listing_service::ports::product_listing_event_appender::ProductListingEvent;
-    use product_listing_service::ports::{
-        ProductListingAuctionOverride, ProductListingAuctionOverrideAudit,
-        ProductListingAuctionOverrideError, ProductListingAuctionOverrideRepository,
-        ProductListingAuctionOverrideRepositoryFactory, ProductListingEventAppendError,
-        ProductListingEventAppender, ProductListingRawAuctionContextAdmission,
-        ProductListingRawRevisionId, ProductListingRepository, ProductListingRepositoryError,
-    };
-    use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn should_map_each_normalized_auction_leaf_patch_to_the_canonical_writer() {
-        let raw_patch = product_listing_normalization::ProductListingRawValuesAuctionPatch {
-            source_auction_id: ProductListingRawValuesPatch::Set(
-                auction_core::SourceAuctionId::try_from("sale-42")
-                    .unwrap_or_else(|error| panic!("source auction ID: {error}")),
-            ),
-            lot_number: ProductListingRawValuesPatch::Clear,
-            catalogue_position: ProductListingRawValuesPatch::Unchanged,
-            bidding_opens: ProductListingRawValuesPatch::Clear,
-            scheduled_closes: ProductListingRawValuesPatch::Set(
-                auction_core::AuctionTime::instant(OffsetDateTime::UNIX_EPOCH, None),
-            ),
-            reported_closed_at: ProductListingRawValuesPatch::Unchanged,
-        };
-
-        let mapped = auction_patch(&ProductListingRawValuesPatch::Set(raw_patch));
-
-        assert!(matches!(
-            mapped,
-            PatchField::Set(ProductListingAuctionPatch {
-                source_auction_id: PatchField::Set(_),
-                lot_number: PatchField::Clear,
-                catalogue_position: PatchField::Unchanged,
-                bidding_opens: PatchField::Clear,
-                scheduled_closes: PatchField::Set(_),
-                reported_closed_at: PatchField::Unchanged,
-            })
-        ));
-    }
-
-    struct TestTx(Arc<Mutex<bool>>);
-    struct TestUnitOfWork(Arc<Mutex<bool>>);
-    struct TestRawFactory(Arc<Mutex<TestRawState>>);
-    struct TestRawWriter<'a>(&'a Arc<Mutex<TestRawState>>);
-    struct TestRawState {
-        work: Option<crate::ports::ProductListingRawNormalizationWork>,
-        completions: Vec<ProductListingRawNormalizationCompletion>,
-    }
-    struct TestProducts;
-    struct TestProductRepository;
-    struct TestEvents;
-    struct TestEventAppender;
-    struct TestAuctions;
-    struct TestAuctionRepository;
-    struct TestAuctionEvents;
-    struct TestAuctionEventAppender;
-    struct TestAuctionPolicies;
-    struct TestAuctionPolicyRepository;
-    struct TestAuctionOverrides;
-    struct TestAuctionOverrideRepository;
-    struct TestRevisionReader(Arc<Mutex<TestRawState>>);
-    struct FailingFirstPendingReader {
-        state: Arc<Mutex<TestRawState>>,
-        blocked_stream_id: ProductListingRawStreamId,
-        healthy_stream_id: ProductListingRawStreamId,
-        fail_after_healthy_completion: bool,
-    }
-    struct FailingPendingListReader;
-    struct CappedContinuationRawFactory(Arc<Mutex<CappedContinuationState>>);
-    struct CappedContinuationRawWriter<'a>(&'a Arc<Mutex<CappedContinuationState>>);
-    struct CappedContinuationReader(Arc<Mutex<CappedContinuationState>>);
-    struct CappedContinuationState {
-        product_listing_raw_stream_id: ProductListingRawStreamId,
-        product_listing_raw_revision_id: ProductListingRawRevisionId,
-        listing_source_id: ListingSourceId,
-        next_revision: u64,
-        last_revision: u64,
-        input: ProductListingNormalizationInput,
-        completions: Vec<ProductListingRawNormalizationCompletion>,
-    }
-
-    fn input_with_schema_versions(
-        payload_schema_version: u16,
-        raw_values_schema_version: u16,
-    ) -> Result<
-        ProductListingNormalizationInput,
-        product_listing_normalization::NormalizationInputError,
-    > {
-        ProductListingNormalizationInput::new(
-            RawProductListingOperation::Delete,
-            RawProductListingPayloadFormat::CrawlerExtractedProduct,
-            payload_schema_version,
-            raw_values_schema_version,
-            SourcePayload::new(serde_json::json!({}))?,
-            RawProductListingValues::new(serde_json::json!({}))?,
-            NormalizationContext::new(serde_json::json!({}))?,
-        )
-    }
-
-    fn current_upsert_input(
-        auction: serde_json::Value,
-    ) -> Result<
-        ProductListingNormalizationInput,
-        product_listing_normalization::NormalizationInputError,
-    > {
-        ProductListingNormalizationInput::new(
-            RawProductListingOperation::Upsert,
-            RawProductListingPayloadFormat::CrawlerExtractedProduct,
-            1,
-            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
-            SourcePayload::new(serde_json::json!({}))?,
-            RawProductListingValues::new(serde_json::json!({
-                "sourceListingId": "listing-123",
-                "title": {"action": "SET", "value": "An antique ceramic vase"},
-                "description": {"action": "CLEAR"},
-                "priceFormat": "DISPLAY_TEXT",
-                "price": {"action": "SET", "value": "EUR 100"},
-                "priceEstimateMin": {"action": "CLEAR"},
-                "priceEstimateMax": {"action": "CLEAR"},
-                "availability": {"action": "CLEAR"},
-                "url": {"action": "SET", "value": "listing/123"},
-                "images": {"action": "CLEAR"},
-                "auction": auction
-            }))?,
-            NormalizationContext::new(serde_json::json!({
-                "baseUrl": "https://example.test/catalogue/",
-                "fallbackCurrency": "EUR",
-                "fallbackLanguage": "en"
-            }))?,
-        )
-    }
-
-    #[async_trait::async_trait]
-    impl Transaction for TestTx {
-        async fn commit(self) -> Result<(), TransactionError> {
-            let mut committed = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
-            *committed = true;
-            Ok(())
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl UnitOfWork for TestUnitOfWork {
-        type Tx = TestTx;
-
-        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            Ok(TestTx(Arc::clone(&self.0)))
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawNormalizationWriter for TestRawWriter<'_> {
-        async fn lock_next(
-            &mut self,
-            _: ProductListingRawStreamId,
-        ) -> Result<
-            crate::ports::ProductListingRawNormalizationWork,
-            ProductListingRawNormalizationPortError,
-        > {
-            let mut state = self.0.lock().map_err(|_| {
-                ProductListingRawNormalizationPortError::InvalidPersistedState {
-                    source: application::error::box_error(std::io::Error::other(
-                        "test lock poisoned",
-                    )),
-                }
-            })?;
-            state.work.take().ok_or_else(|| {
-                ProductListingRawNormalizationPortError::InvalidPersistedState {
-                    source: application::error::box_error(std::io::Error::other(
-                        "test work missing",
-                    )),
-                }
-            })
-        }
-
-        async fn complete(
-            &mut self,
-            completion: ProductListingRawNormalizationCompletion,
-        ) -> Result<(), ProductListingRawNormalizationPortError> {
-            let mut state = self.0.lock().map_err(|_| {
-                ProductListingRawNormalizationPortError::InvalidPersistedState {
-                    source: application::error::box_error(std::io::Error::other(
-                        "test lock poisoned",
-                    )),
-                }
-            })?;
-            state.completions.push(completion);
-            Ok(())
-        }
-    }
-
-    impl AuctionRepositoryFactory<TestTx> for TestAuctions {
-        fn in_transaction<'tx>(&'tx self, _: &'tx mut TestTx) -> impl AuctionRepository + 'tx {
-            TestAuctionRepository
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl AuctionRepository for TestAuctionRepository {
-        async fn lock_by_key(
-            &mut self,
-            _: &auction_core::AuctionKey,
-        ) -> Result<(), AuctionRepositoryError> {
-            Ok(())
-        }
-
-        async fn find_by_id(
-            &mut self,
-            _: auction_core::AuctionId,
-        ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-            Ok(None)
-        }
-
-        async fn find_by_key(
-            &mut self,
-            _: &auction_core::AuctionKey,
-        ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-            Ok(None)
-        }
-
-        async fn insert(
-            &mut self,
-            _: &auction_core::Auction,
-        ) -> Result<StoredAuction, AuctionRepositoryError> {
-            Err(AuctionRepositoryError::Internal {
-                source: application::error::box_error(std::io::Error::other(
-                    "unexpected auction insert in test",
-                )),
-            })
-        }
-
-        async fn update(
-            &mut self,
-            _: &auction_core::Auction,
-            _: auction_service::ports::AuctionStorageVersion,
-        ) -> Result<StoredAuction, AuctionRepositoryError> {
-            Err(AuctionRepositoryError::Internal {
-                source: application::error::box_error(std::io::Error::other(
-                    "unexpected auction update in test",
-                )),
-            })
-        }
-    }
-
-    impl AuctionEventAppenderFactory<TestTx> for TestAuctionEvents {
-        fn in_transaction<'tx>(&'tx self, _: &'tx mut TestTx) -> impl AuctionEventAppender + 'tx {
-            TestAuctionEventAppender
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl AuctionEventAppender for TestAuctionEventAppender {
-        async fn append(&mut self, _: &AuctionEvent) -> Result<(), AuctionEventAppendError> {
-            Ok(())
-        }
-    }
-
-    impl AuctionMetadataPolicyRepositoryFactory<TestTx> for TestAuctionPolicies {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl AuctionMetadataPolicyRepository + 'tx {
-            TestAuctionPolicyRepository
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl AuctionMetadataPolicyRepository for TestAuctionPolicyRepository {
-        async fn find_protected_fields(
-            &mut self,
-            _: auction_core::AuctionId,
-        ) -> Result<
-            std::collections::BTreeSet<AuctionMetadataField>,
-            AuctionMetadataPolicyRepositoryError,
-        > {
-            Ok(std::collections::BTreeSet::new())
-        }
-
-        async fn protect(
-            &mut self,
-            _: &AuctionMetadataPolicyAudit,
-        ) -> Result<(), AuctionMetadataPolicyRepositoryError> {
-            Ok(())
-        }
-    }
-
-    impl ProductListingAuctionOverrideRepositoryFactory<TestTx> for TestAuctionOverrides {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl ProductListingAuctionOverrideRepository + 'tx {
-            TestAuctionOverrideRepository
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingAuctionOverrideRepository for TestAuctionOverrideRepository {
-        async fn lock(
-            &mut self,
-            _: ProductListingId,
-        ) -> Result<(), ProductListingAuctionOverrideError> {
-            Ok(())
-        }
-
-        async fn find(
-            &mut self,
-            _: ProductListingId,
-        ) -> Result<Option<ProductListingAuctionOverride>, ProductListingAuctionOverrideError>
-        {
-            Ok(None)
-        }
-
-        async fn admit_raw_auction_context(
-            &mut self,
-            _: ProductListingId,
-            _: product_listing_service::ports::ProductListingRawAuctionCapture,
-        ) -> Result<ProductListingRawAuctionContextAdmission, ProductListingAuctionOverrideError>
-        {
-            Ok(ProductListingRawAuctionContextAdmission::Admit)
-        }
-
-        async fn activate(
-            &mut self,
-            _: &ProductListingAuctionOverrideAudit,
-            _: product_listing_service::ports::ProductListingAuctionPolicyVersion,
-        ) -> Result<ProductListingAuctionOverride, ProductListingAuctionOverrideError> {
-            Ok(ProductListingAuctionOverride {
-                version:
-                    product_listing_service::ports::ProductListingAuctionPolicyVersion::default(),
-                active: false,
-                release_capture_generation_fence: None,
-            })
-        }
-
-        async fn release(
-            &mut self,
-            _: ProductListingId,
-            _: product_listing_service::ports::ProductListingAuctionPolicyVersion,
-            _: domain_primitives::event_id::EventId,
-            _: String,
-            _: time::OffsetDateTime,
-        ) -> Result<ProductListingAuctionOverride, ProductListingAuctionOverrideError> {
-            Ok(ProductListingAuctionOverride {
-                version:
-                    product_listing_service::ports::ProductListingAuctionPolicyVersion::default(),
-                active: false,
-                release_capture_generation_fence: None,
-            })
-        }
-    }
-
-    impl ProductListingRawNormalizationWriterFactory<TestTx> for TestRawFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl ProductListingRawNormalizationWriter + 'tx {
-            TestRawWriter(&self.0)
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawNormalizationWriter for CappedContinuationRawWriter<'_> {
-        async fn lock_next(
-            &mut self,
-            product_listing_raw_stream_id: ProductListingRawStreamId,
-        ) -> Result<
-            crate::ports::ProductListingRawNormalizationWork,
-            ProductListingRawNormalizationPortError,
-        > {
-            let state = self
-                .0
-                .lock()
-                .map_err(|_| capped_continuation_port_error("test lock poisoned"))?;
-            if product_listing_raw_stream_id != state.product_listing_raw_stream_id {
-                return Err(capped_continuation_port_error("unexpected raw stream"));
-            }
-            Ok(crate::ports::ProductListingRawNormalizationWork {
-                head: ProductListingRawNormalizationHead {
-                    product_listing_raw_stream_id,
-                    listing_source_id: state.listing_source_id,
-                    last_processed_revision: state.next_revision.saturating_sub(1),
-                    product_listing_id: None,
-                    source_listing_id: None,
-                },
-                next_revision: capped_continuation_revision(&state),
-            })
-        }
-
-        async fn complete(
-            &mut self,
-            completion: ProductListingRawNormalizationCompletion,
-        ) -> Result<(), ProductListingRawNormalizationPortError> {
-            let mut state = self
-                .0
-                .lock()
-                .map_err(|_| capped_continuation_port_error("test lock poisoned"))?;
-            if completion.product_listing_raw_stream_id != state.product_listing_raw_stream_id
-                || completion.revision != state.next_revision
-            {
-                return Err(capped_continuation_port_error("unexpected raw completion"));
-            }
-            state.next_revision = state
-                .next_revision
-                .checked_add(1)
-                .ok_or_else(|| capped_continuation_port_error("test revision overflow"))?;
-            state.product_listing_raw_revision_id = ProductListingRawRevisionId::new();
-            state.completions.push(completion);
-            Ok(())
-        }
-    }
-
-    impl ProductListingRawNormalizationWriterFactory<TestTx> for CappedContinuationRawFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl ProductListingRawNormalizationWriter + 'tx {
-            CappedContinuationRawWriter(&self.0)
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRepository for TestProductRepository {
-        async fn find_by_id(
-            &mut self,
-            _: product_listing_core::product_listing_id::ProductListingId,
-        ) -> Result<
-            Option<product_listing_service::ports::VersionedProductListing>,
-            ProductListingRepositoryError,
-        > {
-            Ok(None)
-        }
-        async fn find_by_key(
-            &mut self,
-            _: &product_listing_core::product_listing_id::ProductListingKey,
-        ) -> Result<
-            Option<product_listing_service::ports::VersionedProductListing>,
-            ProductListingRepositoryError,
-        > {
-            Ok(None)
-        }
-
-        async fn insert(
-            &mut self,
-            _: &product_listing_core::product_listing::ProductListing,
-            _: domain_primitives::event_id::EventId,
-        ) -> Result<
-            product_listing_service::ports::VersionedProductListing,
-            ProductListingRepositoryError,
-        > {
-            Err(ProductListingRepositoryError::ProductListingInsertFailed)
-        }
-        async fn update(
-            &mut self,
-            _: &product_listing_core::product_listing::ProductListing,
-            _: product_listing_service::ports::ProductListingStorageVersion,
-            _: domain_primitives::event_id::EventId,
-            _: product_listing_service::ports::ProductListingWriteEffects,
-        ) -> Result<
-            product_listing_service::ports::VersionedProductListing,
-            ProductListingRepositoryError,
-        > {
-            Err(ProductListingRepositoryError::ProductListingUpdateFailed)
-        }
-    }
-
-    impl ProductListingRepositoryFactory<TestTx> for TestProducts {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl ProductListingRepository + 'tx {
-            TestProductRepository
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingEventAppender for TestEventAppender {
-        async fn append(
-            &mut self,
-            _: &ProductListingEvent,
-        ) -> Result<(), ProductListingEventAppendError> {
-            Ok(())
-        }
-    }
-
-    impl ProductListingEventAppenderFactory<TestTx> for TestEvents {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _: &'tx mut TestTx,
-        ) -> impl ProductListingEventAppender + 'tx {
-            TestEventAppender
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawRevisionReader for TestRevisionReader {
-        async fn find_next_revision(
-            &self,
-            _: ProductListingRawStreamId,
-        ) -> Result<
-            Option<crate::ports::ProductListingRawRevision>,
-            ProductListingRawNormalizationPortError,
-        > {
-            let state = self.0.lock().map_err(|_| {
-                ProductListingRawNormalizationPortError::InvalidPersistedState {
-                    source: application::error::box_error(std::io::Error::other(
-                        "test lock poisoned",
-                    )),
-                }
-            })?;
-            Ok(state
-                .work
-                .as_ref()
-                .and_then(|work| work.next_revision.clone()))
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl PendingProductListingRawStreamReader for TestRevisionReader {
-        async fn list_pending_stream_page(
-            &self,
-            _: crate::ports::PendingProductListingRawStreamPageRequest,
-        ) -> Result<
-            crate::ports::PendingProductListingRawStreamPage,
-            ProductListingRawNormalizationPortError,
-        > {
-            Ok(crate::ports::PendingProductListingRawStreamPage::default())
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawRevisionReader for CappedContinuationReader {
-        async fn find_next_revision(
-            &self,
-            product_listing_raw_stream_id: ProductListingRawStreamId,
-        ) -> Result<
-            Option<crate::ports::ProductListingRawRevision>,
-            ProductListingRawNormalizationPortError,
-        > {
-            let state = self
-                .0
-                .lock()
-                .map_err(|_| capped_continuation_port_error("test lock poisoned"))?;
-            if product_listing_raw_stream_id != state.product_listing_raw_stream_id {
-                return Err(capped_continuation_port_error("unexpected raw stream"));
-            }
-            Ok(capped_continuation_revision(&state))
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl PendingProductListingRawStreamReader for CappedContinuationReader {
-        async fn list_pending_stream_page(
-            &self,
-            _: crate::ports::PendingProductListingRawStreamPageRequest,
-        ) -> Result<
-            crate::ports::PendingProductListingRawStreamPage,
-            ProductListingRawNormalizationPortError,
-        > {
-            let state = self
-                .0
-                .lock()
-                .map_err(|_| capped_continuation_port_error("test lock poisoned"))?;
-            Ok(crate::ports::PendingProductListingRawStreamPage {
-                streams: vec![crate::ports::PendingProductListingRawStream {
-                    product_listing_raw_stream_id: state.product_listing_raw_stream_id,
-                    oldest_pending_at: OffsetDateTime::UNIX_EPOCH,
-                }],
-                next_cursor: None,
-            })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawRevisionReader for FailingFirstPendingReader {
-        async fn find_next_revision(
-            &self,
-            product_listing_raw_stream_id: ProductListingRawStreamId,
-        ) -> Result<
-            Option<crate::ports::ProductListingRawRevision>,
-            ProductListingRawNormalizationPortError,
-        > {
-            if product_listing_raw_stream_id == self.blocked_stream_id {
-                return Err(ProductListingRawNormalizationPortError::Persistence {
-                    source: application::error::box_error(std::io::Error::other(
-                        "transient test failure",
-                    )),
-                });
-            }
-            if product_listing_raw_stream_id != self.healthy_stream_id {
-                return Ok(None);
-            }
-            let state = self.state.lock().map_err(|_| {
-                ProductListingRawNormalizationPortError::InvalidPersistedState {
-                    source: application::error::box_error(std::io::Error::other(
-                        "test lock poisoned",
-                    )),
-                }
-            })?;
-            let next_revision = state
-                .work
-                .as_ref()
-                .and_then(|work| work.next_revision.clone());
-            if next_revision.is_none() && self.fail_after_healthy_completion {
-                return Err(ProductListingRawNormalizationPortError::Persistence {
-                    source: application::error::box_error(std::io::Error::other(
-                        "transient test failure after commit",
-                    )),
-                });
-            }
-            Ok(next_revision)
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl PendingProductListingRawStreamReader for FailingFirstPendingReader {
-        async fn list_pending_stream_page(
-            &self,
-            _: crate::ports::PendingProductListingRawStreamPageRequest,
-        ) -> Result<
-            crate::ports::PendingProductListingRawStreamPage,
-            ProductListingRawNormalizationPortError,
-        > {
-            let now = OffsetDateTime::now_utc();
-            Ok(crate::ports::PendingProductListingRawStreamPage {
-                streams: vec![
-                    crate::ports::PendingProductListingRawStream {
-                        product_listing_raw_stream_id: self.blocked_stream_id,
-                        oldest_pending_at: now - time::Duration::seconds(1),
-                    },
-                    crate::ports::PendingProductListingRawStream {
-                        product_listing_raw_stream_id: self.healthy_stream_id,
-                        oldest_pending_at: now,
-                    },
-                ],
-                next_cursor: None,
-            })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingRawRevisionReader for FailingPendingListReader {
-        async fn find_next_revision(
-            &self,
-            _: ProductListingRawStreamId,
-        ) -> Result<
-            Option<crate::ports::ProductListingRawRevision>,
-            ProductListingRawNormalizationPortError,
-        > {
-            Ok(None)
-        }
-    }
-
-    fn capped_continuation_revision(
-        state: &CappedContinuationState,
-    ) -> Option<crate::ports::ProductListingRawRevision> {
-        (state.next_revision <= state.last_revision).then(|| {
-            crate::ports::ProductListingRawRevision {
-                product_listing_raw_revision_id: state.product_listing_raw_revision_id,
-                product_listing_raw_stream_id: state.product_listing_raw_stream_id,
-                revision: state.next_revision,
-                capture_generation: state.next_revision,
-                input: state.input.clone(),
-            }
-        })
-    }
-
-    fn capped_continuation_port_error(
-        message: &'static str,
-    ) -> ProductListingRawNormalizationPortError {
-        ProductListingRawNormalizationPortError::InvalidPersistedState {
-            source: application::error::box_error(std::io::Error::other(message)),
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl PendingProductListingRawStreamReader for FailingPendingListReader {
-        async fn list_pending_stream_page(
-            &self,
-            _: crate::ports::PendingProductListingRawStreamPageRequest,
-        ) -> Result<
-            crate::ports::PendingProductListingRawStreamPage,
-            ProductListingRawNormalizationPortError,
-        > {
-            Err(ProductListingRawNormalizationPortError::Persistence {
-                source: application::error::box_error(std::io::Error::other(
-                    "pending stream list failed",
-                )),
-            })
-        }
-    }
-
-    #[test]
-    fn should_return_retryable_configuration_error_for_system_normalization_failure() {
-        let result = require_terminal_normalization_outcome(
-            ProductListingRawValuesNormalizationOutcome::Invalid(
-                ProductListingRawValuesNormalizationError::Availability(
-                    product_listing_normalization::NormalizationError::AvailabilityRegexSetCompilationFailed,
-                ),
-            ),
-        );
-
-        assert!(matches!(
-            result,
-            Err(
-                NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed {
-                    source:
-                        ProductListingRawValuesNormalizationError::Availability(
-                            product_listing_normalization::NormalizationError::AvailabilityRegexSetCompilationFailed
-                        ),
-                }
-            )
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_reject_removed_raw_values_schema_from_the_revision_reader_and_advance_stream_head()
-     {
-        let stream_id = ProductListingRawStreamId::new();
-        let revision_id = ProductListingRawRevisionId::new();
-        let input = ProductListingNormalizationInput::new(
-            RawProductListingOperation::Upsert,
-            RawProductListingPayloadFormat::ShopifyProduct,
-            1,
-            2,
-            SourcePayload::new(serde_json::json!({}))
-                .unwrap_or_else(|error| panic!("input: {error}")),
-            RawProductListingValues::new(serde_json::json!({"sourceListingId": "only-id"}))
-                .unwrap_or_else(|error| panic!("input: {error}")),
-            NormalizationContext::new(serde_json::json!({}))
-                .unwrap_or_else(|error| panic!("input: {error}")),
-        )
-        .unwrap_or_else(|error| panic!("input: {error}"));
-        let state = Arc::new(Mutex::new(TestRawState {
-            work: Some(crate::ports::ProductListingRawNormalizationWork {
-                head: ProductListingRawNormalizationHead {
-                    product_listing_raw_stream_id: stream_id,
-                    listing_source_id: ListingSourceId::new(),
-                    last_processed_revision: 0,
-                    product_listing_id: None,
-                    source_listing_id: None,
-                },
-                next_revision: Some(crate::ports::ProductListingRawRevision {
-                    product_listing_raw_revision_id: revision_id,
-                    product_listing_raw_stream_id: stream_id,
-                    revision: 1,
-                    capture_generation: 1,
-                    input,
-                }),
-            }),
-            completions: vec![],
-        }));
-        let committed = Arc::new(Mutex::new(false));
-        let handler = NormalizeProductListingRawRevisionHandler::new(
-            TestUnitOfWork(Arc::clone(&committed)),
-            TestRawFactory(Arc::clone(&state)),
-            TestProducts,
-            TestEvents,
-            TestAuctions,
-            TestAuctionEvents,
-            TestAuctionPolicies,
-            TestAuctionOverrides,
-            TestRevisionReader(Arc::clone(&state)),
-        );
-
-        let result = handler
-            .execute(NormalizeProductListingRawRevisionCommand {
-                mode: NormalizeProductListingRawRevisionMode::RawRevision {
-                    product_listing_raw_stream_id: stream_id,
-                    product_listing_raw_revision_id: revision_id,
-                    revision: 1,
-                },
-                max_revisions_per_stream: 1,
-                pending_stream_limit: 1,
-            })
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion)
-        ));
-        assert!(matches!(committed.lock(), Ok(committed) if !*committed));
-        let state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        assert!(state.completions.is_empty());
-    }
-
-    #[tokio::test]
-    async fn should_report_stream_failures_without_fifo_continuations_when_reconciliation_continues()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let blocked_stream_id = ProductListingRawStreamId::new();
-        let healthy_stream_id = ProductListingRawStreamId::new();
-        let healthy_revision_id = ProductListingRawRevisionId::new();
-        let input = ProductListingNormalizationInput::new(
-            RawProductListingOperation::Upsert,
-            RawProductListingPayloadFormat::ShopifyProduct,
-            1,
-            1,
-            SourcePayload::new(serde_json::json!({}))?,
-            RawProductListingValues::new(serde_json::json!({"sourceListingId": "only-id"}))?,
-            NormalizationContext::new(serde_json::json!({}))?,
-        )?;
-        let state = Arc::new(Mutex::new(TestRawState {
-            work: Some(crate::ports::ProductListingRawNormalizationWork {
-                head: ProductListingRawNormalizationHead {
-                    product_listing_raw_stream_id: healthy_stream_id,
-                    listing_source_id: ListingSourceId::new(),
-                    last_processed_revision: 0,
-                    product_listing_id: None,
-                    source_listing_id: None,
-                },
-                next_revision: Some(crate::ports::ProductListingRawRevision {
-                    product_listing_raw_revision_id: healthy_revision_id,
-                    product_listing_raw_stream_id: healthy_stream_id,
-                    revision: 1,
-                    capture_generation: 1,
-                    input,
-                }),
-            }),
-            completions: vec![],
-        }));
-        let committed = Arc::new(Mutex::new(false));
-        let handler = NormalizeProductListingRawRevisionHandler::new(
-            TestUnitOfWork(Arc::clone(&committed)),
-            TestRawFactory(Arc::clone(&state)),
-            TestProducts,
-            TestEvents,
-            TestAuctions,
-            TestAuctionEvents,
-            TestAuctionPolicies,
-            TestAuctionOverrides,
-            FailingFirstPendingReader {
-                state: Arc::clone(&state),
-                blocked_stream_id,
-                healthy_stream_id,
-                fail_after_healthy_completion: true,
-            },
-        );
-
-        let result = handler
-            .execute(NormalizeProductListingRawRevisionCommand {
-                mode: NormalizeProductListingRawRevisionMode::Reconcile,
-                max_revisions_per_stream: 2,
-                pending_stream_limit: 2,
-            })
-            .await?;
-
-        assert_eq!(
-            [NormalizedRawRevisionResult {
-                product_listing_raw_stream_id: healthy_stream_id,
-                revision: 1,
-                outcome: ProductListingRawNormalizationOutcome::Rejected,
-            }],
-            result.revisions.as_slice()
-        );
-        assert_eq!(
-            [
-                ProductListingRawNormalizationStreamFailure {
-                    product_listing_raw_stream_id: blocked_stream_id,
-                    error_code: "PERSISTENCE_FAILED",
-                },
-                ProductListingRawNormalizationStreamFailure {
-                    product_listing_raw_stream_id: healthy_stream_id,
-                    error_code: "PERSISTENCE_FAILED",
-                },
-            ],
-            result.stream_failures.as_slice()
-        );
-        assert_eq!(Some(2), result.pending_stream_page_count);
-        assert_eq!(None, result.next_pending_stream_cursor);
-        assert!(result.continuation_stream_ids.is_empty());
-        assert!(matches!(committed.lock(), Ok(committed) if *committed));
-        assert!(matches!(
-            state.lock(),
-            Ok(state) if matches!(
-                state.completions.as_slice(),
-                [ProductListingRawNormalizationCompletion {
-                    product_listing_raw_stream_id,
-                    revision: 1,
-                    outcome: ProductListingRawNormalizationOutcome::Rejected,
-                    ..
-                }] if *product_listing_raw_stream_id == healthy_stream_id
-            )
-        ));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_return_capped_reconciliation_stream_as_worker_continuation()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let product_listing_raw_stream_id = ProductListingRawStreamId::new();
-        let state = Arc::new(Mutex::new(CappedContinuationState {
-            product_listing_raw_stream_id,
-            product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
-            listing_source_id: ListingSourceId::new(),
-            next_revision: 1,
-            last_revision: 3,
-            input: input_with_schema_versions(1, 1)?,
-            completions: Vec::new(),
-        }));
-        let committed = Arc::new(Mutex::new(false));
-        let handler = NormalizeProductListingRawRevisionHandler::new(
-            TestUnitOfWork(Arc::clone(&committed)),
-            CappedContinuationRawFactory(Arc::clone(&state)),
-            TestProducts,
-            TestEvents,
-            TestAuctions,
-            TestAuctionEvents,
-            TestAuctionPolicies,
-            TestAuctionOverrides,
-            CappedContinuationReader(Arc::clone(&state)),
-        );
-
-        let first = handler
-            .execute(NormalizeProductListingRawRevisionCommand {
-                mode: NormalizeProductListingRawRevisionMode::Reconcile,
-                max_revisions_per_stream: 2,
-                pending_stream_limit: 1,
-            })
-            .await?;
-
-        assert_eq!(
-            [1, 2],
-            first
-                .revisions
-                .iter()
-                .map(|revision| revision.revision)
-                .collect::<Vec<_>>()
-                .as_slice()
-        );
-        assert_eq!(
-            [product_listing_raw_stream_id],
-            first.continuation_stream_ids.as_slice()
-        );
-
-        let continuation = handler
-            .execute(NormalizeProductListingRawRevisionCommand {
-                mode: NormalizeProductListingRawRevisionMode::ReconcileContinuation {
-                    product_listing_raw_stream_id,
-                },
-                max_revisions_per_stream: 2,
-                pending_stream_limit: 1,
-            })
-            .await?;
-
-        assert_eq!(
-            [3],
-            continuation
-                .revisions
-                .iter()
-                .map(|revision| revision.revision)
-                .collect::<Vec<_>>()
-                .as_slice()
-        );
-        assert!(continuation.continuation_stream_ids.is_empty());
-        assert!(matches!(committed.lock(), Ok(committed) if *committed));
-        assert!(matches!(state.lock(), Ok(state) if state.completions.len() == 3));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_return_pending_list_failure_as_overall_error() {
-        let state = Arc::new(Mutex::new(TestRawState {
-            work: None,
-            completions: vec![],
-        }));
-        let committed = Arc::new(Mutex::new(false));
-        let handler = NormalizeProductListingRawRevisionHandler::new(
-            TestUnitOfWork(Arc::clone(&committed)),
-            TestRawFactory(state),
-            TestProducts,
-            TestEvents,
-            TestAuctions,
-            TestAuctionEvents,
-            TestAuctionPolicies,
-            TestAuctionOverrides,
-            FailingPendingListReader,
-        );
-
-        let result = handler
-            .execute(NormalizeProductListingRawRevisionCommand {
-                mode: NormalizeProductListingRawRevisionMode::Reconcile,
-                max_revisions_per_stream: 1,
-                pending_stream_limit: 1,
-            })
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(
-                NormalizeProductListingRawRevisionError::PendingStreamReadFailed {
-                    source: ProductListingRawNormalizationPortError::Persistence { .. },
-                }
-            )
-        ));
-        assert!(matches!(committed.lock(), Ok(committed) if !*committed));
-    }
-
-    #[test]
-    fn should_pass_normalized_embedded_auction_metadata_to_the_canonical_writer()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let input = current_upsert_input(serde_json::json!({
-            "action": "SET",
-            "value": {
-                "sourceAuctionId": {"action": "SET", "value": "catalogue-2026-0042"},
-                "auctionMetadata": {
-                    "name": "Autumn Decorative Arts",
-                    "format": "TIMED",
-                    "schedule": {
-                        "liveStarts": {"precision": "INSTANT", "value": "2026-10-18T10:00:00Z"}
-                    }
-                }
-            }
-        }))?;
-        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
-            ProductListingRawValuesNormalizer::new().normalize(&input)
-        else {
-            panic!("valid raw auction metadata should resolve");
-        };
-
-        let command = canonical_upsert(ListingSourceId::new(), resolved.as_ref());
-
-        assert_eq!(
-            Some("Autumn Decorative Arts"),
-            command
-                .auction_metadata
-                .name
-                .as_ref()
-                .map(|value| value.payload.as_ref())
-        );
-        assert_eq!(
-            Some(auction_core::AuctionFormat::Timed),
-            command.auction_metadata.format
-        );
-        assert!(matches!(
-            command.auction_metadata.live_starts,
-            Some(auction_core::AuctionTime::Instant { .. })
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn should_preserve_auction_clear_and_complete_invalid_timing_diagnostics_successfully()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let clear_input = current_upsert_input(serde_json::json!({"action": "CLEAR"}))?;
-        let ProductListingRawValuesNormalizationOutcome::Resolved(clear_resolved) =
-            ProductListingRawValuesNormalizer::new().normalize(&clear_input)
-        else {
-            panic!("clear auction patch should resolve");
-        };
-        let listing_source_id = ListingSourceId::new();
-        assert_eq!(
-            PatchField::Clear,
-            canonical_upsert(listing_source_id, clear_resolved.as_ref()).auction
-        );
-
-        let invalid_timing_input = current_upsert_input(serde_json::json!({
-            "action": "SET",
-            "value": {
-                "timing": {
-                    "reportedClosedAt": {
-                        "action": "SET",
-                        "value": {"precision": "DATE", "value": "2026-05-13"}
-                    }
-                }
-            }
-        }))?;
-        let ProductListingRawValuesNormalizationOutcome::Resolved(invalid_timing_resolved) =
-            ProductListingRawValuesNormalizer::new().normalize(&invalid_timing_input)
-        else {
-            panic!("invalid optional timing should resolve");
-        };
-        assert!(matches!(
-            canonical_upsert(listing_source_id, invalid_timing_resolved.as_ref()).auction,
-            PatchField::Set(_)
-        ));
-
-        let stream_id = ProductListingRawStreamId::new();
-        let revision = crate::ports::ProductListingRawRevision {
-            product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
-            product_listing_raw_stream_id: stream_id,
-            revision: 1,
-            capture_generation: 1,
-            input: invalid_timing_input,
-        };
-        let head = ProductListingRawNormalizationHead {
-            product_listing_raw_stream_id: stream_id,
-            listing_source_id,
-            last_processed_revision: 0,
-            product_listing_id: None,
-            source_listing_id: None,
-        };
-        for outcome in [
-            ProductListingRawNormalizationOutcome::Applied,
-            ProductListingRawNormalizationOutcome::NoChange,
-        ] {
-            let mut completed = completion(&head, &revision, outcome, None, None, None);
-            completed.diagnostics = invalid_timing_resolved.diagnostics.clone();
-            completed.error_code = completed
-                .diagnostics
-                .first()
-                .copied()
-                .map(ProductListingRawValuesNormalizationDiagnostic::as_str);
-            assert_eq!(NORMALIZER_VERSION, completed.normalizer_version);
-            assert_eq!(outcome, completed.outcome);
-            assert_eq!(
-                vec![ProductListingRawValuesNormalizationDiagnostic::AuctionTimingInvalid],
-                completed.diagnostics
-            );
-            assert_eq!(Some("AUCTION_TIMING_INVALID"), completed.error_code);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn should_accept_only_the_current_stored_raw_values_schema_version()
-    -> Result<(), product_listing_normalization::NormalizationInputError> {
-        let input = input_with_schema_versions(1, PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION)?;
-        assert!(validate_stored_schema(&input).is_ok());
-
-        for (payload_schema_version, raw_values_schema_version) in [(2, 1), (1, 2), (1, 3)] {
-            let input =
-                input_with_schema_versions(payload_schema_version, raw_values_schema_version)?;
-            assert!(matches!(
-                validate_stored_schema(&input),
-                Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion)
-            ));
-        }
-        assert_eq!(5, NORMALIZER_VERSION);
-        Ok(())
-    }
-
-    #[test]
-    fn should_return_pending_age_only_for_past_captures() {
-        let now = OffsetDateTime::now_utc();
-
-        assert_eq!(
-            Some(60),
-            pending_age_seconds(now - time::Duration::seconds(60))
-        );
-        assert_eq!(None, pending_age_seconds(now + time::Duration::days(1)));
-    }
-
-    #[test]
-    fn should_use_stable_failure_codes() {
-        assert_eq!(
-            "UNSUPPORTED_STORED_SCHEMA_VERSION",
-            normalization_failure_code(
-                &NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion
-            )
-        );
-        assert_eq!(
-            "NORMALIZATION_CONFIGURATION_FAILED",
-            normalization_failure_code(
-                &NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed {
-                    source: ProductListingRawValuesNormalizationError::Availability(
-                        product_listing_normalization::NormalizationError::AvailabilityRegexSetCompilationFailed,
-                    ),
-                }
-            )
-        );
-        assert_eq!(
-            "CANONICAL_WRITE_FAILED",
-            normalization_failure_code(
-                &NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
-                    source: CanonicalProductListingWriteError::BoundProductListingNotFound,
-                }
-            )
-        );
     }
 }

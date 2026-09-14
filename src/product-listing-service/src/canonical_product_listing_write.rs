@@ -68,6 +68,21 @@ pub struct CanonicalProductListingUpsert {
     pub isolate_raw_auction_membership_conflict: bool,
 }
 
+/// Canonical raw-ingestion intent that cannot mutate Auction facts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanonicalProductListingNonAuctionUpsert {
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
+    pub title: PatchField<Localized<Language, Title>>,
+    pub description: PatchField<Localized<Language, Description>>,
+    pub price: PatchField<ProductListingPrice>,
+    pub price_estimate_min: PatchField<Price>,
+    pub price_estimate_max: PatchField<Price>,
+    pub availability: PatchField<ListingAvailability>,
+    pub url: PatchField<Url>,
+    pub images: PatchField<IndexSet<ProductListingImage>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalProductListingWriteResult {
     pub product_listing_id: ProductListingId,
@@ -134,6 +149,171 @@ pub struct CanonicalProductListingWriterDependencies<'a, R, E, AR, AE, AP, AO> {
 pub struct CanonicalProductListingWriter;
 
 impl CanonicalProductListingWriter {
+    pub async fn upsert_non_auction_in_transaction<Tx, R, E>(
+        tx: &mut Tx,
+        products: &R,
+        events: &E,
+        bound_product_listing_id: Option<ProductListingId>,
+        command: CanonicalProductListingNonAuctionUpsert,
+    ) -> Result<CanonicalProductListingWriteResult, CanonicalProductListingWriteError>
+    where
+        R: ProductListingRepositoryFactory<Tx>,
+        E: ProductListingEventAppenderFactory<Tx>,
+    {
+        let existing = match bound_product_listing_id {
+            Some(product_listing_id) => products
+                .in_transaction(tx)
+                .find_by_id(product_listing_id)
+                .await
+                .map_err(map_repository_error)?
+                .ok_or(CanonicalProductListingWriteError::BoundProductListingNotFound)?,
+            None => {
+                let key = product_listing_core::product_listing_id::ProductListingKey::new(
+                    command.listing_source_id,
+                    command.source_listing_id.clone(),
+                );
+                let Some(existing) = products
+                    .in_transaction(tx)
+                    .find_by_key(&key)
+                    .await
+                    .map_err(map_repository_error)?
+                else {
+                    return Self::create_non_auction(tx, products, events, command).await;
+                };
+                existing
+            }
+        };
+
+        let expected_version = existing.version;
+        let mut product = existing.value;
+        if product.listing_source_id() != command.listing_source_id
+            || product.source_listing_id() != &command.source_listing_id
+        {
+            return Err(CanonicalProductListingWriteError::BoundProductListingIdentityMismatch);
+        }
+        product
+            .restore()
+            .map_err(|error| CanonicalProductListingWriteError::InvalidInput {
+                source: box_error(error),
+            })?;
+        apply_non_auction_update(&mut product, &command)?;
+        let event = product.take_pending_event_payload().map(|payload| {
+            stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
+        });
+        let event_id = event.as_ref().map(|event| event.event_id);
+        if let Some(event) = event {
+            let effects = ProductListingWriteEffects::from(&event.payload);
+            products
+                .in_transaction(tx)
+                .update(&product, expected_version, event.event_id, effects)
+                .await
+                .map_err(map_repository_error)?;
+            events
+                .in_transaction(tx)
+                .append(&event)
+                .await
+                .map_err(|error| CanonicalProductListingWriteError::EventAppend {
+                    source: box_error(error),
+                })?;
+        }
+        Ok(CanonicalProductListingWriteResult {
+            product_listing_id: product.id(),
+            product_listing_event_id: event_id,
+            outcome: if event_id.is_some() {
+                ChangeOutcome::Changed
+            } else {
+                ChangeOutcome::Unchanged
+            },
+            auction_context_override_preserved: false,
+            auction_acceptance: None,
+            auction_membership_conflict_preserved: false,
+            auction_timing_preserved: false,
+        })
+    }
+
+    async fn create_non_auction<Tx, R, E>(
+        tx: &mut Tx,
+        products: &R,
+        events: &E,
+        command: CanonicalProductListingNonAuctionUpsert,
+    ) -> Result<CanonicalProductListingWriteResult, CanonicalProductListingWriteError>
+    where
+        R: ProductListingRepositoryFactory<Tx>,
+        E: ProductListingEventAppenderFactory<Tx>,
+    {
+        let url = match &command.url {
+            PatchField::Set(url) => url.clone(),
+            PatchField::Unchanged | PatchField::Clear => {
+                return Err(CanonicalProductListingWriteError::InvalidInput {
+                    source: box_error(std::io::Error::other("new raw listing requires URL")),
+                });
+            }
+        };
+        let title = patch_value(command.title);
+        let slug_title = title
+            .as_ref()
+            .map_or("listing", |value| value.payload.as_ref());
+        let title_slug_id = RandomProductListingTitleSlugGenerator
+            .generate(slug_title)
+            .map_err(|error| CanonicalProductListingWriteError::InvalidInput {
+                source: box_error(error),
+            })?;
+        let mut product = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id,
+            listing_source_id: command.listing_source_id,
+            source_listing_id: command.source_listing_id,
+            title,
+            description: patch_value(command.description),
+            pricing: ProductListingPricing {
+                price: patch_value(command.price),
+                price_estimate_min: patch_value(command.price_estimate_min),
+                price_estimate_max: patch_value(command.price_estimate_max),
+            },
+            availability: patch_value(command.availability),
+            url,
+            images: match command.images {
+                PatchField::Set(images) => images,
+                PatchField::Unchanged | PatchField::Clear => IndexSet::new(),
+            },
+            auction: None,
+        })
+        .map_err(|error| CanonicalProductListingWriteError::InvalidInput {
+            source: box_error(error),
+        })?;
+        let event = product
+            .take_pending_event_payload()
+            .map(|payload| {
+                stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
+            })
+            .ok_or_else(|| CanonicalProductListingWriteError::InvalidInput {
+                source: box_error(std::io::Error::other(
+                    "new listing did not produce discovery event",
+                )),
+            })?;
+        products
+            .in_transaction(tx)
+            .insert(&product, event.event_id)
+            .await
+            .map_err(map_repository_error)?;
+        events
+            .in_transaction(tx)
+            .append(&event)
+            .await
+            .map_err(|error| CanonicalProductListingWriteError::EventAppend {
+                source: box_error(error),
+            })?;
+        Ok(CanonicalProductListingWriteResult {
+            product_listing_id: product.id(),
+            product_listing_event_id: Some(event.event_id),
+            outcome: ChangeOutcome::Changed,
+            auction_context_override_preserved: false,
+            auction_acceptance: None,
+            auction_membership_conflict_preserved: false,
+            auction_timing_preserved: false,
+        })
+    }
+
     pub async fn upsert_in_transaction<'a, Tx, R, E, AR, AE, AP, AO>(
         tx: &mut Tx,
         dependencies: CanonicalProductListingWriterDependencies<'a, R, E, AR, AE, AP, AO>,
@@ -556,6 +736,32 @@ fn patch_value<T>(patch: PatchField<T>) -> Option<T> {
         PatchField::Set(value) => Some(value),
         PatchField::Unchanged | PatchField::Clear => None,
     }
+}
+
+fn apply_non_auction_update(
+    product: &mut ProductListing,
+    command: &CanonicalProductListingNonAuctionUpsert,
+) -> Result<(), CanonicalProductListingWriteError> {
+    apply_update(
+        product,
+        &CanonicalProductListingUpsert {
+            listing_source_id: command.listing_source_id,
+            source_listing_id: command.source_listing_id.clone(),
+            title: command.title.clone(),
+            description: command.description.clone(),
+            price: command.price.clone(),
+            price_estimate_min: command.price_estimate_min.clone(),
+            price_estimate_max: command.price_estimate_max.clone(),
+            availability: command.availability.clone(),
+            url: command.url.clone(),
+            images: command.images.clone(),
+            auction: PatchField::Unchanged,
+            auction_metadata: EmbeddedAuctionMetadata::default(),
+            raw_auction_capture: None,
+            isolate_raw_auction_membership_conflict: false,
+        },
+        None,
+    )
 }
 
 fn apply_update(

@@ -1,7 +1,5 @@
 use crate::network::policy::NetworkErrorKind;
-use crate::scraper::auction::{
-    extract_lot_tissimo_auction, requires_lot_tissimo_full_document_fingerprint,
-};
+
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
@@ -221,14 +219,7 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         let has_main = extract_main_fragment(&html).is_some();
-        // Lot-tissimo's qualified Auction evidence can live in document-head data
-        // layers. A main-only hash would certify that evidence unchanged before
-        // the extractor can inspect it.
-        let current_hash = if requires_lot_tissimo_full_document_fingerprint(url) {
-            hash_html(&html)
-        } else {
-            hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html))
-        };
+        let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
 
         // Obtain the effective schema set before the fast path. Selector or raw-attribute
         // changes must force extraction even when the page fragment is byte-identical.
@@ -306,12 +297,10 @@ impl ScraperService for ScraperServiceImpl {
         }
         let schema_fingerprint = fingerprint_scraper_context(&effective_schemas, fallback_currency)
             .map_err(ScraperError::SchemaFingerprint)?;
-        let auction = extract_lot_tissimo_auction(url, &selection.raw, &html);
         let raw_input = crawler_raw_input(
             &selection.raw,
             &selection.validated_image_urls,
             url,
-            auction.as_ref(),
             selection.fallback_currency,
             [
                 selection.prepared.price.is_some(),

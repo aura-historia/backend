@@ -1,8 +1,4 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
-use auction_postgres::{
-    SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
-    SqlxAuctionRepositoryFactory,
-};
 
 use api_support::{
     seed_access_token_for, seed_operator_partnership_listing_source_grant,
@@ -14,9 +10,8 @@ use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_normalization::SourcePayload;
 use product_listing_postgres::{
-    SqlxPendingProductListingRawStreamReader, SqlxProductListingAuctionOverrideRepositoryFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionHandler,
@@ -1199,10 +1194,6 @@ async fn normalize_pending_woocommerce_revisions(
         SqlxProductListingRawNormalizationWriterFactory::new(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
-        SqlxAuctionRepositoryFactory::new(),
-        SqlxAuctionEventAppenderFactory::new(),
-        SqlxAuctionMetadataPolicyRepositoryFactory::new(),
-        SqlxProductListingAuctionOverrideRepositoryFactory::new(),
         SqlxPendingProductListingRawStreamReader::new(pool),
     );
     let result = normalizer

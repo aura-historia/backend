@@ -1,17 +1,11 @@
 use application::error::BoxError;
 use async_trait::async_trait;
-use auction_core::AuctionId;
-use auction_service::{
-    AuctionAcceptanceDisposition, AuctionMetadataAcceptanceOutcome,
-    ports::{AuctionMetadataField, AuctionStorageVersion},
-};
 use domain_primitives::event_id::EventId;
 use listing_source_core::ListingSourceId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::ProductListingNormalizationInput;
 use product_listing_service::ports::{ProductListingRawRevisionId, ProductListingRawStreamId};
-use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,16 +54,6 @@ impl ProductListingRawNormalizationOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProductListingRawAuctionAcceptance {
-    pub auction_id: AuctionId,
-    pub auction_result_version: AuctionStorageVersion,
-    pub auction_event_id: Option<EventId>,
-    pub disposition: AuctionAcceptanceDisposition,
-    /// Outcomes for source-asserted Auction metadata fields, keyed by canonical field code.
-    pub metadata_fields: BTreeMap<AuctionMetadataField, AuctionMetadataAcceptanceOutcome>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductListingRawNormalizationCompletion {
     pub product_listing_raw_revision_id: ProductListingRawRevisionId,
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
@@ -78,12 +62,6 @@ pub struct ProductListingRawNormalizationCompletion {
     pub outcome: ProductListingRawNormalizationOutcome,
     pub product_listing_id: Option<ProductListingId>,
     pub product_listing_event_id: Option<EventId>,
-    /// Ordered, de-duplicated non-terminal diagnostic codes. These are persisted separately from
-    /// the terminal result code so one raw revision can safely report several isolated losses.
-    pub diagnostics:
-        Vec<product_listing_normalization::ProductListingRawValuesNormalizationDiagnostic>,
-    /// Reliable Auction acceptance evidence written with this normalization completion.
-    pub auction_acceptance: Option<ProductListingRawAuctionAcceptance>,
     pub error_code: Option<&'static str>,
     pub next_product_listing_id: Option<ProductListingId>,
     pub next_source_listing_id: Option<SourceListingId>,

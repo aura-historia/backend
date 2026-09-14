@@ -1,29 +1,24 @@
 use super::*;
-use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageValidator};
 use crate::scraper::scraper_service::util::hash::{
     fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
 use sha2::{Digest, Sha256};
 
-struct AlwaysValidImageValidator;
-
-#[async_trait::async_trait]
-impl ImageValidator for AlwaysValidImageValidator {
-    async fn validate(&self, _url: &Url) -> ImageValidation {
-        ImageValidation::Valid
-    }
-}
-
 #[tokio::test]
-async fn should_skip_fetching_and_return_none_when_hashes_match() {
+async fn should_skip_when_only_non_main_document_content_changes() {
     let id = listing_source_id();
     let url = product_url();
-    let html = sample_html();
-    let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
+    let stored_html = sample_html();
+    let matching_hash = hash_main_fragment(&stored_html).unwrap_or_else(|| hash_html(&stored_html));
+    let fetched_html = stored_html.replacen(
+        "<body>",
+        r#"<head><meta name="crawler-regression" content="changed"></head><body>"#,
+        1,
+    );
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
+        let html = fetched_html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
@@ -73,108 +68,6 @@ async fn should_skip_fetching_and_return_none_when_hashes_match() {
         .unwrap();
 
     assert!(result.is_none());
-}
-
-#[tokio::test]
-async fn should_extract_lot_tissimo_when_head_evidence_changes_outside_unchanged_main() {
-    let id = listing_source_id();
-    let url = Url::parse("https://www.lot-tissimo.com/de-de/auction-catalogues/example/catalogue-id-catalogue-42/lot-lot-7")
-        .unwrap_or_else(|error| panic!("test URL: {error}"));
-    let html = r#"<!DOCTYPE html>
-        <html>
-          <head><script>window.dataLayer.push({"lotId":"lot-7","catalogueId":"catalogue-42","lotEndDate":"2026-10-19"});</script></head>
-          <body><main><span id="product-id">SKU-42</span><h1>Biedermeier Chair</h1><span id="state">In Stock</span><img src="/chair.jpg"></main></body>
-        </html>"#
-        .to_owned();
-    // This is the obsolete stored main-only hash from the first fetch. The
-    // current document's full hash differs only in source Auction evidence.
-    let prior_main_hash =
-        hash_main_fragment(&html).unwrap_or_else(|| panic!("fixture must contain main"));
-    let schema = listing_source_product_schemas(id);
-    let schema_fingerprint = fingerprint_scraper_context(&schema.product_schemas, None)
-        .unwrap_or_else(|error| panic!("test schema must serialize: {error}"));
-
-    let fetch_url = url.clone();
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
-        let url = fetch_url.clone();
-        Box::pin(async move { Ok(fetch_result_for(html, url)) })
-    });
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let schema = schema.clone();
-            Box::pin(async move { Ok(Some(schema)) })
-        });
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let expected = expected.clone();
-            Box::pin(async move { Ok(normalization_success(expected, 0)) })
-        });
-
-    let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(MockScraperCandidateService::new()),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
-    );
-    service.image_validator = Box::new(AlwaysValidImageValidator);
-
-    let result = service
-        .scrape(
-            &id,
-            &url,
-            None,
-            Some(&prior_main_hash),
-            Some(&schema_fingerprint),
-            None,
-        )
-        .await
-        .unwrap_or_else(|error| panic!("head evidence change must scrape: {error}"))
-        .unwrap_or_else(|| panic!("head evidence change must produce raw observation"));
-
-    assert_eq!(
-        Some(&serde_json::json!({
-            "action": "SET",
-            "value": {
-                "sourceAuctionId": {"action": "SET", "value": "catalogue-42"},
-                "lotNumber": {"action": "UNCHANGED"},
-                "cataloguePosition": {"action": "UNCHANGED"},
-                "timing": {
-                    "scheduledCloses": {
-                        "action": "SET",
-                        "value": {"precision": "DATE", "value": "2026-10-19", "sourceTimezone": null}
-                    },
-                    "biddingOpens": {"action": "UNCHANGED"},
-                    "reportedClosedAt": {"action": "UNCHANGED"}
-                },
-                "auctionMetadata": {
-                    "name": null,
-                    "description": null,
-                    "catalogueUrl": "https://www.lot-tissimo.com/de-de/auction-catalogues/example/catalogue-id-catalogue-42",
-                    "format": null,
-                    "reportedStatus": null,
-                    "reportedLotCount": null,
-                    "schedule": {
-                        "biddingOpens": null,
-                        "liveStarts": null,
-                        "lotsBeginClosing": null,
-                        "scheduledEnd": null
-                    }
-                }
-            }
-        })),
-        result.raw_input.raw_values().value().get("auction")
-    );
 }
 
 #[test]

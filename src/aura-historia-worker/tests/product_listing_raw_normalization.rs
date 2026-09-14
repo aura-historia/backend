@@ -1,8 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use auction_postgres::{
-    SqlxAuctionEventAppenderFactory, SqlxAuctionMetadataPolicyRepositoryFactory,
-    SqlxAuctionRepositoryFactory,
-};
+
 use aura_historia_worker::{
     WorkerRunError, WorkerScope,
     product_listing_raw_normalization::consume_product_listing_raw_normalization_queue,
@@ -16,9 +13,9 @@ use product_listing_normalization::{
     SourcePayload,
 };
 use product_listing_postgres::{
-    SqlxPendingProductListingRawStreamReader, SqlxProductListingAuctionOverrideRepositoryFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
-    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRawNormalizationWriterFactory,
+    SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::ports::{
     ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
@@ -111,96 +108,6 @@ async fn should_reconcile_preexisting_revisions_and_process_sequin_redelivery_id
 
     if let Err(error) = result {
         panic!("raw normalization worker test failed: {error}");
-    }
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SQS, WORKER_SEQUIN])]
-async fn should_terminally_reject_malformed_current_auction_timing_from_cdc() {
-    let result: Result<(), Box<dyn std::error::Error>> = async {
-        let pool = get_postgres_client().await;
-        let listing_source_id = seed_listing_source(&pool, "raw-malformed-timing-worker").await?;
-        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-        let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
-        let captured = capture(
-            &unit_of_work,
-            &capture_writer,
-            raw_write_with_auction(
-                listing_source_id,
-                "malformed-timing",
-                44,
-                "EUR 100",
-                json!({"action": "SET", "value": {
-                    "sourceAuctionId": {"action": "SET", "value": "invalid-timing-catalogue"},
-                    "timing": {
-                        "scheduledCloses": {"action": "NOT_A_SUPPORTED_ACTION"}
-                    }
-                }}),
-            ),
-        )
-        .await?;
-        let (stream_id, revision_id, _) = changed_parts(captured)?;
-
-        let worker = RawNormalizationWorker::start(pool.clone()).await?;
-        let work_result: Result<(), Box<dyn std::error::Error>> = async {
-            wait_for_normalization(&pool, *revision_id.as_uuid(), 1).await?;
-            let completion: (String, Option<String>) = sqlx::query_as(
-                "SELECT outcome, error_code FROM product_listing_raw_normalizations \
-                 WHERE product_listing_raw_revision_id = $1",
-            )
-            .bind(revision_id.as_uuid())
-            .fetch_one(&pool)
-            .await?;
-            assert_eq!(
-                ("REJECTED".to_owned(), Some("RAW_VALUES_INVALID".to_owned())),
-                completion
-            );
-            let head: i64 = sqlx::query_scalar(
-                "SELECT last_processed_revision FROM product_listing_raw_normalization_heads \
-                 WHERE product_listing_raw_stream_id = $1",
-            )
-            .bind(stream_id.as_uuid())
-            .fetch_one(&pool)
-            .await?;
-            assert_eq!(1, head);
-            let listing_count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listings")
-                .fetch_one(&pool)
-                .await?;
-            let listing_event_count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM product_listing_events")
-                    .fetch_one(&pool)
-                    .await?;
-            let auction_count: i64 = sqlx::query_scalar("SELECT count(*) FROM auctions")
-                .fetch_one(&pool)
-                .await?;
-            assert_eq!(
-                0, listing_count,
-                "malformed timing must not write a listing"
-            );
-            assert_eq!(
-                0, listing_event_count,
-                "malformed timing must not write a listing event"
-            );
-            assert_eq!(
-                0, auction_count,
-                "malformed timing must not write an Auction"
-            );
-            let acceptance_count: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM product_listing_raw_auction_acceptances \
-                 WHERE product_listing_raw_revision_id = $1",
-            )
-            .bind(revision_id.as_uuid())
-            .fetch_one(&pool)
-            .await?;
-            assert_eq!(0, acceptance_count);
-            Ok(())
-        }
-        .await;
-        worker.finish(work_result).await
-    }
-    .await;
-
-    if let Err(error) = result {
-        panic!("malformed raw timing worker test failed: {error}");
     }
 }
 
@@ -411,10 +318,6 @@ impl RawNormalizationWorker {
                 SqlxProductListingRawNormalizationWriterFactory::new(),
                 SqlxProductListingRepositoryFactory::new(),
                 SqlxProductListingEventAppenderFactory::new(),
-                SqlxAuctionRepositoryFactory::new(),
-                SqlxAuctionEventAppenderFactory::new(),
-                SqlxAuctionMetadataPolicyRepositoryFactory::new(),
-                SqlxProductListingAuctionOverrideRepositoryFactory::new(),
                 SqlxPendingProductListingRawStreamReader::new(pool),
             ));
         let (runtime, receiver) = support::composition(SCOPE).await?.into_parts();
@@ -545,22 +448,6 @@ fn raw_write(
     hash_byte: u8,
     price: &str,
 ) -> ProductListingRawCaptureWrite {
-    raw_write_with_auction(
-        listing_source_id,
-        record_key,
-        hash_byte,
-        price,
-        json!({"action": "UNCHANGED"}),
-    )
-}
-
-fn raw_write_with_auction(
-    listing_source_id: ListingSourceId,
-    record_key: &str,
-    hash_byte: u8,
-    price: &str,
-    auction: serde_json::Value,
-) -> ProductListingRawCaptureWrite {
     let input = ProductListingNormalizationInput::new(
         RawProductListingOperation::Upsert,
         RawProductListingPayloadFormat::WoocommerceProduct,
@@ -579,7 +466,6 @@ fn raw_write_with_auction(
             "availability": {"action": "SET", "value": "in stock"},
             "url": {"action": "SET", "value": "https://example.test/listings/worker-source-123"},
             "images": {"action": "SET", "value": ["/images/worker-source-123.jpg"]},
-            "auction": auction,
             "attributes": {}
         }))
         .unwrap_or_else(|error| panic!("raw values: {error}")),

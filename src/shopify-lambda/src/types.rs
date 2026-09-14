@@ -224,7 +224,6 @@ fn active_raw_values(
                 .map(|image| image.src.clone())
                 .collect(),
         ),
-        auction: ProductListingRawValuesPatch::Unchanged,
         attributes: Default::default(),
     };
     serde_json::to_value(raw_values)

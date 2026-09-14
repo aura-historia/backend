@@ -1,15 +1,12 @@
 //! Crawler-owned mapping from selected CSS extraction output to the generic raw-input contract.
 
-use crate::scraper::auction::CrawlerAuctionEvidence;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use money::Currency;
 use product_listing_normalization::{
     NormalizationContext, NormalizationInputError, ProductListingNormalizationInput,
-    ProductListingRawValues, ProductListingRawValuesAuction,
-    ProductListingRawValuesAuctionMetadata, ProductListingRawValuesAuctionTime,
-    ProductListingRawValuesLotAuctionTiming, ProductListingRawValuesPatch,
-    ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
-    RawProductListingProvenance, RawProductListingValues, SourcePayload,
+    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat, RawProductListingOperation,
+    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
+    SourcePayload,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -25,7 +22,6 @@ pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
     candidate_url: &Url,
-    auction: Option<&CrawlerAuctionEvidence>,
     fallback_currency: Option<Currency>,
     resolved_price_fields: [bool; 3],
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
@@ -42,27 +38,19 @@ pub(crate) fn crawler_raw_input(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let auction = auction
-        .map(crawler_auction_patch)
-        .transpose()?
-        .unwrap_or(ProductListingRawValuesPatch::Unchanged);
-    let raw_values = ProductListingRawValues {
-        source_listing_id: raw.source_listing_id.clone(),
-        title: ProductListingRawValuesPatch::Set(raw.title.clone()),
-        description: ProductListingRawValuesPatch::Set(raw.description.clone()),
-        price_format: ProductListingRawValuesPriceFormat::DisplayText,
-        price: price_patch(raw.price.clone(), resolved_price_fields[0]),
-        price_estimate_min: price_patch(raw.price_estimate_min.clone(), resolved_price_fields[1]),
-        price_estimate_max: price_patch(raw.price_estimate_max.clone(), resolved_price_fields[2]),
-        availability: ProductListingRawValuesPatch::Set(raw.state.clone()),
-        url: ProductListingRawValuesPatch::Set(candidate_url.to_string()),
-        images: ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
-        auction,
-        attributes,
-    };
-    let raw_values = serde_json::to_value(raw_values)
-        .map_err(NormalizationInputError::JsonSerialization)
-        .and_then(RawProductListingValues::new)?;
+    let raw_values = RawProductListingValues::new(json!({
+        "sourceListingId": raw.source_listing_id,
+        "title": ProductListingRawValuesPatch::Set(raw.title.clone()),
+        "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
+        "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
+        "price": price_patch(raw.price.clone(), resolved_price_fields[0]),
+        "priceEstimateMin": price_patch(raw.price_estimate_min.clone(), resolved_price_fields[1]),
+        "priceEstimateMax": price_patch(raw.price_estimate_max.clone(), resolved_price_fields[2]),
+        "availability": ProductListingRawValuesPatch::Set(raw.state.clone()),
+        "url": ProductListingRawValuesPatch::Set(candidate_url.to_string()),
+        "images": ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
+        "attributes": attributes,
+    }))?;
     let context = NormalizationContext::new(json!({
         "baseUrl": candidate_url,
         "fallbackCurrency": fallback_currency.map(|currency| currency.as_str()),
@@ -111,54 +99,6 @@ pub(crate) fn crawler_provenance(
     }))
 }
 
-fn crawler_auction_patch(
-    evidence: &CrawlerAuctionEvidence,
-) -> Result<ProductListingRawValuesPatch<ProductListingRawValuesAuction>, NormalizationInputError> {
-    let timing = ProductListingRawValuesLotAuctionTiming {
-        bidding_opens: date_patch(evidence.lot_bidding_opens.clone()),
-        scheduled_closes: date_patch(evidence.lot_scheduled_closes.clone()),
-        reported_closed_at: ProductListingRawValuesPatch::Unchanged,
-    };
-    let has_timing =
-        evidence.lot_bidding_opens.is_some() || evidence.lot_scheduled_closes.is_some();
-
-    Ok(ProductListingRawValuesPatch::Set(
-        ProductListingRawValuesAuction {
-            source_auction_id: optional_set_patch(evidence.source_auction_id.clone()),
-            lot_number: optional_set_patch(evidence.lot_number.clone()),
-            catalogue_position: ProductListingRawValuesPatch::Unchanged,
-            timing: has_timing.then_some(timing),
-            auction_metadata: ProductListingRawValuesAuctionMetadata {
-                name: evidence.name.clone(),
-                description: None,
-                catalogue_url: evidence.catalogue_url.clone(),
-                format: None,
-                reported_status: None,
-                reported_lot_count: None,
-                schedule: Default::default(),
-            },
-        },
-    ))
-}
-
-fn date_patch(
-    value: Option<String>,
-) -> ProductListingRawValuesPatch<ProductListingRawValuesAuctionTime> {
-    value.map_or(ProductListingRawValuesPatch::Unchanged, |value| {
-        ProductListingRawValuesPatch::Set(ProductListingRawValuesAuctionTime::Date {
-            value,
-            source_timezone: None,
-        })
-    })
-}
-
-fn optional_set_patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
-    value.map_or(
-        ProductListingRawValuesPatch::Unchanged,
-        ProductListingRawValuesPatch::Set,
-    )
-}
-
 fn price_patch(value: Option<String>, resolved: bool) -> ProductListingRawValuesPatch<String> {
     if resolved {
         patch(value)
@@ -178,9 +118,6 @@ fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
 mod tests {
     use super::*;
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
-    use product_listing_normalization::{
-        ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
-    };
 
     fn raw() -> RawExtractedProduct {
         RawExtractedProduct {
@@ -206,7 +143,6 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
-            None,
             Some(Currency::Eur),
             [true, false, false],
         )?;
@@ -219,219 +155,10 @@ mod tests {
             Some(&serde_json::json!({"action": "SET", "value": "100 EUR"})),
             input.raw_values().value().get("price")
         );
-        assert_eq!(
-            Some(&serde_json::json!({"action": "UNCHANGED"})),
-            input.raw_values().value().get("auction")
-        );
+        assert!(input.raw_values().value().get("auction").is_none());
         assert_eq!(
             Some(&serde_json::json!(["/chair.jpg"])),
             input.source_payload().value().get("images")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_map_fixture_backed_auction_evidence_to_current_raw_context()
-    -> Result<(), NormalizationInputError> {
-        let url = Url::parse(
-            "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033/lot-a2850590-e73c-4cce-9386-b3fd00b49bfd",
-        )
-        .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
-        let extracted = raw();
-        let evidence = CrawlerAuctionEvidence {
-            source_auction_id: Some("leipzig10033".to_owned()),
-            catalogue_url: Some(
-                "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033".to_owned(),
-            ),
-            name: Some("Auktion 9".to_owned()),
-            lot_number: Some("54".to_owned()),
-            lot_bidding_opens: Some("2026-04-18".to_owned()),
-            lot_scheduled_closes: None,
-        };
-
-        let input = crawler_raw_input(
-            &extracted,
-            &extracted.images,
-            &url,
-            Some(&evidence),
-            Some(Currency::Eur),
-            [true, false, false],
-        )?;
-
-        assert_eq!(
-            Some(&serde_json::json!({
-                "action": "SET",
-                "value": {
-                    "sourceAuctionId": {"action": "SET", "value": "leipzig10033"},
-                    "lotNumber": {"action": "SET", "value": "54"},
-                    "cataloguePosition": {"action": "UNCHANGED"},
-                    "timing": {
-                        "biddingOpens": {
-                            "action": "SET",
-                            "value": {
-                                "precision": "DATE",
-                                "value": "2026-04-18",
-                                "sourceTimezone": null
-                            }
-                        },
-                        "scheduledCloses": {"action": "UNCHANGED"},
-                        "reportedClosedAt": {"action": "UNCHANGED"}
-                    },
-                    "auctionMetadata": {
-                        "name": "Auktion 9",
-                        "description": null,
-                        "catalogueUrl": "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033",
-                        "format": null,
-                        "reportedStatus": null,
-                        "reportedLotCount": null,
-                        "schedule": {
-                            "biddingOpens": null,
-                            "liveStarts": null,
-                            "lotsBeginClosing": null,
-                            "scheduledEnd": null
-                        }
-                    }
-                }
-            })),
-            input.raw_values().value().get("auction")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_map_qualified_lot_deadline_without_using_live_schedule_metadata()
-    -> Result<(), NormalizationInputError> {
-        let url = Url::parse("https://example.com/products/1")
-            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
-        let evidence = CrawlerAuctionEvidence {
-            source_auction_id: Some("leipzig10033".to_owned()),
-            catalogue_url: None,
-            name: None,
-            lot_number: None,
-            lot_bidding_opens: None,
-            lot_scheduled_closes: Some("2026-04-18".to_owned()),
-        };
-        let input = crawler_raw_input(
-            &raw(),
-            &[],
-            &url,
-            Some(&evidence),
-            Some(Currency::Eur),
-            [true, false, false],
-        )?;
-
-        assert_eq!(
-            Some(&serde_json::json!({
-                "action": "SET",
-                "value": {"precision": "DATE", "value": "2026-04-18", "sourceTimezone": null}
-            })),
-            input.raw_values().value()["auction"]["value"]["timing"].get("scheduledCloses")
-        );
-        assert!(
-            input.raw_values().value()["auction"]["value"]["auctionMetadata"]["schedule"]
-                .get("liveStarts")
-                .is_some_and(serde_json::Value::is_null)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_keep_reliable_participation_when_source_identity_is_absent()
-    -> Result<(), NormalizationInputError> {
-        let url = Url::parse("https://example.com/products/1")
-            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
-        let evidence = CrawlerAuctionEvidence {
-            source_auction_id: None,
-            catalogue_url: None,
-            name: None,
-            lot_number: Some("54".to_owned()),
-            lot_bidding_opens: None,
-            lot_scheduled_closes: None,
-        };
-        let input = crawler_raw_input(
-            &raw(),
-            &[],
-            &url,
-            Some(&evidence),
-            Some(Currency::Eur),
-            [true, false, false],
-        )?;
-
-        assert_eq!(
-            Some(&serde_json::json!({
-                "action": "SET",
-                "value": {
-                    "sourceAuctionId": {"action": "UNCHANGED"},
-                    "lotNumber": {"action": "SET", "value": "54"},
-                    "cataloguePosition": {"action": "UNCHANGED"},
-                    "timing": null,
-                    "auctionMetadata": {
-                        "name": null,
-                        "description": null,
-                        "catalogueUrl": null,
-                        "format": null,
-                        "reportedStatus": null,
-                        "reportedLotCount": null,
-                        "schedule": {
-                            "biddingOpens": null,
-                            "liveStarts": null,
-                            "lotsBeginClosing": null,
-                            "scheduledEnd": null
-                        }
-                    }
-                }
-            })),
-            input.raw_values().value().get("auction")
-        );
-        let resolved = ProductListingRawValuesNormalizer::new().normalize(&input);
-        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) = resolved else {
-            panic!("reliable participation must be a valid current raw context");
-        };
-        assert!(matches!(
-            resolved.auction,
-            ProductListingRawValuesPatch::Set(ref auction)
-                if matches!(auction.source_auction_id, ProductListingRawValuesPatch::Unchanged)
-                    && matches!(auction.lot_number, ProductListingRawValuesPatch::Set(_))
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn should_map_id_only_evidence_without_inventing_name_or_lot()
-    -> Result<(), NormalizationInputError> {
-        let url = Url::parse("https://example.com/products/1")
-            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
-        let evidence = CrawlerAuctionEvidence {
-            source_auction_id: Some("leipzig10033".to_owned()),
-            catalogue_url: None,
-            name: None,
-            lot_number: None,
-            lot_bidding_opens: None,
-            lot_scheduled_closes: None,
-        };
-        let input = crawler_raw_input(
-            &raw(),
-            &[],
-            &url,
-            Some(&evidence),
-            Some(Currency::Eur),
-            [true, false, false],
-        )?;
-
-        assert_eq!(
-            Some(&serde_json::json!({"action": "SET", "value": "leipzig10033"})),
-            input.raw_values().value()["auction"]
-                .get("value")
-                .and_then(|value| value.get("sourceAuctionId"))
-        );
-        assert_eq!(
-            Some(&serde_json::json!({"action": "UNCHANGED"})),
-            input.raw_values().value()["auction"]
-                .get("value")
-                .and_then(|value| value.get("lotNumber"))
-        );
-        assert!(
-            input.raw_values().value()["auction"]["value"]["auctionMetadata"]["name"].is_null()
         );
         Ok(())
     }
@@ -447,7 +174,6 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
-            None,
             None,
             [false, false, false],
         )?;
@@ -485,7 +211,6 @@ mod tests {
             &extracted,
             &validated_image_urls,
             &url,
-            None,
             Some(Currency::Eur),
             [true, false, false],
         )?;
@@ -526,7 +251,6 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
-            None,
             Some(Currency::Eur),
             [true, false, false],
         )?
@@ -539,7 +263,6 @@ mod tests {
             &changed,
             &changed.images,
             &url,
-            None,
             Some(Currency::Eur),
             [true, false, false],
         )?
