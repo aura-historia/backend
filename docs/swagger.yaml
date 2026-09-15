@@ -269,11 +269,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuctionAdminData"
         "400":
-          {
-            description: Invalid body,
-            expectedVersion,
-            or schedule (`BAD_BODY_VALUE`).,
-          }
+          description: "Invalid body, expectedVersion, or schedule (`BAD_BODY_VALUE`)."
         "401":
           {
             description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
@@ -1997,7 +1993,7 @@ paths:
 
             "
           schema:
-            $ref: "#/components/schemas/ProductListingSearchCursorData"
+            type: string
           example: '{"fxRateId":"fx_0cwktgjtwnf4tb6hf2f8zm0x5k","searchAfter":[2999,"pl_5xdb465tg1enarx2knf04mxbxj"]}'
         - name: size
           in: query
@@ -4679,7 +4675,6 @@ paths:
           schema:
             type: string
           example: usr_01jw7j4azge008000000000004
-        - name: sort
         - name: size
           in: query
           required: false
@@ -16759,6 +16754,7 @@ x-tagGroups:
     tags:
       - ProductListings
       - ListingSources
+      - Auctions
   - name: User Experience
     tags:
       - Search Filters
@@ -16774,6 +16770,8 @@ x-tagGroups:
       - OAuth
 
 tags:
+  - name: Auctions
+    description: Public Auction discovery, catalogue reads, and administrator Auction management.
   - name: ProductListings
     description:
       Product retrieval, product history, similar-product discovery, product search, and partner catalog ingestion

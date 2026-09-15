@@ -233,7 +233,6 @@
             },
             "lotBiddingOpensAt": {"type": "date", "format": "strict_date_time"},
             "lotScheduledClosesAt": {"type": "date", "format": "strict_date_time"},
-            "lotReportedClosedAt": {"type": "date", "format": "strict_date_time"},
             "embedding": {
                 "type": "knn_vector",
                 "dimension": 768,

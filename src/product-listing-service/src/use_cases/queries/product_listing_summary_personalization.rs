@@ -232,9 +232,6 @@ fn redact_hidden_product_search_item(
             }
         })?;
     product.item.auction_id = None;
-    product.item.lot_bidding_opens_at = None;
-    product.item.lot_scheduled_closes_at = None;
-    product.item.lot_reported_closed_at = None;
     product.item.title = Some(Localized::new(language, hidden_title(language)));
     product.item.display_price = None;
     product.item.availability = None;
@@ -300,7 +297,6 @@ mod tests {
         product_listing_image::ProductListingImage,
     };
     use std::{collections::HashMap, sync::Mutex};
-    use time::macros::datetime;
 
     struct RecordingListingSourceSummaryReader {
         summaries: HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
@@ -334,9 +330,6 @@ mod tests {
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             auction_id: None,
-            lot_bidding_opens_at: None,
-            lot_scheduled_closes_at: None,
-            lot_reported_closed_at: None,
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(
                 product_listing_core::product_listing_price::ProductListingPrice::from(Price::new(
@@ -447,9 +440,6 @@ mod tests {
         let mut item = search_item(listing_source_id);
         item.product_listing_id = product_listing_id;
         item.auction_id = Some(auction_id);
-        item.lot_bidding_opens_at = Some(datetime!(2026-10-18 15:00 UTC));
-        item.lot_scheduled_closes_at = Some(datetime!(2026-10-18 16:00 UTC));
-        item.lot_reported_closed_at = Some(datetime!(2026-10-18 17:00 UTC));
         let source = ListingSourceSummary {
             listing_source_id,
             name: ListingSourceName::try_from("Source")

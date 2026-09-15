@@ -1502,9 +1502,6 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("withdrawn-1")?,
             auction_id: None,
-            lot_bidding_opens_at: None,
-            lot_scheduled_closes_at: None,
-            lot_reported_closed_at: None,
             title: None,
             display_price: None,
             price_valuation: ProductListingSummaryPriceValuation::Current {

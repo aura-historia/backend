@@ -98,11 +98,6 @@ struct ProductListingPercolationDocument {
         skip_serializing_if = "Option::is_none"
     )]
     lot_scheduled_closes_at: Option<OffsetDateTime>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    lot_reported_closed_at: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -179,7 +174,6 @@ fn build_product_listing_percolation_document(
             .collect(),
         lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
         lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
-        lot_reported_closed_at: lot_reported_closed_at(product.auction.as_ref()),
         created: product.created,
         updated: product.updated,
     }
@@ -195,12 +189,6 @@ fn exact_lot_scheduled_closes_at(
     auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
 ) -> Option<OffsetDateTime> {
     auction.and_then(|auction| auction.scheduled_closes())
-}
-
-fn lot_reported_closed_at(
-    auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
-) -> Option<OffsetDateTime> {
-    auction.and_then(|auction| auction.reported_closed_at())
 }
 
 fn percolation_prices(
@@ -268,7 +256,6 @@ pub(crate) fn product_listing_document(
         embedding: product.embedding.clone(),
         lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
         lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
-        lot_reported_closed_at: lot_reported_closed_at(product.auction.as_ref()),
         created: product.created,
         updated: product.updated,
     })
@@ -629,7 +616,7 @@ mod tests {
         assert!(paths.contains("titleIt"));
         assert!(paths.contains("lotBiddingOpensAt"));
         assert!(paths.contains("lotScheduledClosesAt"));
-        assert!(paths.contains("lotReportedClosedAt"));
+        assert!(!paths.contains("lotReportedClosedAt"));
         assert!(!paths.iter().any(|path| path.contains("auctionId")));
         Ok(())
     }
@@ -668,12 +655,7 @@ mod tests {
                 )),
                 document.get("lotScheduledClosesAt"),
             );
-            assert_eq!(
-                Some(&serde_json::json!(
-                    reported_closed_at.format(&time::format_description::well_known::Rfc3339)?
-                )),
-                document.get("lotReportedClosedAt"),
-            );
+            assert!(document.get("lotReportedClosedAt").is_none());
             assert!(document.get("auctionId").is_none());
         }
         Ok(())

@@ -290,6 +290,74 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reconcile_free_auction_id_filter_and_reactivate_for_pro() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let user_id = seed_user(&pool, "tier-entitlements-auction-id@example.com", "FREE").await;
+    let filter_id = uuid::Uuid::now_v7();
+    let auction_id = uuid::Uuid::now_v7();
+    let created = OffsetDateTime::now_utc();
+
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, created, updated) VALUES ($1, $2, 'auction filter', 'ACTIVE', $3, 'en', 'EUR', $4, $4)",
+    )
+    .bind(filter_id)
+    .bind(user_id.into_uuid())
+    .bind(serde_json::json!({
+        "auction_id_query": [auction_id.to_string()]
+    }))
+    .bind(created)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed Auction-ID search filter: {error:?}"));
+
+    let initial_version = version_for_search_filter(&pool, filter_id).await;
+    let mut tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile FREE tier entitlements: {error:?}"));
+    commit(tx).await;
+
+    assert_eq!(
+        "INACTIVE_BY_RESTRICTED_PLAN",
+        state_for_search_filter(&pool, filter_id).await
+    );
+    assert_eq!(
+        initial_version + 1,
+        version_for_search_filter(&pool, filter_id).await
+    );
+
+    let mut tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to lock user tier for PRO reconciliation: {error:?}")
+        });
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, UserTier::Pro)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile PRO tier entitlements: {error:?}"));
+    commit(tx).await;
+
+    assert_eq!("ACTIVE", state_for_search_filter(&pool, filter_id).await);
+    assert_eq!(
+        initial_version + 2,
+        version_for_search_filter(&pool, filter_id).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -509,6 +577,14 @@ async fn state_for_search_filter(pool: &sqlx::PgPool, filter_id: uuid::Uuid) -> 
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read search filter state: {error:?}"))
+}
+
+async fn version_for_search_filter(pool: &sqlx::PgPool, filter_id: uuid::Uuid) -> i64 {
+    sqlx::query_scalar("SELECT version FROM search_filters WHERE user_search_filter_id = $1")
+        .bind(filter_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read search filter version: {error:?}"))
 }
 
 async fn state_for_watchlist_entry(

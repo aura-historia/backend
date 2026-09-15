@@ -295,10 +295,6 @@
                 "type": "date",
                 "format": "strict_date_time"
             },
-            "lotReportedClosedAt": {
-                "type": "date",
-                "format": "strict_date_time"
-            },
             "created": {
                 "type": "date",
                 "format": "strict_date_time"

@@ -131,7 +131,17 @@ where
     E: AuctionEventAppenderFactory<U::Tx>,
     A: CheckUserAdminUseCase,
 {
-    #[tracing::instrument(name = "update_auction", skip_all, fields(auction_id = %command.auction_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(
+        name = "update_auction",
+        skip_all,
+        fields(
+            auction_id = %command.auction_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -144,6 +154,11 @@ where
             UpdateAuctionError::AuthenticatedActorRequired,
         )
         .await?;
+
+        let actor_id = context.principal.actor_id();
+        if let Some(actor_id) = actor_id.as_deref() {
+            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+        }
 
         let mut tx = self
             .unit_of_work
@@ -184,7 +199,16 @@ where
         tx.commit()
             .await
             .map_err(|_| UpdateAuctionError::CommitTransactionFailed)?;
-        tracing::info!(event = "auction.updated", auction_id = %command.auction_id, actor_type = context.principal.kind(), changed = changed.changed(), outcome = "success");
+        tracing::info!(
+            event = "auction.updated",
+            actor_type = context.principal.kind(),
+            actor_id = %actor_id.as_deref().unwrap_or(""),
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            auction_id = %command.auction_id,
+            changed = changed.changed(),
+            outcome = "success",
+        );
         Ok(AuctionAdminDetailsView::from_details(
             crate::ports::AuctionDetails { stored: persisted },
         ))
@@ -306,9 +330,403 @@ impl From<AuctionEventAppendError> for UpdateAuctionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{
+        AuctionEvent, AuctionEventAppendError, AuctionEventAppender, AuctionEventAppenderFactory,
+        AuctionRepository, AuctionRepositoryError, AuctionRepositoryFactory, StoredAuction,
+    };
+    use application::{
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::{TransactionError, UnitOfWork},
+    };
     use auction_core::{Auction, AuctionKey, NewAuction, SourceAuctionId};
     use listing_source_core::ListingSourceId;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
     use time::macros::datetime;
+    use user_core::user_id::UserId;
+    use user_service::use_cases::queries::check_user_admin::{
+        CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminResult, CheckUserAdminUseCase,
+    };
+
+    #[derive(Default)]
+    struct State {
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        updates: usize,
+        event_appends: usize,
+        admin_checks: usize,
+        repository_transaction_ids: Vec<u64>,
+        event_transaction_ids: Vec<u64>,
+        finds: VecDeque<Option<StoredAuction>>,
+        event_results: VecDeque<Result<(), AuctionEventAppendError>>,
+        admin_results: VecDeque<Result<CheckUserAdminResult, CheckUserAdminError>>,
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    #[derive(Clone)]
+    struct UnitOfWorkFake(SharedState);
+
+    struct TransactionFake {
+        id: u64,
+        state: SharedState,
+        committed: bool,
+    }
+
+    impl Drop for TransactionFake {
+        fn drop(&mut self) {
+            if !self.committed {
+                lock(&self.state).rollbacks += 1;
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct AuctionsFake(SharedState);
+
+    struct AuctionRepositoryFake<'tx> {
+        state: SharedState,
+        tx: &'tx mut TransactionFake,
+    }
+
+    #[derive(Clone)]
+    struct EventsFake(SharedState);
+
+    struct EventAppenderFake<'tx> {
+        state: SharedState,
+        tx: &'tx mut TransactionFake,
+    }
+
+    #[derive(Clone)]
+    struct AdminCheckFake(SharedState);
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = TransactionFake;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let id = {
+                let mut state = lock(&self.0);
+                state.begins += 1;
+                state.begins as u64
+            };
+            Ok(TransactionFake {
+                id,
+                state: Arc::clone(&self.0),
+                committed: false,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TransactionFake {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            self.committed = true;
+            lock(&self.state).commits += 1;
+            Ok(())
+        }
+    }
+
+    impl AuctionRepositoryFactory<TransactionFake> for AuctionsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            tx: &'tx mut TransactionFake,
+        ) -> impl AuctionRepository + 'tx {
+            AuctionRepositoryFake {
+                state: Arc::clone(&self.0),
+                tx,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionRepository for AuctionRepositoryFake<'_> {
+        async fn find_by_id(
+            &mut self,
+            _: AuctionId,
+        ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
+            Ok(lock(&self.state).finds.pop_front().flatten())
+        }
+
+        async fn insert(&mut self, _: &Auction) -> Result<StoredAuction, AuctionRepositoryError> {
+            Err(AuctionRepositoryError::Internal {
+                source: Box::new(std::io::Error::other("auction insert not used")),
+            })
+        }
+
+        async fn update(
+            &mut self,
+            auction: &Auction,
+            expected_version: AuctionStorageVersion,
+        ) -> Result<StoredAuction, AuctionRepositoryError> {
+            let transaction_id = self.tx.id;
+            let mut state = lock(&self.state);
+            state.updates += 1;
+            state.repository_transaction_ids.push(transaction_id);
+            let now = OffsetDateTime::now_utc();
+            Ok(StoredAuction {
+                auction: auction.clone(),
+                version: expected_version.next(),
+                created: now,
+                updated: now,
+            })
+        }
+    }
+
+    impl AuctionEventAppenderFactory<TransactionFake> for EventsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            tx: &'tx mut TransactionFake,
+        ) -> impl AuctionEventAppender + 'tx {
+            EventAppenderFake {
+                state: Arc::clone(&self.0),
+                tx,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionEventAppender for EventAppenderFake<'_> {
+        async fn append(&mut self, _: &AuctionEvent) -> Result<(), AuctionEventAppendError> {
+            let transaction_id = self.tx.id;
+            let mut state = lock(&self.state);
+            state.event_appends += 1;
+            state.event_transaction_ids.push(transaction_id);
+            state.event_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for AdminCheckFake {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: CheckUserAdminRequest,
+        ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+            let mut state = lock(&self.0);
+            state.admin_checks += 1;
+            state
+                .admin_results
+                .pop_front()
+                .unwrap_or(Ok(CheckUserAdminResult))
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn stored_auction() -> StoredAuction {
+        let mut auction = Auction::create(NewAuction {
+            id: AuctionId::new(),
+            key: AuctionKey::new(
+                ListingSourceId::new(),
+                SourceAuctionId::try_from("source-auction")
+                    .unwrap_or_else(|error| panic!("valid source auction ID: {error}")),
+            ),
+            name: None,
+            description: None,
+            catalogue_url: None,
+            format: None,
+            schedule: AuctionSchedule::default(),
+            reported_status: None,
+            reported_lot_count: None,
+        })
+        .unwrap_or_else(|error| panic!("valid Auction: {error}"));
+        let _ = auction.take_pending_event_payload();
+        let now = OffsetDateTime::now_utc();
+        StoredAuction {
+            auction,
+            version: AuctionStorageVersion::INITIAL,
+            created: now,
+            updated: now,
+        }
+    }
+
+    fn command(
+        auction_id: AuctionId,
+        expected_version: AuctionStorageVersion,
+    ) -> UpdateAuctionCommand {
+        UpdateAuctionCommand {
+            auction_id,
+            expected_version,
+            name: PatchField::Unchanged,
+            description: PatchField::Unchanged,
+            catalogue_url: PatchField::Unchanged,
+            format: PatchField::Unchanged,
+            schedule: AuctionSchedulePatch::default(),
+            reported_status: PatchField::Unchanged,
+            reported_lot_count: PatchField::Unchanged,
+        }
+    }
+
+    fn changed_command(
+        auction_id: AuctionId,
+        expected_version: AuctionStorageVersion,
+    ) -> UpdateAuctionCommand {
+        UpdateAuctionCommand {
+            schedule: AuctionSchedulePatch {
+                live_starts: PatchField::Set(datetime!(2026-10-18 16:03 UTC)),
+                ..Default::default()
+            },
+            ..command(auction_id, expected_version)
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> UpdateAuctionHandler<UnitOfWorkFake, AuctionsFake, EventsFake, AdminCheckFake> {
+        UpdateAuctionHandler::new(
+            UnitOfWorkFake(Arc::clone(state)),
+            AuctionsFake(Arc::clone(state)),
+            EventsFake(Arc::clone(state)),
+            AdminCheckFake(Arc::clone(state)),
+        )
+    }
+
+    fn event_append_failure() -> AuctionEventAppendError {
+        AuctionEventAppendError::AuctionEventAppendFailed {
+            source: Box::new(std::io::Error::other("auction event append failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_return_concurrency_conflict_without_updating_or_appending_for_stale_version() {
+        let stored = stored_auction();
+        let auction_id = stored.auction.id();
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(stored)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                command(auction_id, AuctionStorageVersion::INITIAL.next()),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UpdateAuctionError::ConcurrencyConflict)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.updates, state.event_appends), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_commit_without_persistence_for_semantic_noop() {
+        let stored = stored_auction();
+        let auction_id = stored.auction.id();
+        let expected_version = stored.version;
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(stored)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), command(auction_id, expected_version))
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(AuctionAdminDetailsView { version, .. }) if version == expected_version
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_update_and_append_once_and_commit_once_for_real_change() {
+        let stored = stored_auction();
+        let auction_id = stored.auction.id();
+        let expected_version = stored.version;
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(stored)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), changed_command(auction_id, expected_version))
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(AuctionAdminDetailsView { version, .. }) if version == expected_version.next()
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (1, 1));
+        assert_eq!(state.repository_transaction_ids, vec![1]);
+        assert_eq!(state.event_transaction_ids, vec![1]);
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_event_append_fails() {
+        let stored = stored_auction();
+        let auction_id = stored.auction.id();
+        let expected_version = stored.version;
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(stored)]),
+            event_results: VecDeque::from([Err(event_append_failure())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), changed_command(auction_id, expected_version))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UpdateAuctionError::EventPersistenceFailed { .. })
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.updates, state.event_appends), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_reject_authorization_before_beginning_mutation_transaction() {
+        let state = Arc::new(Mutex::new(State {
+            admin_results: VecDeque::from([Err(CheckUserAdminError::Forbidden)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                command(AuctionId::new(), AuctionStorageVersion::INITIAL),
+            )
+            .await;
+
+        assert!(matches!(result, Err(UpdateAuctionError::Forbidden)));
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.updates,
+                state.event_appends,
+                state.admin_checks,
+            ),
+            (0, 0, 0, 0, 0, 1)
+        );
+    }
 
     #[test]
     fn should_replace_one_schedule_instant() {

@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use auction_core::{Auction, AuctionId, AuctionKey};
+use auction_core::{Auction, AuctionId};
 use time::OffsetDateTime;
 
 domain_primitives::version_newtype!(AuctionStorageVersion);
@@ -18,7 +18,7 @@ pub enum AuctionRepositoryError {
     #[error("concurrent auction update")]
     ConcurrencyConflict,
     /// Immutable source-key unique-constraint violation. Admin creation exposes this as an
-    /// explicit duplicate-key conflict; source-key resolution normally prevents it by locking.
+    /// explicit duplicate-key conflict.
     #[error("source auction key already exists")]
     SourceAuctionAlreadyExists {
         #[source]
@@ -48,18 +48,11 @@ pub enum AuctionRepositoryError {
 
 #[async_trait::async_trait]
 pub trait AuctionRepository: Send {
-    /// Serializes discovery and fill-only metadata acceptance for one immutable source key.
-    /// The lock lasts for the caller-owned transaction.
-    async fn lock_by_key(&mut self, key: &AuctionKey) -> Result<(), AuctionRepositoryError>;
-
     async fn find_by_id(
         &mut self,
         id: AuctionId,
     ) -> Result<Option<StoredAuction>, AuctionRepositoryError>;
-    async fn find_by_key(
-        &mut self,
-        key: &AuctionKey,
-    ) -> Result<Option<StoredAuction>, AuctionRepositoryError>;
+
     async fn insert(&mut self, auction: &Auction) -> Result<StoredAuction, AuctionRepositoryError>;
     async fn update(
         &mut self,

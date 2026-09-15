@@ -217,13 +217,10 @@ where
                                         },
                                     )
                                 })?;
-                        if let Some(auction_id) = auction
-                            .as_ref()
-                            .and_then(product_listing_core::product_listing::ProductListingAuction::auction_id)
-                        {
+                        if let PatchField::Set(auction_id) = &patch.auction_id {
                             self.auction_references
                                 .in_transaction(&mut tx)
-                                .validate(auction_id, product.listing_source_id())
+                                .validate(*auction_id, product.listing_source_id())
                                 .await
                                 .map_err(|e| AttemptError::Failed(e.into()))?;
                         }
@@ -288,13 +285,10 @@ where
                                     },
                                 )
                             })?;
-                        if let Some(auction_id) = auction
-                            .as_ref()
-                            .and_then(product_listing_core::product_listing::ProductListingAuction::auction_id)
-                        {
+                        if let PatchField::Set(auction_id) = &patch.auction_id {
                             self.auction_references
                                 .in_transaction(&mut tx)
-                                .validate(auction_id, command.listing_source_id)
+                                .validate(*auction_id, command.listing_source_id)
                                 .await
                                 .map_err(|e| AttemptError::Failed(e.into()))?;
                         }
@@ -851,6 +845,24 @@ mod tests {
         Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
 
+    fn loaded_listing_with_auction() -> VersionedProductListing {
+        let mut listing = listing();
+        let auction = product_listing_core::product_listing::ProductListingAuction::new(
+            Some(AuctionId::new()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("valid auction fixture: {error}"));
+        listing
+            .replace_auction(auction)
+            .unwrap_or_else(|error| panic!("valid listing auction fixture: {error}"));
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
     fn withdrawn_listing() -> VersionedProductListing {
         let mut listing = listing();
         listing.take_pending_event_payload();
@@ -1106,6 +1118,43 @@ mod tests {
         let state = lock(&state);
         assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
         assert_eq!((state.updates, state.event_appends), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_not_revalidate_unchanged_auction_for_lot_only_update() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing_with_auction())]),
+            ..Default::default()
+        }));
+        let command = UpsertProductListingCommand {
+            auction: PatchField::Set(ProductListingAuctionPatch {
+                bidding_opens: PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
+                ..Default::default()
+            }),
+            ..command()
+        };
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (
+                state.auction_validations,
+                state.updates,
+                state.event_appends
+            ),
+            (0, 1, 1)
+        );
     }
 
     #[tokio::test]

@@ -54,6 +54,7 @@ WITH candidates AS (
                 enhanced_search_description IS NULL
                 AND coalesce(jsonb_array_length(search -> 'listing_source_id_query'), 0) = 0
                 AND coalesce(jsonb_array_length(search -> 'exclude_listing_source_id_query'), 0) = 0
+                AND coalesce(jsonb_array_length(search -> 'auction_id_query'), 0) = 0
                 AND search ->> 'created_query' IS NULL
                 AND search ->> 'updated_query' IS NULL
                 AND search ->> 'lot_bidding_opens_query' IS NULL

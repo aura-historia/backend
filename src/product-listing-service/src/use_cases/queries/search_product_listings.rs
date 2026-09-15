@@ -76,9 +76,6 @@ pub struct ProductListingSearchItem {
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub auction_id: Option<AuctionId>,
-    pub lot_bidding_opens_at: Option<OffsetDateTime>,
-    pub lot_scheduled_closes_at: Option<OffsetDateTime>,
-    pub lot_reported_closed_at: Option<OffsetDateTime>,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<ProductListingPrice>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -1392,9 +1389,6 @@ mod tests {
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 auction_id: None,
-                lot_bidding_opens_at: None,
-                lot_scheduled_closes_at: None,
-                lot_reported_closed_at: None,
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),

@@ -321,12 +321,7 @@ pub(crate) struct ProductListingDocument {
         default
     )]
     pub(crate) lot_scheduled_closes_at: Option<OffsetDateTime>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub(crate) lot_reported_closed_at: Option<OffsetDateTime>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub(crate) created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -418,7 +413,6 @@ mod tests {
             embedding: None,
             lot_bidding_opens_at: None,
             lot_scheduled_closes_at: None,
-            lot_reported_closed_at: None,
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })

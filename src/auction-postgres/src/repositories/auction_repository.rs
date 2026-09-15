@@ -1,6 +1,6 @@
 use crate::mapping::{AuctionRow, map_error, map_stored_auction, storage_version_to_i64};
 use application::error::box_error;
-use auction_core::{Auction, AuctionKey};
+use auction_core::Auction;
 use auction_service::ports::{
     AuctionRepository, AuctionRepositoryError, AuctionStorageVersion, StoredAuction,
 };
@@ -12,31 +12,12 @@ pub(crate) struct SqlxAuctionRepository<'tx> {
 
 #[async_trait::async_trait]
 impl AuctionRepository for SqlxAuctionRepository<'_> {
-    async fn lock_by_key(&mut self, key: &AuctionKey) -> Result<(), AuctionRepositoryError> {
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))")
-            .bind(key.listing_source_id().as_uuid().to_string())
-            .bind(key.source_auction_id().as_ref())
-            .execute(&mut *self.connection)
-            .await
-            .map_err(read_error)?;
-        Ok(())
-    }
-
     async fn find_by_id(
         &mut self,
         id: auction_core::AuctionId,
     ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
         let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = $1")
             .bind(id.as_uuid()).fetch_optional(&mut *self.connection).await.map_err(read_error)?;
-        load_optional(row)
-    }
-
-    async fn find_by_key(
-        &mut self,
-        key: &AuctionKey,
-    ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE listing_source_id = $1 AND source_auction_id = $2")
-            .bind(key.listing_source_id().as_uuid()).bind(key.source_auction_id().as_ref()).fetch_optional(&mut *self.connection).await.map_err(read_error)?;
         load_optional(row)
     }
 
