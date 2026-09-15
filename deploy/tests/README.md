@@ -1,3 +1,15 @@
+# Lightweight deployment checks in CI (C1)
+
+The `deployment-checks` job requires Python3, OpenSSL and Docker Compose 2.30 or newer, then runs the existing test modules with the actual Compose-config check enabled:
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  AURA_TEST_COMPOSE_CONFIG=1 \
+  python3 deploy/tests/run_ci.py
+```
+
+`run_ci.py` discovers `test_*.py`, requires nonzero discovery and a successful result, and rejects failures, errors, unexpected successes and any skip outside the one documented case: `test_search_ca_compose.SearchCaComposeTests.test_actual_candidate_ca_bind_is_readable_and_readonly_as_uid10001`, skipped for `opt-in cached networkless helper only`. C1 does not set `AURA_TEST_CA_MOUNT=1`; it does not build images or start application services. The Compose-config test executes against the checked-in files.
+
 # Native image smoke (R2)
 
 For simultaneous13-process ordinary Compose startup and same-version restart (R3), see [`../compose/README.md`](../compose/README.md). R2 below remains the separate per-image/signal regression. For the actual host-command A→B/fault-candidate rehearsal (R4), see [`../bin/README.md`](../bin/README.md).

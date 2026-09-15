@@ -330,10 +330,10 @@ impl Loopback {
 }
 impl Drop for Loopback {
     fn drop(&mut self) {
-        if let Some(thread) = self.thread.take() {
-            if !matches!(thread.join(), Ok(Ok(_))) {
-                eprintln!("owned TLS listener cleanup failed");
-            }
+        if let Some(thread) = self.thread.take()
+            && !matches!(thread.join(), Ok(Ok(_)))
+        {
+            eprintln!("owned TLS listener cleanup failed");
         }
     }
 }

@@ -8,10 +8,11 @@
 
 - `workflows/` drive integrate, deploy, and repo automation.
 - Workflows load the pinned Rust compiler and required components from the root `rust-toolchain.toml` through `rustup show`; Dependabot Cargo updates track that file.
-- Integrate workflow compiles every discovered MJML source, checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. Changes under `migrations/**` trigger integration validation.
-- Deploy workflow deploys split CDK stacks from one stage prefix, pushes active Lambda artifacts, publishes all 25 active MJML templates—10 `partnership-application`, 5 `search-filter/match`, and 10 `watchlist/product-update` (availability and price), each in `de`, `en`, `es`, `fr`, and `it`—and merges stack outputs for smoke tests. Changes under `migrations/**` trigger deployment validation.
+- Integrate workflow compiles every discovered MJML source, checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. `.github/scripts/**`, `.cargo/**`, `deploy/**`, `opensearch/**`, and `migrations/**` trigger integration validation on both push and pull request events.
+- Every Cargo job binds `COMMIT_SHA` to the SHA of its actual checkout. Rust matrix jobs use package-read GHCR login, explicitly prepare the checked-in Postgres fixture reference, and pass the inspected local image ID to the pull-free fixture. `deployment-checks` runs the lightweight Python suite with the actual Compose-config check and one documented cached-helper skip.
+- `workflows/deploy.yml` is a manual inert notice that refuses the legacy CD path. It has no automatic trigger or deployment credentials; this source guard does not disable copies already present on other refs or in-flight runs.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
-- `workflows/test-images.yml` publishes only trusted-branch immutable test images; the pinned Postgres pg-ttl reference lives in `src/test-api/postgres/image-ref.txt`. Integration jobs use package-read access and `GITHUB_TOKEN` GHCR login to consume private images.
+- `workflows/test-images.yml` remains the trusted-branch test-image publisher; the pinned Postgres pg-ttl reference lives in `src/test-api/postgres/image-ref.txt`. Integration jobs use package-read access and `GITHUB_TOKEN` GHCR login to consume private images.
 - Command failure MUST fail its job. `always()` only for cleanup; explicit fallback must fail if recovery fails.
 
 ## Ownership

@@ -5,6 +5,19 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
+fn docker_create_error(status: Option<i32>) -> io::Error {
+    let exit = status.map_or_else(|| "exit=unknown".to_owned(), |code| format!("exit={code}"));
+    let category = match status {
+        Some(124) => "deadline-exceeded",
+        Some(code) if code >= 128 => "terminated-or-unknown",
+        Some(_) => "failed",
+        None => "terminated-or-unknown",
+    };
+    io::Error::other(format!(
+        "operation=docker-create {exit} category={category} cleanup-authority=none"
+    ))
+}
+
 const LOCAL_SOCKET: &str = "/var/run/docker.sock";
 const LOCAL_ENDPOINT: &str = "unix:///var/run/docker.sock";
 
@@ -13,21 +26,17 @@ struct ContainerId(String);
 impl ContainerId {
     fn created(output: Output) -> io::Result<Self> {
         if !output.status.success() {
-            return Err(io::Error::other(
-                "Postgres container creation failed or timed out; no ownership acquired (output suppressed)",
-            ));
+            return Err(docker_create_error(output.status.code()));
         }
         let id = std::str::from_utf8(&output.stdout)
-            .map_err(|_| io::Error::other("invalid created container ID; no cleanup authority"))?
+            .map_err(|_| docker_create_error(output.status.code()))?
             .trim_ascii();
         if id.len() != 64
             || !id
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
-            return Err(io::Error::other(
-                "invalid or missing created container ID; no cleanup by name",
-            ));
+            return Err(docker_create_error(output.status.code()));
         }
         Ok(Self(id.to_owned()))
     }
@@ -135,7 +144,7 @@ impl DockerFixture {
                 "shared_preload_libraries=pg_ttl_index",
             ])
             .output()
-            .map_err(|_| io::Error::other("Postgres Docker create command unavailable"))?;
+            .map_err(|_| docker_create_error(None))?;
         self.container = Some(ContainerId::created(output)?);
         Ok(())
     }

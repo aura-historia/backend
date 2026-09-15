@@ -142,6 +142,35 @@ fn should_not_delete_unrelated_container_when_name_collides() -> TestResult {
 }
 
 #[rstest]
+#[case(1u8, "category=failed")]
+#[case(124u8, "category=deadline-exceeded")]
+#[case(137u8, "category=terminated-or-unknown")]
+fn should_report_safe_create_status_without_acquiring_authority(
+    #[case] status: u8,
+    #[case] category: &str,
+) -> TestResult {
+    let fake = FakeDocker::new()?;
+    fake.reply("create", status, FOREIGN.as_bytes())?;
+    {
+        let mut fixture = fake.fixture()?;
+        let error = fixture
+            .create(NAME, IMAGE)
+            .err()
+            .ok_or("failed create unexpectedly succeeded")?;
+        let message = format!("{error:?} {error}");
+        assert!(message.contains("operation=docker-create"));
+        assert!(message.contains(&format!("exit={status}")));
+        assert!(message.contains(category));
+        assert!(message.contains("cleanup-authority=none"));
+        assert_redacted(&error);
+        fixture.cleanup()?;
+    }
+    assert_eq!(fake.operations()?.len(), 1);
+    assert!(fake.removals()?.is_empty());
+    Ok(())
+}
+
+#[rstest]
 #[case(b"".to_vec())]
 #[case(b" \n".to_vec())]
 #[case(b"short".to_vec())]
