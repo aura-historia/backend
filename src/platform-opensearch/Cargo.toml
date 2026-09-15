@@ -5,6 +5,16 @@ edition = "2024"
 
 [dependencies]
 opensearch = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+url = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+rustls = { workspace = true, features = ["ring"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

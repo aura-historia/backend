@@ -1,0 +1,194 @@
+# Ordinary Compose — R3
+
+Three checked-in projects; no renderer or deployment framework:
+
+| File / suggested project | Owns | Application release may restart? |
+|---|---|---|
+| `compose.platform.yml` / `aura-dev-platform` | PostgreSQL, OpenSearch, Redis, Sequin; persistent volumes | **No** |
+| `compose.application.yml` / `aura-dev-application` | API, ten explicit worker scopes, cron, crawler | Yes, with R4 handover—not blind `up` against active singletons |
+| `compose.edge.yml` / `aura-dev-edge` | Caddy and persistent local CA/config | No; routing reload belongs to R4 |
+
+**This R3 test proves isolated empty startup and same-version application stop/start.** R4's separate [host command/rehearsal](../bin/README.md) now proves idle A→B and failed-candidate handling. Active queue custody, reboot, real-provider and live readiness remain unproven. Test configuration must never be copied to a real environment.
+
+## Run the actual isolated stack
+
+From repository root; Linux/amd64, Python3, and local Docker with the reviewed Compose 5.4.0 plugin. `env_file.format: raw` needs2.30+, but that syntax minimum is not sufficient for the host command's unresolved `env_file` JSON contract. Existing R2 immutable images/helper/PostgreSQL/OpenSearch must already be loaded; build commands: [`../images/README.md`](../images/README.md).
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/tests -p 'test_*.py' -v
+# Only if the exact Caddy manifest is not cached; public registry download, bounded120s:
+PYTHONDONTWRITEBYTECODE=1 python3 deploy/tests/smoke-compose.py --pull-caddy
+# Subsequent runs perform no image downloads/builds:
+PYTHONDONTWRITEBYTECODE=1 python3 deploy/tests/smoke-compose.py
+```
+
+The smoke uses these same three Compose files, plus **test-only** `deploy/tests/compose.fixture.yml`. It creates random project names, protected synthetic inputs and fresh persistent volumes; applies real SQLx histories using the existing disposable-local bootstrap helper; starts all services; verifies and removes only its owned resources. All Docker commands use `unix:///var/run/docker.sock` with isolated CLI configuration.
+
+- App/platform network is internal. ADC/JWKS/SQS are non-forwarding doubles; no real credentials, website crawling, inference or email. SQS double permits attributes/empty receives only—not durable sends.
+- Only Caddy joins an additional ordinary bridge: Docker cannot publish a host port from an internal-only network. Caddy is technically egress-capable; its pinned image gets only a fixed internal upstream/local-CA config, no provider credentials. **Do not describe the whole stack as no-egress.**
+- Host HTTPS binds only a selected unused `127.0.0.1` port. TLS checks trust this run's Caddy CA explicitly and reject the normal trust store; host trust is not modified.
+- Temporary files contain public synthetic fixture values. They are not production permission examples. Applications run UID/GID10001 and receive only applicable ADC mounts.
+- Total test deadline30min. Unconfirmed/interrupted Docker operations retain the printed journal/config directory and project names. Inspect exact owners and command outcomes before rerun; no automatic takeover or global prune. SIGKILL cannot clean up.
+- Successful test cleanup may use `down --volumes` **only for these verified disposable projects**. It is forbidden for ordinary application releases or existing business data.
+
+### Tested images and evidence
+
+Application source identity remains `672bdcefdeaabc6cd9f78461ec1bf859c31dc443`; Rust/Cargo/schema/search sources have not changed since R2. Do not relabel images to the R3 tooling commit. Full local image IDs live in `deploy/tests/smoke-compose.py` and [`../tests/README.md`](../tests/README.md); labels are not signed provenance.
+
+Additional cached fixture image IDs: Sequin0.14.6 `sha256:336759c1c632ebdc87939bcea70b26b46df6593e666088e1bf29058209437d3e`; Redis7.4.2 `sha256:02419de7eddf55aa5bcf49efb74e88fa8d931b4d77c07eff8a6b2144472b6952`. Public Caddy2.11.4-alpine amd64 manifest: `caddy@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a`. Cached fixture pins are not a platform security-maintenance certification; notably OpenSearch3.1 is no longer maintained.
+
+Observed checks:
+
+- All13 application containers simultaneously ready with exact source/scope identities; ten scopes witness both source/DLQ attributes and completed empty polls.
+- Real Sequin health, active restricted-role replication slot, ten persisted endpoints pointing at **each worker's `:8081/cdc/sequin`**, `pause_on_full`, zero backfills.
+- Caddy verified HTTPS GET matches direct API404 for an absent valid ProductListingId. This is proxy/read connectivity—not auth/CORS/webhook coverage.
+- All apps stop with exit0 and no runtime DB sessions, then start again. Platform/edge container IDs, start times and volume records stay unchanged. SQLx histories and checked empty source/search stores stay unchanged.
+- Idle only: no CDC send/receipt/delete/visibility custody, accepted in-flight drain, singleton A→B, engine restart, TTL expiry or reboot proof. Test stop allows340s; it does not measure each default stop-budget boundary. No whole-lifetime application-log redaction claim.
+
+## Host-owned configuration contract
+
+**Do not execute live setup from these examples yet.** Real-stage bootstrap/trust/provider gates below remain open. Operator supplies target authority and actual inputs. `env.example` contains nonsecret Compose selections; all image/queue blanks intentionally fail. Use immutable digests, explicit project names and one environment-specific network. Compose itself is not a digest validator; R4's host command enforces preloaded immutable image selection before mutation.
+
+Keep `/etc/aura-historia/dev` root-controlled0700; raw env files root-owned0600, outside Git. Compose reads these files; it does not inherit shell credentials into containers. Do not print resolved Compose configuration, env files, or raw container/provider logs. `format: raw` preserves literal password characters rather than interpolating them.
+
+| Host input | Required content / receiver |
+|---|---|
+| `compose.env` | Filled `env.example`, nonsecret image/queue/project settings |
+| `api.env` | PostgreSQL/runtime, Cognito, Stripe, Zoho, search, Vertex/ADC and approved AWS credential inputs |
+| `worker.env` | PostgreSQL, search/Vertex configuration, approved AWS SDK inputs; per-scope queue/scope comes from Compose |
+| `notification-delivery.env` | Only delivery: `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`, `NOTIFICATION_EMAIL_REPLY_TO` |
+| `cron.env` | PostgreSQL, search, Vertex/ADC, `AURA_HISTORIA_CRON_ENABLED_JOBS=search-filter-periodic-match` and schedule |
+| `crawler.env` | `LOCAL_DB_URL`, `BUSINESS_DATABASE_URL`, shared stage/TLS, Vertex/ADC, `SPIDER_MAX_SIZE_BYTES` |
+| `postgres-ca.pem` | Public trusted CA, mounted read-only at `/run/aura/postgres-ca.pem`; applications must be able to read it |
+| `opensearch-ca.pem` | Public search CA bundle, read-only `/run/aura/opensearch-ca.pem`; API/both slots, cron and three search workers only; readable by UID10001 |
+| `google-adc.json` | Approved ADC, mounted read-only at `/run/aura/google-adc.json`; only API/cron/crawler/percolator/embedding/translation receive this file |
+| `postgres.env`, `postgres/` | PostgreSQL bootstrap secret inputs; `postgresql.conf`, referenced HBA and server cert/key files |
+| `opensearch.yml`, `opensearch-certs/` | Operator-reviewed security-enabled OpenSearch/node HTTP+transport TLS configuration and certs; analysis files already mounted from repository |
+| `redis.conf` | Private authenticated Redis configuration, AOF persistence at `/data`; secret auth values must not be printed |
+| `sequin.env`, `sequin.yaml` | Metadata DB and Redis credentials, stable vault/session keys, native Sequin source/subscriptions; not generated by deploy tooling |
+| `sequin-postgres-tls/` | For verified Sequin transport: `stunnel.conf` and public trusted CA bundle, readable by UID10001; no server/private keys |
+| `caddy/Caddyfile` | Local HTTPS route below; directory bind allows future atomic file replacement |
+
+Root-owned0400 ADC files cannot be read by UID10001. Use an explicit readable owner/group or ACL for bind-mounted files while keeping the host parent root-controlled. Runtime PG password-file support, if used, requires exactly0400/0600 and correct readable ownership; these Compose files instead permit passwords inside protected env files. Root/Docker administrators can read container secrets. Replacing files does not refresh existing pools/credentials: recycle affected processes after a separately controlled rotation. No long-lived IAM user-key distribution or generic secret materializer is supplied.
+
+Common application env example (add component-specific fields; blanks need actual values):
+
+```dotenv
+STAGE=dev
+POSTGRES_SSL_MODE=verify-full
+POSTGRES_SSL_ROOT_CERT=/run/aura/postgres-ca.pem
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=
+POSTGRES_USERNAME=
+POSTGRES_PASSWORD=
+POSTGRES_MAX_CONNECTIONS=2
+OPENSEARCH_ENDPOINT_URL=
+OPENSEARCH_USERNAME=
+OPENSEARCH_PASSWORD=
+OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem
+VERTEX_AI_PROJECT_ID=
+VERTEX_AI_LOCATION=
+VERTEX_AI_MODEL=
+GOOGLE_APPLICATION_CREDENTIALS=/run/aura/google-adc.json
+AWS_REGION=
+COMMIT_SHA=
+```
+
+Search clients now require `OPENSEARCH_SSL_ROOT_CERT` in dev/prod; set it in `api.env`, `cron.env` and search-worker configuration. The file must contain only PEM certificates, nonempty and <=1MiB. No CA private key or admin certificate goes to apps. Compose requires the bind file even in local/test setups; HTTP test fixtures leave the CA env input unset (supplied CA + HTTP rejects). Runtime trust is frozen at startup and augments built-in roots; restart to load a replacement/overlap bundle. Host deployment snapshots the CA and rejects drift/wrong real-stage paths. Install updated host tooling/Compose together under its existing lock; an already-adopted installation needs explicit mount convergence before normal apply, not blind replacement of tooling.
+
+Pinned SDK2.4 disables proxies but retains redirects: redirects may change host or downgrade HTTPS and replay request bodies. Use a trusted nonredirecting OpenSearch endpoint; this is not an HTTPS-only-per-hop guarantee. Direct worker preflight refuses redirects. Actual API/worker/cron client constructors passed loopback TLS tests; rebuilt-image startup against the secured node remains untested.
+
+`POSTGRES_HOST=postgres` is only suitable when the certificate SAN contains that DNS name. Replace with private/remote DNS later; no app code change. Crawler's explicit URLs use separate runtime roles/databases but the same verified-TLS contract. Never use an implicit localhost to reach a different container. Native operational listeners remain container-loopback: API9080, cron8082, crawler9083; crawler review7878 private. Probe them in the container namespace, not through public Caddy. Worker8081 includes ingress/probes and is private-network-only.
+
+Complete API-specific variable names are in `ApiConfig::from_getter` (`src/aura-historia-api/src/lib.rs`): four `AURA_HISTORIA_COGNITO_*` inputs; Stripe API key, checkout/portal URLs and four price IDs; six `ZOHO_*` inputs. Use current crate `AGENTS.md` for exact configuration, not guessed values. Mail objects must already exist at `{stage}/{source_sha}/mjml/{group}/{language}.html`; images do not contain them. Real S3/SES/Cognito/Vertex access is not exercised by the idle double.
+
+All workers need their existing scoped Standard SQS source/DLQ pair. Source retention7d, DLQ14d,20s poll,5 receives, SSE and transport-deny policies; visibility60s for fast scopes,300s for percolator/embedding/translation/normalizer,360s for delivery. Application startup validates these; no queue creation/purge occurs here. Local endpoint overrides are intentionally rejected in dev/prod. Worker env is shared configuration, not a substitute for least-privilege runtime identity.
+
+Budget at default pool settings: business32 + crawler-local16 + cron dedicated advisory session1, plus Sequin metadata/source pools, bootstrap/admin and deployment headroom. Two API slots add another pool. Compose limits sum to substantial memory (apps13GiB before platform); set an explicit host capacity/pool/concurrency budget rather than relying on overcommit. API/worker/cron/crawler stop grace is60/300/330/330s. Increasing runtime deadlines requires increasing Compose and host-command deadlines too.
+
+Local-only Caddyfile used by the test:
+
+```caddyfile
+{
+    admin off
+    auto_https disable_redirects
+}
+https://localhost {
+    tls internal
+    reverse_proxy api:8080
+}
+```
+
+No ACME/DNS changes, public origin, operational routes or CloudFront switch. R4 uses `Caddyfile.replace` with container-loopback admin and two fixed API slots; see its [separate setup](../bin/README.md). This R3 admin-off fixture is not silently upgraded.
+
+## Verified Sequin PostgreSQL transport
+
+Use `compose.platform.yml` plus **ordinary** `compose.sequin-tls.yml` during explicit platform setup. Supply `SEQUIN_POSTGRES_TLS_IMAGE` as the preloaded immutable sidecar ID/digest in `compose.env`. Build/pin: [`../images/README.md`](../images/README.md). Real isolated SQL/WAL trust-failure/recovery test: [`../tests/README.md`](../tests/README.md).
+
+- Stock Sequin0.14.6 verifies neither metadata nor source certificates. Stock stunnel5.80 supplies PostgreSQL-aware `protocol = pgsql`, `verifyChain = yes`, `checkHost`, SNI and TLS≥1.2. Generic raw TLS is not PostgreSQL16 SSLRequest negotiation. No custom proxy or Sequin fork.
+- Install reviewed `stunnel.conf.example` as host-owned `sequin-postgres-tls/stunnel.conf`; supply the trusted public CA as `root.pem` beside it (or explicitly change both `CAfile` entries to the chosen mounted filename). Set each `connect` endpoint and `checkHost`/SNI to the actual certificate identity. Metadata and source may use different upstream servers/CAs. Never copy fixture CA/private keys or plaintext HBA into dev.
+- Overlay routes metadata to `127.0.0.1:15432`, with native SSL disabled. Its exact entrypoint **unsets `PG_URL`**: an empty value is truthy in Sequin's Elixir configuration.
+- **Separately configure every native Sequin source** in `sequin.yaml`: `hostname: 127.0.0.1`, `port: 15433`, `ssl: false`. The overlay cannot rewrite source records. Keep reviewed credentials, publications, slots, sinks and no-backfill settings. Restrict Sequin administrative access; direct source endpoints bypass this verification boundary.
+- Sequin shares stunnel's network namespace. Plaintext exists only on shared loopback, **not end-to-end TLS originating inside Sequin**. Neither listener is published or reachable from another backend container. Backend alias `sequin` still reaches Sequin HTTP; keep that listener private.
+- Platform maintenance must stop/recreate **both** namespace-sharing services when replacing the sidecar. Do not leave Sequin attached to a retired namespace. Ordinary application replacement never touches them. Host-reboot/sidecar-replacement recovery is not yet rehearsed.
+- Trust rotation: install overlapping old/new public CAs before server-certificate rotation; controlled HUP reload applies to new connections only. Existing SQL/WAL sessions may retain old trust. Reconnect/revalidate deliberately before removing the old CA. The rehearsal exercises HUP/reconnect, not a complete live rotation procedure.
+
+## Fresh initialization and real-stage gates
+
+No existing database is disposable by implication. Fresh-only flow: PostgreSQL/extensions → genuine current business/crawler SQLx histories → restricted runtime grants → five-table publication/slot → current OpenSearch definitions → workers → Sequin. Separate schema histories and Sequin metadata owner; runtime roles are never schema owners/superusers. Never stamp history because tables happen to exist.
+
+The R3 test uses existing `bootstrap-local --initialize-fresh business|crawler` **only under its supported local/loopback restriction**. Do not relabel real resources `test` to bypass it. The separate `bootstrap-dev` image/Compose path below now exercises exact dev policy and verified TLS; actual host inputs, permissions and setup authority remain required. No adoption/backfill/down-migration framework.
+
+### Explicit dev fresh initialization
+
+`compose.bootstrap-dev.yml` is a **separate one-shot project**, never part of platform `up` or ordinary application replacement. Both services default to help; initialization requires an explicit action. The image contains only the operator executable, not a daemon. Both target histories were initialized and verified in the [isolated real-image rehearsal](../tests/README.md#real-dev-fresh-initialization-rehearsal); this does not initialize this machine's live dev databases.
+
+Operator prerequisites:
+
+1. Obtain target setup authority. Provision separate empty business/crawler databases and initialization roles; use direct PostgreSQL, exclusive custody and the existing deployment `lock` flock for the entire setup/inspection session. No apps or competing schema writers. Never use an existing database merely because its stage says dev.
+2. Install/preload public `pg_ttl_index`3.0.0 for business. Existing SQL creates pg_trgm/unaccent and crawler pgcrypto; initializer needs the required DDL/extension/catalog permissions. Rehearsal uses a synthetic superuser, **not proof of least-privilege setup grants**. Existing fresh checks refuse any ledger/application objects/unknown schema or extension.
+3. Keep initialization inputs separate, e.g. root-controlled0700 `/etc/aura-historia/dev/bootstrap-dev/`. Its `business.env` and `crawler.env` are root-owned0600 and each contains exact `STAGE=dev`, `POSTGRES_SSL_MODE=verify-full` and **only its own** explicit URL (`BUSINESS_DATABASE_URL` or `LOCAL_DB_URL`). URLs require user/password/hostname/database. Supply actual protected values, never CLI credentials. `postgres-ca.pem` is public/readable by UID10001; Compose mounts it read-only. TLS hostname must match its certificate, including Docker DNS.
+4. In protected Compose selections, set `BOOTSTRAP_DEV_IMAGE` to the verified preloaded immutable image ID/digest, `AURA_DEV_INIT_CONFIG_DIR` to that separate directory and `AURA_NETWORK` to the existing dev backend network. No pulls/builds occur here. Do not print resolved Compose/env/container configuration.
+
+In the approved **already flock-held operator session**, from the reviewed checkout/installation, example commands use the conventional host paths below. They are not authorization to execute setup:
+
+```sh
+docker --host unix:///var/run/docker.sock compose --project-name aura-dev-bootstrap \
+  --env-file /etc/aura-historia/dev/compose.env -f deploy/compose/compose.bootstrap-dev.yml \
+  run --no-deps --name aura-dev-bootstrap-business bootstrap-business --initialize-fresh business &&
+docker --host unix:///var/run/docker.sock compose --project-name aura-dev-bootstrap \
+  --env-file /etc/aura-historia/dev/compose.env -f deploy/compose/compose.bootstrap-dev.yml \
+  run --no-deps --name aura-dev-bootstrap-crawler bootstrap-crawler --initialize-fresh crawler
+```
+
+Execute the second **only after** the first reports `INITIALIZED_BUSINESS`/exit0. Leave exited containers for inspection; no `--rm` or automatic retry. Fixed names also refuse blind reuse. After confirmed success, inspect and remove only these exact one-shot containers. Run separate `--verify business`/`--verify crawler` actions with read-only credentials to check histories; verification performs no DDL, migration-lock acquisition or history writes; normal PostgreSQL read locks still apply. It is not full schema-drift attestation.
+
+Business/crawler are **not atomic together**. Exit7 `UNKNOWN_OUTCOME`, forced exit8, interrupted output or detached Docker outcomes require independent inspection—never assume rollback or clear/retry. Nonfresh state is rejected, not adopted/repaired/reset. Normal completion has60s work/5s connection close/90s process bound; Compose stop allowance100s is not permission to retry a killed initializer. Runtime grants/publication/Sequin, actual TLS/firewall and provider checks remain separate. Remove/disable initializer credential access after setup; application containers must never inherit it.
+
+Additional concrete live gates:
+
+1. Supply reviewed pinned PostgreSQL16/TTL3 image/server TLS/HBA. Base Compose publishes no PostgreSQL port. R5's public Lambda access requires separate approved exact-EIP firewall/publishing work, not broad exposure.
+2. Sequin0.14.6 native `ssl:true`/metadata SSL does **not** perform certificate verification. Use the tested stock-stunnel overlay below; real endpoints/CA and rollout still require operator setup. Preserve stable slot/publication and no-backfill sink configuration; Sequin YAML reapplication on restart can change configuration.
+3. Use the [secured OpenSearch fresh setup](#secured-opensearch-fresh-setup) below. Stock-native setup and both mappings/RRF are tested in isolation, not activated. A maintained engine pin and rebuilt-app→secured-node acceptance remain gates; PostgreSQL CA configuration does not secure OpenSearch.
+4. TTL3 dynamic worker needs explicit `ttl_start_worker()` after a PostgreSQL restart; presence is not expiry proof. No reboot recovery claimed. Restrict TTL functions/public-schema writes; runtime expiry guards remain authoritative.
+5. Approved AWS/Google credential delivery/refresh, actual queues, compiled mail assets, FX snapshot, host budgets, backups and real endpoint trust must be supplied/tested. Crawler initial source sync and normalizer reconciliation run immediately; empty fixture behavior is not a scheduling-disable mechanism.
+
+Once these gates and target authority exist, use normal Compose with separate `--project-name`, `--env-file`, and `-f` arguments. `config --quiet` validates without printing secrets; pull/load exact artifacts separately. Never issue platform `down`, `--remove-orphans`, volume recreation, engine upgrade or global image prune during an application release. After initial R4 adoption, use the host command for replacement/incomplete handling; never whole-project `up`, which could recreate an inactive API slot.
+
+## Secured OpenSearch fresh setup
+
+**Isolated compatibility accepted; not live-ready.** The [real rehearsal](../tests/README.md#secured-stock-opensearch-rehearsal) uses unchanged platform Compose with a test-only override, stock OpenSearch3.1.0/Security3.1.0.0, checked-in native configuration and tools. This engine is unmaintained; review/test a maintained immutable pin before live use. Rust API/worker/cron CA wiring is tested on loopback; rebuilt images and full secured-node startup remain separate gates. No automatic security upload on node/application startup.
+
+Operator sequence, only for an authorized fresh target under the **existing deployment flock** and exclusive custody:
+
+1. Prepare `opensearch/opensearch.yml` for actual cluster/DNS/certificate DNs. Mount it at `/usr/share/opensearch/config/opensearch.yml`; mount current repo `opensearch/analysis/` at its `config/analysis/`. Set `DISABLE_INSTALL_DEMO_CONFIG=true`; never disable the security plugin. The example binds container interfaces but publishes no host ports. Keep transport9300/private REST9200 inaccessible from unapproved networks.
+2. Supply CA plus node certificate/key read-only under `config/certs/` (`root-ca.pem`, `node.pem`, `node-key.pem`). Node certificate needs the configured DNS SAN and server/client usages; key is unencrypted PKCS8. Node UID1000 must read it. **Never mount admin credentials or internal-user hashes into the node.** HTTP basic auth runs only over TLS; admin client certificates are separate.
+3. Prepare a separate root-controlled parent with a UID1000-owned0700 operator subdirectory, private files0600. Put `root-ca.pem`, `admin.pem`, `admin-key.pem` and `security/` inside. Copy reviewed native security YAML; create `internal_users.yml` from the deliberately non-runnable example using **five distinct strong passwords/stock bcrypt hashes**. Use stock interactive `hash.sh` privately; never password argv (`-p`), shell tracing or shared log capture. Demo admin-password env does not provision users when demo setup is disabled. Store runtime credentials only in their intended protected service inputs.
+4. Set `OPENSEARCH_IMAGE` to the reviewed preloaded immutable stock image, `AURA_NETWORK` to the existing private backend network, `AURA_OPENSEARCH_ADMIN_DIR` to that separate operator directory. `compose.opensearch-admin.yml` is a separate explicit profile/project: no restart, UID1000, read-only, capdrop ALL. Stock tools live below UID1000 mode0700, so cap-dropped root is not a substitute. Its default command `-cd /operator/security -vc 7` **validates offline only**.
+5. Before any upload, make a verified admin-certificate HTTPS `GET /` and compare actual cluster/version with the authorized target. Native `-cn` labels output; it does **not** enforce identity. Explicit native upload arguments are shown in `opensearch/security/config.yml`: HTTPS port9200, CA/admin cert/key and `-cd`; never `-nhnv`. Keep native diagnostics in protected logs, not CI output. Upload can replace security state and is **not atomic or fresh-only**. Inspect any failed/unknown outcome; no automatic retry.
+6. On confirmed security success, use [the fixed initializer](../bin/README.md#explicit-opensearch-setup-command) with its separate protected environment. It creates current `product-listings`, `user_search_filters` and `hybrid-search-pipeline` only if all three are absent. Run GET-only `verify` afterward, then validate runtime roles and application trust before writers start. The host-side operator key copy must belong to its effective UID; do not relax key permissions to reuse the tool's UID1000 copy.
+
+Roles map exact usernames: `aura_reader` reads both indices; each projector indexes only its own index; `aura_percolator` searches/gets filters and manages their PITs; `aura_cron` searches products. Projectors need the exact bulk coordinator plus own-index shard action even for single-document indexing. No document-delete, mapping/create, pipeline/security administration or unrelated-index grants. Runtime certificate/credential rotation requires controlled process recycling; no automatic rotation is claimed.
+
+Fresh configuration disables all Query Insights capture/export settings to avoid storing query bodies. **Changing an existing local-index exporter to none can delete prior insight indices. Do not apply this as a harmless existing-cluster update.** Audit configuration here is not a compliance audit solution. Removing files/tooling never undoes uploaded security or initialized data; do not delete state or fall back to insecure configuration.

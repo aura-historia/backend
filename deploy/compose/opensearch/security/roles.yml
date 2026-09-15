@@ -1,0 +1,52 @@
+# No stock groups, own_index, cluster administration, CRUD, mapping or create.
+# Projectors accept bulk coordination; each item remains scoped to its exact index.
+# Action suffixes cover shard/internal variants; index names are always exact.
+_meta:
+  type: roles
+  config_version: 2
+aura_reader:
+  cluster_permissions: ["cluster:monitor/main"]
+  index_permissions:
+    - index_patterns: ["product-listings", "user_search_filters"]
+      allowed_actions: ["indices:data/read/search*", "indices:data/read/get*"]
+  tenant_permissions: []
+aura_product_projector:
+  cluster_permissions: ["cluster:monitor/main", "indices:data/write/bulk"]
+  index_permissions:
+    - index_patterns: ["product-listings"]
+      allowed_actions:
+        [
+          "indices:data/write/index*",
+          "indices:data/write/bulk[s]",
+          "indices:data/read/get*",
+          "indices:data/read/search*",
+        ]
+  tenant_permissions: []
+aura_filter_projector:
+  cluster_permissions: ["cluster:monitor/main", "indices:data/write/bulk"]
+  index_permissions:
+    - index_patterns: ["user_search_filters"]
+      allowed_actions:
+        [
+          "indices:data/write/index*",
+          "indices:data/write/bulk[s]",
+          "indices:data/read/get*",
+          "indices:data/read/search*",
+        ]
+  tenant_permissions: []
+aura_percolator:
+  cluster_permissions: ["cluster:monitor/main"]
+  index_permissions:
+    - index_patterns: ["user_search_filters"]
+      allowed_actions:
+        - "indices:data/read/search*"
+        - "indices:data/read/get*"
+        - "indices:data/read/point_in_time/create"
+        - "indices:data/read/point_in_time/delete"
+  tenant_permissions: []
+aura_cron:
+  cluster_permissions: ["cluster:monitor/main"]
+  index_permissions:
+    - index_patterns: ["product-listings"]
+      allowed_actions: ["indices:data/read/search*"]
+  tenant_permissions: []

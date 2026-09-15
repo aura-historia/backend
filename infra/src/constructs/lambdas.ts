@@ -8,6 +8,9 @@ import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { PostgresConnectionSettings } from "./storage";
+import type { LambdaEgressOutput } from "./lambda-egress";
+import type { PostgresLambdaConfig } from "../postgres-lambda-config";
+import { POSTGRES_CA_PATH, PostgresCa } from "./postgres-ca";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
@@ -74,6 +77,12 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
+export type DatabaseLambdaKey = {
+  [K in LambdaKey]: typeof LAMBDA_DEFINITIONS[K] extends { readonly postgres: true } ? K : never
+}[LambdaKey];
+export const DATABASE_LAMBDA_KEYS: readonly DatabaseLambdaKey[] = Object.entries(LAMBDA_DEFINITIONS)
+  .filter(([, definition]) => "postgres" in definition && definition.postgres)
+  .map(([key]) => key as DatabaseLambdaKey);
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, "fxRateSync">, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
@@ -85,6 +94,7 @@ export interface LambdasProps {
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
   readonly postgres: PostgresConnectionSettings;
+  readonly postgresLambda?: { readonly config: PostgresLambdaConfig; readonly egress: LambdaEgressOutput };
 }
 
 export class Lambdas extends Construct {
@@ -94,9 +104,24 @@ export class Lambdas extends Construct {
     super(scope, id);
 
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
+    const attachment = props.postgresLambda;
+    if (attachment && (props.config.isEphemeral || attachment.config.stage !== props.config.stage
+      || attachment.egress.stage !== props.config.stage)) {
+      throw new Error("PostgreSQL Lambda attachment stage mismatch.");
+    }
+    const ca = attachment ? new PostgresCa(this, "PostgresCa", {
+      assetDirectory: attachment.config.caAssetDirectory,
+    }) : undefined;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
-      postgres: props.postgres,
+      postgres: attachment ? {
+        ...props.postgres,
+        host: attachment.config.databaseHostname,
+        port: String(attachment.config.network.database.port),
+        maxConnections: "2",
+        sslMode: "verify-full",
+        sslRootCert: POSTGRES_CA_PATH,
+      } : props.postgres,
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -104,6 +129,7 @@ export class Lambdas extends Construct {
         continue;
       }
 
+      const databaseAttachment = definition.postgres ? attachment : undefined;
       functions[key] = new lambda.Function(this, definition.id, {
         functionName: `${definition.binaryName}-${props.config.stage}`,
         runtime: lambda.Runtime.PROVIDED_AL2023,
@@ -117,7 +143,31 @@ export class Lambdas extends Construct {
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
+        ...(databaseAttachment ? {
+          vpc: databaseAttachment.egress.vpc,
+          vpcSubnets: { subnets: [...databaseAttachment.egress.privateSubnets] },
+          securityGroups: [databaseAttachment.egress.securityGroup],
+          layers: [ca!.layer],
+          reservedConcurrentExecutions: databaseAttachment.config.reservedConcurrency[key as DatabaseLambdaKey],
+        } : {}),
       });
+      if (databaseAttachment) {
+        // Lambda service needs ENI permissions; function code itself does not.
+        // Literal name avoids a role -> function -> role dependency cycle.
+        functions[key]!.addToRolePolicy(new iam.PolicyStatement({
+          effect: iam.Effect.DENY,
+          actions: [
+            "ec2:CreateNetworkInterface", "ec2:DeleteNetworkInterface", "ec2:DescribeNetworkInterfaces",
+            "ec2:DescribeSubnets", "ec2:DetachNetworkInterface",
+            "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses",
+          ],
+          resources: ["*"],
+          conditions: { ArnEquals: { "lambda:SourceFunctionArn": cdk.Stack.of(this).formatArn({
+            service: "lambda", resource: "function", resourceName: lambdaFunctionName(key, props.config.stage),
+            arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+          }) } },
+        }));
+      }
     }
 
     this.functions = functions as LambdaFunctions;
@@ -139,6 +189,9 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
     POSTGRES_PASSWORD: context.postgres.password,
     POSTGRES_PORT: context.postgres.port,
     POSTGRES_USERNAME: context.postgres.username,
+    STAGE: context.config.stage,
+    POSTGRES_SSL_MODE: context.postgres.sslMode,
+    ...(context.postgres.sslRootCert ? { POSTGRES_SSL_ROOT_CERT: context.postgres.sslRootCert } : {}),
   };
 }
 

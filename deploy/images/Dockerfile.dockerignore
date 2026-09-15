@@ -1,0 +1,21 @@
+# Repo-root context. Deny by default, including .git, credentials and build output.
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!.cargo/config.toml
+
+# Cargo must discover every workspace member, even when building only four bins.
+!src/**/Cargo.toml
+!src/**/*.rs
+!src/crawler/migrations/*.sql
+!src/crawler/src/review/ui/index.html
+!src/crawler/src/review/ui/app.js
+!src/crawler/src/review/ui/inspector.js
+!src/crawler/src/review/ui/styles.css
+!migrations/*.sql
+!opensearch/mappings/*.json
+!opensearch/analysis/*.txt
+
+# Keep generated Rust/manifest files out even beneath source directories.
+**/target/**

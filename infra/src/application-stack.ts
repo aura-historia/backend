@@ -18,16 +18,20 @@ import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
 import { importWorkerQueueCatalog, WorkerQueues } from "./constructs/worker-queues";
+import { LambdaEgress, type LambdaEgressOutput } from "./constructs/lambda-egress";
+import { parsePostgresLambdaConfig, type PostgresLambdaConfig } from "./postgres-lambda-config";
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
   readonly localStackMappedPort?: string;
+  readonly postgresLambda?: PostgresLambdaConfig;
 }
 
 export interface ApplicationStageProps extends cdk.StackProps {
   readonly stage: StageName;
   readonly stackNamePrefix?: string;
   readonly localStackMappedPort?: string;
+  readonly postgresLambda?: PostgresLambdaConfig;
 }
 
 export interface ApplicationStageStacks {
@@ -40,12 +44,15 @@ export interface ApplicationStageStacks {
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
   const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
   const baseProps = stackBaseProps(props);
+  const postgresLambda = props.postgresLambda === undefined ? undefined
+    : parsePostgresLambdaConfig(props.postgresLambda, props.stage);
 
   const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
     ...baseProps,
     stage: props.stage,
     localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-data`,
+    postgresLambda,
   });
 
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
@@ -53,6 +60,8 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     stage: props.stage,
     localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-compute`,
+    postgresLambda,
+    lambdaEgress: data.lambdaEgress,
     storage: data.storage,
     queues: data.queues,
     search: data.search,
@@ -90,6 +99,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
 }
 
 export class ApplicationDataStack extends cdk.Stack {
+  readonly lambdaEgress?: LambdaEgressOutput;
   readonly storage: Storage;
   readonly queues: Queues;
   readonly workerQueues: WorkerQueues;
@@ -104,6 +114,20 @@ export class ApplicationDataStack extends cdk.Stack {
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia data stack";
+    if (props.postgresLambda !== undefined) {
+      const postgresLambda = parsePostgresLambdaConfig(props.postgresLambda, props.stage);
+      this.lambdaEgress = new LambdaEgress(this, "LambdaEgress", {
+        ...postgresLambda.network,
+        stage: postgresLambda.stage,
+        environment: postgresLambda.environment,
+      }).output;
+      for (const nat of this.lambdaEgress.natGateways) {
+        new cdk.CfnOutput(this, `LambdaNatIpv4${nat.availabilityZone}`, {
+          description: "Allowlist this exact /32 at PostgreSQL before deploying compute",
+          value: nat.publicIpv4,
+        });
+      }
+    }
 
     this.storage = new Storage(this, "Storage", {
       config,
@@ -129,6 +153,7 @@ export class ApplicationDataStack extends cdk.Stack {
 }
 
 export interface ApplicationComputeStackProps extends ApplicationStackProps {
+  readonly lambdaEgress?: LambdaEgressOutput;
   readonly storage: Storage;
   readonly queues: Queues;
   readonly search: Search;
@@ -149,6 +174,17 @@ export class ApplicationComputeStack extends cdk.Stack {
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
+    const postgresLambda = props.postgresLambda === undefined ? undefined
+      : parsePostgresLambdaConfig(props.postgresLambda, props.stage);
+    if (Boolean(postgresLambda) !== Boolean(props.lambdaEgress)) {
+      throw new Error("PostgreSQL Lambda config and data-stack egress must be supplied together.");
+    }
+    if (postgresLambda && (this.account !== postgresLambda.environment.account
+      || this.region !== postgresLambda.environment.region
+      || props.lambdaEgress!.environment.account !== this.account
+      || props.lambdaEgress!.environment.region !== this.region)) {
+      throw new Error("PostgreSQL Lambda stack environment mismatch.");
+    }
 
     const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
     const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
@@ -159,6 +195,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: props.storage.postgres,
+      postgresLambda: postgresLambda ? { config: postgresLambda, egress: props.lambdaEgress! } : undefined,
     });
 
 
@@ -178,6 +215,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       config,
       queues: importQueueCatalog(this, "EventingQueueImports", stageName),
       functions: this.lambdas.functions,
+      shopifyMaxConcurrency: postgresLambda?.reservedConcurrency.shopify,
+      orderFxScheduleAfterInitialization: postgresLambda !== undefined,
     });
 
     computeOutputs(this, {
@@ -236,6 +275,9 @@ export class ApplicationEphemeralStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
+    if (props.postgresLambda !== undefined) {
+      throw new Error("PostgreSQL Lambda egress is not supported in ephemeral stacks.");
+    }
     if (!config.isEphemeral) {
       throw new Error("ApplicationEphemeralStack only supports the ephemeral stage.");
     }
@@ -343,7 +385,8 @@ export class ApplicationObservabilityStack extends cdk.Stack {
 }
 
 function stackBaseProps(props: ApplicationStageProps): cdk.StackProps {
-  const { localStackMappedPort: _localStackMappedPort, stackNamePrefix: _stackNamePrefix, stage: _stage, ...stackProps } = props;
+  const { localStackMappedPort: _localStackMappedPort, stackNamePrefix: _stackNamePrefix,
+    stage: _stage, postgresLambda: _postgresLambda, ...stackProps } = props;
   return stackProps;
 }
 

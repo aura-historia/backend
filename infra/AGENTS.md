@@ -12,9 +12,12 @@
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
 - `src/worker-queue-config.ts` own ten native worker scopes and queue settings. `src/constructs/worker-queues.ts` own separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
+- Owner prefers eu-central-1 for regional AWS resources; keep AWS dev separate from the current machine's self-hosted dev stage. Global-service exceptions need explicit review; do not infer mutation authority from root CLI credentials.
 - CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
-- Postgres is self-hosted. Infra passes explicit `POSTGRES_*` env vars from SSM/test settings; no RDS Proxy.
+- Postgres is self-hosted. DB Lambdas require explicit stage/TLS (`verify-full` real / `disable` ephemeral). Opt-in `postgresLambdaConfig` supplies actual public CA layer `/opt/postgres-ca/root.pem`, hostname/port, per-function reservations and budget. Absent opt-in preserves legacy SSM CA-path-only contract; no proof of trust delivery. No RDS Proxy.
 - Infra own runtime glue: env vars, triggers, schedules, IAM, queue wiring, outputs, retention, alarms. Rust crates own business rules.
+- R5 opt-in instantiates existing `LambdaEgress` in data; compute attaches only catalog `postgres:true` Lambdas to private subnets/sole dedicated SG. Explicit account/region/CIDRs/AZs/NAT policy; no lookups. No ephemeral opt-in. Default templates remain unchanged; synth is not live egress proof.
+- First activation: approved data-only deployment → actual EIP firewall/TLS/current-schema gates → separately authorized compute/FX business writes. No `deploy --all` shortcut; existing sources need explicit pause during updates. Public CA uses ordinary CDK layer/assets, not secret framework. Reservation×pool is an estimate, not hard total session cap.
 
 ## Ownership
 
@@ -65,3 +68,5 @@
 - No child `AGENTS.md`.
 - `README.md` — stack, worker queue, identity handoff, and rollout contracts.
 - `examples/worker.env.example` — native worker queue environment, no credentials.
+- `lambda-egress-09a.md` — network contract and historical09a evidence; standalone status superseded.
+- `postgres-lambda-r5.md` — opt-in attachment, actual CA packaging, operator inputs, staged activation and unpassed live gates.

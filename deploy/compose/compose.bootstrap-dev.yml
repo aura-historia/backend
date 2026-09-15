@@ -1,0 +1,44 @@
+# Explicit one-shot dev setup, never included in ordinary application replacement.
+# Database creation/roles/extensions are separate operator prerequisites.
+x-bootstrap: &bootstrap
+  image: ${BOOTSTRAP_DEV_IMAGE:?Set reviewed immutable bootstrap-dev image digest}
+  pull_policy: never
+  restart: "no"
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [backend]
+  mem_limit: 512m
+  cpus: 1
+  pids_limit: 64
+  stop_grace_period: 100s
+  command: [--help]
+  environment:
+    POSTGRES_SSL_ROOT_CERT: /run/aura/postgres-ca.pem
+  volumes:
+    - type: bind
+      source: ${AURA_DEV_INIT_CONFIG_DIR:?Set separate protected initialization directory}/postgres-ca.pem
+      target: /run/aura/postgres-ca.pem
+      read_only: true
+      bind: {create_host_path: false}
+  logging:
+    driver: local
+    options: {max-size: 1m, max-file: "1", compress: "false"}
+
+services:
+  bootstrap-business:
+    <<: *bootstrap
+    env_file:
+      - path: ${AURA_DEV_INIT_CONFIG_DIR:?}/business.env
+        format: raw
+  bootstrap-crawler:
+    <<: *bootstrap
+    env_file:
+      - path: ${AURA_DEV_INIT_CONFIG_DIR:?}/crawler.env
+        format: raw
+
+networks:
+  backend:
+    external: true
+    name: ${AURA_NETWORK:?Set existing dev backend network}

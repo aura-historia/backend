@@ -1,0 +1,24 @@
+# Exact internal usernames only; no backend roles, hosts, wildcards or admin user.
+_meta:
+  type: rolesmapping
+  config_version: 2
+aura_reader:
+  users: ["aura_reader"]
+  backend_roles: []
+  hosts: []
+aura_product_projector:
+  users: ["aura_product_projector"]
+  backend_roles: []
+  hosts: []
+aura_filter_projector:
+  users: ["aura_filter_projector"]
+  backend_roles: []
+  hosts: []
+aura_percolator:
+  users: ["aura_percolator"]
+  backend_roles: []
+  hosts: []
+aura_cron:
+  users: ["aura_cron"]
+  backend_roles: []
+  hosts: []

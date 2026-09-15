@@ -15,6 +15,8 @@ export interface EventingProps {
   readonly config: StageConfig;
   readonly queues: QueueCatalog;
   readonly functions: LambdaFunctions;
+  readonly shopifyMaxConcurrency?: number;
+  readonly orderFxScheduleAfterInitialization?: boolean;
 }
 
 export class Eventing extends Construct {
@@ -40,11 +42,11 @@ export class Eventing extends Construct {
 
     createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createCloudWatchLogRetentionRule(this, props.functions);
-    createSqsEventSources(props.functions, props.queues);
+    createSqsEventSources(props.functions, props.queues, props.shopifyMaxConcurrency);
 
     if (!props.config.isEphemeral && props.functions.fxRateSync) {
-      createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
-      new events.Rule(this, "FxRateSyncStartSchedule", {
+      const initialSnapshot = createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
+      const schedule = new events.Rule(this, "FxRateSyncStartSchedule", {
         schedule: events.Schedule.expression("cron(0 6,18 * * ? *)"),
         targets: [
           new targets.LambdaFunction(props.functions.fxRateSync, {
@@ -53,6 +55,7 @@ export class Eventing extends Construct {
           }),
         ],
       });
+      if (props.orderFxScheduleAfterInitialization) schedule.node.addDependency(initialSnapshot);
     }
   }
 }
@@ -61,7 +64,7 @@ function createInitialFxRateSnapshot(
   scope: Construct,
   fxRateSync: lambda.IFunction,
   stageName: string,
-): void {
+): cdk.CustomResource {
   const provider = new lambda.Function(scope, "InitialFxRateSnapshotProvider", {
     functionName: `fxrate-initial-snapshot-provider-${stageName}`,
     runtime: lambda.Runtime.NODEJS_20_X,
@@ -71,7 +74,7 @@ function createInitialFxRateSnapshot(
   });
   fxRateSync.grantInvoke(provider);
 
-  new cdk.CustomResource(scope, "InitialFxRateSnapshot", {
+  return new cdk.CustomResource(scope, "InitialFxRateSnapshot", {
     serviceToken: provider.functionArn,
     properties: {
       FunctionName: fxRateSync.functionName,
@@ -157,8 +160,8 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
   });
 }
 
-function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
+function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog, maxConcurrency?: number): void {
+  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, maxConcurrency);
 }
 
 function addSqsEventSource(
@@ -167,11 +170,13 @@ function addSqsEventSource(
   batchSize: number,
   reportBatchItemFailures: boolean,
   maxBatchingWindowSeconds?: number,
+  maxConcurrency?: number,
 ): void {
   fn.addEventSource(
     new lambdaEventSources.SqsEventSource(queue, {
       batchSize,
       reportBatchItemFailures,
+      maxConcurrency,
       maxBatchingWindow: maxBatchingWindowSeconds === undefined ? undefined : cdk.Duration.seconds(maxBatchingWindowSeconds),
     }),
   );

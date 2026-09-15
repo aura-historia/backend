@@ -1,0 +1,42 @@
+# R3 only: synthetic STAGE=test files, empty persistent databases, no public providers.
+# Applied to the checked-in platform project only; never render another Compose file.
+services:
+  opensearch:
+    environment:
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+  provider:
+    image: ${HELPER_IMAGE:?}
+    pull_policy: never
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 96
+    networks: [backend]
+    command: [/smoke/compose-provider.py, serve]
+    volumes:
+      - type: bind
+        source: ../tests
+        target: /smoke
+        read_only: true
+        bind: { create_host_path: false }
+  bootstrap:
+    image: ${HELPER_IMAGE:?}
+    pull_policy: never
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 64
+    network_mode: service:postgres
+    command: [-c, "import time; time.sleep(1800)"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777"]
+    depends_on:
+      postgres: { condition: service_healthy }

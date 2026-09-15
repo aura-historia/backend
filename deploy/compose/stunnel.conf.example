@@ -1,0 +1,28 @@
+# Nonsecret same-host example. Certificate must contain DNS:postgres.
+# Replace connect/checkHost/sni together for a remote endpoint; never disable verification.
+foreground = yes
+syslog = no
+pid =
+debug = warning
+
+[metadata]
+client = yes
+accept = 127.0.0.1:15432
+connect = postgres:5432
+protocol = pgsql
+CAfile = /run/aura/stunnel/root.pem
+verifyChain = yes
+checkHost = postgres
+sni = postgres
+sslVersionMin = TLSv1.2
+
+[source]
+client = yes
+accept = 127.0.0.1:15433
+connect = postgres:5432
+protocol = pgsql
+CAfile = /run/aura/stunnel/root.pem
+verifyChain = yes
+checkHost = postgres
+sni = postgres
+sslVersionMin = TLSv1.2
