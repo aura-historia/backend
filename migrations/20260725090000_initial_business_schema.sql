@@ -192,8 +192,6 @@ CREATE TABLE auctions (
     source_auction_id text NOT NULL,
     name_text text,
     name_language text,
-    description_text text,
-    description_language text,
     catalogue_url text,
     format text,
     bidding_opens_at timestamptz,
@@ -215,9 +213,11 @@ CREATE TABLE auctions (
     )),
     CONSTRAINT auctions_reported_lot_count_check CHECK (reported_lot_count IS NULL OR reported_lot_count BETWEEN 0 AND 4294967295),
     CONSTRAINT auctions_version_positive CHECK (version >= 1),
-    CONSTRAINT auctions_name_localization_shape_check CHECK ((name_text IS NULL) = (name_language IS NULL)),
-    CONSTRAINT auctions_description_localization_shape_check CHECK ((description_text IS NULL) = (description_language IS NULL))
+    CONSTRAINT auctions_name_localization_shape_check CHECK ((name_text IS NULL) = (name_language IS NULL))
 );
+
+CREATE INDEX auctions_created_id_idx
+    ON auctions (created DESC, auction_id DESC);
 
 
 CREATE TABLE auction_events (

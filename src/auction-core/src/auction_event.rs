@@ -1,6 +1,6 @@
 use crate::{
-    AuctionDescription, AuctionFormat, AuctionKey, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, ReportedCatalogueLotCount,
+    AuctionFormat, AuctionKey, AuctionName, AuctionReportedStatus, AuctionSchedule,
+    ReportedCatalogueLotCount,
 };
 use localization::{Language, Localized};
 use std::str::FromStr;
@@ -60,7 +60,6 @@ impl AuctionEventPayload {
 pub struct AuctionDiscovered {
     key: AuctionKey,
     name: Option<Localized<Language, AuctionName>>,
-    description: Option<Localized<Language, AuctionDescription>>,
     catalogue_url: Option<Url>,
     format: Option<AuctionFormat>,
     schedule: AuctionSchedule,
@@ -69,11 +68,9 @@ pub struct AuctionDiscovered {
 }
 
 impl AuctionDiscovered {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         key: AuctionKey,
         name: Option<Localized<Language, AuctionName>>,
-        description: Option<Localized<Language, AuctionDescription>>,
         catalogue_url: Option<Url>,
         format: Option<AuctionFormat>,
         schedule: AuctionSchedule,
@@ -83,7 +80,6 @@ impl AuctionDiscovered {
         Self {
             key,
             name,
-            description,
             catalogue_url,
             format,
             schedule,
@@ -98,10 +94,6 @@ impl AuctionDiscovered {
 
     pub fn name(&self) -> Option<&Localized<Language, AuctionName>> {
         self.name.as_ref()
-    }
-
-    pub fn description(&self) -> Option<&Localized<Language, AuctionDescription>> {
-        self.description.as_ref()
     }
 
     pub fn catalogue_url(&self) -> Option<&Url> {
@@ -148,7 +140,6 @@ impl<T> AuctionValueChange<T> {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AuctionChanged {
     name: Option<AuctionValueChange<Option<Localized<Language, AuctionName>>>>,
-    description: Option<AuctionValueChange<Option<Localized<Language, AuctionDescription>>>>,
     catalogue_url: Option<AuctionValueChange<Option<Url>>>,
     format: Option<AuctionValueChange<Option<AuctionFormat>>>,
     schedule: Option<AuctionValueChange<AuctionSchedule>>,
@@ -159,12 +150,6 @@ pub struct AuctionChanged {
 impl AuctionChanged {
     pub fn name(&self) -> Option<&AuctionValueChange<Option<Localized<Language, AuctionName>>>> {
         self.name.as_ref()
-    }
-
-    pub fn description(
-        &self,
-    ) -> Option<&AuctionValueChange<Option<Localized<Language, AuctionDescription>>>> {
-        self.description.as_ref()
     }
 
     pub fn catalogue_url(&self) -> Option<&AuctionValueChange<Option<Url>>> {
@@ -193,7 +178,6 @@ impl AuctionChanged {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.name.is_none()
-            && self.description.is_none()
             && self.catalogue_url.is_none()
             && self.format.is_none()
             && self.schedule.is_none()
@@ -207,14 +191,6 @@ impl AuctionChanged {
         current: Option<Localized<Language, AuctionName>>,
     ) {
         coalesce_value_change(&mut self.name, previous, current);
-    }
-
-    pub(crate) fn change_description(
-        &mut self,
-        previous: Option<Localized<Language, AuctionDescription>>,
-        current: Option<Localized<Language, AuctionDescription>>,
-    ) {
-        coalesce_value_change(&mut self.description, previous, current);
     }
 
     pub(crate) fn change_catalogue_url(&mut self, previous: Option<Url>, current: Option<Url>) {

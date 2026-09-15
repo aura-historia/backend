@@ -1,7 +1,7 @@
 use crate::{
-    AuctionChanged, AuctionDescription, AuctionDiscovered, AuctionEventPayload, AuctionFormat,
-    AuctionId, AuctionKey, AuctionName, AuctionReportedStatus, AuctionSchedule,
-    InvalidAuctionSchedule, ReportedCatalogueLotCount,
+    AuctionChanged, AuctionDiscovered, AuctionEventPayload, AuctionFormat, AuctionId, AuctionKey,
+    AuctionName, AuctionReportedStatus, AuctionSchedule, InvalidAuctionSchedule,
+    ReportedCatalogueLotCount,
 };
 use domain_primitives::change_outcome::ChangeOutcome;
 use localization::{Language, Localized};
@@ -12,7 +12,6 @@ pub struct NewAuction {
     pub id: AuctionId,
     pub key: AuctionKey,
     pub name: Option<Localized<Language, AuctionName>>,
-    pub description: Option<Localized<Language, AuctionDescription>>,
     pub catalogue_url: Option<Url>,
     pub format: Option<AuctionFormat>,
     pub schedule: AuctionSchedule,
@@ -26,7 +25,6 @@ pub struct RehydratedAuctionState {
     pub id: AuctionId,
     pub key: AuctionKey,
     pub name: Option<Localized<Language, AuctionName>>,
-    pub description: Option<Localized<Language, AuctionDescription>>,
     pub catalogue_url: Option<Url>,
     pub format: Option<AuctionFormat>,
     pub schedule: AuctionSchedule,
@@ -51,7 +49,6 @@ pub struct Auction {
     id: AuctionId,
     key: AuctionKey,
     name: Option<Localized<Language, AuctionName>>,
-    description: Option<Localized<Language, AuctionDescription>>,
     catalogue_url: Option<Url>,
     format: Option<AuctionFormat>,
     schedule: AuctionSchedule,
@@ -66,7 +63,6 @@ impl Auction {
             id: input.id,
             key: input.key,
             name: input.name,
-            description: input.description,
             catalogue_url: input.catalogue_url,
             format: input.format,
             schedule: input.schedule,
@@ -93,7 +89,6 @@ impl Auction {
             id: state.id,
             key: state.key,
             name: state.name,
-            description: state.description,
             catalogue_url: state.catalogue_url,
             format: state.format,
             schedule: state.schedule,
@@ -113,10 +108,6 @@ impl Auction {
 
     pub fn name(&self) -> Option<&Localized<Language, AuctionName>> {
         self.name.as_ref()
-    }
-
-    pub fn description(&self) -> Option<&Localized<Language, AuctionDescription>> {
-        self.description.as_ref()
     }
 
     pub fn catalogue_url(&self) -> Option<&Url> {
@@ -157,30 +148,6 @@ impl Auction {
         }
         self.name = None;
         self.coalesce_pending_change(|changed| changed.change_name(previous, None));
-        ChangeOutcome::Changed
-    }
-
-    pub fn replace_description(
-        &mut self,
-        description: Localized<Language, AuctionDescription>,
-    ) -> ChangeOutcome {
-        let previous = self.description.clone();
-        let current = Some(description);
-        if previous == current {
-            return ChangeOutcome::Unchanged;
-        }
-        self.description = current.clone();
-        self.coalesce_pending_change(|changed| changed.change_description(previous, current));
-        ChangeOutcome::Changed
-    }
-
-    pub fn clear_description(&mut self) -> ChangeOutcome {
-        let previous = self.description.clone();
-        if previous.is_none() {
-            return ChangeOutcome::Unchanged;
-        }
-        self.description = None;
-        self.coalesce_pending_change(|changed| changed.change_description(previous, None));
         ChangeOutcome::Changed
     }
 
@@ -298,7 +265,6 @@ impl Auction {
         AuctionDiscovered::new(
             self.key.clone(),
             self.name.clone(),
-            self.description.clone(),
             self.catalogue_url.clone(),
             self.format,
             self.schedule.clone(),
@@ -332,7 +298,7 @@ impl Auction {
 mod tests {
     use super::{Auction, NewAuction, RehydratedAuctionState};
     use crate::{
-        AuctionDescription, AuctionEventPayload, AuctionFormat, AuctionId, AuctionKey, AuctionName,
+        AuctionEventPayload, AuctionFormat, AuctionId, AuctionKey, AuctionName,
         AuctionReportedStatus, AuctionSchedule, ReportedCatalogueLotCount, SourceAuctionId,
     };
     use domain_primitives::change_outcome::ChangeOutcome;
@@ -362,7 +328,6 @@ mod tests {
             id: AuctionId::new(),
             key: key(),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),
@@ -460,11 +425,6 @@ mod tests {
         let _ = auction.set_format(AuctionFormat::Timed);
         let _ = auction.set_reported_status(AuctionReportedStatus::Scheduled);
         let _ = auction.set_reported_lot_count(ReportedCatalogueLotCount::new(0));
-        let _ = auction.replace_description(Localized::new(
-            Language::En,
-            AuctionDescription::try_from("Fine objects")
-                .unwrap_or_else(|error| panic!("valid auction description: {error}")),
-        ));
         let _ = auction.replace_catalogue_url(
             Url::parse("https://example.test/catalogue")
                 .unwrap_or_else(|error| panic!("valid test URL: {error}")),
@@ -493,7 +453,6 @@ mod tests {
             id: AuctionId::new(),
             key: key(),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),

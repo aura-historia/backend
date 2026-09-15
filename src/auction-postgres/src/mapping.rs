@@ -1,8 +1,7 @@
 use application::error::box_error;
 use auction_core::{
-    Auction, AuctionDescription, AuctionFormat, AuctionId, AuctionKey, AuctionName,
-    AuctionReportedStatus, AuctionSchedule, RehydratedAuctionState, ReportedCatalogueLotCount,
-    SourceAuctionId,
+    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionName, AuctionReportedStatus,
+    AuctionSchedule, RehydratedAuctionState, ReportedCatalogueLotCount, SourceAuctionId,
 };
 use auction_service::ports::{AuctionStorageVersion, StoredAuction};
 use domain_primitives::object_id::ObjectIdError;
@@ -19,8 +18,6 @@ pub(crate) struct AuctionRow {
     pub source_auction_id: String,
     pub name_text: Option<String>,
     pub name_language: Option<String>,
-    pub description_text: Option<String>,
-    pub description_language: Option<String>,
     pub catalogue_url: Option<String>,
     pub format: Option<String>,
     pub bidding_opens_at: Option<OffsetDateTime>,
@@ -77,7 +74,6 @@ pub(crate) fn map_stored_auction(row: AuctionRow) -> Result<StoredAuction, Aucti
         return Err(AuctionRowMappingError::SourceAuctionId);
     }
     let name = map_localized_name(row.name_text, row.name_language)?;
-    let description = map_localized_description(row.description_text, row.description_language)?;
     let catalogue_url = row
         .catalogue_url
         .map(|text| {
@@ -117,7 +113,6 @@ pub(crate) fn map_stored_auction(row: AuctionRow) -> Result<StoredAuction, Aucti
         id: auction_id,
         key: AuctionKey::new(listing_source_id, source_auction_id),
         name,
-        description,
         catalogue_url,
         format,
         schedule,
@@ -141,26 +136,6 @@ fn map_localized_name(
         (None, None) => Ok(None),
         (Some(text), Some(language)) => {
             let payload = AuctionName::try_from(text.as_str())
-                .map_err(|_| AuctionRowMappingError::LocalizedField)?;
-            (payload.as_ref() == text)
-                .then_some(())
-                .ok_or(AuctionRowMappingError::LocalizedField)?;
-            let localization =
-                Language::from_code(&language).ok_or(AuctionRowMappingError::LocalizedField)?;
-            Ok(Some(Localized::new(localization, payload)))
-        }
-        _ => Err(AuctionRowMappingError::LocalizedField),
-    }
-}
-
-fn map_localized_description(
-    text: Option<String>,
-    language: Option<String>,
-) -> Result<Option<Localized<Language, AuctionDescription>>, AuctionRowMappingError> {
-    match (text, language) {
-        (None, None) => Ok(None),
-        (Some(text), Some(language)) => {
-            let payload = AuctionDescription::try_from(text.as_str())
                 .map_err(|_| AuctionRowMappingError::LocalizedField)?;
             (payload.as_ref() == text)
                 .then_some(())

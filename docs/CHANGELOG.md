@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 
+- **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
+
 - **Breaking:** Partner ProductListing Auction association now uses `auction.auctionId`, an existing same-ListingSource `auc_` ID. Partners cannot resolve/create Auctions from `sourceAuctionId` or supply Auction metadata. Omit `auctionId` to preserve membership, send `null` to clear it, and use lot/timing leaf patches for listing-owned facts.
 
 - **Breaking:** Raw ProductListing input no longer accepts Auction references, lot facts, timings, or metadata. Crawler, Shopify, and WooCommerce emit only generic product data; raw normalization uses a ProductListing-only write that preserves already stored Auction membership and lot facts. Raw Auction diagnostics, acceptance receipts, and their persistence are removed. No compatibility reader, dual write, or backfill exists.

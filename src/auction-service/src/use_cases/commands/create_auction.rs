@@ -11,8 +11,8 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use auction_core::{
-    Auction, AuctionDescription, AuctionFormat, AuctionId, AuctionKey, AuctionName,
-    AuctionReportedStatus, AuctionSchedule, NewAuction, ReportedCatalogueLotCount, SourceAuctionId,
+    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionName, AuctionReportedStatus,
+    AuctionSchedule, NewAuction, ReportedCatalogueLotCount, SourceAuctionId,
 };
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -27,7 +27,6 @@ pub struct CreateAuctionCommand {
     pub listing_source_id: ListingSourceId,
     pub source_auction_id: SourceAuctionId,
     pub name: Option<Localized<Language, AuctionName>>,
-    pub description: Option<Localized<Language, AuctionDescription>>,
     pub catalogue_url: Option<Url>,
     pub format: Option<AuctionFormat>,
     pub schedule: AuctionSchedule,
@@ -140,7 +139,6 @@ where
             id: AuctionId::new(),
             key: AuctionKey::new(command.listing_source_id, command.source_auction_id),
             name: command.name,
-            description: command.description,
             catalogue_url: command.catalogue_url,
             format: command.format,
             schedule: command.schedule,
@@ -455,7 +453,6 @@ mod tests {
             source_auction_id: SourceAuctionId::try_from("source-auction")
                 .unwrap_or_else(|error| panic!("valid source auction ID: {error}")),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),

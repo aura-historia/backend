@@ -6,8 +6,8 @@ use crate::{
 };
 use application::patch_field::PatchField;
 use auction_core::{
-    AuctionDescription, AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, ReportedCatalogueLotCount, SourceAuctionId,
+    AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus, AuctionSchedule,
+    ReportedCatalogueLotCount, SourceAuctionId,
 };
 use auction_service::{
     ports::AuctionStorageVersion,
@@ -32,8 +32,6 @@ pub(super) struct CreateAuctionData {
     #[serde(default)]
     name: Option<LocalizedTextData>,
     #[serde(default)]
-    description: Option<LocalizedTextData>,
-    #[serde(default)]
     catalogue_url: Option<Url>,
     #[serde(default)]
     format: Option<String>,
@@ -57,7 +55,6 @@ impl TryFrom<CreateAuctionData> for CreateAuctionCommand {
             )?,
             source_auction_id: source_auction_id(value.source_auction_id)?,
             name: value.name.map(auction_name).transpose()?,
-            description: value.description.map(auction_description).transpose()?,
             catalogue_url: value.catalogue_url,
             format: value.format.map(auction_format).transpose()?,
             schedule: value.schedule.into_schedule()?,
@@ -73,8 +70,6 @@ pub(super) struct UpdateAuctionData {
     expected_version: u64,
     #[serde(default)]
     name: PatchValue<LocalizedTextData>,
-    #[serde(default)]
-    description: PatchValue<LocalizedTextData>,
     #[serde(default)]
     catalogue_url: PatchValue<Url>,
     #[serde(default)]
@@ -98,7 +93,6 @@ impl UpdateAuctionData {
             auction_id,
             expected_version,
             name: map_patch(self.name, auction_name)?,
-            description: map_patch(self.description, auction_description)?,
             catalogue_url: clearable(self.catalogue_url),
             format: map_patch(self.format, auction_format)?,
             schedule: self.schedule.into_patch(),
@@ -166,7 +160,6 @@ pub(crate) struct AuctionAdminData {
     listing_source_id: ListingSourceId,
     source_auction_id: String,
     name: Option<LocalizedTextData>,
-    description: Option<LocalizedTextData>,
     catalogue_url: Option<Url>,
     format: Option<&'static str>,
     schedule: AuctionScheduleResponseData,
@@ -187,7 +180,6 @@ impl From<AuctionAdminDetailsView> for AuctionAdminData {
             listing_source_id: value.key.listing_source_id(),
             source_auction_id: value.key.source_auction_id().to_string(),
             name: value.name.map(LocalizedTextData::from),
-            description: value.description.map(LocalizedTextData::from),
             catalogue_url: value.catalogue_url,
             format: value.format.map(AuctionFormat::as_str),
             schedule: AuctionScheduleResponseData::from(value.schedule),
@@ -243,14 +235,6 @@ fn auction_name(
         })
 }
 
-fn auction_description(
-    value: LocalizedTextData,
-) -> Result<localization::Localized<localization::Language, AuctionDescription>, ApiError> {
-    AuctionDescription::try_from(value.text)
-        .map(|payload| localization::Localized::new(value.language, payload))
-        .map_err(|_| invalid_body("description.text must be valid nonblank sanitized text of at most 65536 UTF-8 bytes."))
-}
-
 fn auction_format(value: String) -> Result<AuctionFormat, ApiError> {
     value
         .parse()
@@ -283,6 +267,7 @@ fn invalid_body(detail: &str) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use auction_core::AuctionKey;
 
     #[test]
     fn should_map_create_payload_with_rfc3339_schedule() -> Result<(), ApiError> {
@@ -344,6 +329,46 @@ mod tests {
                 .and_then(CreateAuctionCommand::try_from);
             assert!(result.is_err());
         }
+    }
+
+    #[test]
+    fn should_reject_auction_description_in_strict_input_payloads() {
+        assert!(serde_json::from_str::<CreateAuctionData>(
+            r#"{"listingSourceId":"ls_01jgfjjz4ne2g0000000000000","sourceAuctionId":"sale","description":{"language":"en","text":"old"}}"#
+        )
+        .is_err());
+        assert!(
+            serde_json::from_str::<UpdateAuctionData>(
+                r#"{"expectedVersion":1,"description":null}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn should_serialize_admin_auction_without_description() -> Result<(), ApiError> {
+        let view = AuctionAdminDetailsView {
+            auction_id: AuctionId::new(),
+            key: AuctionKey::new(
+                ListingSourceId::new(),
+                SourceAuctionId::try_from("sale-42")
+                    .map_err(|_| invalid_body("invalid test source auction ID"))?,
+            ),
+            name: None,
+            catalogue_url: None,
+            format: None,
+            schedule: AuctionSchedule::default(),
+            reported_status: None,
+            reported_lot_count: None,
+            version: AuctionStorageVersion::INITIAL,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        };
+        let body = serde_json::to_value(AuctionAdminData::from(view))
+            .map_err(|_| invalid_body("failed to serialize test Auction"))?;
+
+        assert!(body.get("description").is_none());
+        Ok(())
     }
 
     #[test]

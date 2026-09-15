@@ -2,11 +2,11 @@
 
 ## Purpose
 
-- Own pure Auction aggregate, IDs, events, source key, metadata values, and exact-instant schedule values.
+- Own pure Auction aggregate, IDs, events, source key, name value, and exact-instant schedule values.
 
 ## Core Design
 
-- `Auction` owns source-scoped immutable identity and optional metadata only.
+- `Auction` owns source-scoped immutable identity plus optional name, catalogue URL, format, schedule, and reported facts.
 - Fields stay private. Creation and rehydration take supplied values; core creates no IDs, timestamps, or random values.
 - Schedule fields are optional exact `OffsetDateTime` instants.
 - No ProductListing, storage, API, resolver, or service dependency. Listing membership starts in later iteration 06.

@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 domain-primitives = { workspace = true }
-html-escape = { workspace = true }
 listing-source-core = { workspace = true }
 localization = { workspace = true }
 strum = { workspace = true }

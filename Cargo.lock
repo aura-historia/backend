@@ -219,7 +219,6 @@ name = "auction-core"
 version = "0.1.0"
 dependencies = [
  "domain-primitives",
- "html-escape",
  "listing-source-core",
  "localization",
  "rstest",
@@ -403,7 +402,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "auction-postgres",
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
@@ -453,7 +451,6 @@ dependencies = [
  "test-api",
  "thiserror 2.0.20",
  "time",
- "time-tz",
  "tokio",
  "tracing",
  "url",
@@ -5183,15 +5180,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parse-zoneinfo"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f2a05b18d44e2957b88f96ba460715e295bc1d7510468a2f3d3b44535d26c24"
-dependencies = [
- "regex",
-]
-
-[[package]]
 name = "partnership-core"
 version = "0.1.0"
 dependencies = [
@@ -5962,7 +5950,6 @@ dependencies = [
  "tracing",
  "url",
  "user-core",
- "user-service",
  "uuid",
 ]
 
@@ -6979,18 +6966,6 @@ dependencies = [
  "js-sys",
  "serde",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "serde-xml-rs"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65162e9059be2f6a3421ebbb4fef3e74b7d9e7c60c50a0e292c6239f19f1edfa"
-dependencies = [
- "log",
- "serde",
- "thiserror 1.0.69",
- "xml-rs",
 ]
 
 [[package]]
@@ -8145,7 +8120,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
- "js-sys",
  "libc",
  "num-conv",
  "num_threads",
@@ -8169,22 +8143,6 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
-]
-
-[[package]]
-name = "time-tz"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "733bc522e97980eb421cbf381160ff225bd14262a48a739110f6653c6258d625"
-dependencies = [
- "cfg-if",
- "parse-zoneinfo",
- "phf 0.11.3",
- "phf_codegen 0.11.3",
- "serde",
- "serde-xml-rs",
- "time",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -8941,8 +8899,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "auction-core",
- "auction-service",
  "domain-primitives",
  "fake",
  "fxrate-core",
@@ -9307,12 +9263,6 @@ dependencies = [
  "libc",
  "rustix",
 ]
-
-[[package]]
-name = "xml-rs"
-version = "0.8.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xmlparser"

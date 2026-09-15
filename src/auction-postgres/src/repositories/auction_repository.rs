@@ -16,16 +16,15 @@ impl AuctionRepository for SqlxAuctionRepository<'_> {
         &mut self,
         id: auction_core::AuctionId,
     ) -> Result<Option<StoredAuction>, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = $1")
+        let row = sqlx::query_as::<_, AuctionRow>("SELECT auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated FROM auctions WHERE auction_id = $1")
             .bind(id.as_uuid()).fetch_optional(&mut *self.connection).await.map_err(read_error)?;
         load_optional(row)
     }
 
     async fn insert(&mut self, auction: &Auction) -> Result<StoredAuction, AuctionRepositoryError> {
-        let row = sqlx::query_as::<_, AuctionRow>("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
+        let row = sqlx::query_as::<_, AuctionRow>("INSERT INTO auctions (auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
             .bind(auction.id().as_uuid()).bind(auction.key().listing_source_id().as_uuid()).bind(auction.key().source_auction_id().as_ref())
             .bind(auction.name().map(|value| value.payload.as_ref())).bind(auction.name().map(|value| value.localization.as_str()))
-            .bind(auction.description().map(|value| value.payload.as_ref())).bind(auction.description().map(|value| value.localization.as_str()))
             .bind(auction.catalogue_url().map(url::Url::as_str)).bind(auction.format().map(|value| value.as_str()))
             .bind(auction.schedule().bidding_opens()).bind(auction.schedule().live_starts()).bind(auction.schedule().lots_begin_closing()).bind(auction.schedule().scheduled_end())
             .bind(auction.reported_status().map(|value| value.as_str())).bind(auction.reported_lot_count().map(|value| i64::from(value.value())))
@@ -43,9 +42,8 @@ impl AuctionRepository for SqlxAuctionRepository<'_> {
                 source: map_error(error),
             }
         })?;
-        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, description_text=$3, description_language=$4, catalogue_url=$5, format=$6, bidding_opens_at=$7, live_starts_at=$8, lots_begin_closing_at=$9, scheduled_end_at=$10, reported_status=$11, reported_lot_count=$12, version=version+1, updated=now() WHERE auction_id=$13 AND version=$14 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, description_text, description_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
+        let row = sqlx::query_as::<_, AuctionRow>("UPDATE auctions SET name_text=$1, name_language=$2, catalogue_url=$3, format=$4, bidding_opens_at=$5, live_starts_at=$6, lots_begin_closing_at=$7, scheduled_end_at=$8, reported_status=$9, reported_lot_count=$10, version=version+1, updated=now() WHERE auction_id=$11 AND version=$12 RETURNING auction_id, listing_source_id, source_auction_id, name_text, name_language, catalogue_url, format, bidding_opens_at, live_starts_at, lots_begin_closing_at, scheduled_end_at, reported_status, reported_lot_count, version, created, updated")
             .bind(auction.name().map(|value| value.payload.as_ref())).bind(auction.name().map(|value| value.localization.as_str()))
-            .bind(auction.description().map(|value| value.payload.as_ref())).bind(auction.description().map(|value| value.localization.as_str()))
             .bind(auction.catalogue_url().map(url::Url::as_str)).bind(auction.format().map(|value| value.as_str()))
             .bind(auction.schedule().bidding_opens()).bind(auction.schedule().live_starts()).bind(auction.schedule().lots_begin_closing()).bind(auction.schedule().scheduled_end())
             .bind(auction.reported_status().map(|value| value.as_str())).bind(auction.reported_lot_count().map(|value| i64::from(value.value())))
@@ -136,7 +134,6 @@ mod tests {
                     .unwrap_or_else(|error| panic!("source key: {error}")),
             ),
             name: None,
-            description: None,
             catalogue_url: None,
             format: Some(AuctionFormat::Timed),
             schedule: AuctionSchedule::new(Some(datetime!(2026-10-18 16:00 UTC)), None, None, None)
@@ -187,6 +184,13 @@ mod tests {
                 .await
                 .unwrap_or_else(|error| panic!("events: {error}"));
         assert_eq!(1, events);
+        let auction_description_columns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'auctions' AND column_name IN ('description_text', 'description_language')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("auction description columns: {error}"));
+        assert_eq!(0, auction_description_columns);
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -295,7 +299,6 @@ mod tests {
             id: AuctionId::new(),
             key: auction.key().clone(),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),

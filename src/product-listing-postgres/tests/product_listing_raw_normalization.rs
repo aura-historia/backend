@@ -1246,7 +1246,6 @@ async fn create_auction(
                 .unwrap_or_else(|error| panic!("source auction ID: {error}")),
         ),
         name: None,
-        description: None,
         catalogue_url: None,
         format: Some(AuctionFormat::Timed),
         schedule: AuctionSchedule::default(),

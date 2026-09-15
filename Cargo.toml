@@ -199,7 +199,6 @@ testcontainers = "0.24.0"
 testcontainers-modules = "0.12.1"
 thiserror = "2.0.18"
 time = "0.3.47"
-time-tz = "2.0.0"
 tokio = { version = "1.52.3", default-features = false }
 tower = "0.5.2"
 tower-http = { version = "0.7.0", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }

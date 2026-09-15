@@ -23,7 +23,4 @@ pub use auction_reported_status::{AuctionReportedStatus, InvalidAuctionReportedS
 pub use auction_schedule::{AuctionSchedule, AuctionSchedulePoint, InvalidAuctionSchedule};
 
 pub use reported_catalogue_lot_count::ReportedCatalogueLotCount;
-pub use value_objects::{
-    AuctionDescription, AuctionName, InvalidAuctionDescription, InvalidAuctionName,
-    InvalidSourceAuctionId, SourceAuctionId,
-};
+pub use value_objects::{AuctionName, InvalidAuctionName, InvalidSourceAuctionId, SourceAuctionId};

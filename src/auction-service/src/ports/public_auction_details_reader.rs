@@ -1,7 +1,7 @@
 use application::error::BoxError;
 use auction_core::{
-    AuctionDescription, AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, ReportedCatalogueLotCount,
+    AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus, AuctionSchedule,
+    ReportedCatalogueLotCount,
 };
 use listing_source_core::{
     ListingSourceId, ListingSourceName, ListingSourceSlugId, ReferralConfiguration,
@@ -25,7 +25,6 @@ pub struct PublicAuctionDetails {
     pub auction_id: AuctionId,
     pub source: PublicAuctionSourceSummary,
     pub name: Option<Localized<Language, AuctionName>>,
-    pub description: Option<Localized<Language, AuctionDescription>>,
     pub catalogue_url: Option<Url>,
     pub format: Option<AuctionFormat>,
     pub schedule: AuctionSchedule,

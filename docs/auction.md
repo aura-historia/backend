@@ -22,7 +22,7 @@ An Auction key is:
 
 PostgreSQL owns standalone source-scoped Auctions:
 
-- `auctions` has immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, a restrictive ListingSource foreign key, and optional localized metadata;
+- `auctions` has immutable `(listing_source_id, source_auction_id)` uniqueness, a root optimistic-lock version, a restrictive ListingSource foreign key, and an optional localized name;
 - `auctions` holds optional exact UTC instants for each schedule role;
 - `auction_events` records immutable `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads in the same transaction as Auction state. `AUCTION_CHANGED.schedule` retains whole previous/current schedules. It has no CDC or worker consumer yet.
 

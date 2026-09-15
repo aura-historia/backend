@@ -12,8 +12,8 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use auction_core::{
-    AuctionDescription, AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, ReplaceAuctionScheduleError, ReportedCatalogueLotCount,
+    AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus, AuctionSchedule,
+    ReplaceAuctionScheduleError, ReportedCatalogueLotCount,
 };
 use domain_primitives::change_outcome::ChangeOutcome;
 use localization::{Language, Localized};
@@ -45,7 +45,6 @@ pub struct UpdateAuctionCommand {
     pub auction_id: AuctionId,
     pub expected_version: AuctionStorageVersion,
     pub name: PatchField<Localized<Language, AuctionName>>,
-    pub description: PatchField<Localized<Language, AuctionDescription>>,
     pub catalogue_url: PatchField<Url>,
     pub format: PatchField<AuctionFormat>,
     pub schedule: AuctionSchedulePatch,
@@ -225,11 +224,7 @@ fn apply_update(
         PatchField::Clear => auction.clear_name(),
         PatchField::Set(value) => auction.rename(value.clone()),
     });
-    outcome = outcome.combine(match &command.description {
-        PatchField::Unchanged => ChangeOutcome::Unchanged,
-        PatchField::Clear => auction.clear_description(),
-        PatchField::Set(value) => auction.replace_description(value.clone()),
-    });
+
     outcome = outcome.combine(match &command.catalogue_url {
         PatchField::Unchanged => ChangeOutcome::Unchanged,
         PatchField::Clear => auction.clear_catalogue_url(),
@@ -537,7 +532,6 @@ mod tests {
                     .unwrap_or_else(|error| panic!("valid source auction ID: {error}")),
             ),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),
@@ -563,7 +557,6 @@ mod tests {
             auction_id,
             expected_version,
             name: PatchField::Unchanged,
-            description: PatchField::Unchanged,
             catalogue_url: PatchField::Unchanged,
             format: PatchField::Unchanged,
             schedule: AuctionSchedulePatch::default(),
@@ -738,7 +731,6 @@ mod tests {
                     .unwrap_or_else(|error| panic!("valid source Auction ID: {error}")),
             ),
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: AuctionSchedule::default(),
@@ -751,7 +743,6 @@ mod tests {
             expected_version: AuctionStorageVersion::try_from(1_i64)
                 .unwrap_or_else(|error| panic!("valid Auction version: {error}")),
             name: PatchField::Unchanged,
-            description: PatchField::Unchanged,
             catalogue_url: PatchField::Unchanged,
             format: PatchField::Unchanged,
             schedule: AuctionSchedulePatch {

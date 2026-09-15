@@ -12326,47 +12326,7 @@ components:
         searchAfter:
           - 2999
           - pl_5xdb465tg1enarx2knf04mxbxj
-    PersonalizedProductListingSearchResultData:
-      type: object
-      description:
-        "Paginated collection of personalized product-listings using cursor-based pagination (search-after pattern).
 
-        Each product may include user-specific state when the request is authenticated.
-
-        "
-      required:
-        - items
-        - size
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
-          description: Array of personalized product summaries in the current page
-        size:
-          type: integer
-          minimum: 0
-          description: Number of product-listings returned in the current page
-          example: 21
-        total:
-          type: integer
-          minimum: 0
-          description: Total number of product-listings matching the query (optional, may not always be available)
-          nullable: true
-          example: 127
-        searchAfter:
-          type: array
-          items: {}
-          description:
-            "Cursor for the next page (JSON value). Present when there are more results.
-
-            Pass this value as the `searchAfter` query parameter to get the next page.
-
-            This can be ANY heterogeneous array.
-
-            "
-          nullable: true
-          example: '[2999, "pl_5xdb465tg1enarx2knf04mxbxj"]'
     ProductListingUserStateData:
       type: object
       description: User-specific state information for a product
@@ -16391,10 +16351,8 @@ components:
         sourceAuctionId:
           type: string
           maxLength: 512
-          description: Opaque source key. Outer Unicode whitespace is trimmed; case and internal whitespace are preserved.
+          description: 1–512 UTF-8 bytes after outer Unicode-whitespace trimming; case and internal whitespace are preserved.
         name:
-          $ref: "#/components/schemas/LocalizedTextData"
-        description:
           $ref: "#/components/schemas/LocalizedTextData"
         catalogueUrl:
           type: string
@@ -16421,9 +16379,6 @@ components:
           format: int64
           minimum: 1
         name:
-          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
-          nullable: true
-        description:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
           nullable: true
         catalogueUrl:
@@ -16507,7 +16462,6 @@ components:
           auctionId,
           listingSource,
           name,
-          description,
           catalogueUrl,
           viewUrl,
           format,
@@ -16523,10 +16477,6 @@ components:
         listingSource:
           $ref: "#/components/schemas/PublicAuctionSourceData"
         name:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
-        description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
@@ -16649,7 +16599,6 @@ components:
           listingSourceId,
           sourceAuctionId,
           name,
-          description,
           catalogueUrl,
           format,
           schedule,
@@ -16664,9 +16613,6 @@ components:
         listingSourceId: { type: string }
         sourceAuctionId: { type: string }
         name:
-          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
-          nullable: true
-        description:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
           nullable: true
         catalogueUrl: { type: string, format: uri, nullable: true }

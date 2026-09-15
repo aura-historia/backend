@@ -4,8 +4,8 @@ use application::{
     operation_context::{OperationContext, Principal},
 };
 use auction_core::{
-    AuctionDescription, AuctionFormat, AuctionId, AuctionKey, AuctionName, AuctionReportedStatus,
-    AuctionSchedule, ReportedCatalogueLotCount,
+    AuctionFormat, AuctionId, AuctionKey, AuctionName, AuctionReportedStatus, AuctionSchedule,
+    ReportedCatalogueLotCount,
 };
 use localization::{Language, Localized};
 
@@ -20,7 +20,6 @@ pub struct AuctionAdminDetailsView {
     pub auction_id: AuctionId,
     pub key: AuctionKey,
     pub name: Option<Localized<Language, AuctionName>>,
-    pub description: Option<Localized<Language, AuctionDescription>>,
     pub catalogue_url: Option<Url>,
     pub format: Option<AuctionFormat>,
     pub schedule: AuctionSchedule,
@@ -116,7 +115,6 @@ impl AuctionAdminDetailsView {
             auction_id: auction.id(),
             key: auction.key().clone(),
             name: auction.name().cloned(),
-            description: auction.description().cloned(),
             catalogue_url: auction.catalogue_url().cloned(),
             format: auction.format(),
             schedule: auction.schedule().clone(),

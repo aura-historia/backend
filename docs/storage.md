@@ -35,7 +35,7 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 
 ## Auctions
 
-PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, optional canonical metadata, four optional exact `timestamptz` schedule columns, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion.
+PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, an optional canonical name, four optional exact `timestamptz` schedule columns, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion.
 
 `auction_events` is an immutable journal of `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. The current schema version is `1`; state snapshot and semantic event commit atomically. It has no CDC, projection, or worker route. Rehydration and event encoding validate canonical IDs, enum codes, localization pairs, URLs, RFC3339 instants, and version values; invalid persisted state is an explicit operation error.
 
@@ -85,6 +85,7 @@ Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LIS
 - The unique raw-revision `(product_listing_raw_stream_id, revision)` constraint provides its B-tree; no redundant ordinary index duplicates it.
 - `product_listings.listing_source_id` and `product_listing_raw_streams.listing_source_id` use `ON DELETE RESTRICT`. A JSON `EXISTING_LISTING_SOURCE` proposal obtains a PostgreSQL `FOR KEY SHARE` lock through the proposal trigger; source deletion takes `FOR UPDATE`, so either proposal creation commits first and blocks deletion, or deletion wins and the proposal fails. The partial `partnership_applications_existing_source_proposal_idx` supports the deletion check.
 - Admin Partnership lists use keyset pagination in fixed `created DESC, partnership_id DESC` order; the `partnerships_created_id_idx` index matches this cursor path.
+- Public Auction directories use keyset pagination in fixed `created DESC, auction_id DESC` order; the `auctions_created_id_idx` index matches this cursor path.
 
 ## FX snapshots
 

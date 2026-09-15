@@ -430,7 +430,6 @@ struct PublicAuctionData {
     auction_id: AuctionId,
     listing_source: PublicSourceData,
     name: Option<crate::values::LocalizedTextData>,
-    description: Option<crate::values::LocalizedTextData>,
     catalogue_url: Option<url::Url>,
     view_url: Option<url::Url>,
     format: Option<&'static str>,
@@ -459,7 +458,6 @@ impl TryFrom<PublicAuctionDetails> for PublicAuctionData {
                 slug_id: value.source.slug_id.to_string(),
             },
             name: value.name.map(Into::into),
-            description: value.description.map(Into::into),
             catalogue_url: value.catalogue_url,
             view_url,
             format: value.format.map(AuctionFormat::as_str),
@@ -694,7 +692,6 @@ mod tests {
                 referral_configuration: None,
             },
             name: None,
-            description: None,
             catalogue_url: None,
             format: None,
             schedule: auction_core::AuctionSchedule::default(),
@@ -733,6 +730,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: serde_json::Value = serde_json::from_slice(&body)?;
         assert!(body.get("sourceAuctionId").is_none());
+        assert!(body.get("description").is_none());
         assert!(body.get("evidence").is_none());
         Ok(())
     }

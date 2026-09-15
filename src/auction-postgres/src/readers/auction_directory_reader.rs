@@ -30,8 +30,6 @@ struct AuctionDirectoryRow {
     source_auction_id: String,
     name_text: Option<String>,
     name_language: Option<String>,
-    description_text: Option<String>,
-    description_language: Option<String>,
     catalogue_url: Option<String>,
     format: Option<String>,
     bidding_opens_at: Option<time::OffsetDateTime>,
@@ -55,8 +53,6 @@ impl AuctionDirectoryRow {
             source_auction_id: self.source_auction_id,
             name_text: self.name_text,
             name_language: self.name_language,
-            description_text: self.description_text,
-            description_language: self.description_language,
             catalogue_url: self.catalogue_url,
             format: self.format,
             bidding_opens_at: self.bidding_opens_at,
@@ -84,7 +80,7 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         let limit = i64::try_from(size + 1).map_err(invalid_read_model)?;
 
         let mut builder = QueryBuilder::<Postgres>::new(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE TRUE",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, request)?;
         if let Some(search_after) = cursor.search_after {

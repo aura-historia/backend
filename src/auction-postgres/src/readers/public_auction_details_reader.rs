@@ -28,8 +28,6 @@ struct PublicAuctionDetailsRow {
     source_auction_id: String,
     name_text: Option<String>,
     name_language: Option<String>,
-    description_text: Option<String>,
-    description_language: Option<String>,
     catalogue_url: Option<String>,
     format: Option<String>,
     bidding_opens_at: Option<time::OffsetDateTime>,
@@ -73,7 +71,7 @@ impl PublicAuctionDetailsReader for SqlxPublicAuctionDetailsReader {
     ) -> Result<Option<PublicAuctionDetails>, PublicAuctionDetailsReadError> {
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
         let row = sqlx::query_as::<_, PublicAuctionDetailsRow>(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.description_text, a.description_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, s.referral_configuration, (SELECT COUNT(*) FROM product_listings listing WHERE listing.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE a.auction_id = $1",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, s.referral_configuration, (SELECT COUNT(*) FROM product_listings listing WHERE listing.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE a.auction_id = $1",
         )
         .bind(auction_id.as_uuid())
         .fetch_optional(&mut *connection)
@@ -97,8 +95,6 @@ fn map_details(
         source_auction_id: row.source_auction_id,
         name_text: row.name_text,
         name_language: row.name_language,
-        description_text: row.description_text,
-        description_language: row.description_language,
         catalogue_url: row.catalogue_url,
         format: row.format,
         bidding_opens_at: row.bidding_opens_at,
@@ -128,7 +124,6 @@ fn map_details(
         auction_id: auction.id(),
         source,
         name: auction.name().cloned(),
-        description: auction.description().cloned(),
         catalogue_url: auction.catalogue_url().cloned(),
         format: auction.format(),
         schedule: auction.schedule().clone(),
@@ -184,8 +179,6 @@ mod tests {
             source_auction_id: "sale-42".to_owned(),
             name_text: None,
             name_language: None,
-            description_text: None,
-            description_language: None,
             catalogue_url: None,
             format: Some("TIMED".to_owned()),
             bidding_opens_at: None,

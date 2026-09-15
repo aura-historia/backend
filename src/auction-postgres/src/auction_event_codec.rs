@@ -18,7 +18,6 @@ pub(crate) fn encode(payload: &AuctionEventPayload) -> Result<Value, AuctionEven
             "listingSourceId": discovered.key().listing_source_id().as_uuid().to_string(),
             "sourceAuctionId": discovered.key().source_auction_id().as_ref(),
             "name": discovered.name().map(localized_name),
-            "description": discovered.description().map(localized_description),
             "catalogueUrl": discovered.catalogue_url().map(url::Url::as_str),
             "format": discovered.format().map(|value| value.as_str()),
             "schedule": schedule(discovered.schedule())?,
@@ -27,7 +26,6 @@ pub(crate) fn encode(payload: &AuctionEventPayload) -> Result<Value, AuctionEven
         })),
         AuctionEventPayload::Changed(changed) => Ok(json!({
             "name": changed.name().map(|change| value_change(localized_name_option(change.previous()), localized_name_option(change.current()))),
-            "description": changed.description().map(|change| value_change(localized_description_option(change.previous()), localized_description_option(change.current()))),
             "catalogueUrl": changed.catalogue_url().map(|change| value_change(json!(change.previous().as_ref().map(url::Url::as_str)), json!(change.current().as_ref().map(url::Url::as_str)))),
             "format": changed.format().map(|change| value_change(json!(change.previous().map(|value| value.as_str())), json!(change.current().map(|value| value.as_str())))),
             "schedule": changed.schedule().map(|change| Ok::<_, AuctionEventCodecError>(value_change(schedule(change.previous())?, schedule(change.current())?))).transpose()?,
@@ -46,17 +44,6 @@ fn localized_name(value: &Localized<Language, auction_core::AuctionName>) -> Val
 }
 fn localized_name_option(value: &Option<Localized<Language, auction_core::AuctionName>>) -> Value {
     value.as_ref().map(localized_name).unwrap_or(Value::Null)
-}
-fn localized_description(value: &Localized<Language, auction_core::AuctionDescription>) -> Value {
-    json!({"language": value.localization.as_str(), "text": value.payload.as_ref()})
-}
-fn localized_description_option(
-    value: &Option<Localized<Language, auction_core::AuctionDescription>>,
-) -> Value {
-    value
-        .as_ref()
-        .map(localized_description)
-        .unwrap_or(Value::Null)
 }
 
 fn schedule(schedule: &auction_core::AuctionSchedule) -> Result<Value, AuctionEventCodecError> {
@@ -82,7 +69,11 @@ pub(crate) fn boxed(error: AuctionEventCodecError) -> BoxError {
 
 #[cfg(test)]
 mod tests {
-    use super::time;
+    use super::{encode, time};
+    use auction_core::{
+        Auction, AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, NewAuction, SourceAuctionId,
+    };
+    use listing_source_core::ListingSourceId;
     use serde_json::json;
     use time::macros::datetime;
 
@@ -92,5 +83,39 @@ mod tests {
             .unwrap_or_else(|error| panic!("valid schedule time: {error}"));
 
         assert_eq!(json!("2026-10-18T16:03:00Z"), value);
+    }
+
+    #[test]
+    fn should_not_encode_auction_description_in_discovered_or_changed_events() {
+        let mut auction = Auction::create(NewAuction {
+            id: AuctionId::new(),
+            key: AuctionKey::new(
+                ListingSourceId::new(),
+                SourceAuctionId::try_from("sale-42")
+                    .unwrap_or_else(|error| panic!("valid source auction ID: {error}")),
+            ),
+            name: None,
+            catalogue_url: None,
+            format: None,
+            schedule: AuctionSchedule::default(),
+            reported_status: None,
+            reported_lot_count: None,
+        })
+        .unwrap_or_else(|error| panic!("valid auction: {error}"));
+
+        let discovered_payload = auction
+            .take_pending_event_payload()
+            .unwrap_or_else(|| panic!("discovery event payload"));
+        let discovered = encode(&discovered_payload)
+            .unwrap_or_else(|error| panic!("encoded discovery event: {error}"));
+        assert!(discovered.get("description").is_none());
+
+        let _ = auction.set_format(AuctionFormat::Timed);
+        let changed_payload = auction
+            .take_pending_event_payload()
+            .unwrap_or_else(|| panic!("change event payload"));
+        let changed = encode(&changed_payload)
+            .unwrap_or_else(|error| panic!("encoded change event: {error}"));
+        assert!(changed.get("description").is_none());
     }
 }

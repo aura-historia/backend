@@ -1,9 +1,7 @@
-use html_escape::decode_html_entities;
 use std::fmt;
 
 const MAX_SOURCE_AUCTION_ID_BYTES: usize = 512;
 const MAX_AUCTION_NAME_BYTES: usize = 512;
-const MAX_AUCTION_DESCRIPTION_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourceAuctionId(String);
@@ -131,99 +129,9 @@ impl From<AuctionName> for String {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuctionDescription(String);
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidAuctionDescription {
-    #[error("auction description cannot be blank")]
-    Blank,
-    #[error("auction description cannot contain a NUL character")]
-    ContainsNul,
-    #[error(
-        "auction description exceeds {MAX_AUCTION_DESCRIPTION_BYTES} UTF-8 bytes after sanitation"
-    )]
-    TooLong,
-}
-
-impl AuctionDescription {
-    fn parse(value: &str) -> Result<Self, InvalidAuctionDescription> {
-        if value.contains('\0') {
-            return Err(InvalidAuctionDescription::ContainsNul);
-        }
-        let sanitized = sanitize_plain_text(value);
-        if sanitized.is_empty() {
-            return Err(InvalidAuctionDescription::Blank);
-        }
-        if sanitized.contains('\0') {
-            return Err(InvalidAuctionDescription::ContainsNul);
-        }
-        if sanitized.len() > MAX_AUCTION_DESCRIPTION_BYTES {
-            return Err(InvalidAuctionDescription::TooLong);
-        }
-        Ok(Self(sanitized))
-    }
-}
-
-impl TryFrom<&str> for AuctionDescription {
-    type Error = InvalidAuctionDescription;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::parse(value)
-    }
-}
-
-impl TryFrom<String> for AuctionDescription {
-    type Error = InvalidAuctionDescription;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(&value)
-    }
-}
-
-impl AsRef<str> for AuctionDescription {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for AuctionDescription {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_ref())
-    }
-}
-
-impl From<AuctionDescription> for String {
-    fn from(value: AuctionDescription) -> Self {
-        value.0
-    }
-}
-
-fn sanitize_plain_text(value: &str) -> String {
-    let decoded = decode_html_entities(value).replace("&nbsp;", " ");
-    let mut result = String::with_capacity(decoded.len());
-    let mut inside_tag = false;
-    for character in decoded.chars() {
-        match character {
-            '<' => inside_tag = true,
-            '>' if inside_tag => inside_tag = false,
-            _ if !inside_tag => result.push(character),
-            _ => {}
-        }
-    }
-    result
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .trim()
-        .to_owned()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        AuctionDescription, AuctionName, InvalidAuctionDescription, InvalidAuctionName,
-        InvalidSourceAuctionId, SourceAuctionId,
-    };
+    use super::{AuctionName, InvalidAuctionName, InvalidSourceAuctionId, SourceAuctionId};
     use rstest::rstest;
 
     #[test]
@@ -273,31 +181,6 @@ mod tests {
         assert_eq!(
             Err(InvalidAuctionName::TooLong),
             AuctionName::try_from("é".repeat(257))
-        );
-    }
-
-    #[test]
-    fn should_sanitize_and_validate_auction_description() {
-        let description = AuctionDescription::try_from(" <p>Fine &amp; rare</p> \r\n")
-            .unwrap_or_else(|error| panic!("valid auction description: {error}"));
-
-        assert_eq!("Fine & rare", description.as_ref());
-        assert_eq!(
-            Err(InvalidAuctionDescription::Blank),
-            AuctionDescription::try_from("<br>")
-        );
-        assert_eq!(
-            Err(InvalidAuctionDescription::ContainsNul),
-            AuctionDescription::try_from("text\0")
-        );
-    }
-
-    #[test]
-    fn should_enforce_sanitized_description_utf8_byte_limit() {
-        assert!(AuctionDescription::try_from("é".repeat(32_768)).is_ok());
-        assert_eq!(
-            Err(InvalidAuctionDescription::TooLong),
-            AuctionDescription::try_from("é".repeat(32_769))
         );
     }
 }
