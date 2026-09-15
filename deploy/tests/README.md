@@ -1,6 +1,6 @@
 # Lightweight deployment checks in CI (C1)
 
-The `deployment-checks` job requires Python3, OpenSSL and Docker Compose 2.30 or newer, then runs the existing test modules with the actual Compose-config check enabled:
+The `deployment-checks` job requires Python3, OpenSSL and the reviewed official Docker Compose CLI plugin 5.4.0 for Linux x86-64. CI verifies its executable SHA256 (`837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be`) through a cleared-environment private Docker config before running the existing test modules with the actual Compose-config check enabled. Compose 2.30 introduced `env_file.format: raw`, but that minimum does not establish the unresolved `env_file` JSON contract required by the host command.
 
 ```sh
 env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \

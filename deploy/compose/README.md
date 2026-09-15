@@ -12,7 +12,7 @@ Three checked-in projects; no renderer or deployment framework:
 
 ## Run the actual isolated stack
 
-From repository root; Linux/amd64, Python3, local Docker/Compose (tested5.4.0; `env_file.format: raw` needs2.30+). Existing R2 immutable images/helper/PostgreSQL/OpenSearch must already be loaded; build commands: [`../images/README.md`](../images/README.md).
+From repository root; Linux/amd64, Python3, and local Docker with the reviewed Compose 5.4.0 plugin. `env_file.format: raw` needs2.30+, but that syntax minimum is not sufficient for the host command's unresolved `env_file` JSON contract. Existing R2 immutable images/helper/PostgreSQL/OpenSearch must already be loaded; build commands: [`../images/README.md`](../images/README.md).
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/tests -p 'test_*.py' -v

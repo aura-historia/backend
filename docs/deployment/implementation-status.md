@@ -8,11 +8,19 @@
 
 ## C1 — CI repair and legacy source guard
 
-2026-09-15: local C1 implementation starts from `eb9fb207672da624765fa854d01ec2bb6f504182`; implementation commit `920ce01fd5eab03710301603b4a9dbf4c5d8dceb`. Branch was not pushed. Cargo jobs now bind `COMMIT_SHA` to their actual checkout, Rust matrix jobs pull and inspect the checked-in Postgres reference before tests, and the fixture receives the inspected local ID. The new `deployment-checks` job runs the actual Compose-config test and permits only the cached-helper mount skip. The legacy `deploy.yml` is now a manual refusal with no deployment logic or credentials.
+2026-09-15: C1 implementation starts from `eb9fb207672da624765fa854d01ec2bb6f504182`; implementation commit `920ce01fd5eab03710301603b4a9dbf4c5d8dceb`. Cargo jobs bind `COMMIT_SHA` to their actual checkout, Rust matrix jobs pull and inspect the checked-in Postgres reference before tests, and the fixture receives the inspected local ID. `deployment-checks` runs the actual Compose-config test and permits only the cached-helper mount skip. The legacy `deploy.yml` is a manual refusal with no deployment logic or credentials.
 
-Local evidence: Rust1.98.0 `cargo fmt --all -- --check`, `cargo depgraph-check check`, locked workspace Clippy with `-D warnings -D clippy::result-large-err`, and the narrow test-api fixture suite passed (`29` passed, `3` ignored; fake Docker only). Helper/runner regressions passed (`14` tests); the sanitized lightweight deployment runner passed (`198` tests, exactly one skip: the documented cached-helper test). Workflow YAML parsed; `actionlint` was unavailable. The real GHCR pull/image-ID preparation and `admin-overview-postgres`/`fxrate-postgres` disposable-runner tests were not run because this host is not an authorized isolated runner. PR CI is pending because no push or remote run was authorized. No C2, OpenSearch upgrade, live, or deployment operation was performed.
+Observed GitHub run `35010540269` attempt `1` ([run](https://github.com/aura-historia/backend/actions/runs/35010540269)) used PR head `8ab019614badb25a0602739b3ad33a1190513d1a` and checked out merge commit `ac69718f197450cbd6fa5c9809ab287f776eb3d3`. It completed with **32 success, 2 failure, 40 cancelled, 1 skipped** jobs. Deployment checks failed under Compose `2.38.2`: `198` tests ran, with the one permitted cached-helper skip and one `KeyError: 'env_file'`. Cron library tests passed (`71` passed, `2` ignored), image preparation passed, then reliability tests had `2` passed, `14` guard refusals, and `1` ignored because the intended opt-in was absent while the prepared image override was present. The canceled jobs are not passes.
 
-Deployment readiness remains **false**. This branch source guard does not disable workflow copies on `develop`/`prod`, cancel in-flight runs, revoke roles, or change GitHub settings.
+Local evidence before C1a: Rust1.98.0 formatting, dependency rules, locked workspace Clippy, narrow test-api fixture tests (`29` passed, `3` ignored; fake Docker only), helper/runner regressions (`14` tests), and sanitized deployment checks (`198` tests, exactly one permitted skip) passed. The real GHCR/image-ID preparation and ordinary PostgreSQL jobs were remote evidence, not local execution. `actionlint` was unavailable. No C2, OpenSearch upgrade, live, or deployment operation was performed.
+
+## C1a — CI integration correction
+
+Base head: `8ab019614badb25a0602739b3ad33a1190513d1a`. This local correction installs and verifies official Compose `5.4.0` (`837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be`) through the same cleared-environment/private-config Docker invocation used by deployment checks. The cron matrix child supplies `AURA_CRON_ISOLATED_LOCAL_POSTGRES=1` and removes `AURA_TEST_POSTGRES_IMAGE`; other crates retain the inspected image ID. Fixture guards and host env-file validation are unchanged.
+
+No corrected GitHub run is claimed yet: this revision is unpushed because no push authorization was supplied. Remote acceptance remains pending an owner-authorized push and exact-run inspection. Local validation and the final local head are recorded in the handoff.
+
+Deployment readiness remains **false**. The branch source guard does not disable workflow copies on `develop`/`prod`, cancel in-flight runs, revoke roles, or change GitHub settings.
 
 Models: orchestrator GPT-6-Astra; delegation exposes no model selector. Requested Terra cannot be selected. Actual agent identities/results recorded below.
 
