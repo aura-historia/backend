@@ -543,28 +543,73 @@ fn should_reject_missing_empty_and_malformed_environment_without_dotenv_or_depen
 #[test]
 fn should_reject_non_unicode_environment_without_leaks_or_dependencies() -> io::Result<()> {
     use std::os::unix::ffi::OsStringExt;
-    let mut fixture = Fixture::new()?;
-    for key in [
-        "LOCAL_DB_URL",
-        "BUSINESS_DATABASE_URL",
-        "VERTEX_AI_MODEL",
-        "CRAWLER_CLOUDWATCH_LOG_GROUP",
-        "CRAWLER_REVIEW_AUTH_TOKEN",
-        "SPIDER_MAX_SIZE_BYTES",
-    ] {
-        let mut command = fixture.command()?;
-        command.arg("--check-config").env(
-            key,
-            OsString::from_vec([CANARY.as_bytes(), &[0xff]].concat()),
-        );
-        let output = fixture.run(command)?;
-        assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stderr)
-                .contains(&format!("non-Unicode configuration: {key}"))
-        );
+
+    for check_config in [false, true] {
+        for key in [
+            "LOCAL_DB_URL",
+            "BUSINESS_DATABASE_URL",
+            "POSTGRES_SSL_MODE",
+            "POSTGRES_SSL_ROOT_CERT",
+            "PGSSLCERT",
+            "PGSSLKEY",
+            "PGSSLROOTCERT",
+            "PGOPTIONS",
+            "VERTEX_AI_MODEL",
+            "CRAWLER_CLOUDWATCH_LOG_GROUP",
+            "CRAWLER_REVIEW_AUTH_TOKEN",
+            "SPIDER_MAX_SIZE_BYTES",
+        ] {
+            let mut fixture = Fixture::new()?;
+            let mut command = fixture.command()?;
+            if check_config {
+                command.arg("--check-config");
+            }
+            command.env(
+                key,
+                OsString::from_vec([CANARY.as_bytes(), &[0xff]].concat()),
+            );
+            let output = fixture.run(command)?;
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains(&format!("non-Unicode configuration: {key}"))
+            );
+            fixture.assert_no_database_activity();
+            assert_eq!(fixture.cloud.connections, 0);
+        }
     }
-    fixture.assert_no_database_activity();
+    Ok(())
+}
+
+#[test]
+fn should_reject_either_database_url_before_cloudwatch_in_both_modes() -> io::Result<()> {
+    for check_config in [false, true] {
+        for key in ["LOCAL_DB_URL", "BUSINESS_DATABASE_URL"] {
+            let mut fixture = Fixture::new()?;
+            // Valid synthetic CloudWatch settings make unexpected cloud activity observable.
+            let mut command = fixture.cloudwatch_command()?;
+            if check_config {
+                command.arg("--check-config");
+            }
+            command.env(key, format!("not-a-postgres-url-{CANARY}"));
+
+            let output = fixture.run(command)?;
+            assert!(
+                !output.status.success(),
+                "invalid database URL was accepted"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("invalid PostgreSQL configuration"),
+                "failure was not attributed to database configuration: {stderr}"
+            );
+            fixture.assert_no_database_activity();
+            assert_eq!(fixture.cloud.connections, 0);
+            assert!(fixture.cloud.operations.is_empty());
+            assert!(!stderr.contains(CANARY));
+            assert!(!String::from_utf8_lossy(&output.stdout).contains(CANARY));
+        }
+    }
     Ok(())
 }
 
