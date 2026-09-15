@@ -79,11 +79,7 @@ pub async fn get_auction_catalogue(
             );
         }
     };
-    let cursor = match query
-        .search_after
-        .map(CatalogueCursorData::try_into_cursor)
-        .transpose()
-    {
+    let cursor = match query.search_after.map(parse_catalogue_cursor).transpose() {
         Ok(value) => application::pagination::Cursor {
             size: query.page_size.unwrap_or(21),
             search_after: value,
@@ -162,7 +158,7 @@ struct CatalogueQuery {
     #[serde(default, with = "crate::wire::currency")]
     currency: money::Currency,
     page_size: Option<u64>,
-    search_after: Option<CatalogueCursorData>,
+    search_after: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -189,6 +185,18 @@ impl CatalogueCursorData {
             )?,
         })
     }
+}
+
+fn parse_catalogue_cursor(
+    value: String,
+) -> Result<product_listing_service::ports::AuctionCatalogueCursor, ApiError> {
+    serde_json::from_str::<CatalogueCursorData>(&value)
+        .map_err(|error| {
+            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("searchAfter")
+                .with_detail(error.to_string())
+        })?
+        .try_into_cursor()
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -240,7 +248,7 @@ struct DirectoryQuery {
     #[serde(default, with = "time::serde::rfc3339::option")]
     to: Option<OffsetDateTime>,
     page_size: Option<u64>,
-    search_after: Option<DirectoryCursorData>,
+    search_after: Option<String>,
 }
 
 impl DirectoryQuery {
@@ -252,10 +260,7 @@ impl DirectoryQuery {
         let format = parse_auction_format(self.format)?;
         let reported_status = parse_auction_status(self.reported_status)?;
         let schedule = parse_schedule_filter(self.time_role, self.from, self.to)?;
-        let cursor = self
-            .search_after
-            .map(DirectoryCursorData::try_into_cursor)
-            .transpose()?;
+        let cursor = self.search_after.map(parse_directory_cursor).transpose()?;
         Ok(ListAuctionsDirectoryRequest {
             listing_source_id,
             format,
@@ -317,6 +322,16 @@ impl DirectoryCursorData {
             scope: self.scope.try_into_scope()?,
         })
     }
+}
+
+fn parse_directory_cursor(value: String) -> Result<AuctionDirectoryCursor, ApiError> {
+    serde_json::from_str::<DirectoryCursorData>(&value)
+        .map_err(|error| {
+            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("searchAfter")
+                .with_detail(error.to_string())
+        })?
+        .try_into_cursor()
 }
 
 impl DirectoryCursorScopeData {
@@ -773,5 +788,102 @@ mod tests {
         assert_eq!(StatusCode::UNAUTHORIZED, response.status());
         assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
         Ok(())
+    }
+
+    #[test]
+    fn should_parse_catalogue_cursor_as_complete_json_string()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let auction_id = AuctionId::new();
+        let product_listing_id = product_listing_core::product_listing_id::ProductListingId::new();
+        let value = serde_json::json!({
+            "auctionId": auction_id.to_string(),
+            "cataloguePosition": 7,
+            "productListingId": product_listing_id.to_string(),
+        });
+
+        let cursor = parse_catalogue_cursor(value.to_string())?;
+
+        assert_eq!(auction_id, cursor.auction_id);
+        assert_eq!(Some(7), cursor.catalogue_position);
+        assert_eq!(product_listing_id, cursor.product_listing_id);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_directory_cursor_as_complete_json_string()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let auction_id = AuctionId::new();
+        let value = serde_json::json!({
+            "created": "1970-01-01T00:00:00Z",
+            "auctionId": auction_id.to_string(),
+            "scope": {
+                "listingSourceId": null,
+                "format": null,
+                "reportedStatus": null,
+                "timeRole": null,
+                "from": null,
+                "to": null,
+            },
+        });
+
+        let cursor = parse_directory_cursor(value.to_string())?;
+
+        assert_eq!(auction_id, cursor.auction_id);
+        assert_eq!(None, cursor.scope.listing_source_id);
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_returned_cursor_through_url_encoded_json()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let auction_id = AuctionId::new();
+        let product_listing_id = product_listing_core::product_listing_id::ProductListingId::new();
+        let catalogue_json = serde_json::to_string(&CatalogueCursorData {
+            auction_id: auction_id.to_string(),
+            catalogue_position: Some(7),
+            product_listing_id: product_listing_id.to_string(),
+        })?;
+        let catalogue_query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("searchAfter", &catalogue_json)
+            .finish();
+        let catalogue_query = serde_qs::from_str::<CatalogueQuery>(&catalogue_query)?;
+        let catalogue_cursor = parse_catalogue_cursor(
+            catalogue_query
+                .search_after
+                .ok_or("catalogue cursor missing after URL decoding")?,
+        )?;
+        assert_eq!(auction_id, catalogue_cursor.auction_id);
+        assert_eq!(Some(7), catalogue_cursor.catalogue_position);
+
+        let directory_json = serde_json::to_string(&DirectoryCursorData {
+            created: OffsetDateTime::UNIX_EPOCH,
+            auction_id: auction_id.to_string(),
+            scope: DirectoryCursorScopeData {
+                listing_source_id: None,
+                format: None,
+                reported_status: None,
+                time_role: None,
+                from: None,
+                to: None,
+            },
+        })?;
+        let directory_query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("searchAfter", &directory_json)
+            .finish();
+        let directory_query = serde_qs::from_str::<DirectoryQuery>(&directory_query)?;
+        let directory_cursor = parse_directory_cursor(
+            directory_query
+                .search_after
+                .ok_or("directory cursor missing after URL decoding")?,
+        )?;
+        assert_eq!(auction_id, directory_cursor.auction_id);
+        assert_eq!(OffsetDateTime::UNIX_EPOCH, directory_cursor.created);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_malformed_json_cursors() {
+        assert!(parse_catalogue_cursor("not-json".to_owned()).is_err());
+        assert!(parse_directory_cursor("not-json".to_owned()).is_err());
     }
 }

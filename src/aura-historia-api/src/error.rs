@@ -1457,7 +1457,6 @@ impl From<GetProductListingError> for ApiError {
             GetProductListingError::ProductListingDetailsQueryFailed
             | GetProductListingError::PricingFxSnapshotMissing
             | GetProductListingError::PricingFxSnapshotUnavailable { .. }
-            | GetProductListingError::AuctionSummaryQueryFailed { .. }
             | GetProductListingError::BeginTransactionFailed
             | GetProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -1466,9 +1465,7 @@ impl From<GetProductListingError> for ApiError {
             GetProductListingError::ProductListingDetailsReadModelInvalid
             | GetProductListingError::PricingFxSnapshotInvalid { .. }
             | GetProductListingError::SaleObservationFxSnapshotMismatch { .. }
-            | GetProductListingError::ProductListingPriceConversionFailed { .. }
-            | GetProductListingError::AuctionSummaryReadModelInvalid { .. }
-            | GetProductListingError::ResolvedAuctionSummaryMissing => {
+            | GetProductListingError::ProductListingPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing details failed internally.")
             }
@@ -1512,8 +1509,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
             | GetSimilarProductListingsError::PricingFxSnapshotUnavailable { .. }
             | GetSimilarProductListingsError::ListingSourceSummaryQueryFailed { .. }
             | GetSimilarProductListingsError::ProductListingUserStateQueryFailed { .. }
-            | GetSimilarProductListingsError::ContentAssessmentQueryFailed { .. }
-            | GetSimilarProductListingsError::AuctionSummaryQueryFailed { .. } => {
+            | GetSimilarProductListingsError::ContentAssessmentQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
@@ -1523,9 +1519,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
             | GetSimilarProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | GetSimilarProductListingsError::ProductListingUserStateMissing
             | GetSimilarProductListingsError::HiddenProductListingSummaryInvalid { .. }
-            | GetSimilarProductListingsError::ContentAssessmentStateInvalid { .. }
-            | GetSimilarProductListingsError::AuctionSummaryReadModelInvalid { .. }
-            | GetSimilarProductListingsError::ResolvedAuctionSummaryMissing { .. } => {
+            | GetSimilarProductListingsError::ContentAssessmentStateInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("Similar product personalization failed internally.")
             }
@@ -1541,8 +1535,7 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
             | SearchProductListingsError::ListingSourceSummaryQueryFailed { .. }
             | SearchProductListingsError::ProductListingUserStateQueryFailed { .. }
-            | SearchProductListingsError::ContentAssessmentQueryFailed { .. }
-            | SearchProductListingsError::AuctionSummaryQueryFailed { .. } => {
+            | SearchProductListingsError::ContentAssessmentQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing search is temporarily unavailable.")
             }
@@ -1553,9 +1546,7 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | SearchProductListingsError::ProductListingUserStateMissing
             | SearchProductListingsError::HiddenProductListingSummaryInvalid { .. }
-            | SearchProductListingsError::ContentAssessmentStateInvalid { .. }
-            | SearchProductListingsError::AuctionSummaryReadModelInvalid { .. }
-            | SearchProductListingsError::ResolvedAuctionSummaryMissing { .. } => {
+            | SearchProductListingsError::ContentAssessmentStateInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing search failed internally.")
             }
@@ -2295,7 +2286,6 @@ impl From<ListWatchlistError> for ApiError {
             | ListWatchlistError::CurrentPricingFxSnapshotMissing
             | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
             | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
-            | ListWatchlistError::AuctionSummaryQueryFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -2304,9 +2294,7 @@ impl From<ListWatchlistError> for ApiError {
             ListWatchlistError::InvalidPersistedState
             | ListWatchlistError::PricingFxSnapshotInvalid { .. }
             | ListWatchlistError::SaleFxSnapshotMismatch { .. }
-            | ListWatchlistError::ProductListingPriceConversionFailed { .. }
-            | ListWatchlistError::AuctionSummaryReadModelInvalid { .. }
-            | ListWatchlistError::ResolvedAuctionSummaryMissing { .. } => {
+            | ListWatchlistError::ProductListingPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }

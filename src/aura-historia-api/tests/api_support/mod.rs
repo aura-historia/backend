@@ -6,7 +6,7 @@ use application::transaction::{Transaction, UnitOfWork};
 use auction_postgres::{
     SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
     SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
-    SqlxAuctionSummaryBatchReader, SqlxPublicAuctionDetailsReader,
+    SqlxPublicAuctionDetailsReader,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
@@ -1361,7 +1361,6 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxAuctionSummaryBatchReader::new(pool.clone()),
         )),
         Arc::new(GetSimilarProductListingsHandler::new(
             unit_of_work.clone(),
@@ -1371,7 +1370,6 @@ async fn test_state(
             SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
-            SqlxAuctionSummaryBatchReader::new(pool.clone()),
         )),
         Arc::new(SearchProductListingsHandler::new(
             OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
@@ -1386,7 +1384,6 @@ async fn test_state(
             ),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
-            SqlxAuctionSummaryBatchReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
@@ -1648,7 +1645,6 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxProductListingWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxAuctionSummaryBatchReader::new(pool.clone()),
         )),
         Arc::new(WatchProductListingHandler::new(
             unit_of_work.clone(),

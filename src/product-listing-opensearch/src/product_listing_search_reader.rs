@@ -951,8 +951,6 @@ mod tests {
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             images: IndexSet::new(),
             embedding: None,
-            lot_label: None,
-            lot_position: None,
             lot_bidding_opens_at: None,
             lot_scheduled_closes_at: None,
             lot_reported_closed_at: None,

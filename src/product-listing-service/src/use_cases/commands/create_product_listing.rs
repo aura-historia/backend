@@ -358,3 +358,429 @@ impl From<ProductListingEventAppendError> for CreateProductListingError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::{
+        ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    };
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::patch_field::PatchField;
+    use application::transaction::TransactionError;
+    use auction_core::AuctionId;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use product_listing_core::{
+        product_listing_id::ProductListingKey,
+        product_listing_slug_id::{InvalidProductListingSlugId, ProductListingSlugId},
+    };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct State {
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        inserts: usize,
+        updates: usize,
+        event_appends: usize,
+        authorizations: usize,
+        auction_validations: usize,
+        generated_candidates: usize,
+        insert_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        event_results: VecDeque<Result<(), ProductListingEventAppendError>>,
+        authorization_results: VecDeque<Result<(), PartnerProductListingAuthorizationError>>,
+        auction_results: VecDeque<Result<(), AuctionReferenceValidationError>>,
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    #[derive(Clone)]
+    struct UnitOfWorkFake(SharedState);
+
+    struct TransactionFake {
+        state: SharedState,
+        committed: bool,
+    }
+
+    impl Drop for TransactionFake {
+        fn drop(&mut self) {
+            if !self.committed {
+                lock(&self.state).rollbacks += 1;
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct ProductsFake(SharedState);
+    struct ProductRepositoryFake(SharedState);
+    #[derive(Clone)]
+    struct EventsFake(SharedState);
+    struct EventAppenderFake(SharedState);
+    #[derive(Clone)]
+    struct AuthorizerFake(SharedState);
+    struct AuthorizationFake(SharedState);
+    #[derive(Clone)]
+    struct AuctionValidatorFake(SharedState);
+    struct AuctionValidationFake(SharedState);
+    #[derive(Clone)]
+    struct GeneratorFake(SharedState);
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = TransactionFake;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(TransactionFake {
+                state: Arc::clone(&self.0),
+                committed: false,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TransactionFake {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            self.committed = true;
+            lock(&self.state).commits += 1;
+            Ok(())
+        }
+    }
+
+    impl ProductListingRepositoryFactory<TransactionFake> for ProductsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl ProductListingRepository + 'tx {
+            ProductRepositoryFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingRepository for ProductRepositoryFake {
+        async fn find_by_id(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _: &ProductListingKey,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            Ok(None)
+        }
+
+        async fn insert(
+            &mut self,
+            product: &ProductListing,
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
+            let mut state = lock(&self.0);
+            state.inserts += 1;
+            match state.insert_results.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(
+                    product.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
+                Err(error) => Err(error),
+            }
+        }
+
+        async fn update(
+            &mut self,
+            product: &ProductListing,
+            expected_version: ProductListingStorageVersion,
+            _: EventId,
+            _: ProductListingWriteEffects,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
+            lock(&self.0).updates += 1;
+            Ok(Versioned::new(product.clone(), expected_version.next()))
+        }
+    }
+
+    impl ProductListingEventAppenderFactory<TransactionFake> for EventsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl ProductListingEventAppender + 'tx {
+            EventAppenderFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingEventAppender for EventAppenderFake {
+        async fn append(
+            &mut self,
+            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
+            let mut state = lock(&self.0);
+            state.event_appends += 1;
+            state.event_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl PartnerProductListingAuthorizerFactory<TransactionFake> for AuthorizerFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            AuthorizationFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for AuthorizationFake {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            let mut state = lock(&self.0);
+            state.authorizations += 1;
+            state.authorization_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl AuctionReferenceValidatorFactory<TransactionFake> for AuctionValidatorFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl AuctionReferenceValidator + 'tx {
+            AuctionValidationFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionReferenceValidator for AuctionValidationFake {
+        async fn validate(
+            &mut self,
+            _: AuctionId,
+            _: ListingSourceId,
+        ) -> Result<(), AuctionReferenceValidationError> {
+            let mut state = lock(&self.0);
+            state.auction_validations += 1;
+            state.auction_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl ProductListingTitleSlugGenerator for GeneratorFake {
+        fn generate(&self, _: &str) -> Result<ProductListingSlugId, InvalidProductListingSlugId> {
+            let mut state = lock(&self.0);
+            let suffix = format!("{:06x}", state.generated_candidates + 1);
+            state.generated_candidates += 1;
+            ProductListingSlugId::from_title_and_suffix("listing", &suffix)
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn command() -> CreateProductListingCommand {
+        CreateProductListingCommand {
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: Url::parse("https://example.com/listing")
+                .unwrap_or_else(|error| panic!("valid URL: {error}")),
+            images: IndexSet::new(),
+            auction: None,
+        }
+    }
+
+    fn command_with_auction() -> CreateProductListingCommand {
+        CreateProductListingCommand {
+            auction: Some(ProductListingAuctionPatch {
+                auction_id: PatchField::Set(AuctionId::new()),
+                ..Default::default()
+            }),
+            ..command()
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> CreateProductListingHandler<
+        UnitOfWorkFake,
+        ProductsFake,
+        EventsFake,
+        AuthorizerFake,
+        AuctionValidatorFake,
+        GeneratorFake,
+    > {
+        CreateProductListingHandler {
+            unit_of_work: UnitOfWorkFake(Arc::clone(state)),
+            products: ProductsFake(Arc::clone(state)),
+            events: EventsFake(Arc::clone(state)),
+            authorizer: AuthorizerFake(Arc::clone(state)),
+            auction_references: AuctionValidatorFake(Arc::clone(state)),
+            title_slug_generator: GeneratorFake(Arc::clone(state)),
+        }
+    }
+
+    fn event_append_failure() -> ProductListingEventAppendError {
+        ProductListingEventAppendError::ProductListingEventAppendFailed {
+            source: Box::new(std::io::Error::other("event append failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_create_and_commit_on_first_attempt() {
+        let state = Arc::new(Mutex::new(State::default()));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(CreateProductListingResult { .. })));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.event_appends,
+                state.authorizations
+            ),
+            (1, 1, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exhaust_after_configured_title_slug_collisions() {
+        let state = Arc::new(Mutex::new(State {
+            insert_results: (0..MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS)
+                .map(|_| Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists))
+                .collect(),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.inserts,
+                state.event_appends,
+                state.authorizations
+            ),
+            (
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_unrelated_persistence_failure() {
+        let state = Arc::new(Mutex::new(State {
+            insert_results: VecDeque::from([Err(
+                ProductListingRepositoryError::ProductListingInsertFailed,
+            )]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductListingError::PersistenceFailed)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.generated_candidates, state.inserts), (1, 1));
+        assert_eq!((state.event_appends, state.authorizations), (0, 1));
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_event_append_fails() {
+        let state = Arc::new(Mutex::new(State {
+            event_results: VecDeque::from([Err(event_append_failure())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductListingError::EventAppenderFailed { .. })
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.inserts, state.event_appends), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_validate_auction_inside_creation_transaction() {
+        let state = Arc::new(Mutex::new(State {
+            auction_results: VecDeque::from([Err(AuctionReferenceValidationError::NotFound)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), command_with_auction())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductListingError::AuctionNotFound)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!(
+            (
+                state.auction_validations,
+                state.inserts,
+                state.event_appends
+            ),
+            (1, 0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_anonymous_creation_before_beginning_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut context = context();
+        context.principal = Principal::Anonymous;
+
+        let result = handler(&state).execute(&context, command()).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductListingError::AuthenticatedActorRequired)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (0, 0, 0));
+        assert_eq!((state.generated_candidates, state.inserts), (0, 0));
+    }
+}

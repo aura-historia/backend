@@ -309,10 +309,6 @@ pub(crate) struct ProductListingDocument {
     pub(crate) images: IndexSet<ProductListingImageDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) embedding: Option<Vec<f32>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) lot_label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) lot_position: Option<u32>,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none",
@@ -420,8 +416,6 @@ mod tests {
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             images: IndexSet::new(),
             embedding: None,
-            lot_label: None,
-            lot_position: None,
             lot_bidding_opens_at: None,
             lot_scheduled_closes_at: None,
             lot_reported_closed_at: None,

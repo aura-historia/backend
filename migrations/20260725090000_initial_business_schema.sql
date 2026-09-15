@@ -317,9 +317,7 @@ CREATE TABLE product_listing_raw_provider_observation_receipts (
 
 CREATE TABLE product_listing_raw_revisions (
     product_listing_raw_revision_id uuid PRIMARY KEY,
-    generation bigint GENERATED ALWAYS AS IDENTITY (
-        SEQUENCE NAME product_listing_raw_capture_generation_seq
-    ) UNIQUE,
+    generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
     product_listing_raw_stream_id uuid NOT NULL
         REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
     revision bigint NOT NULL,

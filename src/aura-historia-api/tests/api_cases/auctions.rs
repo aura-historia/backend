@@ -508,19 +508,19 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
     );
     assert_eq!(
         json!(auction_id.to_string()),
-        anonymous_body["items"][0]["item"]["auctionSummary"]["auctionId"]
+        anonymous_body["items"][0]["item"]["auction"]["auctionId"]
     );
     assert_eq!(
         json!("42"),
-        anonymous_body["items"][0]["item"]["auction"]["lotNumber"]
+        anonymous_body["items"][0]["item"]["lot"]["lotNumber"]
     );
     assert_eq!(
         json!("2026-10-18T16:03:00Z"),
-        anonymous_body["items"][0]["item"]["auction"]["scheduledCloses"]
+        anonymous_body["items"][0]["item"]["lot"]["scheduledCloses"]
     );
     assert_eq!(
         json!("2026-10-18T18:00:00Z"),
-        anonymous_body["items"][0]["item"]["auctionSummary"]["schedule"]["lotsBeginClosing"]
+        anonymous_body["items"][0]["item"]["auction"]["schedule"]["lotsBeginClosing"]
     );
 
     let hidden_catalogue = client
@@ -544,11 +544,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
         hidden_body["items"][0]["userState"]["searchFilter"]["hidden"]
     );
     assert!(hidden_body["items"][0]["item"]["auction"].is_null());
-    assert!(
-        hidden_body["items"][0]["item"]
-            .get("auctionSummary")
-            .is_none()
-    );
+    assert!(hidden_body["items"][0]["item"]["lot"].is_null());
     assert!(
         hidden_body["items"][0]["item"]
             .get("productListingTitleSlugId")

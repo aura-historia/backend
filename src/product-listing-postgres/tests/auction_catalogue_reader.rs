@@ -156,14 +156,17 @@ async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_
         .auction
         .as_ref()
         .unwrap_or_else(|| panic!("missing auction context"));
-    assert_eq!(Some(auction_id), context.auction_id());
+    assert_eq!(auction_id, context.auction_id);
+    let lot = item
+        .item
+        .lot
+        .as_ref()
+        .unwrap_or_else(|| panic!("missing lot facts"));
     assert_eq!(
         Some(43),
-        context
-            .catalogue_position()
-            .map(|position| position.value())
+        lot.catalogue_position.map(|position| position.value())
     );
-    assert_eq!(Some(scheduled_close), context.scheduled_closes(),);
+    assert_eq!(Some(scheduled_close), lot.scheduled_closes);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

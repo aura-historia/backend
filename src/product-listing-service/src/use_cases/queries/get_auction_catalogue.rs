@@ -14,9 +14,7 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use auction_core::AuctionId;
-use auction_service::ports::{
-    AuctionSummary, PublicAuctionDetailsReadError, PublicAuctionDetailsReader,
-};
+use auction_service::ports::{PublicAuctionDetailsReadError, PublicAuctionDetailsReader};
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -111,8 +109,7 @@ where
         CursoredResult<PersonalizedProductListingDetailsView, AuctionCatalogueCursor>,
         GetAuctionCatalogueError,
     > {
-        let auction = self
-            .auctions
+        self.auctions
             .find_by_id(request.auction_id)
             .await?
             .ok_or(GetAuctionCatalogueError::AuctionNotFound)?;
@@ -138,13 +135,6 @@ where
             &self.fx_rates,
             &mut transaction,
             request.currency,
-            AuctionSummary {
-                auction_id: auction.auction_id,
-                name: auction.name,
-                format: auction.format,
-                reported_status: auction.reported_status,
-                schedule: auction.schedule,
-            },
         )
         .await?;
         transaction.commit().await.map_err(|source| {
@@ -166,7 +156,6 @@ async fn present_catalogue_items<Tx, F>(
     fx_rates: &F,
     transaction: &mut Tx,
     currency: Currency,
-    auction_summary: AuctionSummary,
 ) -> Result<Vec<PersonalizedProductListingDetailsView>, GetAuctionCatalogueError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
@@ -215,7 +204,6 @@ where
                         source: box_error(source),
                     }
                 })?;
-            view.item.auction_summary = Some(auction_summary.clone());
             if view
                 .user_state
                 .as_ref()

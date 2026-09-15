@@ -108,12 +108,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicAuctionDirectoryData"
         "400":
-          {
-            description: Invalid ID,
-            filter,
-            cursor,
-            or incomplete exact-time range.,
-          }
+          description: "Invalid ID, filter, cursor, or incomplete exact-time range."
   /api/v1/auctions/{auctionId}:
     get:
       summary: Get public Auction detail
@@ -12010,27 +12005,8 @@ components:
           type: string
         auctionId:
           type: string
-          description: Resolved Auction TypeID. Omitted when this listing has no resolved Auction membership.
-        lotBiddingOpensAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Listing-owned exact lot bidding-open instant. It is independent of `auctionId`.
-        lotScheduledClosesAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Listing-owned exact lot scheduled-close instant. It is independent of `auctionId`.
-        lotReportedClosedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Listing-owned observed close instant.
-        auctionSummary:
-          allOf:
-            - $ref: "#/components/schemas/AuctionSummaryData"
-          nullable: true
-          description: Current safe Auction metadata for a resolved membership. Omitted for no context or unresolved membership.
+          description: Indexed Auction TypeID association. Omitted when this listing has no Auction association; search and similar results do not hydrate current Auction metadata.
+
         title:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -12111,6 +12087,7 @@ components:
         - viewUrl
         - images
         - auction
+        - lot
         - created
         - updated
       properties:
@@ -12180,20 +12157,54 @@ components:
           nullable: true
         auction:
           allOf:
-            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
-          nullable: true
-          description: Optional source-asserted Auction and lot facts, including an optional resolved Auction ID.
-        auctionSummary:
-          allOf:
             - $ref: "#/components/schemas/AuctionSummaryData"
           nullable: true
-          description: Current safe Auction metadata for a resolved membership. Omitted without resolved membership.
+          description: Current parent Auction presentation from the joined PostgreSQL detail read. Null when the listing has no parent Auction.
+        lot:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingLotData"
+          nullable: true
+          description: Listing-owned lot facts. Null when the listing has no lot facts.
         created:
           type: string
           format: date-time
         updated:
           type: string
           format: date-time
+    ProductListingLotData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          lotNumber,
+          cataloguePosition,
+          biddingOpens,
+          scheduledCloses,
+          reportedClosedAt,
+        ]
+      description: Listing-owned lot facts. These facts may exist without a parent Auction.
+      properties:
+        lotNumber:
+          type: string
+          nullable: true
+        cataloguePosition:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        biddingOpens:
+          type: string
+          format: date-time
+          nullable: true
+        scheduledCloses:
+          type: string
+          format: date-time
+          nullable: true
+        reportedClosedAt:
+          type: string
+          format: date-time
+          nullable: true
     ProductListingPricingData:
       type: object
       properties:
@@ -12768,7 +12779,7 @@ components:
           example: "42A"
         cataloguePosition:
           type: integer
-          format: int32
+          format: int64
           minimum: 1
           maximum: 4294967295
           nullable: true
@@ -12789,7 +12800,7 @@ components:
           scheduledCloses,
           reportedClosedAt,
         ]
-      description: Public and history listing-owned Auction and lot facts. Their presence has no separate meaning. They never expose a source Auction key or shared Auction metadata.
+      description: Immutable historical listing-owned Auction and lot facts. Their presence has no separate meaning. They never expose a source Auction key or shared Auction metadata.
       properties:
         auctionId:
           type: string
@@ -12800,7 +12811,7 @@ components:
           description: Optional source-assigned lot label.
         cataloguePosition:
           type: integer
-          format: int32
+          format: int64
           minimum: 1
           maximum: 4294967295
           nullable: true
@@ -16396,19 +16407,19 @@ components:
         format:
           $ref: "#/components/schemas/AuctionFormatData"
         schedule:
-          $ref: "#/components/schemas/AuctionScheduleData"
+          $ref: "#/components/schemas/AuctionScheduleInputData"
         reportedStatus:
           $ref: "#/components/schemas/AuctionReportedStatusData"
         reportedLotCount:
           type: integer
-          format: int32
+          format: int64
           minimum: 0
           maximum: 4294967295
     UpdateAuctionData:
       type: object
       additionalProperties: false
       required: [expectedVersion]
-      description: Omitted members are unchanged. Nullable members explicitly clear their value. A touched field becomes protected from later embedded metadata.
+      description: Omitted members are unchanged. Nullable members explicitly clear their value.
       properties:
         expectedVersion:
           type: integer
@@ -16434,7 +16445,7 @@ components:
           nullable: true
         reportedLotCount:
           type: integer
-          format: int32
+          format: int64
           minimum: 0
           maximum: 4294967295
           nullable: true
@@ -16544,7 +16555,7 @@ components:
           nullable: true
         reportedLotCount:
           type: integer
-          format: int32
+          format: int64
           minimum: 0
           nullable: true
         visibleListingCount:
@@ -16630,7 +16641,7 @@ components:
           type: string
         cataloguePosition:
           type: integer
-          format: int32
+          format: int64
           minimum: 1
           nullable: true
         productListingId:
@@ -16650,7 +16661,6 @@ components:
           reportedStatus,
           reportedLotCount,
           expectedVersion,
-          protectedFields,
           created,
           updated,
         ]
@@ -16672,11 +16682,8 @@ components:
         reportedStatus:
           allOf: [{ $ref: "#/components/schemas/AuctionReportedStatusData" }]
           nullable: true
-        reportedLotCount: { type: integer, format: int32, nullable: true }
+        reportedLotCount: { type: integer, format: int64, nullable: true }
         expectedVersion: { type: integer, format: int64, minimum: 1 }
-        protectedFields:
-          type: array
-          items: { $ref: "#/components/schemas/AuctionMetadataFieldData" }
         created: { type: string, format: date-time }
         updated: { type: string, format: date-time }
     AuctionFormatData:
@@ -16685,26 +16692,12 @@ components:
     AuctionReportedStatusData:
       type: string
       enum: [SCHEDULED, IN_PROGRESS, ENDED, POSTPONED, CANCELLED]
-    AuctionMetadataFieldData:
-      type: string
-      enum:
-        [
-          NAME,
-          DESCRIPTION,
-          CATALOGUE_URL,
-          FORMAT,
-          REPORTED_STATUS,
-          REPORTED_LOT_COUNT,
-          BIDDING_OPENS,
-          LIVE_STARTS,
-          LOTS_BEGIN_CLOSING,
-          SCHEDULED_END,
-        ]
+
     AuctionSummaryData:
       type: object
       additionalProperties: false
       required: [auctionId, schedule]
-      description: Safe current Auction metadata hydrated from PostgreSQL for a resolved ProductListing Auction membership.
+      description: Safe current parent Auction presentation included by PostgreSQL full-detail ProductListing reads.
       properties:
         auctionId:
           type: string
@@ -16724,6 +16717,15 @@ components:
       type: object
       additionalProperties: false
       required: [biddingOpens, liveStarts, lotsBeginClosing, scheduledEnd]
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
+    AuctionScheduleInputData:
+      type: object
+      additionalProperties: false
+      description: Sparse Auction create schedule. Omitted roles remain absent.
       properties:
         biddingOpens: { type: string, format: date-time, nullable: true }
         liveStarts: { type: string, format: date-time, nullable: true }

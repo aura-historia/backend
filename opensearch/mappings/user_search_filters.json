@@ -231,8 +231,6 @@
                     "url": {"type": "keyword"}
                 }
             },
-            "lotLabel": {"type": "keyword"},
-            "lotPosition": {"type": "unsigned_long"},
             "lotBiddingOpensAt": {"type": "date", "format": "strict_date_time"},
             "lotScheduledClosesAt": {"type": "date", "format": "strict_date_time"},
             "lotReportedClosedAt": {"type": "date", "format": "strict_date_time"},

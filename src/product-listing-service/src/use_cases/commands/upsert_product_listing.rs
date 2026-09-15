@@ -387,19 +387,25 @@ where
             .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<UpsertProductListingError>()?;
         let id = ProductListingId::new();
-        let mut races = 0;
+        let mut source_race_retried = false;
         let mut slug_attempts = 0;
         loop {
             match self.execute_attempt(context, command.clone(), id).await {
                 Ok(result) => return Ok(result),
-                Err(AttemptError::SourceRace) if races == 0 => races += 1,
-                Err(AttemptError::SlugRace)
-                    if title_slug_collision_retry(slug_attempts, true)
-                        == TitleSlugCollisionRetry::Retry =>
-                {
-                    slug_attempts += 1
+                Err(AttemptError::SourceRace) if !source_race_retried => {
+                    source_race_retried = true;
+                    continue;
                 }
-                Err(AttemptError::SourceRace | AttemptError::SlugRace) => {
+                Err(AttemptError::SourceRace) => {
+                    return Err(UpsertProductListingError::PersistenceFailed);
+                }
+                Err(AttemptError::SlugRace) => {
+                    slug_attempts += 1;
+                    if title_slug_collision_retry(slug_attempts, true)
+                        == TitleSlugCollisionRetry::Retry
+                    {
+                        continue;
+                    }
                     return Err(
                         UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
                     );
@@ -549,5 +555,628 @@ impl From<ProductListingEventAppendError> for UpsertProductListingError {
         Self::EventAppenderFailed {
             source: box_error(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
+    use crate::product_listing_title_slug_creation::MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS;
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use auction_core::AuctionId;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use listing_source_core::ListingSourceId;
+    use product_listing_core::{
+        product_listing::{NewProductListing, ProductListingPricing},
+        product_listing_slug_id::{InvalidProductListingSlugId, ProductListingSlugId},
+        source_listing_id::SourceListingId,
+    };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct State {
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        generated_candidates: usize,
+        inserts: usize,
+        updates: usize,
+        event_appends: usize,
+        authorizations: usize,
+        auction_validations: usize,
+        finds: VecDeque<Option<VersionedProductListing>>,
+        insert_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        event_results: VecDeque<Result<(), ProductListingEventAppendError>>,
+        authorization_results: VecDeque<Result<(), PartnerProductListingAuthorizationError>>,
+        auction_results: VecDeque<Result<(), AuctionReferenceValidationError>>,
+        last_updated_lifecycle: Option<product_listing_core::listing_lifecycle::ListingLifecycle>,
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    #[derive(Clone)]
+    struct UnitOfWorkFake(SharedState);
+
+    struct TransactionFake {
+        state: SharedState,
+        committed: bool,
+    }
+
+    impl Drop for TransactionFake {
+        fn drop(&mut self) {
+            if !self.committed {
+                lock(&self.state).rollbacks += 1;
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct ProductsFake(SharedState);
+    struct ProductRepositoryFake(SharedState);
+    #[derive(Clone)]
+    struct EventsFake(SharedState);
+    struct EventAppenderFake(SharedState);
+    #[derive(Clone)]
+    struct AuthorizerFake(SharedState);
+    struct AuthorizationFake(SharedState);
+    #[derive(Clone)]
+    struct AuctionValidatorFake(SharedState);
+    struct AuctionValidationFake(SharedState);
+    #[derive(Clone)]
+    struct GeneratorFake(SharedState);
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = TransactionFake;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(TransactionFake {
+                state: Arc::clone(&self.0),
+                committed: false,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TransactionFake {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            self.committed = true;
+            lock(&self.state).commits += 1;
+            Ok(())
+        }
+    }
+
+    impl ProductListingRepositoryFactory<TransactionFake> for ProductsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl ProductListingRepository + 'tx {
+            ProductRepositoryFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingRepository for ProductRepositoryFake {
+        async fn find_by_id(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            Ok(lock(&self.0).finds.pop_front().flatten())
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _: &ProductListingKey,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            Ok(lock(&self.0).finds.pop_front().flatten())
+        }
+
+        async fn insert(
+            &mut self,
+            product: &ProductListing,
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
+            let mut state = lock(&self.0);
+            state.inserts += 1;
+            match state.insert_results.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(
+                    product.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
+                Err(error) => Err(error),
+            }
+        }
+
+        async fn update(
+            &mut self,
+            product: &ProductListing,
+            expected_version: ProductListingStorageVersion,
+            _: EventId,
+            _: ProductListingWriteEffects,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
+            let mut state = lock(&self.0);
+            state.updates += 1;
+            state.last_updated_lifecycle = Some(product.lifecycle());
+            match state.update_results.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(product.clone(), expected_version.next())),
+                Err(error) => Err(error),
+            }
+        }
+    }
+
+    impl ProductListingEventAppenderFactory<TransactionFake> for EventsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl ProductListingEventAppender + 'tx {
+            EventAppenderFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingEventAppender for EventAppenderFake {
+        async fn append(
+            &mut self,
+            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
+            let mut state = lock(&self.0);
+            state.event_appends += 1;
+            state.event_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl PartnerProductListingAuthorizerFactory<TransactionFake> for AuthorizerFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            AuthorizationFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for AuthorizationFake {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            let mut state = lock(&self.0);
+            state.authorizations += 1;
+            state.authorization_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl AuctionReferenceValidatorFactory<TransactionFake> for AuctionValidatorFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl AuctionReferenceValidator + 'tx {
+            AuctionValidationFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AuctionReferenceValidator for AuctionValidationFake {
+        async fn validate(
+            &mut self,
+            _: AuctionId,
+            _: ListingSourceId,
+        ) -> Result<(), AuctionReferenceValidationError> {
+            let mut state = lock(&self.0);
+            state.auction_validations += 1;
+            state.auction_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl ProductListingTitleSlugGenerator for GeneratorFake {
+        fn generate(&self, _: &str) -> Result<ProductListingSlugId, InvalidProductListingSlugId> {
+            let mut state = lock(&self.0);
+            let suffix = format!("{:06x}", state.generated_candidates + 1);
+            state.generated_candidates += 1;
+            ProductListingSlugId::from_title_and_suffix("listing", &suffix)
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn command() -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            price: PatchField::Unchanged,
+            price_estimate_min: PatchField::Unchanged,
+            price_estimate_max: PatchField::Unchanged,
+            availability: PatchField::Unchanged,
+            url: None,
+            images: PatchField::Unchanged,
+            auction: PatchField::Unchanged,
+        }
+    }
+
+    fn command_with_auction() -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            auction: PatchField::Set(ProductListingAuctionPatch {
+                auction_id: PatchField::Set(AuctionId::new()),
+                ..Default::default()
+            }),
+            ..command()
+        }
+    }
+
+    fn listing() -> ProductListing {
+        ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: Url::parse("https://example.com/listing")
+                .unwrap_or_else(|error| panic!("valid URL: {error}")),
+            images: IndexSet::new(),
+            auction: None,
+        })
+        .unwrap_or_else(|error| panic!("valid listing: {error}"))
+    }
+
+    fn loaded_listing() -> VersionedProductListing {
+        let mut listing = listing();
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    fn withdrawn_listing() -> VersionedProductListing {
+        let mut listing = listing();
+        listing.take_pending_event_payload();
+        listing
+            .withdraw()
+            .unwrap_or_else(|error| panic!("withdraw fixture: {error}"));
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> UpsertProductListingHandler<
+        UnitOfWorkFake,
+        ProductsFake,
+        EventsFake,
+        AuthorizerFake,
+        AuctionValidatorFake,
+        GeneratorFake,
+    > {
+        UpsertProductListingHandler {
+            unit_of_work: UnitOfWorkFake(Arc::clone(state)),
+            products: ProductsFake(Arc::clone(state)),
+            events: EventsFake(Arc::clone(state)),
+            authorizer: AuthorizerFake(Arc::clone(state)),
+            auction_references: AuctionValidatorFake(Arc::clone(state)),
+            title_slug_generator: GeneratorFake(Arc::clone(state)),
+        }
+    }
+
+    fn event_append_failure() -> ProductListingEventAppendError {
+        ProductListingEventAppendError::ProductListingEventAppendFailed {
+            source: Box::new(std::io::Error::other("event append failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_create_and_commit_on_first_attempt() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.updates,
+                state.event_appends,
+                state.authorizations
+            ),
+            (1, 1, 0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exhaust_after_configured_title_slug_collisions() {
+        let state = Arc::new(Mutex::new(State {
+            finds: (0..MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS)
+                .map(|_| None)
+                .collect(),
+            insert_results: (0..MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS)
+                .map(|_| Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists))
+                .collect(),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.inserts,
+                state.event_appends
+            ),
+            (
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn should_retry_source_race_once_and_revalidate_authorization_and_auction() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None, Some(loaded_listing())]),
+            insert_results: VecDeque::from([Err(
+                ProductListingRepositoryError::SourceListingAlreadyExists,
+            )]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), command_with_auction())
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (2, 1, 1));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.updates,
+                state.event_appends,
+                state.authorizations,
+                state.auction_validations
+            ),
+            (1, 1, 1, 1, 2, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_classify_exhausted_source_race_as_persistence_failure() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None, None]),
+            insert_results: VecDeque::from([
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+            ]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::PersistenceFailed)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (2, 0, 2));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.event_appends
+            ),
+            (2, 2, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_keep_source_race_and_slug_collision_accounting_independent() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None, None, None]),
+            insert_results: VecDeque::from([
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Ok(()),
+            ]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (3, 1, 2));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.event_appends,
+                state.authorizations
+            ),
+            (3, 3, 1, 3)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_unrelated_persistence_failure() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            insert_results: VecDeque::from([Err(
+                ProductListingRepositoryError::ProductListingInsertFailed,
+            )]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::PersistenceFailed)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.generated_candidates, state.inserts), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_event_append_fails() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            event_results: VecDeque::from([Err(event_append_failure())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::EventAppenderFailed { .. })
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.inserts, state.event_appends), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_commit_without_persistence_for_noop_update() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Unchanged,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_restore_withdrawn_listing_and_commit_one_event() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(withdrawn_listing())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (1, 1));
+        assert_eq!(
+            state.last_updated_lifecycle,
+            Some(product_listing_core::listing_lifecycle::ListingLifecycle::Active)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_validate_auction_reference_before_new_listing_insert() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            auction_results: VecDeque::from([Err(AuctionReferenceValidationError::NotFound)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), command_with_auction())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::AuctionNotFound)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!(
+            (
+                state.auction_validations,
+                state.inserts,
+                state.event_appends
+            ),
+            (1, 0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_anonymous_upsert_before_beginning_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut context = context();
+        context.principal = Principal::Anonymous;
+
+        let result = handler(&state).execute(&context, command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::AuthenticatedActorRequired)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (0, 0, 0));
+        assert_eq!((state.generated_candidates, state.inserts), (0, 0));
     }
 }

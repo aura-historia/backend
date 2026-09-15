@@ -72,9 +72,10 @@ pub use product_listing_details_batch_reader::{
     ProductListingDetailsBatchReader,
 };
 pub use product_listing_details_reader::{
-    PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadError,
-    ProductListingDetailsReadModel, ProductListingDetailsReadRequest, ProductListingDetailsReader,
-    ProductListingDetailsReaderFactory,
+    PersonalizedProductListingDetailsReadModel, ProductListingAuctionSummary,
+    ProductListingDetailsReadError, ProductListingDetailsReadModel,
+    ProductListingDetailsReadRequest, ProductListingDetailsReader,
+    ProductListingDetailsReaderFactory, ProductListingLot,
 };
 pub use product_listing_embedding_reader::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,

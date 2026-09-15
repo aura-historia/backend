@@ -314,6 +314,10 @@ mod tests {
             body[0]["item"]["productListingId"]
         );
         assert_eq!("Cabinet", body[0]["item"]["title"]["text"]);
+        assert!(body[0]["item"].get("auctionSummary").is_none());
+        assert!(body[0]["item"].get("lotBiddingOpensAt").is_none());
+        assert!(body[0]["item"].get("lotScheduledClosesAt").is_none());
+        assert!(body[0]["item"].get("lotReportedClosedAt").is_none());
         Ok(())
     }
 
@@ -476,10 +480,6 @@ mod tests {
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 auction_id: None,
-                lot_bidding_opens_at: None,
-                lot_scheduled_closes_at: None,
-                lot_reported_closed_at: None,
-                auction_summary: None,
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),

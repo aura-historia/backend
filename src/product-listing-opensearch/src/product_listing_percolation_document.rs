@@ -88,10 +88,6 @@ struct ProductListingPercolationDocument {
     url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
     images: IndexSet<ProductListingImageDocument>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lot_label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lot_position: Option<u32>,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none"
@@ -181,30 +177,12 @@ fn build_product_listing_percolation_document(
             .cloned()
             .map(ProductListingImageDocument::from)
             .collect(),
-        lot_label: lot_label(product.auction.as_ref()),
-        lot_position: lot_position(product.auction.as_ref()),
         lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
         lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
         lot_reported_closed_at: lot_reported_closed_at(product.auction.as_ref()),
         created: product.created,
         updated: product.updated,
     }
-}
-
-fn lot_label(
-    auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
-) -> Option<String> {
-    auction
-        .and_then(|auction| auction.lot_number())
-        .map(|number| number.as_str().to_owned())
-}
-
-fn lot_position(
-    auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
-) -> Option<u32> {
-    auction
-        .and_then(|auction| auction.catalogue_position())
-        .map(|position| position.value())
 }
 
 fn exact_lot_bidding_opens_at(
@@ -288,8 +266,6 @@ pub(crate) fn product_listing_document(
             .map(ProductListingImageDocument::from)
             .collect(),
         embedding: product.embedding.clone(),
-        lot_label: lot_label(product.auction.as_ref()),
-        lot_position: lot_position(product.auction.as_ref()),
         lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
         lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
         lot_reported_closed_at: lot_reported_closed_at(product.auction.as_ref()),
@@ -651,8 +627,6 @@ mod tests {
         assert!(paths.contains("priceByCurrency.chf"));
         assert!(paths.contains("images.url"));
         assert!(paths.contains("titleIt"));
-        assert!(paths.contains("lotLabel"));
-        assert!(paths.contains("lotPosition"));
         assert!(paths.contains("lotBiddingOpensAt"));
         assert!(paths.contains("lotScheduledClosesAt"));
         assert!(paths.contains("lotReportedClosedAt"));
@@ -661,8 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn should_project_only_exact_lot_times_with_label_and_position()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn should_project_only_exact_lot_times() -> Result<(), Box<dyn std::error::Error>> {
         let mut product = source()?;
         let bidding_opens_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
         let scheduled_closes_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2);
@@ -683,11 +656,6 @@ mod tests {
         let persistent = serde_json::to_value(product_listing_document(&product, None)?)?;
 
         for document in [&temporary, &persistent] {
-            assert_eq!(
-                Some(&serde_json::json!("Lot 12A")),
-                document.get("lotLabel")
-            );
-            assert_eq!(Some(&serde_json::json!(12)), document.get("lotPosition"));
             assert_eq!(
                 Some(&serde_json::json!(
                     bidding_opens_at.format(&time::format_description::well_known::Rfc3339)?

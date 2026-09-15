@@ -1,7 +1,7 @@
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use application::operation_context::Principal;
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule};
-use auction_service::ports::AuctionSummary;
+
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
@@ -21,7 +21,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_service::ports::ListingSourceSummary;
+use product_listing_service::ports::{ListingSourceSummary, ProductListingAuctionSummary};
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
     PersonalizedProductListingSummary, ProductListingDetailsView,
@@ -74,9 +74,8 @@ pub(crate) struct ProductListingDetailsData {
     view_url: Url,
     images: Vec<ProductListingImageData>,
     content_policy: Option<ContentPolicyData>,
-    auction: Option<ProductListingAuctionData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auction_summary: Option<AuctionSummaryData>,
+    auction: Option<AuctionSummaryData>,
+    lot: Option<ProductListingLotData>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -156,23 +155,6 @@ pub(crate) struct ProductListingSummaryData {
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<AuctionId>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    lot_bidding_opens_at: Option<OffsetDateTime>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    lot_scheduled_closes_at: Option<OffsetDateTime>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    lot_reported_closed_at: Option<OffsetDateTime>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auction_summary: Option<AuctionSummaryData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -304,7 +286,7 @@ impl ProductListingDetailsData {
             images: view.images.into_iter().map(Into::into).collect(),
             content_policy: view.content_policy.map(Into::into),
             auction: view.auction.map(Into::into),
-            auction_summary: view.auction_summary.map(Into::into),
+            lot: view.lot.map(Into::into),
             created: view.created,
             updated: view.updated,
         }
@@ -315,6 +297,19 @@ impl From<ProductListingDetailsView> for ProductListingDetailsData {
     fn from(view: ProductListingDetailsView) -> Self {
         Self::from_view(view)
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductListingLotData {
+    lot_number: Option<String>,
+    catalogue_position: Option<u32>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    bidding_opens: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    scheduled_closes: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    reported_closed_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Serialize)]
@@ -343,8 +338,8 @@ struct AuctionScheduleData {
     scheduled_end: Option<OffsetDateTime>,
 }
 
-impl From<AuctionSummary> for AuctionSummaryData {
-    fn from(value: AuctionSummary) -> Self {
+impl From<ProductListingAuctionSummary> for AuctionSummaryData {
+    fn from(value: ProductListingAuctionSummary) -> Self {
         Self {
             auction_id: value.auction_id,
             name: value.name.map(|name| LocalizedTextData {
@@ -365,6 +360,18 @@ impl From<AuctionSchedule> for AuctionScheduleData {
             live_starts: value.live_starts(),
             lots_begin_closing: value.lots_begin_closing(),
             scheduled_end: value.scheduled_end(),
+        }
+    }
+}
+
+impl From<product_listing_service::ports::ProductListingLot> for ProductListingLotData {
+    fn from(lot: product_listing_service::ports::ProductListingLot) -> Self {
+        Self {
+            lot_number: lot.lot_number.map(Into::into),
+            catalogue_position: lot.catalogue_position.map(|position| position.value()),
+            bidding_opens: lot.bidding_opens,
+            scheduled_closes: lot.scheduled_closes,
+            reported_closed_at: lot.reported_closed_at,
         }
     }
 }
@@ -516,10 +523,6 @@ impl ProductListingSummaryData {
             source: summary.source.into(),
             source_listing_id: summary.source_listing_id,
             auction_id: summary.auction_id,
-            lot_bidding_opens_at: summary.lot_bidding_opens_at,
-            lot_scheduled_closes_at: summary.lot_scheduled_closes_at,
-            lot_reported_closed_at: summary.lot_reported_closed_at,
-            auction_summary: summary.auction_summary.map(Into::into),
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),
@@ -615,9 +618,9 @@ mod tests {
     use time::macros::datetime;
 
     #[test]
-    fn should_serialize_only_safe_auction_summary_fields_with_exact_timestamps() {
+    fn should_serialize_only_safe_full_detail_auction_parent_fields_with_exact_timestamps() {
         let auction_id = AuctionId::new();
-        let summary = AuctionSummary {
+        let summary = ProductListingAuctionSummary {
             auction_id,
             name: Some(Localized::new(
                 localization::Language::En,

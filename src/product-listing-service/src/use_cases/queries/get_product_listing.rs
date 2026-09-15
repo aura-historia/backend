@@ -1,16 +1,14 @@
 use crate::ports::ListingSourceSummary;
 use crate::ports::{
-    PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadError,
-    ProductListingDetailsReadRequest, ProductListingDetailsReader,
-    ProductListingDetailsReaderFactory,
+    PersonalizedProductListingDetailsReadModel, ProductListingAuctionSummary,
+    ProductListingDetailsReadError, ProductListingDetailsReadRequest, ProductListingDetailsReader,
+    ProductListingDetailsReaderFactory, ProductListingLot,
 };
 use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
-use auction_service::ports::{
-    AuctionSummary, AuctionSummaryBatchReadError, AuctionSummaryBatchReader,
-};
+
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
@@ -32,9 +30,7 @@ use user_core::user_id::UserId;
 
 use crate::user_state::ProductListingUserState;
 use product_listing_core::description::Description;
-use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
-};
+use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_price::ProductListingPrice;
 use product_listing_core::title::Title;
@@ -179,8 +175,8 @@ pub struct ProductListingDetailsView {
     pub view_url: Url,
     pub images: Vec<ProductListingImageView>,
     pub content_policy: Option<ContentPolicyDecision>,
-    pub auction: Option<ProductListingAuction>,
-    pub auction_summary: Option<AuctionSummary>,
+    pub auction: Option<ProductListingAuctionSummary>,
+    pub lot: Option<ProductListingLot>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -219,19 +215,6 @@ pub enum GetProductListingError {
         source: FxRateSnapshotError,
     },
 
-    #[error("Auction summary query failed")]
-    AuctionSummaryQueryFailed {
-        #[source]
-        source: BoxError,
-    },
-    #[error("Auction summary read model is invalid")]
-    AuctionSummaryReadModelInvalid {
-        #[source]
-        source: BoxError,
-    },
-    #[error("resolved Auction summary is missing")]
-    ResolvedAuctionSummaryMissing,
-
     #[error("failed to begin get product transaction")]
     BeginTransactionFailed,
     #[error("failed to commit get product transaction")]
@@ -247,31 +230,28 @@ pub trait GetProductListingUseCase: Send + Sync {
     ) -> Result<PersonalizedProductListingDetailsView, GetProductListingError>;
 }
 
-pub struct GetProductListingHandler<U, D, F, A> {
+pub struct GetProductListingHandler<U, D, F> {
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
-    auctions: A,
 }
 
-impl<U, D, F, A> GetProductListingHandler<U, D, F, A> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F, auctions: A) -> Self {
+impl<U, D, F> GetProductListingHandler<U, D, F> {
+    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             details_reader,
             fx_rates,
-            auctions,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, D, F, A> GetProductListingUseCase for GetProductListingHandler<U, D, F, A>
+impl<U, D, F> GetProductListingUseCase for GetProductListingHandler<U, D, F>
 where
     U: UnitOfWork,
     D: ProductListingDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    A: AuctionSummaryBatchReader,
 {
     #[tracing::instrument(
         name = "get_product",
@@ -324,9 +304,6 @@ where
             .await
             .map_err(|_| GetProductListingError::CommitTransactionFailed)?;
 
-        details.item.auction_summary =
-            auction_summary_for_context(details.item.auction.as_ref(), &self.auctions).await?;
-
         if user_id.is_some()
             && details
                 .user_state
@@ -357,24 +334,6 @@ where
         None => repository.find_latest_at_or_before(valuation_at).await?,
     };
     snapshot.ok_or(GetProductListingError::PricingFxSnapshotMissing)
-}
-
-async fn auction_summary_for_context<A>(
-    context: Option<&ProductListingAuction>,
-    auctions: &A,
-) -> Result<Option<AuctionSummary>, GetProductListingError>
-where
-    A: AuctionSummaryBatchReader,
-{
-    let Some(auction_id) = context.and_then(ProductListingAuction::auction_id) else {
-        return Ok(None);
-    };
-    let summaries = auctions.find_summaries(&[auction_id]).await?;
-    summaries
-        .get(&auction_id)
-        .cloned()
-        .map(Some)
-        .ok_or(GetProductListingError::ResolvedAuctionSummaryMissing)
 }
 
 pub fn present_product_details(
@@ -416,7 +375,7 @@ pub fn present_product_details(
             ),
             content_policy: item.content_policy,
             auction: item.auction,
-            auction_summary: None,
+            lot: item.lot,
             created: item.created,
             updated: item.updated,
         },
@@ -504,7 +463,7 @@ pub fn redact_hidden_product(
     details.view_url = hidden_url;
     details.images.clear();
     details.auction = None;
-    details.auction_summary = None;
+    details.lot = None;
     details.created = OffsetDateTime::UNIX_EPOCH;
     details.updated = OffsetDateTime::UNIX_EPOCH;
 
@@ -519,19 +478,6 @@ fn hidden_title(language: Language) -> Title {
         Language::Es => Title::from("Título de producto oculto"),
         Language::It => Title::from("Titolo del prodotto mascherato"),
         _ => Title::from("Hidden ProductListing Title"),
-    }
-}
-
-impl From<AuctionSummaryBatchReadError> for GetProductListingError {
-    fn from(error: AuctionSummaryBatchReadError) -> Self {
-        match error {
-            AuctionSummaryBatchReadError::QueryFailed { source } => {
-                Self::AuctionSummaryQueryFailed { source }
-            }
-            AuctionSummaryBatchReadError::InvalidReadModel { source } => {
-                Self::AuctionSummaryReadModelInvalid { source }
-            }
-        }
     }
 }
 
@@ -580,21 +526,7 @@ impl From<ProductListingPricingPresentationError> for GetProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    #[derive(Clone, Copy)]
-    struct TestAuctionSummaryBatchReader;
-
-    #[async_trait::async_trait]
-    impl AuctionSummaryBatchReader for TestAuctionSummaryBatchReader {
-        async fn find_summaries(
-            &self,
-            _auction_ids: &[auction_core::AuctionId],
-        ) -> Result<HashMap<auction_core::AuctionId, AuctionSummary>, AuctionSummaryBatchReadError>
-        {
-            Ok(HashMap::new())
-        }
-    }
     use crate::ports::ProductListingDetailsReadModel;
 
     use application::{
@@ -659,32 +591,6 @@ mod tests {
 
     struct FakeFxRateSnapshotRepository {
         state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct CommitCheckingAuctionSummaryBatchReader {
-        state: SharedState,
-        summary: AuctionSummary,
-    }
-
-    #[async_trait::async_trait]
-    impl AuctionSummaryBatchReader for CommitCheckingAuctionSummaryBatchReader {
-        async fn find_summaries(
-            &self,
-            auction_ids: &[auction_core::AuctionId],
-        ) -> Result<HashMap<auction_core::AuctionId, AuctionSummary>, AuctionSummaryBatchReadError>
-        {
-            assert_eq!(
-                1,
-                lock_state(&self.state).commit_count,
-                "detail transaction must commit before pooled Auction hydration"
-            );
-            assert_eq!(vec![self.summary.auction_id], auction_ids);
-            Ok(HashMap::from([(
-                self.summary.auction_id,
-                self.summary.clone(),
-            )]))
-        }
     }
 
     fn state() -> SharedState {
@@ -830,7 +736,6 @@ mod tests {
         FakeUnitOfWork,
         FakeDetailsReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
-        TestAuctionSummaryBatchReader,
     > {
         GetProductListingHandler::new(
             FakeUnitOfWork {
@@ -842,7 +747,6 @@ mod tests {
             FakeFxRateSnapshotRepositoryFactory {
                 state: Arc::clone(state),
             },
-            TestAuctionSummaryBatchReader,
         )
     }
 
@@ -936,6 +840,7 @@ mod tests {
                 images: IndexSet::<ProductListingImage>::new(),
                 content_policy: None,
                 auction: None,
+                lot: None,
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
@@ -1139,58 +1044,6 @@ mod tests {
         assert_eq!(vec![snapshot.id()], state.fx_rate_id_requests);
         assert_eq!(0, state.latest_snapshot_count);
         assert_eq!(1, state.commit_count);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_commit_detail_transaction_before_resolved_auction_summary_hydration()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
-        let auction_id = auction_core::AuctionId::new();
-        let mut details = factual_details()?;
-        details.item.auction =
-            ProductListingAuction::new(Some(auction_id), None, None, None, None, None)
-                .unwrap_or_else(|error| panic!("valid Auction reference: {error}"));
-        lock_state(&state).find_details_result = Some(Ok(Some(details)));
-        prepare_current_snapshot(&state)?;
-        let auction_reader = CommitCheckingAuctionSummaryBatchReader {
-            state: Arc::clone(&state),
-            summary: AuctionSummary {
-                auction_id,
-                name: None,
-                format: None,
-                reported_status: None,
-                schedule: auction_core::AuctionSchedule::default(),
-            },
-        };
-        let handler = GetProductListingHandler::new(
-            FakeUnitOfWork {
-                state: Arc::clone(&state),
-            },
-            FakeDetailsReaderFactory {
-                state: Arc::clone(&state),
-            },
-            FakeFxRateSnapshotRepositoryFactory {
-                state: Arc::clone(&state),
-            },
-            auction_reader,
-        );
-
-        let result = handler
-            .execute(
-                &context(Principal::Anonymous),
-                request(Language::En, Currency::Eur),
-            )
-            .await?;
-
-        assert_eq!(
-            Some(auction_id),
-            result
-                .item
-                .auction_summary
-                .map(|summary| summary.auction_id)
-        );
-        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 

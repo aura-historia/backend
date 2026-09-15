@@ -145,24 +145,21 @@ fn cursor_for_item(
 ) -> Result<AuctionCatalogueCursor, AuctionCatalogueReadError> {
     let context = item.item.auction.as_ref().ok_or_else(|| {
         invalid(std::io::Error::other(
-            "Auction catalogue item has no Auction context",
+            "Auction catalogue item has no parent Auction",
         ))
     })?;
-    let context_auction_id = context.auction_id().ok_or_else(|| {
-        invalid(std::io::Error::other(
-            "Auction catalogue item has unresolved Auction context",
-        ))
-    })?;
-    if context_auction_id != auction_id {
+    if context.auction_id != auction_id {
         return Err(invalid(std::io::Error::other(
             "Auction catalogue item has another Auction ID",
         )));
     }
     Ok(AuctionCatalogueCursor {
         auction_id,
-        catalogue_position: context
-            .catalogue_position()
-            .map(|position| position.value()),
+        catalogue_position: item
+            .item
+            .lot
+            .as_ref()
+            .and_then(|lot| lot.catalogue_position.map(|position| position.value())),
         product_listing_id: item.item.product_listing_id,
     })
 }

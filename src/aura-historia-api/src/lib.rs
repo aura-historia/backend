@@ -41,7 +41,7 @@ use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
     SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
     SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
-    SqlxAuctionSummaryBatchReader, SqlxPublicAuctionDetailsReader,
+    SqlxPublicAuctionDetailsReader,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
@@ -1258,7 +1258,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxListingSourceSummaryReader::new(pool.clone()),
         product_user_states.clone(),
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        SqlxAuctionSummaryBatchReader::new(pool.clone()),
     );
     let search_products = SearchProductListingsHandler::new(
         OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
@@ -1273,14 +1272,12 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         ),
         product_user_states,
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
-        SqlxAuctionSummaryBatchReader::new(pool.clone()),
     )
     .with_read_execution_policy(config.product_listing_search_read_execution_policy());
     let get_product = GetProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        SqlxAuctionSummaryBatchReader::new(pool.clone()),
     );
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
@@ -1328,7 +1325,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxProductListingWatchlistDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        SqlxAuctionSummaryBatchReader::new(pool.clone()),
     );
 
     let access_token_use_case =

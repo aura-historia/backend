@@ -1,6 +1,8 @@
 use crate::{
     object_id::{PersistedObjectIdError, try_from_uuid},
-    product_listing_auction::{ProductListingAuctionParts, auction_from_parts},
+    product_listing_auction::{
+        JoinedAuctionParts, ProductListingAuctionParts, auction_from_parts, map_joined_auction,
+    },
     url::referral_configuration,
 };
 use application::personalized::Personalized;
@@ -88,6 +90,16 @@ pub(super) struct ProductListingDetailsRow {
     lot_bidding_opens_at: Option<OffsetDateTime>,
     lot_scheduled_closes_at: Option<OffsetDateTime>,
     lot_reported_closed_at: Option<OffsetDateTime>,
+    parent_auction_id: Option<uuid::Uuid>,
+    parent_listing_source_id: Option<uuid::Uuid>,
+    auction_name_text: Option<String>,
+    auction_name_language: Option<String>,
+    auction_format: Option<String>,
+    auction_bidding_opens_at: Option<OffsetDateTime>,
+    auction_live_starts_at: Option<OffsetDateTime>,
+    auction_lots_begin_closing_at: Option<OffsetDateTime>,
+    auction_scheduled_end_at: Option<OffsetDateTime>,
+    auction_reported_status: Option<String>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
     personalization_user_id: Option<uuid::Uuid>,
@@ -226,6 +238,16 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         assessment.category AS content_policy_category,
         p.auction_id, p.lot_number, p.catalogue_position, p.lot_bidding_opens_at,
         p.lot_scheduled_closes_at, p.lot_reported_closed_at,
+        a.auction_id AS parent_auction_id,
+        a.listing_source_id AS parent_listing_source_id,
+        a.name_text AS auction_name_text,
+        a.name_language AS auction_name_language,
+        a.format AS auction_format,
+        a.bidding_opens_at AS auction_bidding_opens_at,
+        a.live_starts_at AS auction_live_starts_at,
+        a.lots_begin_closing_at AS auction_lots_begin_closing_at,
+        a.scheduled_end_at AS auction_scheduled_end_at,
+        a.reported_status AS auction_reported_status,
         p.created, p.updated,
         $2::uuid AS personalization_user_id,
         authenticated_user.show_unassessed_or_sensitive_content AS user_show_unassessed_or_sensitive_content,
@@ -240,6 +262,8 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     FROM product_listings p
     JOIN listing_sources listing_source
         ON listing_source.listing_source_id = p.listing_source_id
+    LEFT JOIN auctions a
+        ON a.auction_id = p.auction_id
 
     LEFT JOIN product_listing_content_assessments assessment
         ON assessment.product_listing_id = p.product_listing_id
@@ -392,7 +416,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             row.content_policy_decision.as_deref(),
             row.content_policy_category.as_deref(),
         )?;
-        let auction = auction_from_parts(ProductListingAuctionParts {
+        let listing_auction = auction_from_parts(ProductListingAuctionParts {
             auction_id: row.auction_id,
             lot_number: row.lot_number,
             catalogue_position: row.catalogue_position,
@@ -400,6 +424,23 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             lot_scheduled_closes_at: row.lot_scheduled_closes_at,
             lot_reported_closed_at: row.lot_reported_closed_at,
         })
+        .map_err(|_| ())?;
+        let (auction, lot) = map_joined_auction(
+            listing_auction,
+            row.listing_source_id,
+            JoinedAuctionParts {
+                auction_id: row.parent_auction_id,
+                listing_source_id: row.parent_listing_source_id,
+                name_text: row.auction_name_text,
+                name_language: row.auction_name_language,
+                format: row.auction_format,
+                bidding_opens_at: row.auction_bidding_opens_at,
+                live_starts_at: row.auction_live_starts_at,
+                lots_begin_closing_at: row.auction_lots_begin_closing_at,
+                scheduled_end_at: row.auction_scheduled_end_at,
+                reported_status: row.auction_reported_status,
+            },
+        )
         .map_err(|_| ())?;
         let product_title = localized_title(row.product_title_text, row.product_title_language)?;
         let product_description = localized_description(
@@ -462,6 +503,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 images: parsed_images,
                 content_policy,
                 auction,
+                lot,
                 created: row.created,
                 updated: row.updated,
             },

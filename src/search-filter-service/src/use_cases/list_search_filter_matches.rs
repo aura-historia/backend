@@ -620,6 +620,7 @@ mod tests {
                 view_url: url,
                 images: IndexSet::new(),
                 auction: None,
+                lot: None,
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },

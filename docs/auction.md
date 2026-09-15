@@ -42,7 +42,7 @@ Auction schedule roles (`biddingOpens`, `liveStarts`, `lotsBeginClosing`, and `s
 
 Public browsing is PostgreSQL-backed: `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. Reads use `Cache-Control: no-store`. The directory is newest-first and has scoped cursors; the catalogue returns visible active assigned listings ordered by `cataloguePosition ASC NULLS LAST` then listing UUID.
 
-ProductListing detail, search, similar-listing, and watchlist reads batch current resolved Auction summaries from PostgreSQL. Standalone lot facts remain readable without a summary. Public data never exposes `sourceAuctionId` or persistence versions. Search supports exact resolved `auctionId` membership only; no Auction OpenSearch index or metadata fan-out exists.
+ProductListing search and similar-listing results stay lightweight: they return only the indexed `auctionId` association and never hydrate current Auction metadata. PostgreSQL full-detail, watchlist, saved-search match-detail, and Auction catalogue reads join the parent Auction presentation in their ProductListing detail read model; handlers do not run a second Auction batch lookup. Standalone lot facts remain readable without a parent. Public data never exposes `sourceAuctionId` or persistence versions. Search supports exact resolved `auctionId` membership only; no Auction OpenSearch index or metadata fan-out exists.
 
 ## Events and later notifications
 
