@@ -5,15 +5,20 @@ use crate::scraper::scraper_service::util::hash::{
 use sha2::{Digest, Sha256};
 
 #[tokio::test]
-async fn should_skip_fetching_and_return_none_when_hashes_match() {
+async fn should_skip_when_only_non_main_document_content_changes() {
     let id = listing_source_id();
     let url = product_url();
-    let html = sample_html();
-    let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
+    let stored_html = sample_html();
+    let matching_hash = hash_main_fragment(&stored_html).unwrap_or_else(|| hash_html(&stored_html));
+    let fetched_html = stored_html.replacen(
+        "<body>",
+        r#"<head><meta name="crawler-regression" content="changed"></head><body>"#,
+        1,
+    );
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
+        let html = fetched_html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 

@@ -184,6 +184,57 @@ CREATE INDEX parties_public_name_prefix_idx
     ON parties (name_search COLLATE "C", party_id);
 CREATE INDEX listing_source_ingestion_methods_method_idx ON listing_source_ingestion_methods (ingestion_method, listing_source_id);
 
+-- Auction is source-scoped. The source key is immutable; metadata and schedule are optional.
+CREATE TABLE auctions (
+    auction_id uuid PRIMARY KEY,
+    listing_source_id uuid NOT NULL
+        REFERENCES listing_sources(listing_source_id) ON DELETE RESTRICT,
+    source_auction_id text NOT NULL,
+    name_text text,
+    name_language text,
+    catalogue_url text,
+    format text,
+    bidding_opens_at timestamptz,
+    live_starts_at timestamptz,
+    lots_begin_closing_at timestamptz,
+    scheduled_end_at timestamptz,
+    reported_status text,
+    reported_lot_count bigint,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT auctions_source_key_unique UNIQUE (listing_source_id, source_auction_id),
+    CONSTRAINT auctions_id_source_unique UNIQUE (auction_id, listing_source_id),
+    CONSTRAINT auctions_source_auction_id_length_check
+        CHECK (octet_length(source_auction_id) BETWEEN 1 AND 512),
+    CONSTRAINT auctions_format_check CHECK (format IS NULL OR format IN ('LIVE', 'TIMED')),
+    CONSTRAINT auctions_reported_status_check CHECK (reported_status IS NULL OR reported_status IN (
+        'SCHEDULED', 'IN_PROGRESS', 'ENDED', 'POSTPONED', 'CANCELLED'
+    )),
+    CONSTRAINT auctions_reported_lot_count_check CHECK (reported_lot_count IS NULL OR reported_lot_count BETWEEN 0 AND 4294967295),
+    CONSTRAINT auctions_version_positive CHECK (version >= 1),
+    CONSTRAINT auctions_name_localization_shape_check CHECK ((name_text IS NULL) = (name_language IS NULL))
+);
+
+CREATE INDEX auctions_created_id_idx
+    ON auctions (created DESC, auction_id DESC);
+
+
+CREATE TABLE auction_events (
+    event_id uuid PRIMARY KEY,
+    auction_id uuid NOT NULL REFERENCES auctions(auction_id) ON DELETE CASCADE,
+    event_type text NOT NULL,
+    event_type_schema_version smallint NOT NULL,
+    payload jsonb NOT NULL,
+    event_time timestamptz NOT NULL,
+    CONSTRAINT auction_events_type_check CHECK (event_type IN ('AUCTION_DISCOVERED', 'AUCTION_CHANGED')),
+    CONSTRAINT auction_events_schema_version_check CHECK (event_type_schema_version = 1),
+    CONSTRAINT auction_events_payload_object_check CHECK (jsonb_typeof(payload) = 'object')
+);
+
+CREATE INDEX auction_events_auction_time_idx ON auction_events (auction_id, event_time, event_id);
+
+
 CREATE TABLE product_listing_raw_streams (
     product_listing_raw_stream_id uuid PRIMARY KEY,
     listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE RESTRICT,
@@ -348,6 +399,7 @@ CREATE TABLE product_listing_raw_normalizations (
 CREATE INDEX product_listing_raw_normalizations_stream_revision_idx
     ON product_listing_raw_normalizations (product_listing_raw_stream_id, revision ASC);
 
+
 CREATE TABLE partnerships (
     partnership_id uuid PRIMARY KEY,
     party_id uuid NOT NULL UNIQUE REFERENCES parties(party_id) ON DELETE RESTRICT,
@@ -486,6 +538,12 @@ CREATE TABLE product_listings (
         REFERENCES listing_sources(listing_source_id)
         ON DELETE RESTRICT,
     source_listing_id text NOT NULL,
+    auction_id uuid,
+    lot_number text,
+    catalogue_position bigint,
+    lot_bidding_opens_at timestamptz,
+    lot_scheduled_closes_at timestamptz,
+    lot_reported_closed_at timestamptz,
     title_text text,
     title_language text,
     description_text text,
@@ -505,12 +563,27 @@ CREATE TABLE product_listings (
     product_images jsonb NOT NULL DEFAULT '[]',
     embedding real[],
     projection_version bigint NOT NULL DEFAULT 1,
-    auction_start timestamptz,
-    auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
     CONSTRAINT product_listings_title_slug_unique UNIQUE (product_listing_title_slug_id),
+    CONSTRAINT product_listings_auction_source_fk
+        FOREIGN KEY (auction_id, listing_source_id)
+        REFERENCES auctions(auction_id, listing_source_id) ON DELETE RESTRICT,
+    CONSTRAINT product_listings_lot_number_check CHECK (
+        lot_number IS NULL OR (
+            octet_length(lot_number) BETWEEN 1 AND 128
+            AND lot_number !~ '(^[[:space:]]|[[:space:]]$)'
+        )
+    ),
+    CONSTRAINT product_listings_catalogue_position_check CHECK (
+        catalogue_position IS NULL OR catalogue_position BETWEEN 1 AND 4294967295
+    ),
+    CONSTRAINT product_listings_lot_schedule_check CHECK (
+        lot_bidding_opens_at IS NULL
+        OR lot_scheduled_closes_at IS NULL
+        OR lot_bidding_opens_at <= lot_scheduled_closes_at
+    ),
     CONSTRAINT product_listings_source_listing_id_check CHECK (
         octet_length(source_listing_id) BETWEEN 1 AND 512
         AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
@@ -546,9 +619,12 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT product_listings_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
     CONSTRAINT product_listings_version_positive CHECK (version >= 1),
-    CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1),
-    CONSTRAINT product_listings_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
+    CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1)
 );
+
+CREATE INDEX product_listings_auction_catalogue_idx
+    ON product_listings (auction_id, catalogue_position, product_listing_id);
+
 
 CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);
 CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);

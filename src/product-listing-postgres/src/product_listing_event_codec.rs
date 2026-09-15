@@ -1,4 +1,5 @@
 use application::error::{BoxError, box_error};
+use auction_core::AuctionId;
 use domain_primitives::event_id::EventId;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -7,6 +8,7 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
+    product_listing_auction::{CataloguePosition, LotNumber},
     product_listing_event::{
         ProductListingChanged, ProductListingDiscovered, ProductListingEventPayload,
         ProductListingEventType, ProductListingImageCount, ProductListingLifecycleChange,
@@ -293,7 +295,7 @@ struct DiscoveredDto {
     availability: Option<String>,
     url: String,
     image_count: u64,
-    auction: AuctionDto,
+    auction: Option<AuctionDto>,
 }
 
 impl TryFrom<&ProductListingDiscovered> for DiscoveredDto {
@@ -311,7 +313,7 @@ impl TryFrom<&ProductListingDiscovered> for DiscoveredDto {
                 .map(|availability| availability.as_str().to_owned()),
             url: value.url().as_str().to_owned(),
             image_count: value.image_count().value(),
-            auction: value.auction().try_into()?,
+            auction: value.auction().map(TryInto::try_into).transpose()?,
         })
     }
 }
@@ -331,7 +333,7 @@ impl TryFrom<DiscoveredDto> for ProductListingEventPayload {
         let availability = parse_availability(value.availability, "availability")?;
         let url = parse_url(&value.url, "url")?;
         let image_count = ProductListingImageCount::new(value.image_count);
-        let auction = value.auction.try_into()?;
+        let auction = value.auction.map(TryInto::try_into).transpose()?.flatten();
 
         ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
             listing_source_id,
@@ -360,7 +362,7 @@ struct ChangedDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     images: Option<ImageCountChangeDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    auction: Option<ValueChangeDto<AuctionDto>>,
+    auction: Option<ValueChangeDto<Option<AuctionDto>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lifecycle: Option<LifecycleChangeDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -438,7 +440,16 @@ impl ChangedDto {
         });
         let auction = self
             .auction
-            .map(|change| Ok((change.previous.try_into()?, change.current.try_into()?)))
+            .map(|change| {
+                Ok((
+                    change
+                        .previous
+                        .map(TryInto::try_into)
+                        .transpose()?
+                        .flatten(),
+                    change.current.map(TryInto::try_into).transpose()?.flatten(),
+                ))
+            })
             .transpose()?;
         let lifecycle = self.lifecycle.map(TryInto::try_into).transpose()?;
         let sale_observation = self
@@ -755,43 +766,91 @@ impl From<Price> for PriceDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuctionDto {
-    start: Option<String>,
-    end: Option<String>,
+    auction_id: Option<String>,
+    lot_number: Option<String>,
+    catalogue_position: Option<u32>,
+    lot_bidding_opens_at: Option<String>,
+    lot_scheduled_closes_at: Option<String>,
+    lot_reported_closed_at: Option<String>,
 }
 
-impl TryFrom<ProductListingAuction> for AuctionDto {
+impl TryFrom<&ProductListingAuction> for AuctionDto {
     type Error = ProductListingEventCodecError;
 
-    fn try_from(value: ProductListingAuction) -> Result<Self, Self::Error> {
+    fn try_from(value: &ProductListingAuction) -> Result<Self, Self::Error> {
         Ok(Self {
-            start: value
-                .start
-                .map(|value| format_timestamp(value, "auction.start"))
+            auction_id: value.auction_id().map(|value| value.as_uuid().to_string()),
+            lot_number: value.lot_number().map(|value| value.as_str().to_owned()),
+            catalogue_position: value.catalogue_position().map(|value| value.value()),
+            lot_bidding_opens_at: value
+                .bidding_opens()
+                .map(|value| format_timestamp(value, "auction.lotBiddingOpensAt"))
                 .transpose()?,
-            end: value
-                .end
-                .map(|value| format_timestamp(value, "auction.end"))
+            lot_scheduled_closes_at: value
+                .scheduled_closes()
+                .map(|value| format_timestamp(value, "auction.lotScheduledClosesAt"))
+                .transpose()?,
+            lot_reported_closed_at: value
+                .reported_closed_at()
+                .map(|value| format_timestamp(value, "auction.lotReportedClosedAt"))
                 .transpose()?,
         })
     }
 }
 
-impl TryFrom<AuctionDto> for ProductListingAuction {
+impl TryFrom<AuctionDto> for Option<ProductListingAuction> {
     type Error = ProductListingEventCodecError;
 
     fn try_from(value: AuctionDto) -> Result<Self, Self::Error> {
-        Ok(Self {
-            start: value
-                .start
+        let auction_id = value
+            .auction_id
+            .map(|value| {
+                let uuid = parse_uuid(&value, "auction.auctionId")?;
+                AuctionId::try_from(uuid)
+                    .map_err(|source| invalid_field_source("auction.auctionId", source))
+            })
+            .transpose()?;
+        let lot_number = value
+            .lot_number
+            .map(|value| {
+                let parsed = LotNumber::try_from(value.as_str())
+                    .map_err(|source| invalid_field_source("auction.lotNumber", source))?;
+                if parsed.as_str() != value {
+                    return Err(ProductListingEventCodecError::NonCanonicalField {
+                        field: "auction.lotNumber",
+                    });
+                }
+                Ok(parsed)
+            })
+            .transpose()?;
+        let catalogue_position = value
+            .catalogue_position
+            .map(|value| {
+                CataloguePosition::new(value)
+                    .map_err(|source| invalid_field_source("auction.cataloguePosition", source))
+            })
+            .transpose()?;
+        ProductListingAuction::new(
+            auction_id,
+            lot_number,
+            catalogue_position,
+            value
+                .lot_bidding_opens_at
                 .as_deref()
-                .map(|value| parse_timestamp(value, "auction.start"))
+                .map(|value| parse_timestamp(value, "auction.lotBiddingOpensAt"))
                 .transpose()?,
-            end: value
-                .end
+            value
+                .lot_scheduled_closes_at
                 .as_deref()
-                .map(|value| parse_timestamp(value, "auction.end"))
+                .map(|value| parse_timestamp(value, "auction.lotScheduledClosesAt"))
                 .transpose()?,
-        })
+            value
+                .lot_reported_closed_at
+                .as_deref()
+                .map(|value| parse_timestamp(value, "auction.lotReportedClosedAt"))
+                .transpose()?,
+        )
+        .map_err(|source| invalid_field_source("auction", source))
     }
 }
 
@@ -868,11 +927,19 @@ fn url_change_dto(
 }
 
 fn auction_change_dto(
-    value: &product_listing_core::product_listing_event::ValueChange<ProductListingAuction>,
-) -> Result<ValueChangeDto<AuctionDto>, ProductListingEventCodecError> {
+    value: &product_listing_core::product_listing_event::ValueChange<Option<ProductListingAuction>>,
+) -> Result<ValueChangeDto<Option<AuctionDto>>, ProductListingEventCodecError> {
     Ok(ValueChangeDto {
-        previous: (*value.previous()).try_into()?,
-        current: (*value.current()).try_into()?,
+        previous: value
+            .previous()
+            .as_ref()
+            .map(TryInto::try_into)
+            .transpose()?,
+        current: value
+            .current()
+            .as_ref()
+            .map(TryInto::try_into)
+            .transpose()?,
     })
 }
 
@@ -1052,8 +1119,12 @@ fn validate_discovered_shape(value: &Value) -> Result<(), ProductListingEventCod
         )?;
     }
 
-    let auction = required_object_member(object, "auction", "payload")?;
-    require_exact_keys(auction, &["start", "end"], "auction")?;
+    validate_auction_shape(
+        object
+            .get("auction")
+            .ok_or_else(|| missing_field("payload.auction"))?,
+        "auction",
+    )?;
     Ok(())
 }
 
@@ -1108,16 +1179,18 @@ fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecE
             "auction" => {
                 let change = required_object(raw, "auction")?;
                 require_exact_keys(change, &["previous", "current"], "auction change")?;
-                let previous = change
-                    .get("previous")
-                    .ok_or_else(|| missing_field("auction.previous"))?;
-                let previous = required_object(previous, "auction.previous")?;
-                require_exact_keys(previous, &["start", "end"], "auction.previous")?;
-                let current = change
-                    .get("current")
-                    .ok_or_else(|| missing_field("auction.current"))?;
-                let current = required_object(current, "auction.current")?;
-                require_exact_keys(current, &["start", "end"], "auction.current")?;
+                validate_auction_shape(
+                    change
+                        .get("previous")
+                        .ok_or_else(|| missing_field("auction.previous"))?,
+                    "auction.previous",
+                )?;
+                validate_auction_shape(
+                    change
+                        .get("current")
+                        .ok_or_else(|| missing_field("auction.current"))?,
+                    "auction.current",
+                )?;
             }
             "saleObservation" => validate_sale_observation_shape(raw)?,
             "lifecycle" => validate_lifecycle_shape(raw)?,
@@ -1127,6 +1200,28 @@ fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecE
         }
     }
     Ok(())
+}
+
+fn validate_auction_shape(
+    value: &Value,
+    context: &'static str,
+) -> Result<(), ProductListingEventCodecError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let auction = required_object(value, context)?;
+    require_exact_keys(
+        auction,
+        &[
+            "auctionId",
+            "lotNumber",
+            "cataloguePosition",
+            "lotBiddingOpensAt",
+            "lotScheduledClosesAt",
+            "lotReportedClosedAt",
+        ],
+        context,
+    )
 }
 
 fn validate_lifecycle_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
@@ -1317,6 +1412,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use listing_source_core::ListingSourceId;
     use localization::{Language, Localized};
     use money::{Currency, MonetaryAmount};
@@ -1324,6 +1420,7 @@ mod tests {
         description::Description,
         listing_availability::ListingAvailability,
         product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
+        product_listing_auction::{CataloguePosition, LotNumber},
         product_listing_event::{
             RehydratedProductListingChanged, RehydratedProductListingDiscovered,
         },
@@ -1551,7 +1648,7 @@ mod tests {
             "availability": null,
             "url": "https://example.test/product",
             "imageCount": u64::MAX,
-            "auction": {"start": null, "end": null}
+            "auction": null
         });
         let decoded = decode("PRODUCT_LISTING_DISCOVERED", 1, &payload)
             .unwrap_or_else(|error| panic!("decode: {error}"));
@@ -1602,12 +1699,20 @@ mod tests {
             object.remove("price");
         }
 
-        let mut omitted_auction_start = canonical_discovery_value();
-        if let Some(object) = omitted_auction_start
+        let mut omitted_lot_bidding_opens = canonical_discovery_value();
+        omitted_lot_bidding_opens["auction"] = json!({
+            "auctionId": null,
+            "lotNumber": null,
+            "cataloguePosition": null,
+            "lotBiddingOpensAt": null,
+            "lotScheduledClosesAt": null,
+            "lotReportedClosedAt": null
+        });
+        if let Some(object) = omitted_lot_bidding_opens
             .get_mut("auction")
             .and_then(Value::as_object_mut)
         {
-            object.remove("start");
+            object.remove("lotNumber");
         }
 
         let cases = vec![
@@ -1629,7 +1734,7 @@ mod tests {
             (
                 "omitted auction field",
                 "PRODUCT_LISTING_DISCOVERED",
-                omitted_auction_start,
+                omitted_lot_bidding_opens,
             ),
             ("unknown localized field", "PRODUCT_LISTING_DISCOVERED", {
                 let mut value = canonical_discovery_value();
@@ -1695,21 +1800,15 @@ mod tests {
                 "PRODUCT_LISTING_CHANGED",
                 json!({
                     "auction": {
-                        "previous": {"start": "not a timestamp", "end": null},
-                        "current": {"start": null, "end": null}
-                    }
-                }),
-            ),
-            (
-                "auction start after end",
-                "PRODUCT_LISTING_CHANGED",
-                json!({
-                    "auction": {
                         "previous": {
-                            "start": "2025-01-02T00:00:00Z",
-                            "end": "2025-01-01T00:00:00Z"
+                            "auctionId": null,
+                            "lotNumber": null,
+                            "cataloguePosition": null,
+                            "lotBiddingOpensAt": "not a timestamp",
+                            "lotScheduledClosesAt": null,
+                            "lotReportedClosedAt": null
                         },
-                        "current": {"start": null, "end": null}
+                        "current": null
                     }
                 }),
             ),
@@ -1837,7 +1936,7 @@ mod tests {
             availability: Some(ListingAvailability::Available),
             url: url("https://example.com/old"),
             image_count: ProductListingImageCount::new(1),
-            auction: ProductListingAuction::default(),
+            auction: None,
         })
         .unwrap_or_else(|error| panic!("discovery payload: {error}"))
     }
@@ -1866,11 +1965,22 @@ mod tests {
                 ProductListingImageCount::new(2),
             )),
             auction: Some((
-                ProductListingAuction::default(),
-                ProductListingAuction {
-                    start: Some(OffsetDateTime::UNIX_EPOCH),
-                    end: Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(1)),
-                },
+                None,
+                ProductListingAuction::new(
+                    None,
+                    Some(
+                        LotNumber::try_from("42")
+                            .unwrap_or_else(|error| panic!("lot number: {error}")),
+                    ),
+                    Some(
+                        CataloguePosition::new(7)
+                            .unwrap_or_else(|error| panic!("catalogue position: {error}")),
+                    ),
+                    Some(OffsetDateTime::UNIX_EPOCH),
+                    Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(1)),
+                    Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(2)),
+                )
+                .unwrap_or_else(|error| panic!("auction: {error}")),
             )),
             lifecycle: Some(ProductListingLifecycleChange::Withdrawn {
                 previous_availability: Some(ListingAvailability::Available),

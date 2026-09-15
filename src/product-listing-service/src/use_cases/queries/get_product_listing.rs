@@ -1,18 +1,21 @@
+use crate::ports::ListingSourceSummary;
 use crate::ports::{
-    PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadError,
-    ProductListingDetailsReadRequest, ProductListingDetailsReader,
-    ProductListingDetailsReaderFactory,
+    PersonalizedProductListingDetailsReadModel, ProductListingAuctionSummary,
+    ProductListingDetailsReadError, ProductListingDetailsReadRequest, ProductListingDetailsReader,
+    ProductListingDetailsReaderFactory, ProductListingLot,
 };
 use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
+
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceSlugId;
 use localization::{Language, Localized};
 use money::Currency;
 use product_listing_core::content_policy::{
@@ -22,17 +25,12 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-
-use crate::ports::ListingSourceSummary;
-use listing_source_core::ListingSourceSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
 use crate::user_state::ProductListingUserState;
 use product_listing_core::description::Description;
-use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
-};
+use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_price::ProductListingPrice;
 use product_listing_core::title::Title;
@@ -177,7 +175,8 @@ pub struct ProductListingDetailsView {
     pub view_url: Url,
     pub images: Vec<ProductListingImageView>,
     pub content_policy: Option<ContentPolicyDecision>,
-    pub auction: ProductListingAuction,
+    pub auction: Option<ProductListingAuctionSummary>,
+    pub lot: Option<ProductListingLot>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -376,6 +375,7 @@ pub fn present_product_details(
             ),
             content_policy: item.content_policy,
             auction: item.auction,
+            lot: item.lot,
             created: item.created,
             updated: item.updated,
         },
@@ -462,7 +462,8 @@ pub fn redact_hidden_product(
     details.url = hidden_url.clone();
     details.view_url = hidden_url;
     details.images.clear();
-    details.auction = ProductListingAuction::default();
+    details.auction = None;
+    details.lot = None;
     details.created = OffsetDateTime::UNIX_EPOCH;
     details.updated = OffsetDateTime::UNIX_EPOCH;
 
@@ -525,6 +526,7 @@ impl From<ProductListingPricingPresentationError> for GetProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::ports::ProductListingDetailsReadModel;
 
     use application::{
@@ -837,7 +839,8 @@ mod tests {
                 view_url: url("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),
                 content_policy: None,
-                auction: ProductListingAuction::default(),
+                auction: None,
+                lot: None,
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },

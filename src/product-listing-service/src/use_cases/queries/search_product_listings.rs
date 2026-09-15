@@ -12,6 +12,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
 use application::pagination::{Cursor, CursoredResult};
 use application::personalized::Personalized;
+use auction_core::AuctionId;
 use domain_primitives::event_id::EventId;
 use domain_primitives::sort::Sort;
 use embedding::{EmbeddingGenerator, EmbeddingText};
@@ -74,6 +75,7 @@ pub struct ProductListingSearchItem {
     pub event_id: EventId,
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
+    pub auction_id: Option<AuctionId>,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<ProductListingPrice>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -91,6 +93,7 @@ pub struct ProductListingSummary {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
+    pub auction_id: Option<AuctionId>,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<ProductListingPrice>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -240,7 +243,9 @@ impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
             read_execution_policy: ProductListingSearchReadExecutionPolicy::Sequential,
         }
     }
+}
 
+impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
     pub fn with_read_execution_policy(
         mut self,
         read_execution_policy: ProductListingSearchReadExecutionPolicy,
@@ -366,7 +371,8 @@ where
                     )
                     .await
                     .map_err(ProductListingSummaryPersonalizationError::from)?;
-                    let mut items = attach_listing_sources(result.items, &sources)?
+                    let sourced_items = attach_listing_sources(result.items, &sources)?;
+                    let mut items = sourced_items
                         .into_iter()
                         .map(|item| Personalized {
                             item,
@@ -415,7 +421,8 @@ where
                     );
                     let sources =
                         source_result.map_err(ProductListingSummaryPersonalizationError::from)?;
-                    let mut items = attach_listing_sources(result.items, &sources)?
+                    let sourced_items = attach_listing_sources(result.items, &sources)?;
+                    let mut items = sourced_items
                         .into_iter()
                         .map(|item| Personalized {
                             item,
@@ -497,6 +504,7 @@ pub(crate) fn present_product_summaries_from_assessments(
                     event_id: product.item.item.event_id,
                     source: product.item.source,
                     source_listing_id: product.item.item.source_listing_id,
+                    auction_id: product.item.item.auction_id,
                     title: product.item.item.title,
                     display_price: product.item.item.display_price,
                     price_valuation: product.item.item.price_valuation,
@@ -683,6 +691,7 @@ impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::ports::{ProductListingUserStateLookup, ProductListingUserStateReadError};
     use application::error::box_error;
     use application::operation_context::{CorrelationId, Principal, RequestId};
@@ -1379,6 +1388,7 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                auction_id: None,
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
@@ -2125,6 +2135,21 @@ mod tests {
             result.cursor.search_after,
             Some(ProductListingSearchCursor { search_after: Value::String(value), .. }) if value == "next"
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_preserve_indexed_auction_id_without_auction_reader()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let auction_id = auction_core::AuctionId::new();
+        let mut expected = search_result()?;
+        expected.items[0].auction_id = Some(auction_id);
+        lock_state(&state).search_result = Some(Ok(expected));
+
+        let result = handler(&state).execute(&context(), request()).await?;
+
+        assert_eq!(Some(auction_id), result.items[0].item.auction_id);
         Ok(())
     }
 

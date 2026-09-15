@@ -17,8 +17,6 @@ struct RawExpectation {
     price_estimate_max: Option<String>,
     state: String,
     images: Vec<String>,
-    auction_start: Option<String>,
-    auction_end: Option<String>,
 }
 
 #[test]
@@ -94,18 +92,6 @@ fn assert_raw_expectations_are_represented(fixture_path: &str, dsl: &str, raw: &
         dsl,
     );
 
-    assert_optional_value_is_represented(
-        fixture_path,
-        "auction_start",
-        raw.auction_start.as_deref(),
-        dsl,
-    );
-    assert_optional_value_is_represented(
-        fixture_path,
-        "auction_end",
-        raw.auction_end.as_deref(),
-        dsl,
-    );
     if let Some(description) = raw.description.first() {
         assert_value_is_represented(fixture_path, "description", description, dsl);
     }
@@ -189,19 +175,6 @@ fn split_concatenated_word(word: &str) -> Vec<String> {
 
 fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
     match fixture_path {
-        path if path.contains("lot-tissimo") => {
-            for needle in [
-                "id: LotId",
-                "id: ClientName",
-                "id: lot-is-ended",
-                "property: og:title",
-                "property: og:description",
-                "Kunstauktionshaus Leipzig",
-                "cdn.globalauctionplatform.com",
-            ] {
-                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
-            }
-        }
         path if path.contains("chairish") => {
             for needle in [
                 "property: og:product-id",

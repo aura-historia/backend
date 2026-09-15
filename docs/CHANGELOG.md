@@ -22,7 +22,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+
+- **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
+
+- **Breaking:** Partner ProductListing Auction association now uses `auction.auctionId`, an existing same-ListingSource `auc_` ID. Partners cannot resolve/create Auctions from `sourceAuctionId` or supply Auction metadata. Omit `auctionId` to preserve membership, send `null` to clear it, and use lot/timing leaf patches for listing-owned facts.
+
+- **Breaking:** Raw ProductListing input no longer accepts Auction references, lot facts, timings, or metadata. Crawler, Shopify, and WooCommerce emit only generic product data; raw normalization uses a ProductListing-only write that preserves already stored Auction membership and lot facts. Raw Auction diagnostics, acceptance receipts, and their persistence are removed. No compatibility reader, dual write, or backfill exists.
+
+- OpenAPI now parses with coherent saved-filter YAML aliases. Public Auction `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings` success bodies are explicitly documented from their controller DTOs. Partner ProductListing `ProductListingAuctionData` remains write-only; immutable ProductListing history retains historical listing-owned Auction/lot facts, while current full detail uses parent `auction` plus separate `lot` presentation and never exposes `sourceAuctionId` or persistence metadata.
+
+- ProductListing OpenSearch search and saved-search filters now accept up to 100 repeated exact resolved-membership `auctionId` values. IDs use strict `auc_` TypeIDs, OR together, and intersect all other criteria before pagination; a missing membership does not match even when independent lot facts are present. Saved-filter persistence and percolation use the same predicate, and the filter has the same tier restriction as `listingSourceId`. No Auction index or shared-metadata fan-out was added.
+
+- Public Auction browsing is available at `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. These authoritative PostgreSQL reads use strict `auc_` IDs and `Cache-Control: no-store`. Directory paging is bounded (default 21, maximum 100) in fixed newest-first order and its optional `timeRole`/`from`/`to` filter matches only exact schedule instants in half-open ranges; returned cursors are scoped to the complete filter set. Detail keeps source `reportedLotCount` distinct from current `visibleListingCount`; an ID-only Auction and an empty visible catalogue return `200`. Catalogue returns active assigned listings only, with `cataloguePosition ASC NULLS LAST` plus listing UUID ordering and an Auction-scoped cursor. Its `language` and `currency` parameters use normal personalized ProductListing detail presentation, including localization, FX valuation, referral URL, user state, content-policy image redaction, and lot timing.
+
+- **Breaking:** ProductListing search and similar-listing summaries now expose only the indexed optional `auctionId`; they no longer return lot-detail fields or current Auction metadata, and they never query PostgreSQL for Auction summaries. Full ProductListing detail, watchlist, saved-search detail matches, and Auction catalogue responses now expose parent `auction` plus separate listing-owned `lot` data from one joined PostgreSQL read; the old duplicated `auctionSummary`/listing-facts split is removed. Returned Auction directory and catalogue cursors are accepted as complete JSON strings in `searchAfter`.
+
+- **Breaking:** Retired ProductListing Auction policy, correction, and override-release endpoints are removed.
+
+
+- Admin Auction administration is available at `POST /api/v1/admin/auctions` and `GET`/`PATCH /api/v1/admin/auctions/{auctionId}`. These administrator-only routes use strict `auc_` UUIDv7 TypeIDs, retain immutable `(listingSourceId, sourceAuctionId)` identity, return `Cache-Control: no-store`, and creation returns the detail `Location`. PATCH requires a positive `expectedVersion`; omitted fields remain unchanged and documented nullable fields clear with `null`. Missing Auctions return `AUCTION_NOT_FOUND`; duplicate source keys and stale writes return `409 CONFLICT`.
+
 - **Breaking (#1634, #1602):** Public ListingSource discovery is available at `GET /api/v1/listing-sources`. It supports anonymous browse and literal partial-name pages (default 21, maximum 50) with opaque `searchAfter` continuation; it is neither autocomplete nor fuzzy/full-text search. Every persisted ListingSource is eligible. Cards expose only ListingSource ID, immutable slug, display name, operator name, and optional safe presentation URL/image. The existing `GET /api/v1/listing-sources/by-slug/{listingSourceSlugId}` is now anonymous exact-slug lookup and returns that same public card rather than the old protected admin detail. Supplied invalid credentials still reject; admin ID detail, admin searches, and mutations stay protected. The initial schema directly installs and maintains `pg_trgm`/`unaccent` folded name representations; no API version, retained-data migration, backfill, or compatibility layer exists.
+
 
 - Corrected the saved search-filter match API documentation to reflect the existing persisted-match endpoint `GET /api/v1/me/search-filters/{userSearchFilterId}/matches`, including cursor pagination and its personalized response semantics. Removed the obsolete documented live-preview `/product-listings` contract.
 
@@ -104,7 +125,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- **Breaking:** Partner ProductListing upsert applies tri-state patch semantics to `price`, `priceEstimateMin`, `priceEstimateMax`, `auctionStart`, and `auctionEnd`: omitted preserves an existing value, `null` clears it, and a value sets it. On creation, omitted and `null` both mean no value. `images` omits to preserve, uses `[]` to clear, and rejects `null`; `url` is non-clearable, so omitted or `null` preserves it. `title` and `description` are creation-only; existing-listing upserts preserve them and emit no current-state history event.
+- **Breaking:** Partner ProductListing upsert applies tri-state patch semantics to `price`, `priceEstimateMin`, `priceEstimateMax`, `lotBiddingOpens`, and `lotScheduledCloses`: omitted preserves an existing value, `null` clears it, and a value sets it. On creation, omitted and `null` both mean no value. `images` omits to preserve, uses `[]` to clear, and rejects `null`; `url` is non-clearable, so omitted or `null` preserves it. `title` and `description` are creation-only; existing-listing upserts preserve them and emit no current-state history event.
 - **Breaking:** A sale observation is the explicit `SALE_OBSERVATION` fact with `observedAt`. It is recorded only by a dedicated write and is never inferred from `SOLD_OUT`; availability updates do not create, alter, or clear it. There are no sold transitions. Active relisted listings use current FX; `SOLD_OUT` and intentional withdrawn history may use the observed snapshot.
 - **Breaking:** Canonical PATCH endpoints now distinguish omitted members from explicit `null`. Omitted members remain unchanged; `null` clears only documented nullable members and returns `400 BAD_BODY_VALUE` for all other members. Clients must omit members they do not intend to modify, and use empty arrays rather than `null` to clear non-null collections.
 - **Breaking:** Empty HTTP bodies are invalid for object PATCH endpoints; `{}` remains a valid no-op. Partner ProductListing PATCH continues to accept `[]` as an empty batch.
@@ -131,7 +152,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - An authorized ignored `product.created` or `product.updated` event with a missing or unsupported status returns before receipt construction. It persists no provider receipt and has no receipt-based retry-deduplication even when `x-wc-webhook-delivery-id` is supplied; denial returns `403 FORBIDDEN` without parsing `date_modified_gmt`.
 - WooCommerce authentication failures return `401 INVALID_CREDENTIALS`. This route's only `503` outcomes are `AUTH_TEMPORARILY_UNAVAILABLE`, `LISTING_SOURCE_TEMPORARILY_UNAVAILABLE`, and `PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`; its only `500` outcomes are `AUTH_INTERNAL_ERROR`, `LISTING_SOURCE_INTERNAL_ERROR`, and `PRODUCT_LISTING_INTERNAL_ERROR`.
 - CORS preflight accepts the optional `x-wc-webhook-delivery-id` WooCommerce header.
-- WooCommerce `price` uses raw-values V2 `MACHINE_DECIMAL`: a nonblank `SET` is an untrimmed unsigned ASCII `digits` or `digits.digits` value with no whitespace, signs, grouping separators, or currency symbols. Fractional digits beyond the configured currency minor-unit scale are valid only when every excess digit is `0`; a nonblank `SET` requires configured `woocommerceCurrency`.
+- **Breaking:** ProductListing raw UPSERT values now use one strict provider-neutral schema: persisted raw-values discriminator `1` and required `priceFormat`. `DISPLAY_TEXT` and `MACHINE_DECIMAL` retain their existing parsing behavior; crawler emits `DISPLAY_TEXT`, while Shopify and WooCommerce emit `MACHINE_DECIMAL`. Historical V1/V2 structs, discriminator `2`, and conversion branches are removed. Incompatible development raw revisions, queues, and fixtures must be reset and recaptured with matching code; they are not converted or compatibility-decoded.
+- WooCommerce `price` uses current raw-values schema `1` `MACHINE_DECIMAL`: a nonblank `SET` is an untrimmed unsigned ASCII `digits` or `digits.digits` value with no whitespace, signs, grouping separators, or currency symbols. Fractional digits beyond the configured currency minor-unit scale are valid only when every excess digit is `0`; a nonblank `SET` requires configured `woocommerceCurrency`.
 
 ## 2026-08-12 - Harden Canonical API Transport
 
@@ -762,8 +784,8 @@ Backend PR `#1079` deprecates removal of stored product prices on the upsert-upd
     - `state`
     - `url`
     - `images`
-    - `auctionStart`
-    - `auctionEnd`
+    - `lotBiddingOpens`
+    - `lotScheduledCloses`
   - The update path still ignores create-only fields:
     - `title`
     - `description`
@@ -776,7 +798,7 @@ Backend PR `#1079` deprecates removal of stored product prices on the upsert-upd
   - A non-null `price` value still updates the stored price on existing products.
 
 - **Other `PutProductData` update-path field semantics**
-  - `priceEstimateMin`, `priceEstimateMax`, `url`, `auctionStart`, and `auctionEnd` are now documented as updateable for existing products.
+  - `priceEstimateMin`, `priceEstimateMax`, `url`, `lotBiddingOpens`, and `lotScheduledCloses` are now documented as updateable for existing products.
   - For those fields, omitting the property or sending `null` leaves the stored value unchanged.
   - `images` is now documented as replacing the stored image set on update; omitting it or sending `null` is treated as an empty list and therefore clears stored images.
 
@@ -2788,7 +2810,7 @@ The user subscription tier system has been expanded. Previously only `FREE` was 
 
 - **`POST /api/v1/me/search-filters`** — tier-based feature restrictions enforced at creation time.
 
-  `FREE` tier users may only use the following filter fields in `productSearch`: `productQuery`, `categoryId`, `periodId`, `price`, `state`. Providing any other field (e.g. `shopName`, `sellerName`, `originYear`, `authenticity`, `condition`, `provenance`, `restoration`, `created`, `updated`, `auctionStart`, `auctionEnd`, ...) results in `HTTP 422` with error code `SEARCH_FILTER_RESTRICTED_FEATURE`.
+  `FREE` tier users may only use the following filter fields in `productSearch`: `productQuery`, `categoryId`, `periodId`, `price`, `state`. Providing any other field (e.g. `shopName`, `sellerName`, `originYear`, `authenticity`, `condition`, `provenance`, `restoration`, `created`, `updated`, `lotBiddingOpens`, `lotScheduledCloses`, ...) results in `HTTP 422` with error code `SEARCH_FILTER_RESTRICTED_FEATURE`.
 
   Updated 422 response — now returns either `SEARCH_FILTER_QUOTA_EXCEEDED` or `SEARCH_FILTER_RESTRICTED_FEATURE`:
 
@@ -3057,7 +3079,7 @@ The `description` (localized display description) field has been removed from th
 
 ## 2026-04-01 - Extend Batch Product Update: Fine-grained field updates (`backend#745`)
 
-The partner batch-update endpoint (`PATCH /api/v1/shops/{shopId}/products`) now accepts 11 additional optional fields per product entry. Previously only `price` and `state` could be updated; any other fields were silently ignored. With this change, partners can independently update `priceEstimateMin`, `priceEstimateMax`, `url`, `images`, `auctionStart`, `auctionEnd`, `originYear`, `authenticity`, `condition`, `provenance`, and `restoration`. Each field remains optional and is only changed when explicitly provided.
+The partner batch-update endpoint (`PATCH /api/v1/shops/{shopId}/products`) now accepts 11 additional optional fields per product entry. Previously only `price` and `state` could be updated; any other fields were silently ignored. With this change, partners can independently update `priceEstimateMin`, `priceEstimateMax`, `url`, `images`, `lotBiddingOpens`, `lotScheduledCloses`, `originYear`, `authenticity`, `condition`, `provenance`, and `restoration`. Each field remains optional and is only changed when explicitly provided.
 
 Each updated field emits its own dedicated product domain event, which is now also surfaced through the product event history API.
 
@@ -3071,8 +3093,8 @@ Each updated field emits its own dedicated product domain event, which is now al
   | `priceEstimateMax` | `PriceData` | Upper bound of the estimated price range |
   | `url` | `string (uri)` | URL to the product on the shop's website |
   | `images` | `array of string (uri)` | List of image URLs |
-  | `auctionStart` | `string (date-time, RFC3339)` | Auction start timestamp |
-  | `auctionEnd` | `string (date-time, RFC3339)` | Auction end timestamp |
+  | `lotBiddingOpens` | `string (date-time, RFC3339)` | Auction start timestamp |
+  | `lotScheduledCloses` | `string (date-time, RFC3339)` | Auction end timestamp |
   | `originYear` | `OriginYearData` | Origin year information |
   | `authenticity` | `AuthenticityData` | Authenticity classification |
   | `condition` | `ConditionData` | Condition classification |
@@ -3087,8 +3109,8 @@ Each updated field emits its own dedicated product domain event, which is now al
     "priceEstimateMax": { "currency": "EUR", "amount": 6000 },
     "url": "https://my-shop.com/products/baroque-violin-updated",
     "images": ["https://my-shop.com/images/violin-new.jpg"],
-    "auctionStart": "2026-04-10T10:00:00Z",
-    "auctionEnd": "2026-04-10T12:00:00Z",
+    "lotBiddingOpens": "2026-04-10T10:00:00Z",
+    "lotScheduledCloses": "2026-04-10T12:00:00Z",
     "originYear": { "year": 1740 },
     "authenticity": "ORIGINAL",
     "condition": "EXCELLENT",
@@ -3136,8 +3158,8 @@ Each updated field emits its own dedicated product domain event, which is now al
 
   | Field | Type | Description |
   |---|---|---|
-  | `auctionStart` | `string (date-time, RFC3339)` | Updated auction start timestamp. Absent if not changed. |
-  | `auctionEnd` | `string (date-time, RFC3339)` | Updated auction end timestamp. Absent if not changed. |
+  | `lotBiddingOpens` | `string (date-time, RFC3339)` | Updated auction start timestamp. Absent if not changed. |
+  | `lotScheduledCloses` | `string (date-time, RFC3339)` | Updated auction end timestamp. Absent if not changed. |
 
 - **`ProductEventOriginYearChangedPayloadData`** (new schema) — Payload for `ORIGIN_YEAR_CHANGED` events.
 
@@ -3222,8 +3244,8 @@ For each item in the request, the backend checks whether the product already exi
   | `state` | `ProductStateData` | — | — | Product state. Applied on both create and update. |
   | `url` | `string (uri)` | — | — | URL to the product on the shop's website. Used only on create. |
   | `images` | `array of string (uri)` | — | — | Image URLs. Used only on create. |
-  | `auctionStart` | `string (date-time, RFC3339)` | — | — | Auction start timestamp. Used only on create. |
-  | `auctionEnd` | `string (date-time, RFC3339)` | — | — | Auction end timestamp. Used only on create. |
+  | `lotBiddingOpens` | `string (date-time, RFC3339)` | — | — | Auction start timestamp. Used only on create. |
+  | `lotScheduledCloses` | `string (date-time, RFC3339)` | — | — | Auction end timestamp. Used only on create. |
   | `originYear` | `OriginYearData` | — | — | Origin year information. Used only on create. |
   | `authenticity` | `AuthenticityData` | — | `UNKNOWN` | Authenticity classification. Used only on create. |
   | `condition` | `ConditionData` | — | `UNKNOWN` | Condition classification. Used only on create. |
@@ -3372,8 +3394,8 @@ Partner shops can now create products programmatically via a dedicated batch end
   | `state` | `ProductStateData` | ✓ | — | Current product state |
   | `url` | `string (uri)` | ✓ | — | URL to the product on the shop's website |
   | `images` | `string[] (uri)` | ✓ | — | List of image URLs (may be empty) |
-  | `auctionStart` | `string (date-time)` | — | absent | RFC3339 auction start timestamp (auction houses only) |
-  | `auctionEnd` | `string (date-time)` | — | absent | RFC3339 auction end timestamp (auction houses only) |
+  | `lotBiddingOpens` | `string (date-time)` | — | absent | RFC3339 auction start timestamp (auction houses only) |
+  | `lotScheduledCloses` | `string (date-time)` | — | absent | RFC3339 auction end timestamp (auction houses only) |
   | `originYear` | `OriginYearData` | — | absent | Origin year information for the antique |
   | `authenticity` | `AuthenticityData` | — | `UNKNOWN` | Authenticity classification |
   | `condition` | `ConditionData` | — | `UNKNOWN` | Condition classification |
@@ -3960,8 +3982,8 @@ This update formally documents all optional filter query parameters for the simp
   | `restoration` | `RestorationData[]` | Filter by restoration level (`NONE`, `MINOR`, `MAJOR`, `UNKNOWN`). Repeated parameter. |
   | `created[min]` / `created[max]` | `string (date-time)` | Filter by product creation datetime (RFC3339). Both bounds are optional and inclusive. |
   | `updated[min]` / `updated[max]` | `string (date-time)` | Filter by last-updated datetime (RFC3339). Both bounds are optional and inclusive. |
-  | `auctionStart[min]` / `auctionStart[max]` | `string (date-time)` | Filter by auction start datetime (RFC3339). Only matches products with an auction start time set. |
-  | `auctionEnd[min]` / `auctionEnd[max]` | `string (date-time)` | Filter by auction end datetime (RFC3339). Only matches products with an auction end time set. |
+  | `lotBiddingOpens[min]` / `lotBiddingOpens[max]` | `string (date-time)` | Filter by auction start datetime (RFC3339). Only matches products with an auction start time set. |
+  | `lotScheduledCloses[min]` / `lotScheduledCloses[max]` | `string (date-time)` | Filter by auction end datetime (RFC3339). Only matches products with an auction end time set. |
 
   All previously documented parameters (`language`, `currency`, `productQuery`, `sort`, `order`, `searchAfter`, `size`) remain unchanged.
 
@@ -4463,13 +4485,13 @@ This update restructures the product data response format to better organize pri
      ```
 
 3. **Auction Fields Restructured**:
-   - **Removed**: `auctionStart`, `auctionEnd` (two separate fields)
+   - **Removed**: `lotBiddingOpens`, `lotScheduledCloses` (two separate fields)
    - **Added**: `auction` (AuctionData, nullable) - Single field containing nested start and end data
    - **Example Before**:
      ```json
      {
-       "auctionStart": "2025-05-01T12:00:00Z",
-       "auctionEnd": "2025-05-10T12:00:00Z"
+       "lotBiddingOpens": "2025-05-01T12:00:00Z",
+       "lotScheduledCloses": "2025-05-10T12:00:00Z"
      }
      ```
    - **Example After**:
@@ -4772,7 +4794,7 @@ This update introduces a new lightweight product summary data type (`GetProductS
 
 **GET /api/v1/products/search** - Response now uses `PersonalizedGetProductSummaryData`:
 - Response type changed from `PersonalizedProductSearchResultData<PersonalizedGetProductData>` to `PersonalizedProductSearchResultData<PersonalizedGetProductSummaryData>`
-- Each product in search results now excludes: `description`, `priceEstimateMin`, `priceEstimateMax`, `originYear`, `originYearMin`, `originYearMax`, `authenticity`, `condition`, `provenance`, `restoration`, `auctionStart`, `auctionEnd`, `history`
+- Each product in search results now excludes: `description`, `priceEstimateMin`, `priceEstimateMax`, `originYear`, `originYearMin`, `originYearMax`, `authenticity`, `condition`, `provenance`, `restoration`, `lotBiddingOpens`, `lotScheduledCloses`, `history`
 - All core product information remains available (id, title, price, state, images, timestamps)
 
 **GET /api/v1/products/{shopId}/{shopsProductId}/similar** - Response now uses `PersonalizedGetProductSummaryData`:
@@ -5388,7 +5410,7 @@ This update adds auction timing information for products, enabling users to see 
 #### Product Fields
 
 **GetProductData** (extended):
-- **auctionStart** (string, date-time, optional): Start datetime of the auction window
+- **lotBiddingOpens** (string, date-time, optional): Start datetime of the auction window
   - Type: ISO8601/RFC3339 datetime string
   - Format: `date-time` (e.g., `"2026-02-15T10:00:00Z"`)
   - Nullable: Yes
@@ -5399,12 +5421,12 @@ This update adds auction timing information for products, enabling users to see 
   ```json
   {
     "productId": "550e8400-e29b-41d4-a716-446655440000",
-    "auctionStart": "2026-02-15T10:00:00Z",
-    "auctionEnd": "2026-02-15T14:00:00Z"
+    "lotBiddingOpens": "2026-02-15T10:00:00Z",
+    "lotScheduledCloses": "2026-02-15T14:00:00Z"
   }
   ```
 
-- **auctionEnd** (string, date-time, optional): End datetime of the auction window
+- **lotScheduledCloses** (string, date-time, optional): End datetime of the auction window
   - Type: ISO8601/RFC3339 datetime string
   - Format: `date-time` (e.g., `"2026-02-15T14:00:00Z"`)
   - Nullable: Yes
@@ -5412,7 +5434,7 @@ This update adds auction timing information for products, enabling users to see 
   - Indicates when bidding ends or when the auction session concludes
 
 **PutProductData** (extended):
-- **auctionStart** (string, date-time, optional): Start datetime of the auction window
+- **lotBiddingOpens** (string, date-time, optional): Start datetime of the auction window
   - Type: ISO8601/RFC3339 datetime string
   - Format: `date-time`
   - Nullable: Yes
@@ -5429,12 +5451,12 @@ This update adds auction timing information for products, enabling users to see 
     },
     "state": "LISTED",
     "url": "https://auction-house.com/item/123",
-    "auctionStart": "2026-02-15T10:00:00Z",
-    "auctionEnd": "2026-02-15T14:00:00Z"
+    "lotBiddingOpens": "2026-02-15T10:00:00Z",
+    "lotScheduledCloses": "2026-02-15T14:00:00Z"
   }
   ```
 
-- **auctionEnd** (string, date-time, optional): End datetime of the auction window
+- **lotScheduledCloses** (string, date-time, optional): End datetime of the auction window
   - Type: ISO8601/RFC3339 datetime string
   - Format: `date-time`
   - Nullable: Yes
@@ -5444,7 +5466,7 @@ This update adds auction timing information for products, enabling users to see 
 #### Search Filter Fields
 
 **ProductSearchData** (extended):
-- **auctionStart** (RangeQueryDateTime, optional): Filter by auction start datetime range
+- **lotBiddingOpens** (RangeQueryDateTime, optional): Filter by auction start datetime range
   - Type: Object with `min` and/or `max` ISO8601/RFC3339 datetime strings
   - Nullable: Yes
   - Filters products by when their auction windows begin
@@ -5457,14 +5479,14 @@ This update adds auction timing information for products, enabling users to see 
     "language": "de",
     "currency": "EUR",
     "productQuery": "antique furniture",
-    "auctionStart": {
+    "lotBiddingOpens": {
       "min": "2026-01-01T00:00:00Z",
       "max": "2026-03-31T23:59:59Z"
     }
   }
   ```
 
-- **auctionEnd** (RangeQueryDateTime, optional): Filter by auction end datetime range
+- **lotScheduledCloses** (RangeQueryDateTime, optional): Filter by auction end datetime range
   - Type: Object with `min` and/or `max` ISO8601/RFC3339 datetime strings
   - Nullable: Yes
   - Filters products by when their auction windows end
@@ -5477,21 +5499,21 @@ This update adds auction timing information for products, enabling users to see 
     "language": "en",
     "currency": "USD",
     "productQuery": "vintage watch",
-    "auctionEnd": {
+    "lotScheduledCloses": {
       "max": "2026-02-28T23:59:59Z"
     }
   }
   ```
 
 **PatchProductSearchData** (extended):
-- **auctionStart** (RangeQueryDateTime, optional): Filter by auction start datetime range
+- **lotBiddingOpens** (RangeQueryDateTime, optional): Filter by auction start datetime range
   - Type: Object with `min` and/or `max` ISO8601/RFC3339 datetime strings
   - Nullable: Yes
   - Can be updated independently when patching a search filter
   - Filters products by when their auction windows begin
   - Only matches products that have auction start times set
 
-- **auctionEnd** (RangeQueryDateTime, optional): Filter by auction end datetime range
+- **lotScheduledCloses** (RangeQueryDateTime, optional): Filter by auction end datetime range
   - Type: Object with `min` and/or `max` ISO8601/RFC3339 datetime strings
   - Nullable: Yes
   - Can be updated independently when patching a search filter
@@ -5501,25 +5523,25 @@ This update adds auction timing information for products, enabling users to see 
 #### API Endpoints Affected
 
 **GET /api/v1/products/{shopId}/{shopsProductId}**:
-- Response now includes `auctionStart` and `auctionEnd` fields when present
+- Response now includes `lotBiddingOpens` and `lotScheduledCloses` fields when present
 
 **PUT /api/v1/products**:
-- Request body can now include `auctionStart` and `auctionEnd` fields
+- Request body can now include `lotBiddingOpens` and `lotScheduledCloses` fields
 
 **POST /api/v1/products/search**:
-- Request body can now include `auctionStart` and `auctionEnd` query filters
+- Request body can now include `lotBiddingOpens` and `lotScheduledCloses` query filters
 
 **POST /api/v1/users/{userId}/search-filters**:
-- Can create search filters with `auctionStart` and `auctionEnd` query filters
+- Can create search filters with `lotBiddingOpens` and `lotScheduledCloses` query filters
 
 **PATCH /api/v1/users/{userId}/search-filters/{searchFilterId}**:
-- Can update search filters with `auctionStart` and `auctionEnd` query filters
+- Can update search filters with `lotBiddingOpens` and `lotScheduledCloses` query filters
 
 **GET /api/v1/users/{userId}/search-filters**:
-- Returns search filters that may include `auctionStart` and `auctionEnd` query filters
+- Returns search filters that may include `lotBiddingOpens` and `lotScheduledCloses` query filters
 
 **GET /api/v1/users/{userId}/search-filters/{searchFilterId}**:
-- Returns search filter that may include `auctionStart` and `auctionEnd` query filters
+- Returns search filter that may include `lotBiddingOpens` and `lotScheduledCloses` query filters
 
 ### Usage Examples
 
@@ -5532,7 +5554,7 @@ POST /api/v1/products/search
   "language": "de",
   "currency": "EUR",
   "productQuery": "antique",
-  "auctionStart": {
+  "lotBiddingOpens": {
     "min": "2026-02-01T00:00:00Z",
     "max": "2026-02-28T23:59:59Z"
   }
@@ -5546,7 +5568,7 @@ POST /api/v1/products/search
   "language": "en",
   "currency": "GBP",
   "productQuery": "vintage",
-  "auctionEnd": {
+  "lotScheduledCloses": {
     "max": "2026-01-31T23:59:59Z"
   }
 }
@@ -5559,7 +5581,7 @@ POST /api/v1/products/search
   "language": "fr",
   "currency": "EUR",
   "productQuery": "furniture",
-  "auctionStart": {
+  "lotBiddingOpens": {
     "min": "2026-03-01T00:00:00Z"
   }
 }

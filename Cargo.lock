@@ -215,6 +215,67 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auction-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "rstest",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "auction-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "auction-core",
+ "auction-service",
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "platform-postgres",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "auction-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "auction-core",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "localization",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
 name = "aura-historia-api"
 version = "0.1.0"
 dependencies = [
@@ -222,6 +283,9 @@ dependencies = [
  "admin-overview-service",
  "application",
  "async-trait",
+ "auction-core",
+ "auction-postgres",
+ "auction-service",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "axum",
@@ -5737,6 +5801,7 @@ dependencies = [
 name = "product-listing-core"
 version = "0.1.0"
 dependencies = [
+ "auction-core",
  "domain-primitives",
  "fake",
  "fxrate-core",
@@ -5786,6 +5851,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -5818,6 +5884,9 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-postgres",
+ "auction-service",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -5853,6 +5922,8 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-service",
  "domain-primitives",
  "embedding",
  "fake",
@@ -6672,6 +6743,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -6704,6 +6776,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "listing-source-core",
@@ -6732,6 +6805,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "embedding",
  "fxrate-core",
@@ -7144,6 +7218,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-postgres",
  "aws_lambda_events",
  "fxrate-core",
  "fxrate-postgres",

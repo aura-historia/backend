@@ -1,39 +1,50 @@
-use crate::ports::{
-    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
-    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
-    stamp_product_listing_event,
+use crate::{
+    ports::{
+        PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+        PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+        ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+        ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+        stamp_product_listing_event,
+    },
+    product_listing_auction_patch::{
+        ProductListingAuctionPatch, compose_product_listing_auction_patch,
+        validate_product_listing_auction_patch,
+    },
+    product_listing_title_slug_creation::{
+        ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
+        TitleSlugCollisionRetry, title_slug_collision_retry,
+    },
+    use_cases::{CreateProductListingResult, UpdateProductListingResult},
 };
-use crate::product_listing_title_slug_creation::{
-    ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
-    TitleSlugCollisionRetry, title_slug_collision_retry,
+use application::{
+    error::{BoxError, box_error},
+    operation_context::{
+        CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+    },
+    patch_field::PatchField,
+    transaction::{Transaction, UnitOfWork},
 };
-use crate::use_cases::{CreateProductListingResult, UpdateProductListingResult};
-use application::error::{BoxError, box_error};
-use application::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+use auction_service::ports::{
+    AuctionReferenceValidationError, AuctionReferenceValidator, AuctionReferenceValidatorFactory,
 };
-use application::patch_field::PatchField;
-use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
-
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::Price;
-use product_listing_core::description::Description;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{
-    ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing, ProductListing,
-    ProductListingAuction, ProductListingPricing, RehydrateProductListingError,
+use product_listing_core::{
+    description::Description,
+    listing_availability::ListingAvailability,
+    product_listing::{
+        ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing,
+        ProductListing, ProductListingPricing, RehydrateProductListingError,
+    },
+    product_listing_id::{ProductListingId, ProductListingKey},
+    product_listing_image::ProductListingImage,
+    product_listing_price::ProductListingPrice,
+    source_listing_id::SourceListingId,
+    title::Title,
 };
-use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_price::ProductListingPrice;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::title::Title;
 use url::Url;
 use user_core::user_id::UserId;
 
@@ -50,8 +61,7 @@ pub struct UpsertProductListingCommand {
     pub availability: PatchField<ListingAvailability>,
     pub url: Option<Url>,
     pub images: PatchField<IndexSet<ProductListingImage>>,
-    pub auction_start: PatchField<time::OffsetDateTime>,
-    pub auction_end: PatchField<time::OffsetDateTime>,
+    pub auction: PatchField<ProductListingAuctionPatch>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpsertProductListingResult {
@@ -73,6 +83,15 @@ pub enum UpsertProductListingError {
     },
     #[error("partner product listing authorization failed internally")]
     PartnerAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
+    #[error("auction not found")]
+    AuctionNotFound,
+    #[error("auction belongs to another listing source")]
+    AuctionSourceMismatch,
+    #[error("auction reference validation is temporarily unavailable")]
+    AuctionReferenceTemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
@@ -105,119 +124,110 @@ pub trait UpsertProductListingUseCase: Send + Sync {
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError>;
 }
-pub struct UpsertProductListingHandler<U, R, E, A, G = RandomProductListingTitleSlugGenerator> {
+pub struct UpsertProductListingHandler<U, R, E, A, V, G = RandomProductListingTitleSlugGenerator> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    auction_references: V,
     title_slug_generator: G,
 }
-
-enum UpsertAttemptError {
-    SourceListingInsertRace,
-    TitleSlugCollision,
-    Failed(UpsertProductListingError),
-}
-
-impl From<UpsertProductListingError> for UpsertAttemptError {
-    fn from(error: UpsertProductListingError) -> Self {
-        Self::Failed(error)
-    }
-}
-
-impl From<ProductListingRepositoryError> for UpsertAttemptError {
-    fn from(error: ProductListingRepositoryError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-
-impl From<ProductListingEventAppendError> for UpsertAttemptError {
-    fn from(error: ProductListingEventAppendError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-
-impl From<PartnerProductListingAuthorizationError> for UpsertAttemptError {
-    fn from(error: PartnerProductListingAuthorizationError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-
-impl From<ChangeListingAvailabilityError> for UpsertAttemptError {
-    fn from(error: ChangeListingAvailabilityError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-
-impl From<ChangeProductListingError> for UpsertAttemptError {
-    fn from(error: ChangeProductListingError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-
-impl From<RehydrateProductListingError> for UpsertAttemptError {
-    fn from(error: RehydrateProductListingError) -> Self {
-        Self::Failed(error.into())
-    }
-}
-impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A, RandomProductListingTitleSlugGenerator> {
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
-        Self::with_title_slug_generator(
-            unit_of_work,
-            products,
-            events,
-            authorizer,
-            RandomProductListingTitleSlugGenerator,
-        )
-    }
-}
-impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G> {
-    pub(crate) fn with_title_slug_generator(
+impl<U, R, E, A, V> UpsertProductListingHandler<U, R, E, A, V> {
+    pub fn new(
         unit_of_work: U,
         products: R,
         events: E,
         authorizer: A,
-        title_slug_generator: G,
+        auction_references: V,
     ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
-            title_slug_generator,
+            auction_references,
+            title_slug_generator: RandomProductListingTitleSlugGenerator,
         }
     }
 }
-impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G>
+enum AttemptError {
+    SourceRace,
+    SlugRace,
+    Failed(UpsertProductListingError),
+}
+impl<U, R, E, A, V, G> UpsertProductListingHandler<U, R, E, A, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
-    async fn persist(
+    async fn execute_attempt(
         &self,
-        tx: &mut U::Tx,
         context: &OperationContext,
         command: UpsertProductListingCommand,
-        new_product_listing_id: ProductListingId,
-    ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
-        if let Some(actor_id) = partner_actor(&context.principal) {
+        id: ProductListingId,
+    ) -> Result<UpsertProductListingResult, AttemptError> {
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|_| {
+                AttemptError::Failed(UpsertProductListingError::BeginTransactionFailed)
+            })?;
+        if let Some(actor) = partner_actor(&context.principal) {
             self.authorizer
-                .in_transaction(tx)
-                .authorize(actor_id, command.listing_source_id)
-                .await?;
+                .in_transaction(&mut tx)
+                .authorize(actor, command.listing_source_id)
+                .await
+                .map_err(|e| AttemptError::Failed(e.into()))?;
         }
         let key =
             ProductListingKey::new(command.listing_source_id, command.source_listing_id.clone());
-        let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
-        match existing {
+        let found = {
+            let mut repository = self.products.in_transaction(&mut tx);
+            repository
+                .find_by_key(&key)
+                .await
+                .map_err(|e| AttemptError::Failed(e.into()))?
+        };
+        let result = match found {
             Some(loaded) => {
-                let expected_version = loaded.version;
                 let mut product = loaded.value;
-                product.restore()?;
-                apply_update(&mut product, &command)?;
+                product
+                    .restore()
+                    .map_err(|e| AttemptError::Failed(e.into()))?;
+                let auction = match &command.auction {
+                    PatchField::Unchanged | PatchField::Clear => None,
+                    PatchField::Set(patch) => {
+                        validate_product_listing_auction_patch(product.auction(), patch).map_err(
+                            |e| {
+                                AttemptError::Failed(
+                                    UpsertProductListingError::InvalidProductListing {
+                                        source: box_error(e),
+                                    },
+                                )
+                            },
+                        )?;
+                        let auction =
+                            compose_product_listing_auction_patch(product.auction(), patch)
+                                .map_err(|e| {
+                                    AttemptError::Failed(
+                                        UpsertProductListingError::InvalidProductListing {
+                                            source: box_error(e),
+                                        },
+                                    )
+                                })?;
+                        if let PatchField::Set(auction_id) = &patch.auction_id {
+                            self.auction_references
+                                .in_transaction(&mut tx)
+                                .validate(*auction_id, product.listing_source_id())
+                                .await
+                                .map_err(|e| AttemptError::Failed(e.into()))?;
+                        }
+                        Some(auction)
+                    }
+                };
+                apply_update(&mut product, &command, auction).map_err(AttemptError::Failed)?;
                 let event = product.take_pending_event_payload().map(|payload| {
                     stamp_product_listing_event(
                         product.id(),
@@ -225,21 +235,22 @@ where
                         payload,
                     )
                 });
-                let outcome = if event.is_some() {
+                let outcome = if let Some(event) = event {
+                    let effects = ProductListingWriteEffects::from(&event.payload);
+                    self.products
+                        .in_transaction(&mut tx)
+                        .update(&product, loaded.version, event.event_id, effects)
+                        .await
+                        .map_err(|e| AttemptError::Failed(e.into()))?;
+                    self.events
+                        .in_transaction(&mut tx)
+                        .append(&event)
+                        .await
+                        .map_err(|e| AttemptError::Failed(e.into()))?;
                     ChangeOutcome::Changed
                 } else {
                     ChangeOutcome::Unchanged
                 };
-                if let Some(event) = event {
-                    let effects = ProductListingWriteEffects::from(&event.payload);
-                    product = self
-                        .products
-                        .in_transaction(tx)
-                        .update(&product, expected_version, event.event_id, effects)
-                        .await?
-                        .value;
-                    self.events.in_transaction(tx).append(&event).await?;
-                }
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
                         product_listing_id: product.id(),
@@ -250,45 +261,92 @@ where
             None => {
                 let title_slug_id = self
                     .title_slug_generator
-                    .generate(
-                        command
-                            .title
-                            .as_ref()
-                            .map_or("", |title| title.payload.as_ref()),
-                    )
-                    .map_err(|_| UpsertProductListingError::InvalidProductListing {
-                        source: box_error(std::io::Error::other("invalid generated title slug")),
+                    .generate(command.title.as_ref().map_or("", |v| v.payload.as_ref()))
+                    .map_err(|_| {
+                        AttemptError::Failed(UpsertProductListingError::InvalidProductListing {
+                            source: box_error(std::io::Error::other(
+                                "invalid generated title slug",
+                            )),
+                        })
                     })?;
-                let mut product = ProductListing::create(
-                    command.into_new_product(new_product_listing_id, title_slug_id)?,
-                )?;
+                let auction = match &command.auction {
+                    PatchField::Unchanged | PatchField::Clear => None,
+                    PatchField::Set(patch) => {
+                        validate_product_listing_auction_patch(None, patch).map_err(|e| {
+                            AttemptError::Failed(UpsertProductListingError::InvalidProductListing {
+                                source: box_error(e),
+                            })
+                        })?;
+                        let auction =
+                            compose_product_listing_auction_patch(None, patch).map_err(|e| {
+                                AttemptError::Failed(
+                                    UpsertProductListingError::InvalidProductListing {
+                                        source: box_error(e),
+                                    },
+                                )
+                            })?;
+                        if let PatchField::Set(auction_id) = &patch.auction_id {
+                            self.auction_references
+                                .in_transaction(&mut tx)
+                                .validate(*auction_id, command.listing_source_id)
+                                .await
+                                .map_err(|e| AttemptError::Failed(e.into()))?;
+                        }
+                        auction
+                    }
+                };
+                let url = match command.url.clone() {
+                    Some(url) => url,
+                    None => Url::parse(MISSING_PRODUCT_URL).map_err(|error| {
+                        AttemptError::Failed(UpsertProductListingError::InvalidProductListing {
+                            source: box_error(error),
+                        })
+                    })?,
+                };
+                let mut product = ProductListing::create(NewProductListing {
+                    id,
+                    title_slug_id,
+                    listing_source_id: command.listing_source_id,
+                    source_listing_id: command.source_listing_id.clone(),
+                    title: command.title.clone(),
+                    description: command.description.clone(),
+                    pricing: ProductListingPricing {
+                        price: into_option(command.price.clone()),
+                        price_estimate_min: into_option(command.price_estimate_min.clone()),
+                        price_estimate_max: into_option(command.price_estimate_max.clone()),
+                    },
+                    availability: into_option(command.availability.clone()),
+                    url,
+                    images: into_images(command.images.clone()),
+                    auction,
+                })
+                .map_err(|e| AttemptError::Failed(e.into()))?;
                 let event = stamp_product_listing_event(
                     product.id(),
                     time::OffsetDateTime::now_utc(),
                     product.take_pending_event_payload().ok_or_else(|| {
-                        UpsertProductListingError::InvalidProductListing {
-                            source: box_error(std::io::Error::other(
-                                "created listing has no event",
-                            )),
-                        }
+                        AttemptError::Failed(UpsertProductListingError::PersistenceFailed)
                     })?,
                 );
-                let event_id = event.event_id;
                 let persisted = self
                     .products
-                    .in_transaction(tx)
-                    .insert(&product, event_id)
+                    .in_transaction(&mut tx)
+                    .insert(&product, event.event_id)
                     .await
-                    .map_err(|error| match error {
+                    .map_err(|e| match e {
                         ProductListingRepositoryError::SourceListingAlreadyExists => {
-                            UpsertAttemptError::SourceListingInsertRace
+                            AttemptError::SourceRace
                         }
                         ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
-                            UpsertAttemptError::TitleSlugCollision
+                            AttemptError::SlugRace
                         }
-                        error => UpsertAttemptError::Failed(error.into()),
+                        error => AttemptError::Failed(error.into()),
                     })?;
-                self.events.in_transaction(tx).append(&event).await?;
+                self.events
+                    .in_transaction(&mut tx)
+                    .append(&event)
+                    .await
+                    .map_err(|e| AttemptError::Failed(e.into()))?;
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
@@ -296,204 +354,122 @@ where
                     },
                 ))
             }
-        }
-    }
-
-    async fn execute_attempt(
-        &self,
-        context: &OperationContext,
-        command: UpsertProductListingCommand,
-        new_product_listing_id: ProductListingId,
-    ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
-        context
-            .require()
-            .credential_capability(CredentialCapability::ProductListingsWrite)
-            .authorize::<UpsertProductListingError>()?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
-        let result = self
-            .persist(&mut tx, context, command, new_product_listing_id)
-            .await?;
-        tx.commit()
-            .await
-            .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
+        }?;
+        tx.commit().await.map_err(|_| {
+            AttemptError::Failed(UpsertProductListingError::CommitTransactionFailed)
+        })?;
         Ok(result)
     }
 }
 #[async_trait::async_trait]
-impl<U, R, E, A, G> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A, G>
+impl<U, R, E, A, V, G> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    V: AuctionReferenceValidatorFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
-    #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
-        tracing::Span::current().record(
-            "actor_id",
-            tracing::field::display(context.principal.label()),
-        );
-        let new_product_listing_id = ProductListingId::new();
-        let mut source_listing_races = 0;
-        let mut title_slug_attempts = 0;
-        let result = loop {
-            match self
-                .execute_attempt(context, command.clone(), new_product_listing_id)
-                .await
-            {
-                Ok(result) => break result,
-                Err(UpsertAttemptError::SourceListingInsertRace) => {
-                    source_listing_races += 1;
-                    if source_listing_races > 1 {
-                        return Err(UpsertProductListingError::PersistenceFailed);
-                    }
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<UpsertProductListingError>()?;
+        let id = ProductListingId::new();
+        let mut source_race_retried = false;
+        let mut slug_attempts = 0;
+        loop {
+            match self.execute_attempt(context, command.clone(), id).await {
+                Ok(result) => return Ok(result),
+                Err(AttemptError::SourceRace) if !source_race_retried => {
+                    source_race_retried = true;
+                    continue;
                 }
-                Err(UpsertAttemptError::TitleSlugCollision) => {
-                    title_slug_attempts += 1;
-                    if title_slug_collision_retry(title_slug_attempts, true)
-                        == TitleSlugCollisionRetry::Exhausted
+                Err(AttemptError::SourceRace) => {
+                    return Err(UpsertProductListingError::PersistenceFailed);
+                }
+                Err(AttemptError::SlugRace) => {
+                    slug_attempts += 1;
+                    if title_slug_collision_retry(slug_attempts, true)
+                        == TitleSlugCollisionRetry::Retry
                     {
-                        return Err(
-                            UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
-                        );
+                        continue;
                     }
-                    tracing::warn!(
-                        product_listing_id = %new_product_listing_id,
-                        attempt = title_slug_attempts,
-                        constraint_name = "product_listings_title_slug_unique",
-                        "product listing title slug collision; regenerating"
+                    return Err(
+                        UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
                     );
                 }
-                Err(UpsertAttemptError::Failed(error)) => return Err(error),
+                Err(AttemptError::Failed(error)) => return Err(error),
             }
-        };
-        let product_listing_id = match &result {
-            UpsertProductListingResult::Created(value) => value.product_listing_id,
-            UpsertProductListingResult::Updated(value) => value.product_listing_id,
-        };
-        tracing::info!(event = "product_listing.upserted", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product_listing_id, outcome = "success");
-        Ok(result)
-    }
-}
-impl UpsertProductListingCommand {
-    fn into_new_product(
-        self,
-        id: ProductListingId,
-        title_slug_id: ProductListingSlugId,
-    ) -> Result<NewProductListing, UpsertProductListingError> {
-        let url = match self.url {
-            Some(url) => url,
-            None => Url::parse(MISSING_PRODUCT_URL).map_err(|error| {
-                UpsertProductListingError::InvalidProductListing {
-                    source: box_error(error),
-                }
-            })?,
-        };
-        Ok(NewProductListing {
-            id,
-            title_slug_id,
-            listing_source_id: self.listing_source_id,
-            source_listing_id: self.source_listing_id,
-            title: self.title,
-            description: self.description,
-            pricing: ProductListingPricing {
-                price: match self.price {
-                    PatchField::Set(price) => Some(price),
-                    PatchField::Unchanged | PatchField::Clear => None,
-                },
-                price_estimate_min: optional_patch_into_value(self.price_estimate_min),
-                price_estimate_max: optional_patch_into_value(self.price_estimate_max),
-            },
-            availability: match self.availability {
-                PatchField::Unchanged | PatchField::Clear => None,
-                PatchField::Set(availability) => Some(availability),
-            },
-            url,
-            images: collection_patch_into_value(self.images),
-            auction: ProductListingAuction {
-                start: optional_patch_into_value(self.auction_start),
-                end: optional_patch_into_value(self.auction_end),
-            },
-        })
+        }
     }
 }
 fn apply_update(
     product: &mut ProductListing,
     command: &UpsertProductListingCommand,
+    auction: Option<Option<product_listing_core::product_listing::ProductListingAuction>>,
 ) -> Result<(), UpsertProductListingError> {
     let mut pricing = product.pricing();
-    apply_optional_patch(&mut pricing.price, command.price.clone());
-    apply_optional_patch(
+    apply_option(&mut pricing.price, command.price.clone());
+    apply_option(
         &mut pricing.price_estimate_min,
         command.price_estimate_min.clone(),
     );
-    apply_optional_patch(
+    apply_option(
         &mut pricing.price_estimate_max,
         command.price_estimate_max.clone(),
     );
     product.replace_pricing(pricing)?;
-    match command.availability {
+    match command.availability.clone() {
         PatchField::Unchanged => {}
-        PatchField::Set(availability) => {
-            product.set_availability(availability)?;
+        PatchField::Set(v) => {
+            product.set_availability(v)?;
         }
         PatchField::Clear => {
             product.clear_availability()?;
         }
-    }
+    };
     if let Some(url) = &command.url {
         product.change_url(url.clone())?;
     }
     match &command.images {
         PatchField::Unchanged => {}
-        PatchField::Set(images) => {
-            product.replace_images(images.clone())?;
+        PatchField::Set(v) => {
+            product.replace_images(v.clone())?;
         }
         PatchField::Clear => {
             product.replace_images(IndexSet::new())?;
         }
+    };
+    if let Some(auction) = auction {
+        product.replace_auction(auction)?;
     }
-    let mut auction = product.auction();
-    apply_optional_patch(&mut auction.start, command.auction_start.clone());
-    apply_optional_patch(&mut auction.end, command.auction_end.clone());
-    product.replace_auction(auction)?;
     Ok(())
 }
-
-fn apply_optional_patch<T>(field: &mut Option<T>, patch: PatchField<T>) {
+fn apply_option<T>(field: &mut Option<T>, patch: PatchField<T>) {
     match patch {
         PatchField::Unchanged => {}
         PatchField::Set(value) => *field = Some(value),
         PatchField::Clear => *field = None,
     }
 }
-
-fn optional_patch_into_value<T>(patch: PatchField<T>) -> Option<T> {
+fn into_option<T>(patch: PatchField<T>) -> Option<T> {
     match patch {
-        PatchField::Set(value) => Some(value),
+        PatchField::Set(v) => Some(v),
         PatchField::Unchanged | PatchField::Clear => None,
     }
 }
-
-fn collection_patch_into_value<T>(patch: PatchField<IndexSet<T>>) -> IndexSet<T>
-where
-    T: Eq + std::hash::Hash,
-{
+fn into_images<T: Eq + std::hash::Hash>(patch: PatchField<IndexSet<T>>) -> IndexSet<T> {
     match patch {
-        PatchField::Set(value) => value,
+        PatchField::Set(v) => v,
         PatchField::Unchanged | PatchField::Clear => IndexSet::new(),
     }
 }
-
 fn partner_actor(principal: &Principal) -> Option<UserId> {
     match principal {
         Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => Some(*id),
@@ -523,6 +499,20 @@ impl From<PartnerProductListingAuthorizationError> for UpsertProductListingError
             }
             PartnerProductListingAuthorizationError::Internal { source } => {
                 Self::PartnerAuthorizationInternal { source }
+            }
+        }
+    }
+}
+impl From<AuctionReferenceValidationError> for UpsertProductListingError {
+    fn from(error: AuctionReferenceValidationError) -> Self {
+        match error {
+            AuctionReferenceValidationError::NotFound => Self::AuctionNotFound,
+            AuctionReferenceValidationError::ListingSourceMismatch => Self::AuctionSourceMismatch,
+            AuctionReferenceValidationError::TemporarilyUnavailable { source } => {
+                Self::AuctionReferenceTemporarilyUnavailable { source }
+            }
+            AuctionReferenceValidationError::InvalidPersistedState { source } => {
+                Self::InvalidProductListing { source }
             }
         }
     }
@@ -565,659 +555,425 @@ impl From<ProductListingEventAppendError> for UpsertProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use listing_source_core::ListingSourceId;
-    use money::{Currency, MonetaryAmount};
-    use product_listing_core::product_listing_event::ProductListingEventPayload;
-    use product_listing_core::source_listing_id::SourceListingId;
-
-    fn price(amount: u64) -> Price {
-        Price::new(MonetaryAmount::from(amount), Currency::Eur)
-    }
-
-    fn command(price: PatchField<ProductListingPrice>) -> UpsertProductListingCommand {
-        UpsertProductListingCommand {
-            listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::try_from("listing")
-                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            title: None,
-            description: None,
-            price,
-            price_estimate_min: PatchField::Unchanged,
-            price_estimate_max: PatchField::Unchanged,
-            availability: PatchField::Unchanged,
-            url: None,
-            images: PatchField::Unchanged,
-            auction_start: PatchField::Unchanged,
-            auction_end: PatchField::Unchanged,
-        }
-    }
-
-    fn test_title_slug() -> ProductListingSlugId {
-        ProductListingSlugId::raw("listing-a1b2c3")
-            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
-    }
-
-    fn listing_with_price(value: Option<ProductListingPrice>) -> ProductListing {
-        listing_with_state(
-            ProductListingPricing {
-                price: value,
-                ..Default::default()
-            },
-            IndexSet::new(),
-            ProductListingAuction::default(),
-        )
-    }
-
-    fn listing_with_state(
-        pricing: ProductListingPricing,
-        images: IndexSet<ProductListingImage>,
-        auction: ProductListingAuction,
-    ) -> ProductListing {
-        ProductListing::create(NewProductListing {
-            id: ProductListingId::new(),
-            title_slug_id: test_title_slug(),
-            listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::try_from("listing")
-                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            title: None,
-            description: None,
-            pricing,
-            availability: None,
-            url: Url::parse("https://example.com/listing")
-                .unwrap_or_else(|error| panic!("url: {error}")),
-            images,
-            auction,
-        })
-        .unwrap_or_else(|error| panic!("listing: {error}"))
-    }
-
-    #[test]
-    fn should_apply_main_price_patch_for_existing_listing() {
-        for (patch, expected) in [
-            (
-                PatchField::Unchanged,
-                Some(ProductListingPrice::from(price(100))),
-            ),
-            (
-                PatchField::Set(ProductListingPrice::from(price(120))),
-                Some(ProductListingPrice::from(price(120))),
-            ),
-            (PatchField::Clear, None),
-        ] {
-            let mut listing = listing_with_price(Some(ProductListingPrice::from(price(100))));
-            listing.take_pending_event_payload();
-            let changed = patch.is_changed();
-            let update = command(patch);
-
-            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-            assert_eq!(expected, listing.pricing().price);
-            assert_eq!(changed, listing.take_pending_event_payload().is_some());
-        }
-    }
-
-    #[test]
-    fn should_apply_estimate_patch_intent_for_existing_listing() {
-        for (field, patch, expected) in [
-            ("min", PatchField::Unchanged, Some(price(100))),
-            ("min", PatchField::Set(price(120)), Some(price(120))),
-            ("min", PatchField::Clear, None),
-            ("max", PatchField::Unchanged, Some(price(200))),
-            ("max", PatchField::Set(price(220)), Some(price(220))),
-            ("max", PatchField::Clear, None),
-        ] {
-            let mut listing = listing_with_state(
-                ProductListingPricing {
-                    price_estimate_min: Some(price(100)),
-                    price_estimate_max: Some(price(200)),
-                    ..Default::default()
-                },
-                IndexSet::new(),
-                ProductListingAuction::default(),
-            );
-            listing.take_pending_event_payload();
-            let mut update = command(PatchField::Unchanged);
-            if field == "min" {
-                update.price_estimate_min = patch;
-            } else {
-                update.price_estimate_max = patch;
-            }
-
-            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-            let actual = if field == "min" {
-                listing.pricing().price_estimate_min
-            } else {
-                listing.pricing().price_estimate_max
-            };
-            assert_eq!(expected, actual);
-        }
-    }
-
-    #[test]
-    fn should_not_emit_price_event_when_clearing_absent_estimate() {
-        let mut listing = listing_with_state(
-            ProductListingPricing::default(),
-            IndexSet::new(),
-            ProductListingAuction::default(),
-        );
-        listing.take_pending_event_payload();
-        let mut update = command(PatchField::Unchanged);
-        update.price_estimate_min = PatchField::Clear;
-
-        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-        assert!(listing.take_pending_event_payload().is_none());
-    }
-
-    #[test]
-    fn should_emit_one_price_event_with_final_pricing_for_combined_patch() {
-        let old_pricing = ProductListingPricing {
-            price: Some(ProductListingPrice::from(price(100))),
-            price_estimate_min: Some(price(110)),
-            price_estimate_max: Some(price(120)),
-        };
-        let new_pricing = ProductListingPricing {
-            price: Some(ProductListingPrice::from(price(200))),
-            price_estimate_min: Some(price(210)),
-            price_estimate_max: Some(price(220)),
-        };
-        let mut listing = listing_with_state(
-            old_pricing,
-            IndexSet::new(),
-            ProductListingAuction::default(),
-        );
-        listing.take_pending_event_payload();
-        let mut update = command(PatchField::Set(ProductListingPrice::from(price(200))));
-        update.price_estimate_min = PatchField::Set(price(210));
-        update.price_estimate_max = PatchField::Set(price(220));
-
-        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-        assert_eq!(listing.pricing(), new_pricing);
-        let Some(ProductListingEventPayload::Changed(change)) =
-            listing.take_pending_event_payload()
-        else {
-            panic!("expected changed payload");
-        };
-        assert_eq!(
-            Some(&old_pricing.price),
-            change.price().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price),
-            change.price().map(|value| value.current())
-        );
-        assert_eq!(
-            Some(&old_pricing.price_estimate_min),
-            change.price_estimate_min().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price_estimate_min),
-            change.price_estimate_min().map(|value| value.current())
-        );
-        assert_eq!(
-            Some(&old_pricing.price_estimate_max),
-            change.price_estimate_max().map(|value| value.previous())
-        );
-        assert_eq!(
-            Some(&new_pricing.price_estimate_max),
-            change.price_estimate_max().map(|value| value.current())
-        );
-    }
-
-    #[test]
-    fn should_apply_images_patch_intent_for_existing_listing() {
-        let image = ProductListingImage::new(
-            Url::parse("https://example.com/image.jpg")
-                .unwrap_or_else(|error| panic!("image URL: {error}")),
-        );
-        for patch in [
-            PatchField::Unchanged,
-            PatchField::Set(IndexSet::new()),
-            PatchField::Clear,
-        ] {
-            let mut listing = listing_with_state(
-                ProductListingPricing::default(),
-                IndexSet::from([image.clone()]),
-                ProductListingAuction::default(),
-            );
-            listing.take_pending_event_payload();
-            let mut update = command(PatchField::Unchanged);
-            update.images = patch.clone();
-
-            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-            let expected = match patch {
-                PatchField::Unchanged => IndexSet::from([image.clone()]),
-                PatchField::Set(images) => images,
-                PatchField::Clear => IndexSet::new(),
-            };
-            assert_eq!(listing.images(), &expected);
-        }
-    }
-
-    #[test]
-    fn should_apply_auction_patches_atomically() {
-        let old = ProductListingAuction {
-            start: Some(time::macros::datetime!(2026-01-01 0:00 UTC)),
-            end: Some(time::macros::datetime!(2026-01-02 0:00 UTC)),
-        };
-        let new = ProductListingAuction {
-            start: Some(time::macros::datetime!(2026-02-01 0:00 UTC)),
-            end: Some(time::macros::datetime!(2026-02-02 0:00 UTC)),
-        };
-        let mut listing =
-            listing_with_state(ProductListingPricing::default(), IndexSet::new(), old);
-        listing.take_pending_event_payload();
-        let mut update = command(PatchField::Unchanged);
-        update.auction_start = PatchField::Set(new.start.unwrap_or_else(|| panic!("start")));
-        update.auction_end = PatchField::Set(new.end.unwrap_or_else(|| panic!("end")));
-
-        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
-
-        assert_eq!(listing.auction(), new);
-        let Some(ProductListingEventPayload::Changed(change)) =
-            listing.take_pending_event_payload()
-        else {
-            panic!("expected changed payload");
-        };
-        assert_eq!(Some(&old), change.auction().map(|value| value.previous()));
-        assert_eq!(Some(&new), change.auction().map(|value| value.current()));
-    }
-
-    #[test]
-    fn should_preserve_absent_title_when_creating_listing() {
-        let new_listing = command(PatchField::Unchanged)
-            .into_new_product(ProductListingId::new(), test_title_slug())
-            .unwrap_or_else(|error| panic!("new listing: {error}"));
-
-        assert!(new_listing.title.is_none());
-    }
-
-    #[test]
-    fn should_create_listing_without_price_for_clear_or_unchanged_patch() {
-        for patch in [
-            PatchField::Set(ProductListingPrice::from(price(100))),
-            PatchField::Clear,
-            PatchField::Unchanged,
-        ] {
-            let expected = match &patch {
-                PatchField::Set(value) => Some(*value),
-                PatchField::Clear | PatchField::Unchanged => None,
-            };
-            let new_listing = command(patch)
-                .into_new_product(ProductListingId::new(), test_title_slug())
-                .unwrap_or_else(|error| panic!("new listing: {error}"));
-            assert_eq!(expected, new_listing.pricing.price);
-        }
-    }
-
-    #[test]
-    fn should_map_all_patch_states_to_new_listing_current_state() {
-        let image = ProductListingImage::new(
-            Url::parse("https://example.com/image.jpg")
-                .unwrap_or_else(|error| panic!("image URL: {error}")),
-        );
-        for (
-            estimate_min,
-            estimate_max,
-            images,
-            auction_start,
-            auction_end,
-            expected_min,
-            expected_max,
-            expected_images,
-            expected_auction,
-        ) in [
-            (
-                PatchField::Set(price(110)),
-                PatchField::Set(price(120)),
-                PatchField::Set(IndexSet::from([image.clone()])),
-                PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
-                PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
-                Some(price(110)),
-                Some(price(120)),
-                IndexSet::from([image.clone()]),
-                ProductListingAuction {
-                    start: Some(time::OffsetDateTime::UNIX_EPOCH),
-                    end: Some(time::OffsetDateTime::UNIX_EPOCH),
-                },
-            ),
-            (
-                PatchField::Clear,
-                PatchField::Unchanged,
-                PatchField::Clear,
-                PatchField::Clear,
-                PatchField::Unchanged,
-                None,
-                None,
-                IndexSet::new(),
-                ProductListingAuction::default(),
-            ),
-        ] {
-            let mut upsert = command(PatchField::Unchanged);
-            upsert.price_estimate_min = estimate_min;
-            upsert.price_estimate_max = estimate_max;
-            upsert.images = images;
-            upsert.auction_start = auction_start;
-            upsert.auction_end = auction_end;
-
-            let new_listing = upsert
-                .into_new_product(ProductListingId::new(), test_title_slug())
-                .unwrap_or_else(|error| panic!("new listing: {error}"));
-
-            assert_eq!(new_listing.pricing.price_estimate_min, expected_min);
-            assert_eq!(new_listing.pricing.price_estimate_max, expected_max);
-            assert_eq!(new_listing.images, expected_images);
-            assert_eq!(new_listing.auction, expected_auction);
-        }
-    }
-
-    // Whole-handler tests deliberately keep their fakes here: they assert transaction,
-    // persistence, event, authorization, and candidate behavior together.
     use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
+    use crate::product_listing_title_slug_creation::MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS;
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
+    use auction_core::AuctionId;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use listing_source_core::ListingSourceId;
+    use product_listing_core::{
+        product_listing::{NewProductListing, ProductListingPricing},
+        product_listing_slug_id::{InvalidProductListingSlugId, ProductListingSlugId},
+        source_listing_id::SourceListingId,
+    };
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Default)]
-    struct HandlerState {
-        candidates: Vec<ProductListingSlugId>,
+    struct State {
         begins: usize,
         commits: usize,
         rollbacks: usize,
+        generated_candidates: usize,
+        inserts: usize,
+        updates: usize,
+        event_appends: usize,
+        authorizations: usize,
+        auction_validations: usize,
         finds: VecDeque<Option<VersionedProductListing>>,
-        inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
-        insert_calls: usize,
-        update_calls: usize,
+        insert_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
+        event_results: VecDeque<Result<(), ProductListingEventAppendError>>,
+        authorization_results: VecDeque<Result<(), PartnerProductListingAuthorizationError>>,
+        auction_results: VecDeque<Result<(), AuctionReferenceValidationError>>,
         last_updated_lifecycle: Option<product_listing_core::listing_lifecycle::ListingLifecycle>,
-        event_calls: usize,
-        authorization_calls: usize,
     }
-    type SharedHandlerState = Arc<Mutex<HandlerState>>;
+
+    type SharedState = Arc<Mutex<State>>;
+
     #[derive(Clone)]
-    struct TestUow(SharedHandlerState);
-    struct TestTx(SharedHandlerState, bool);
-    impl Drop for TestTx {
+    struct UnitOfWorkFake(SharedState);
+
+    struct TransactionFake {
+        state: SharedState,
+        committed: bool,
+    }
+
+    impl Drop for TransactionFake {
         fn drop(&mut self) {
-            if !self.1 {
-                test_lock(&self.0).rollbacks += 1;
+            if !self.committed {
+                lock(&self.state).rollbacks += 1;
             }
         }
     }
+
     #[derive(Clone)]
-    struct TestProducts(SharedHandlerState);
-    struct TestRepository(SharedHandlerState);
+    struct ProductsFake(SharedState);
+    struct ProductRepositoryFake(SharedState);
     #[derive(Clone)]
-    struct TestEvents(SharedHandlerState);
-    struct TestEventAppender(SharedHandlerState);
+    struct EventsFake(SharedState);
+    struct EventAppenderFake(SharedState);
     #[derive(Clone)]
-    struct TestAuthorizer(SharedHandlerState);
-    struct TestAuthorization(SharedHandlerState);
+    struct AuthorizerFake(SharedState);
+    struct AuthorizationFake(SharedState);
     #[derive(Clone)]
-    struct TestGenerator(SharedHandlerState);
-    fn test_lock(state: &SharedHandlerState) -> MutexGuard<'_, HandlerState> {
+    struct AuctionValidatorFake(SharedState);
+    struct AuctionValidationFake(SharedState);
+    #[derive(Clone)]
+    struct GeneratorFake(SharedState);
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
         match state.lock() {
             Ok(state) => state,
             Err(error) => error.into_inner(),
         }
     }
+
     #[async_trait::async_trait]
-    impl UnitOfWork for TestUow {
-        type Tx = TestTx;
-        async fn begin(&self) -> Result<TestTx, TransactionError> {
-            test_lock(&self.0).begins += 1;
-            Ok(TestTx(Arc::clone(&self.0), false))
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = TransactionFake;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(TransactionFake {
+                state: Arc::clone(&self.0),
+                committed: false,
+            })
         }
     }
+
     #[async_trait::async_trait]
-    impl Transaction for TestTx {
+    impl Transaction for TransactionFake {
         async fn commit(mut self) -> Result<(), TransactionError> {
-            self.1 = true;
-            test_lock(&self.0).commits += 1;
+            self.committed = true;
+            lock(&self.state).commits += 1;
             Ok(())
         }
     }
-    impl ProductListingRepositoryFactory<TestTx> for TestProducts {
+
+    impl ProductListingRepositoryFactory<TransactionFake> for ProductsFake {
         fn in_transaction<'tx>(
             &'tx self,
-            _: &'tx mut TestTx,
+            _: &'tx mut TransactionFake,
         ) -> impl ProductListingRepository + 'tx {
-            TestRepository(Arc::clone(&self.0))
+            ProductRepositoryFake(Arc::clone(&self.0))
         }
     }
+
     #[async_trait::async_trait]
-    impl ProductListingRepository for TestRepository {
+    impl ProductListingRepository for ProductRepositoryFake {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(None)
+            Ok(lock(&self.0).finds.pop_front().flatten())
         }
+
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(test_lock(&self.0).finds.pop_front().flatten())
+            Ok(lock(&self.0).finds.pop_front().flatten())
         }
+
         async fn insert(
             &mut self,
-            listing: &ProductListing,
+            product: &ProductListing,
             _: EventId,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
-            let mut state = test_lock(&self.0);
-            state.insert_calls += 1;
-            match state.inserts.pop_front().unwrap_or(Ok(())) {
+            let mut state = lock(&self.0);
+            state.inserts += 1;
+            match state.insert_results.pop_front().unwrap_or(Ok(())) {
                 Ok(()) => Ok(Versioned::new(
-                    listing.clone(),
+                    product.clone(),
                     ProductListingStorageVersion::INITIAL,
                 )),
                 Err(error) => Err(error),
             }
         }
+
         async fn update(
             &mut self,
-            listing: &ProductListing,
+            product: &ProductListing,
             expected_version: ProductListingStorageVersion,
             _: EventId,
             _: ProductListingWriteEffects,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
-            let mut state = test_lock(&self.0);
-            state.update_calls += 1;
-            state.last_updated_lifecycle = Some(listing.lifecycle());
-            Ok(Versioned::new(listing.clone(), expected_version.next()))
+            let mut state = lock(&self.0);
+            state.updates += 1;
+            state.last_updated_lifecycle = Some(product.lifecycle());
+            match state.update_results.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(product.clone(), expected_version.next())),
+                Err(error) => Err(error),
+            }
         }
     }
-    impl ProductListingEventAppenderFactory<TestTx> for TestEvents {
+
+    impl ProductListingEventAppenderFactory<TransactionFake> for EventsFake {
         fn in_transaction<'tx>(
             &'tx self,
-            _: &'tx mut TestTx,
+            _: &'tx mut TransactionFake,
         ) -> impl ProductListingEventAppender + 'tx {
-            TestEventAppender(Arc::clone(&self.0))
+            EventAppenderFake(Arc::clone(&self.0))
         }
     }
+
     #[async_trait::async_trait]
-    impl ProductListingEventAppender for TestEventAppender {
+    impl ProductListingEventAppender for EventAppenderFake {
         async fn append(
             &mut self,
             _: &crate::ports::product_listing_event_appender::ProductListingEvent,
         ) -> Result<(), ProductListingEventAppendError> {
-            test_lock(&self.0).event_calls += 1;
-            Ok(())
+            let mut state = lock(&self.0);
+            state.event_appends += 1;
+            state.event_results.pop_front().unwrap_or(Ok(()))
         }
     }
-    impl PartnerProductListingAuthorizerFactory<TestTx> for TestAuthorizer {
+
+    impl PartnerProductListingAuthorizerFactory<TransactionFake> for AuthorizerFake {
         fn in_transaction<'tx>(
             &'tx self,
-            _: &'tx mut TestTx,
+            _: &'tx mut TransactionFake,
         ) -> impl PartnerProductListingAuthorizer + 'tx {
-            TestAuthorization(Arc::clone(&self.0))
+            AuthorizationFake(Arc::clone(&self.0))
         }
     }
+
     #[async_trait::async_trait]
-    impl PartnerProductListingAuthorizer for TestAuthorization {
+    impl PartnerProductListingAuthorizer for AuthorizationFake {
         async fn authorize(
             &mut self,
             _: UserId,
             _: ListingSourceId,
         ) -> Result<(), PartnerProductListingAuthorizationError> {
-            test_lock(&self.0).authorization_calls += 1;
-            Ok(())
+            let mut state = lock(&self.0);
+            state.authorizations += 1;
+            state.authorization_results.pop_front().unwrap_or(Ok(()))
         }
     }
-    impl ProductListingTitleSlugGenerator for TestGenerator {
-        fn generate(
-            &self,
-            _: &str,
-        ) -> Result<
-            ProductListingSlugId,
-            product_listing_core::product_listing_slug_id::InvalidProductListingSlugId,
-        > {
-            let candidate = ProductListingSlugId::from_title_and_suffix(
-                "listing",
-                &format!("{:06x}", test_lock(&self.0).candidates.len() + 1),
-            )?;
-            test_lock(&self.0).candidates.push(candidate.clone());
-            Ok(candidate)
+
+    impl AuctionReferenceValidatorFactory<TransactionFake> for AuctionValidatorFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TransactionFake,
+        ) -> impl AuctionReferenceValidator + 'tx {
+            AuctionValidationFake(Arc::clone(&self.0))
         }
     }
-    fn handler_context() -> OperationContext {
+
+    #[async_trait::async_trait]
+    impl AuctionReferenceValidator for AuctionValidationFake {
+        async fn validate(
+            &mut self,
+            _: AuctionId,
+            _: ListingSourceId,
+        ) -> Result<(), AuctionReferenceValidationError> {
+            let mut state = lock(&self.0);
+            state.auction_validations += 1;
+            state.auction_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl ProductListingTitleSlugGenerator for GeneratorFake {
+        fn generate(&self, _: &str) -> Result<ProductListingSlugId, InvalidProductListingSlugId> {
+            let mut state = lock(&self.0);
+            let suffix = format!("{:06x}", state.generated_candidates + 1);
+            state.generated_candidates += 1;
+            ProductListingSlugId::from_title_and_suffix("listing", &suffix)
+        }
+    }
+
+    fn context() -> OperationContext {
         OperationContext {
             principal: Principal::User(UserId::new()),
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
         }
     }
-    fn handler_command() -> UpsertProductListingCommand {
-        command(PatchField::Set(ProductListingPrice::from(price(20))))
+
+    fn command() -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            price: PatchField::Unchanged,
+            price_estimate_min: PatchField::Unchanged,
+            price_estimate_max: PatchField::Unchanged,
+            availability: PatchField::Unchanged,
+            url: None,
+            images: PatchField::Unchanged,
+            auction: PatchField::Unchanged,
+        }
     }
-    fn handler(
-        state: &SharedHandlerState,
-    ) -> UpsertProductListingHandler<TestUow, TestProducts, TestEvents, TestAuthorizer, TestGenerator>
-    {
-        UpsertProductListingHandler::with_title_slug_generator(
-            TestUow(Arc::clone(state)),
-            TestProducts(Arc::clone(state)),
-            TestEvents(Arc::clone(state)),
-            TestAuthorizer(Arc::clone(state)),
-            TestGenerator(Arc::clone(state)),
-        )
+
+    fn command_with_auction() -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            auction: PatchField::Set(ProductListingAuctionPatch {
+                auction_id: PatchField::Set(AuctionId::new()),
+                ..Default::default()
+            }),
+            ..command()
+        }
     }
-    fn existing_listing() -> VersionedProductListing {
-        let mut listing = listing_with_price(Some(ProductListingPrice::from(price(10))));
+
+    fn listing() -> ProductListing {
+        ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: Url::parse("https://example.com/listing")
+                .unwrap_or_else(|error| panic!("valid URL: {error}")),
+            images: IndexSet::new(),
+            auction: None,
+        })
+        .unwrap_or_else(|error| panic!("valid listing: {error}"))
+    }
+
+    fn loaded_listing() -> VersionedProductListing {
+        let mut listing = listing();
         listing.take_pending_event_payload();
         Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
 
-    #[tokio::test]
-    async fn should_retry_title_slug_collision_then_commit_new_upsert() {
-        let state = Arc::new(Mutex::new(HandlerState {
-            finds: VecDeque::from([None, None]),
-            inserts: VecDeque::from([
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Ok(()),
-            ]),
-            ..Default::default()
-        }));
-        assert!(matches!(
-            handler(&state)
-                .execute(&handler_context(), handler_command())
-                .await,
-            Ok(UpsertProductListingResult::Created(_))
-        ));
-        let state = test_lock(&state);
-        assert_eq!(
-            (
-                state.candidates.len(),
-                state.begins,
-                state.commits,
-                state.rollbacks,
-                state.insert_calls,
-                state.event_calls,
-                state.authorization_calls
-            ),
-            (2, 2, 1, 1, 2, 1, 2)
-        );
+    fn loaded_listing_with_auction() -> VersionedProductListing {
+        let mut listing = listing();
+        let auction = product_listing_core::product_listing::ProductListingAuction::new(
+            Some(AuctionId::new()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("valid auction fixture: {error}"));
+        listing
+            .replace_auction(auction)
+            .unwrap_or_else(|error| panic!("valid listing auction fixture: {error}"));
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
-    #[tokio::test]
-    async fn should_exhaust_after_five_title_slug_collisions() {
-        let state = Arc::new(Mutex::new(HandlerState {
-            finds: VecDeque::from([None, None, None, None, None]),
-            inserts: VecDeque::from([
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
-            ]),
-            ..Default::default()
-        }));
-        assert!(matches!(
-            handler(&state)
-                .execute(&handler_context(), handler_command())
-                .await,
-            Err(UpsertProductListingError::ProductListingTitleSlugGenerationExhausted)
-        ));
-        let state = test_lock(&state);
-        assert_eq!(
-            (
-                state.candidates.len(),
-                state.begins,
-                state.commits,
-                state.rollbacks,
-                state.insert_calls
-            ),
-            (5, 5, 0, 5, 5)
-        );
-    }
-    #[tokio::test]
-    async fn should_not_generate_candidate_when_existing_listing_is_found() {
-        let state = Arc::new(Mutex::new(HandlerState {
-            finds: VecDeque::from([Some(existing_listing())]),
-            ..Default::default()
-        }));
-        assert!(matches!(
-            handler(&state)
-                .execute(&handler_context(), handler_command())
-                .await,
-            Ok(UpsertProductListingResult::Updated(_))
-        ));
-        let state = test_lock(&state);
-        assert_eq!(
-            (
-                state.candidates.len(),
-                state.begins,
-                state.commits,
-                state.rollbacks,
-                state.insert_calls,
-                state.update_calls,
-                state.event_calls,
-                state.authorization_calls
-            ),
-            (0, 1, 1, 0, 0, 1, 1, 1)
-        );
-    }
-    #[tokio::test]
-    async fn should_restore_withdrawn_listing_on_canonical_upsert() {
-        let mut withdrawn = listing_with_price(Some(ProductListingPrice::from(price(10))));
-        withdrawn.take_pending_event_payload();
-        withdrawn
+
+    fn withdrawn_listing() -> VersionedProductListing {
+        let mut listing = listing();
+        listing.take_pending_event_payload();
+        listing
             .withdraw()
             .unwrap_or_else(|error| panic!("withdraw fixture: {error}"));
-        withdrawn.take_pending_event_payload();
-        let state = Arc::new(Mutex::new(HandlerState {
-            finds: VecDeque::from([Some(Versioned::new(
-                withdrawn,
-                ProductListingStorageVersion::INITIAL,
-            ))]),
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> UpsertProductListingHandler<
+        UnitOfWorkFake,
+        ProductsFake,
+        EventsFake,
+        AuthorizerFake,
+        AuctionValidatorFake,
+        GeneratorFake,
+    > {
+        UpsertProductListingHandler {
+            unit_of_work: UnitOfWorkFake(Arc::clone(state)),
+            products: ProductsFake(Arc::clone(state)),
+            events: EventsFake(Arc::clone(state)),
+            authorizer: AuthorizerFake(Arc::clone(state)),
+            auction_references: AuctionValidatorFake(Arc::clone(state)),
+            title_slug_generator: GeneratorFake(Arc::clone(state)),
+        }
+    }
+
+    fn event_append_failure() -> ProductListingEventAppendError {
+        ProductListingEventAppendError::ProductListingEventAppendFailed {
+            source: Box::new(std::io::Error::other("event append failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_create_and_commit_on_first_attempt() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.updates,
+                state.event_appends,
+                state.authorizations
+            ),
+            (1, 1, 0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exhaust_after_configured_title_slug_collisions() {
+        let state = Arc::new(Mutex::new(State {
+            finds: (0..MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS)
+                .map(|_| None)
+                .collect(),
+            insert_results: (0..MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS)
+                .map(|_| Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists))
+                .collect(),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.generated_candidates,
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.inserts,
+                state.event_appends
+            ),
+            (
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS,
+                0
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn should_retry_source_race_once_and_revalidate_authorization_and_auction() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None, Some(loaded_listing())]),
+            insert_results: VecDeque::from([Err(
+                ProductListingRepositoryError::SourceListingAlreadyExists,
+            )]),
             ..Default::default()
         }));
 
         let result = handler(&state)
-            .execute(&handler_context(), handler_command())
+            .execute(&context(), command_with_auction())
             .await;
 
         assert!(matches!(
@@ -1229,72 +985,247 @@ mod tests {
                 }
             ))
         ));
-        let state = test_lock(&state);
-        assert_eq!(1, state.update_calls);
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (2, 1, 1));
         assert_eq!(
-            Some(product_listing_core::listing_lifecycle::ListingLifecycle::Active),
-            state.last_updated_lifecycle
+            (
+                state.generated_candidates,
+                state.inserts,
+                state.updates,
+                state.event_appends,
+                state.authorizations,
+                state.auction_validations
+            ),
+            (1, 1, 1, 1, 2, 2)
         );
-        assert_eq!(1, state.event_calls);
     }
 
     #[tokio::test]
-    async fn should_rerun_source_race_without_new_candidate_when_winner_is_now_existing() {
-        let state = Arc::new(Mutex::new(HandlerState {
-            finds: VecDeque::from([None, Some(existing_listing())]),
-            inserts: VecDeque::from([Err(
-                ProductListingRepositoryError::SourceListingAlreadyExists,
-            )]),
+    async fn should_classify_exhausted_source_race_as_persistence_failure() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None, None]),
+            insert_results: VecDeque::from([
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+            ]),
             ..Default::default()
         }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
         assert!(matches!(
-            handler(&state)
-                .execute(&handler_context(), handler_command())
-                .await,
-            Ok(UpsertProductListingResult::Updated(_))
+            result,
+            Err(UpsertProductListingError::PersistenceFailed)
         ));
-        let state = test_lock(&state);
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (2, 0, 2));
         assert_eq!(
             (
-                state.candidates.len(),
-                state.begins,
-                state.commits,
-                state.rollbacks,
-                state.insert_calls,
-                state.update_calls,
-                state.authorization_calls
+                state.generated_candidates,
+                state.inserts,
+                state.event_appends
             ),
-            (1, 2, 1, 1, 1, 1, 2)
+            (2, 2, 0)
         );
     }
+
     #[tokio::test]
-    async fn should_keep_source_race_and_collision_counters_independent() {
-        let state = Arc::new(Mutex::new(HandlerState {
+    async fn should_keep_source_race_and_slug_collision_accounting_independent() {
+        let state = Arc::new(Mutex::new(State {
             finds: VecDeque::from([None, None, None]),
-            inserts: VecDeque::from([
+            insert_results: VecDeque::from([
                 Err(ProductListingRepositoryError::SourceListingAlreadyExists),
                 Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
                 Ok(()),
             ]),
             ..Default::default()
         }));
-        assert!(matches!(
-            handler(&state)
-                .execute(&handler_context(), handler_command())
-                .await,
-            Ok(UpsertProductListingResult::Created(_))
-        ));
-        let state = test_lock(&state);
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (3, 1, 2));
         assert_eq!(
             (
-                state.candidates.len(),
-                state.begins,
-                state.commits,
-                state.rollbacks,
-                state.insert_calls,
-                state.authorization_calls
+                state.generated_candidates,
+                state.inserts,
+                state.event_appends,
+                state.authorizations
             ),
-            (3, 3, 1, 2, 3, 3)
+            (3, 3, 1, 3)
         );
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_unrelated_persistence_failure() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            insert_results: VecDeque::from([Err(
+                ProductListingRepositoryError::ProductListingInsertFailed,
+            )]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::PersistenceFailed)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.generated_candidates, state.inserts), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_event_append_fails() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            event_results: VecDeque::from([Err(event_append_failure())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::EventAppenderFailed { .. })
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!((state.inserts, state.event_appends), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_commit_without_persistence_for_noop_update() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Unchanged,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_not_revalidate_unchanged_auction_for_lot_only_update() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing_with_auction())]),
+            ..Default::default()
+        }));
+        let command = UpsertProductListingCommand {
+            auction: PatchField::Set(ProductListingAuctionPatch {
+                bidding_opens: PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
+                ..Default::default()
+            }),
+            ..command()
+        };
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (
+                state.auction_validations,
+                state.updates,
+                state.event_appends
+            ),
+            (0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_restore_withdrawn_listing_and_commit_one_event() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(withdrawn_listing())]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!((state.updates, state.event_appends), (1, 1));
+        assert_eq!(
+            state.last_updated_lifecycle,
+            Some(product_listing_core::listing_lifecycle::ListingLifecycle::Active)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_validate_auction_reference_before_new_listing_insert() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([None]),
+            auction_results: VecDeque::from([Err(AuctionReferenceValidationError::NotFound)]),
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(&context(), command_with_auction())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::AuctionNotFound)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+        assert_eq!(
+            (
+                state.auction_validations,
+                state.inserts,
+                state.event_appends
+            ),
+            (1, 0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_anonymous_upsert_before_beginning_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut context = context();
+        context.principal = Principal::Anonymous;
+
+        let result = handler(&state).execute(&context, command()).await;
+
+        assert!(matches!(
+            result,
+            Err(UpsertProductListingError::AuthenticatedActorRequired)
+        ));
+        let state = lock(&state);
+        assert_eq!((state.begins, state.commits, state.rollbacks), (0, 0, 0));
+        assert_eq!((state.generated_candidates, state.inserts), (0, 0));
     }
 }

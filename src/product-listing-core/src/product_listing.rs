@@ -1,6 +1,10 @@
 use crate::description::Description;
 use crate::listing_availability::ListingAvailability;
 use crate::listing_lifecycle::ListingLifecycle;
+pub use crate::product_listing_auction::{
+    CataloguePosition, InvalidCataloguePosition, InvalidLotNumber, InvalidProductListingAuction,
+    LotNumber, ProductListingAuction,
+};
 use crate::product_listing_event::{
     ProductListingChanged, ProductListingDiscovered, ProductListingEventPayload,
     ProductListingImageCount, ProductListingImageCountConversionError,
@@ -35,7 +39,7 @@ pub struct ProductListing {
     lifecycle: ListingLifecycle,
     url: Url,
     images: IndexSet<ProductListingImage>,
-    auction: ProductListingAuction,
+    auction: Option<ProductListingAuction>,
     pending_event_payload: Option<ProductListingEventPayload>,
     pending_image_baseline: Option<IndexSet<ProductListingImage>>,
 }
@@ -52,7 +56,7 @@ pub struct NewProductListing {
     pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
-    pub auction: ProductListingAuction,
+    pub auction: Option<ProductListingAuction>,
 }
 
 #[doc(hidden)]
@@ -70,7 +74,7 @@ pub struct RehydratedProductListingState {
     pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
-    pub auction: ProductListingAuction,
+    pub auction: Option<ProductListingAuction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -120,35 +124,14 @@ impl ListingSaleObservation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct ProductListingAuction {
-    pub start: Option<OffsetDateTime>,
-    pub end: Option<OffsetDateTime>,
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RehydrateProductListingError {
     #[error("product listing title slug is invalid")]
     InvalidTitleSlugId,
     #[error("withdrawn listing has availability")]
     WithdrawnListingHasAvailability,
-    #[error("product listing auction start is after its end")]
-    AuctionStartAfterEnd,
     #[error("product listing image count exceeds u64")]
     ImageCountOverflow,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProductListingInvariantError {
-    AuctionStartAfterEnd,
-}
-
-impl From<ProductListingInvariantError> for RehydrateProductListingError {
-    fn from(error: ProductListingInvariantError) -> Self {
-        match error {
-            ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -163,8 +146,6 @@ pub enum ChangeListingAvailabilityError {
 pub enum ChangeProductListingError {
     #[error("listing is withdrawn")]
     ListingWithdrawn,
-    #[error("product listing auction start is after its end")]
-    AuctionStartAfterEnd,
     #[error("product listing image count exceeds u64")]
     ImageCountOverflow,
     #[error("initial discovery cannot contain a lifecycle change")]
@@ -176,14 +157,6 @@ pub enum ChangeProductListingError {
 impl From<ProductListingImageCountConversionError> for ChangeProductListingError {
     fn from(_: ProductListingImageCountConversionError) -> Self {
         Self::ImageCountOverflow
-    }
-}
-
-impl From<ProductListingInvariantError> for ChangeProductListingError {
-    fn from(error: ProductListingInvariantError) -> Self {
-        match error {
-            ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
-        }
     }
 }
 
@@ -202,6 +175,7 @@ pub enum RecordListingSaleObservationError {
 impl ProductListing {
     /// Creates a listing from explicit, deterministic identity values.
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
+        let auction = ProductListingAuction::normalize(input.auction);
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
             title_slug_id: input.title_slug_id,
@@ -215,7 +189,7 @@ impl ProductListing {
             lifecycle: ListingLifecycle::Active,
             url: input.url,
             images: input.images,
-            auction: input.auction,
+            auction,
         })?;
         listing.pending_event_payload = Some(ProductListingEventPayload::Discovered(
             listing
@@ -229,7 +203,6 @@ impl ProductListing {
     pub fn rehydrate(
         state: RehydratedProductListingState,
     ) -> Result<Self, RehydrateProductListingError> {
-        validate_auction(state.auction).map_err(RehydrateProductListingError::from)?;
         if state.lifecycle == ListingLifecycle::Withdrawn && state.availability.is_some() {
             return Err(RehydrateProductListingError::WithdrawnListingHasAvailability);
         }
@@ -246,7 +219,7 @@ impl ProductListing {
             lifecycle: state.lifecycle,
             url: state.url,
             images: state.images,
-            auction: state.auction,
+            auction: ProductListingAuction::normalize(state.auction),
             pending_event_payload: None,
             pending_image_baseline: None,
         })
@@ -462,15 +435,15 @@ impl ProductListing {
 
     pub fn replace_auction(
         &mut self,
-        auction: ProductListingAuction,
+        auction: Option<ProductListingAuction>,
     ) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
-        validate_auction(auction).map_err(ChangeProductListingError::from)?;
+        let auction = ProductListingAuction::normalize(auction);
         if self.auction == auction {
             return Ok(ChangeOutcome::Unchanged);
         }
-        let previous = self.auction;
-        self.auction = auction;
+        let previous = self.auction.clone();
+        self.auction = auction.clone();
         self.coalesce_pending_change(|changed| changed.change_auction(previous, auction))?;
         Ok(ChangeOutcome::Changed)
     }
@@ -516,8 +489,8 @@ impl ProductListing {
     pub fn images(&self) -> &IndexSet<ProductListingImage> {
         &self.images
     }
-    pub fn auction(&self) -> ProductListingAuction {
-        self.auction
+    pub fn auction(&self) -> Option<&ProductListingAuction> {
+        self.auction.as_ref()
     }
 
     fn ensure_active_availability(&self) -> Result<(), ChangeListingAvailabilityError> {
@@ -560,7 +533,7 @@ impl ProductListing {
             self.availability,
             self.url.clone(),
             ProductListingImageCount::try_from(self.images.len())?,
-            self.auction,
+            self.auction.clone(),
         ))
     }
 
@@ -590,15 +563,6 @@ impl ProductListing {
     }
 }
 
-fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListingInvariantError> {
-    if let (Some(start), Some(end)) = (auction.start, auction.end)
-        && start > end
-    {
-        return Err(ProductListingInvariantError::AuctionStartAfterEnd);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,7 +583,7 @@ mod tests {
             url: Url::parse("https://shop.example/listing")
                 .unwrap_or_else(|error| panic!("URL: {error}")),
             images: IndexSet::new(),
-            auction: ProductListingAuction::default(),
+            auction: None,
         }
     }
 
@@ -649,6 +613,18 @@ mod tests {
 
     fn observation() -> ListingSaleObservation {
         ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, FxRateId::new())
+    }
+
+    #[test]
+    fn should_normalize_an_empty_auction_context_to_no_auction_facts() {
+        let mut source = input();
+        source.auction = ProductListingAuction::new(None, None, None, None, None, None)
+            .unwrap_or_else(|error| panic!("auction: {error}"));
+
+        let listing =
+            ProductListing::create(source).unwrap_or_else(|error| panic!("create: {error}"));
+
+        assert!(listing.auction().is_none());
     }
 
     #[test]
@@ -828,11 +804,19 @@ mod tests {
         let first_url = listing.url().clone();
         let final_url =
             Url::parse("https://shop.example/final").unwrap_or_else(|error| panic!("URL: {error}"));
-        let first_auction = ProductListingAuction::default();
-        let final_auction = ProductListingAuction {
-            start: Some(OffsetDateTime::UNIX_EPOCH),
-            end: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
-        };
+        let first_auction = None;
+        let final_auction = ProductListingAuction::new(
+            None,
+            Some(LotNumber::try_from("42").unwrap_or_else(|error| panic!("lot number: {error}"))),
+            Some(
+                CataloguePosition::new(7)
+                    .unwrap_or_else(|error| panic!("catalogue position: {error}")),
+            ),
+            Some(OffsetDateTime::UNIX_EPOCH),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("auction: {error}"));
 
         listing
             .set_availability(ListingAvailability::Available)
@@ -841,7 +825,7 @@ mod tests {
             .change_url(final_url.clone())
             .unwrap_or_else(|error| panic!("change URL: {error}"));
         listing
-            .replace_auction(final_auction)
+            .replace_auction(final_auction.clone())
             .unwrap_or_else(|error| panic!("replace auction: {error}"));
 
         let Some(ProductListingEventPayload::Changed(changed)) =
@@ -1104,54 +1088,70 @@ mod tests {
     }
 
     #[test]
-    fn should_not_mutate_or_emit_for_invalid_auction() {
+    fn should_emit_standalone_lot_close_previous_and_current_values_only_for_a_real_change() {
         let mut listing = rehydrated();
-        let expected = listing.clone();
-        let auction = ProductListingAuction {
-            start: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1)),
-            end: Some(OffsetDateTime::UNIX_EPOCH),
-        };
+        let scheduled_closes = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2);
+        let lot_facts =
+            ProductListingAuction::new(None, None, None, None, Some(scheduled_closes), None)
+                .unwrap_or_else(|error| panic!("auction facts: {error}"));
 
         assert_eq!(
-            Err(ChangeProductListingError::AuctionStartAfterEnd),
-            listing.replace_auction(auction)
+            Ok(ChangeOutcome::Changed),
+            listing.replace_auction(lot_facts.clone())
         );
-        assert_eq!(expected, listing);
+
+        let Some(ProductListingEventPayload::Changed(changed)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected lot close change event");
+        };
+        let change = changed
+            .auction()
+            .unwrap_or_else(|| panic!("expected auction fact values"));
+        assert_eq!(&None, change.previous());
+        assert_eq!(&lot_facts, change.current());
+        assert_eq!(
+            None,
+            change
+                .current()
+                .as_ref()
+                .and_then(ProductListingAuction::auction_id)
+        );
+        assert_eq!(
+            Some(scheduled_closes),
+            change
+                .current()
+                .as_ref()
+                .and_then(ProductListingAuction::scheduled_closes)
+        );
+
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            listing.replace_auction(change.current().clone())
+        );
         assert_eq!(None, listing.take_pending_event_payload());
     }
 
     #[test]
-    fn should_reject_invalid_auction_during_creation_and_rehydration() {
-        let auction = ProductListingAuction {
-            start: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1)),
-            end: Some(OffsetDateTime::UNIX_EPOCH),
-        };
-        let mut creation_input = input();
-        creation_input.auction = auction;
-        assert_eq!(
-            Err(RehydrateProductListingError::AuctionStartAfterEnd),
-            ProductListing::create(creation_input)
-        );
+    fn should_coalesce_listing_auction_facts_replacement_and_clear() {
+        let mut listing = rehydrated();
+        let auction = ProductListingAuction::new(
+            None,
+            Some(LotNumber::try_from("42").unwrap_or_else(|error| panic!("lot number: {error}"))),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("auction facts: {error}"));
 
-        let source = input();
         assert_eq!(
-            Err(RehydrateProductListingError::AuctionStartAfterEnd),
-            ProductListing::rehydrate(RehydratedProductListingState {
-                id: source.id,
-                title_slug_id: source.title_slug_id,
-                listing_source_id: source.listing_source_id,
-                source_listing_id: source.source_listing_id,
-                title: source.title,
-                description: source.description,
-                pricing: source.pricing,
-                sale_observation: None,
-                availability: source.availability,
-                lifecycle: ListingLifecycle::Active,
-                url: source.url,
-                images: source.images,
-                auction,
-            })
+            Ok(ChangeOutcome::Changed),
+            listing.replace_auction(auction.clone())
         );
+        assert_eq!(Ok(ChangeOutcome::Changed), listing.replace_auction(None));
+        assert_eq!(None, listing.take_pending_event_payload());
+        assert_eq!(None, listing.auction());
     }
 
     #[test]

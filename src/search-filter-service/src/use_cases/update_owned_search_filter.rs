@@ -13,6 +13,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
+use auction_core::AuctionId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
@@ -40,12 +41,13 @@ pub struct ProductListingSearchPatch {
     pub enhanced_search_description: PatchField<EnhancedSearchDescription>,
     pub listing_source_id_query: PatchField<AnyOfQuery<ListingSourceId>>,
     pub exclude_listing_source_id_query: PatchField<AnyOfQuery<ListingSourceId>>,
+    pub auction_id_query: PatchField<AnyOfQuery<AuctionId>>,
     pub price_query: PatchField<RangeQuery<MonetaryAmount>>,
     pub availability_query: PatchField<ListingAvailabilityQuery>,
     pub created_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub updated_query: PatchField<RangeQuery<OffsetDateTime>>,
-    pub auction_start_query: PatchField<RangeQuery<OffsetDateTime>>,
-    pub auction_end_query: PatchField<RangeQuery<OffsetDateTime>>,
+    pub lot_bidding_opens_query: PatchField<RangeQuery<OffsetDateTime>>,
+    pub lot_scheduled_closes_query: PatchField<RangeQuery<OffsetDateTime>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -352,12 +354,19 @@ fn apply_product_search_patch(
         &patch.exclude_listing_source_id_query,
         &mut search.exclude_listing_source_id_query,
     );
+    changed |= apply_default_patch(&patch.auction_id_query, &mut search.auction_id_query);
     changed |= apply_optional_patch(&patch.price_query, &mut search.price_query);
     changed |= apply_optional_patch(&patch.availability_query, &mut search.availability_query);
     changed |= apply_optional_patch(&patch.created_query, &mut search.created_query);
     changed |= apply_optional_patch(&patch.updated_query, &mut search.updated_query);
-    changed |= apply_optional_patch(&patch.auction_start_query, &mut search.auction_start_query);
-    changed |= apply_optional_patch(&patch.auction_end_query, &mut search.auction_end_query);
+    changed |= apply_optional_patch(
+        &patch.lot_bidding_opens_query,
+        &mut search.lot_bidding_opens_query,
+    );
+    changed |= apply_optional_patch(
+        &patch.lot_scheduled_closes_query,
+        &mut search.lot_scheduled_closes_query,
+    );
     Ok(changed)
 }
 
@@ -573,6 +582,31 @@ mod tests {
         assert!(apply_product_search_patch(&mut search, &clear)?);
         assert!(search.listing_source_id_query.is_empty());
         assert!(search.exclude_listing_source_id_query.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn should_apply_and_clear_auction_id_query() -> Result<(), UpdateOwnedSearchFilterError> {
+        use std::collections::HashSet;
+
+        let auction_id = AuctionId::new();
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let patch = ProductListingSearchPatch {
+            auction_id_query: PatchField::Set(HashSet::from([auction_id]).into()),
+            ..Default::default()
+        };
+
+        assert!(apply_product_search_patch(&mut search, &patch)?);
+        assert!(search.auction_id_query.contains(&auction_id));
+
+        assert!(apply_product_search_patch(
+            &mut search,
+            &ProductListingSearchPatch {
+                auction_id_query: PatchField::Clear,
+                ..Default::default()
+            },
+        )?);
+        assert!(search.auction_id_query.is_empty());
         Ok(())
     }
 

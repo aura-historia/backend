@@ -3,14 +3,26 @@
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use application::transaction::{Transaction, UnitOfWork};
+use auction_postgres::{
+    SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
+    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
+    SqlxPublicAuctionDetailsReader,
+};
+use auction_service::use_cases::{
+    commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
+    queries::{
+        get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
+        list_auctions::ListAuctionsHandler,
+    },
+};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal, UserAuthenticationAuthenticator,
 };
 use aura_historia_api::state::{
-    AdminOverviewState, AppState, BillingState, ListingSourcesState, NewsletterState,
-    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState,
+    AdminOverviewState, AppState, AuctionsState, BillingState, ListingSourcesState,
+    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
     PublicListingSourceReadBudget, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
@@ -113,13 +125,13 @@ use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
-    SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
-    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRawCaptureWriterFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
+    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
+    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
+    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
@@ -127,9 +139,10 @@ use woocommerce_service::WoocommerceWebhookIntake;
 
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CaptureProductListingRawObservationHandler,
-    CreateProductListingHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetSimilarProductListingsHandler, SearchProductListingsHandler, UpdateProductListingHandler,
-    UpsertProductListingHandler, WithdrawProductListingHandler,
+    CreateProductListingHandler, GetAuctionCatalogueHandler, GetProductListingHandler,
+    GetProductListingHistoryHandler, GetSimilarProductListingsHandler,
+    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
+    WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -1008,10 +1021,7 @@ pub async fn seed_product() -> ProductListingId {
         "availability": "AVAILABLE",
         "url": "https://api-acceptance.example/product",
         "imageCount": 0,
-        "auction": {
-            "start": null,
-            "end": null
-        }
+        "auction": null
     }))
     .execute(&mut *tx)
     .await
@@ -1125,6 +1135,50 @@ async fn test_state(
         authenticate_user,
     ));
     let opensearch_client = get_opensearch_client().await;
+    let auctions_state = AuctionsState::new(
+        Arc::new(CreateAuctionHandler::new(
+            unit_of_work.clone(),
+            SqlxAuctionRepositoryFactory::new(),
+            SqlxAuctionEventAppenderFactory::new(),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(GetAuctionHandler::new(
+            SqlxAuctionDetailsReader::new(pool.clone()),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(UpdateAuctionHandler::new(
+            unit_of_work.clone(),
+            SqlxAuctionRepositoryFactory::new(),
+            SqlxAuctionEventAppenderFactory::new(),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+    let public_auctions_state = PublicAuctionsState::new(
+        Arc::new(GetPublicAuctionHandler::new(
+            SqlxPublicAuctionDetailsReader::new(pool.clone()),
+        )),
+        Arc::new(ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(
+            pool.clone(),
+        ))),
+        Arc::new(GetAuctionCatalogueHandler::new(
+            unit_of_work.clone(),
+            SqlxAuctionCatalogueReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxPublicAuctionDetailsReader::new(pool.clone()),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let create_listing_source = CreateListingSourceHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceRepositoryFactory::new(),
@@ -1344,18 +1398,21 @@ async fn test_state(
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
+            SqlxAuctionReferenceValidatorFactory::new(),
         )),
         Arc::new(UpdateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
+            SqlxAuctionReferenceValidatorFactory::new(),
         )),
         Arc::new(UpsertProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
+            SqlxAuctionReferenceValidatorFactory::new(),
         )),
         Arc::new(WithdrawProductListingHandler::new(
             unit_of_work.clone(),
@@ -1744,6 +1801,8 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     state::AppState::new()
+        .with_auctions(auctions_state)
+        .with_public_auctions(public_auctions_state)
         .with_admin_overview(AdminOverviewState::new(
             Arc::new(GetAdminOverviewHandler::new(
                 unit_of_work.clone(),

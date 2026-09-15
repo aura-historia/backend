@@ -1,4 +1,5 @@
 pub(crate) mod admin_overview;
+pub mod auctions;
 pub mod auth;
 pub mod billing;
 pub mod error;
@@ -28,15 +29,27 @@ use crate::auth::{
     UserAuthenticationAuthenticator,
 };
 use crate::state::{
-    AdminOverviewState, AppState, BillingState, ListingSourcesState, NewsletterState,
-    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState,
+    AdminOverviewState, AppState, AuctionsState, BillingState, ListingSourcesState,
+    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
     PublicListingSourceReadBudget, ReadinessCheck, SearchFiltersState, UsersState, WatchlistState,
     WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
+use auction_postgres::{
+    SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
+    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
+    SqlxPublicAuctionDetailsReader,
+};
+use auction_service::use_cases::{
+    commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
+    queries::{
+        get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
+        list_auctions::ListAuctionsHandler,
+    },
+};
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use billing_service::use_cases::{
@@ -131,21 +144,21 @@ use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
-    SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
-    SqlxProductListingLifecycleGuardFactory, SqlxProductListingRawCaptureWriterFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
+    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
+    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
+    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::readers::{CachedListingSourceSummaryReader, SourceSearchCacheConfig};
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, CaptureProductListingRawObservationHandler,
-    CreateProductListingHandler, GetProductListingHandler, GetProductListingHistoryHandler,
-    GetSimilarProductListingsHandler, ProductListingSearchReadExecutionPolicy,
-    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
-    WithdrawProductListingHandler,
+    CreateProductListingHandler, GetAuctionCatalogueHandler, GetProductListingHandler,
+    GetProductListingHistoryHandler, GetSimilarProductListingsHandler,
+    ProductListingSearchReadExecutionPolicy, SearchProductListingsHandler,
+    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -688,6 +701,41 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(public_auctions) = state.public_auctions {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/auctions",
+                    get(auctions::public_auctions::list_public_auctions),
+                )
+                .route(
+                    "/api/v1/auctions/{auction_id}",
+                    get(auctions::public_auctions::get_public_auction),
+                )
+                .route(
+                    "/api/v1/auctions/{auction_id}/product-listings",
+                    get(auctions::public_auctions::get_auction_catalogue),
+                )
+                .with_state(public_auctions),
+        );
+    }
+
+    if let Some(auctions) = state.auctions {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/auctions",
+                    post(auctions::create_auction::create_auction),
+                )
+                .route(
+                    "/api/v1/admin/auctions/{auction_id}",
+                    get(auctions::get_auction::get_auction)
+                        .patch(auctions::update_auction::update_auction),
+                )
+                .with_state(auctions),
+        );
+    }
+
     if let Some(admin_overview) = state.admin_overview {
         routes = routes.merge(
             Router::new()
@@ -938,6 +986,31 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxAdminOverviewReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
+    );
+    let create_auction = CreateAuctionHandler::new(
+        unit_of_work.clone(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let get_auction = GetAuctionHandler::new(
+        SqlxAuctionDetailsReader::new(pool.clone()),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let get_public_auction =
+        GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
+    let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
+    let get_auction_catalogue = GetAuctionCatalogueHandler::new(
+        unit_of_work.clone(),
+        SqlxAuctionCatalogueReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
+        SqlxPublicAuctionDetailsReader::new(pool.clone()),
+    );
+    let update_auction = UpdateAuctionHandler::new(
+        unit_of_work.clone(),
+        SqlxAuctionRepositoryFactory::new(),
+        SqlxAuctionEventAppenderFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let create_listing_source = CreateListingSourceHandler::new(
         unit_of_work.clone(),
@@ -1211,18 +1284,21 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
+        SqlxAuctionReferenceValidatorFactory::new(),
     );
     let update_product = UpdateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
+        SqlxAuctionReferenceValidatorFactory::new(),
     );
     let upsert_product = UpsertProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
+        SqlxAuctionReferenceValidatorFactory::new(),
     );
     let withdraw_product = WithdrawProductListingHandler::new(
         unit_of_work.clone(),
@@ -1539,6 +1615,18 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     });
 
     Ok(AppState::new()
+        .with_auctions(AuctionsState::new(
+            Arc::new(create_auction),
+            Arc::new(get_auction),
+            Arc::new(update_auction),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
+        .with_public_auctions(PublicAuctionsState::new(
+            Arc::new(get_public_auction),
+            Arc::new(list_auctions),
+            Arc::new(get_auction_catalogue),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_admin_overview(AdminOverviewState::new(
             Arc::new(get_admin_overview),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,

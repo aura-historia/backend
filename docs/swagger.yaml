@@ -53,6 +53,235 @@ servers:
   - url: https://api.aura-historia.com
     description: Production environment
 paths:
+  /api/v1/auctions:
+    get:
+      summary: List public Auctions
+      operationId: listAuctions
+      tags: [Auctions]
+      parameters:
+        - { name: listingSourceId, in: query, schema: { type: string } }
+        - {
+            name: format,
+            in: query,
+            schema: { type: string, enum: [LIVE, TIMED] },
+          }
+        - {
+            name: reportedStatus,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [SCHEDULED, IN_PROGRESS, ENDED, POSTPONED, CANCELLED],
+              },
+          }
+        - {
+            name: timeRole,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum:
+                  [
+                    BIDDING_OPENS,
+                    LIVE_STARTS,
+                    LOTS_BEGIN_CLOSING,
+                    SCHEDULED_END,
+                  ],
+              },
+          }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 21 },
+          }
+        - name: searchAfter
+          in: query
+          description: Complete returned JSON cursor. Its scope must exactly match the source, format, reported-status, and exact-time filters of this request.
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Bounded newest-first Auction directory. All responses use `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionDirectoryData"
+        "400":
+          description: "Invalid ID, filter, cursor, or incomplete exact-time range."
+  /api/v1/auctions/{auctionId}:
+    get:
+      summary: Get public Auction detail
+      operationId: getAuction
+      tags: [Auctions]
+      parameters:
+        - name: auctionId
+          in: path
+          required: true
+          schema: { type: string }
+          description: Strict `auc_` UUIDv7 TypeID.
+      responses:
+        "200":
+          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Always `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionData"
+        "400": { description: Invalid Auction ID (`INVALID_OBJECT_ID`). }
+        "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
+  /api/v1/auctions/{auctionId}/product-listings:
+    get:
+      summary: Get public Auction catalogue
+      operationId: getAuctionCatalogue
+      tags: [Auctions]
+      parameters:
+        - name: auctionId
+          in: path
+          required: true
+          schema: { type: string }
+        - { name: language, in: query, schema: { type: string, default: en } }
+        - { name: currency, in: query, schema: { type: string, default: EUR } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 21 },
+          }
+        - name: searchAfter
+          in: query
+          description: Complete returned JSON cursor. It is scoped to this Auction and includes `auctionId`, catalogue position, and ProductListing ID.
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Always `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicAuctionCatalogueData"
+        "400": { description: Invalid Auction ID or cursor. }
+        "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
+  /api/v1/admin/auctions:
+    post:
+      summary: Create a source-scoped Auction (admin)
+      operationId: createAdminAuction
+      tags: [Auctions]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAuctionData"
+      responses:
+        "201":
+          description: Auction created. `Location` names the new admin detail resource.
+          headers:
+            Location:
+              schema: { type: string }
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuctionAdminData"
+        "400": { description: Invalid body or value (`BAD_BODY_VALUE`). }
+        "401":
+          {
+            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
+          }
+        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "404":
+          { description: ListingSource missing (`LISTING_SOURCE_NOT_FOUND`). }
+        "409":
+          {
+            description: The ListingSource/sourceAuctionId key already exists (`CONFLICT`).,
+          }
+        "503":
+          {
+            description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
+          }
+  /api/v1/admin/auctions/{auctionId}:
+    get:
+      summary: Get Auction administration detail
+      operationId: getAdminAuction
+      tags: [Auctions]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: auctionId
+          in: path
+          required: true
+          schema: { type: string }
+          description: Strict `auc_` UUIDv7 TypeID. Bare UUIDs and wrong prefixes are invalid.
+      responses:
+        "200":
+          description: "Current administrative Auction data. Always `Cache-Control: no-store`."
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuctionAdminData"
+        "400": { description: Invalid Auction ID (`INVALID_OBJECT_ID`). }
+        "401":
+          {
+            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
+          }
+        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
+        "503":
+          {
+            description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
+          }
+    patch:
+      summary: Update Auction metadata (admin)
+      operationId: updateAdminAuction
+      tags: [Auctions]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: auctionId
+          in: path
+          required: true
+          schema: { type: string }
+          description: Strict `auc_` UUIDv7 TypeID. Auction identity and source key are immutable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAuctionData"
+      responses:
+        "200":
+          description: "Updated administrative Auction data. Always `Cache-Control: no-store`."
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuctionAdminData"
+        "400":
+          description: "Invalid body, expectedVersion, or schedule (`BAD_BODY_VALUE`)."
+        "401":
+          {
+            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
+          }
+        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
+        "409": { description: Stale expectedVersion (`CONFLICT`). }
+        "503":
+          {
+            description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
+          }
+
   /api/v1/listing-sources/{listingSourceId}/product-listings:
     post:
       summary: Batch create product-listings (Partner API)
@@ -259,9 +488,15 @@ paths:
 
         The request body is an array of `UpdateProductListingData` objects. Omitted fields are unchanged;
 
-        `null` clears availability, price, and auction fields. `null` for `url` or `images` returns
+        `null` clears availability and price. Omit `auction` to preserve its context; `auction: null`, `url: null`,
 
-        `400 BAD_BODY_VALUE`; send `[]` to remove all images. The complete batch contract is
+        and `images: null` return `400 BAD_BODY_VALUE`; send `[]` to remove all images. Within an asserted `auction`,
+
+        omit a leaf to preserve it, send `null` to clear a clearable lot/timing leaf, or send a value to set it.
+
+        `auction.auctionId` must name an existing Auction for this ListingSource. Omit it to preserve membership, send
+
+        `null` to clear membership, or send an ID to set it. The complete batch contract is
 
         validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
@@ -431,9 +666,7 @@ paths:
         \ Historia access tokens on this endpoint must include the `product-listings:write` scope.\nAllowed callers are Aura\
         \ Historia admins and users partnered with the target listing source.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
-        \ — omitted or `null` availability, price, estimates, and auction timestamps\n  create no value; a concrete value\
-        \ sets it.\n- **Existing listing** — availability, price, each price estimate, and each auction timestamp\n  are tri-state:\
-        \ omitted preserves, `null` clears, and a concrete value sets. A withdrawn\n  listing is restored before current facts\
+        \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested Auction/lot-facts patch (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction/lot-facts patch, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
         \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
         \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
@@ -498,7 +731,13 @@ paths:
                     images:
                       - https://my-listing-source.com/images/violin-1.jpg
                       - https://my-listing-source.com/images/violin-detail.jpg
-                    auctionEnd: "2025-05-10T12:30:00Z"
+                    auction:
+                      lotNumber: "42A"
+                      cataloguePosition: 7
+                      timing:
+                        biddingOpens: "2025-05-01T08:00:00Z"
+                        scheduledCloses: "2025-05-10T12:30:00Z"
+                        reportedClosedAt: "2025-05-10T12:45:00Z"
               clear_images:
                 summary: Clear an existing product's images
                 value:
@@ -1338,8 +1577,11 @@ paths:
                         url: https://listing-source.example/product-listings/6ba7b810
                         imageCount: 3
                         auction:
-                          start: null
-                          end: null
+                          lotNumber: "42A"
+                          cataloguePosition: 7
+                          biddingOpens: "2026-09-01T08:00:00Z"
+                          scheduledCloses: "2026-09-01T10:00:00Z"
+                          reportedClosedAt: "2026-09-01T10:15:00Z"
                       timestamp: "2026-09-01T10:00:00Z"
                     - eventType: PRODUCT_LISTING_CHANGED
                       productListingId: pl_5xdb465tg1enarx2knf04mxbxj
@@ -1571,6 +1813,18 @@ paths:
             items:
               type: string
             uniqueItems: true
+        - name: auctionId
+          in: query
+          required: false
+          description: Exact resolved Auction membership IDs. Repeat up to 100 distinct strict `auc_` TypeIDs; supplied IDs OR together and intersect all other filters. Listings without resolved membership do not match.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
+            uniqueItems: true
         - name: price
           in: query
           required: false
@@ -1658,15 +1912,15 @@ paths:
                 format: date-time
                 description: Maximum last-updated datetime (inclusive, RFC3339 format)
                 example: "2024-12-31T23:59:59Z"
-        - name: auctionStart
+        - name: lotBiddingOpens
           in: query
           required: false
           description:
-            "Optional filter by auction start datetime range (RFC3339 format).
+            "Optional exact lot-bidding-open range (RFC3339 instants).
 
-            Use `auctionStart[min]` and/or `auctionStart[max]` to specify the bounds.
+            Use `lotBiddingOpens[min]` and/or `lotBiddingOpens[max]` for `[min, max)` bounds.
 
-            Only matches product-listings that have an auction start time set.
+            Date-only and absent lot times never match this filter.
 
             "
           style: deepObject
@@ -1677,22 +1931,22 @@ paths:
               min:
                 type: string
                 format: date-time
-                description: Minimum auction start datetime (inclusive, RFC3339 format)
+                description: Inclusive minimum exact lot bidding-open instant (RFC3339)
                 example: "2025-05-01T00:00:00Z"
               max:
                 type: string
                 format: date-time
-                description: Maximum auction start datetime (inclusive, RFC3339 format)
+                description: Exclusive maximum exact lot bidding-open instant (RFC3339)
                 example: "2025-05-31T23:59:59Z"
-        - name: auctionEnd
+        - name: lotScheduledCloses
           in: query
           required: false
           description:
-            "Optional filter by auction end datetime range (RFC3339 format).
+            "Optional exact lot-scheduled-close range (RFC3339 instants).
 
-            Use `auctionEnd[min]` and/or `auctionEnd[max]` to specify the bounds.
+            Use `lotScheduledCloses[min]` and/or `lotScheduledCloses[max]` for `[min, max)` bounds.
 
-            Only matches product-listings that have an auction end time set.
+            Date-only and absent lot times never match this filter.
 
             "
           style: deepObject
@@ -1703,12 +1957,12 @@ paths:
               min:
                 type: string
                 format: date-time
-                description: Minimum auction end datetime (inclusive, RFC3339 format)
+                description: Inclusive minimum exact lot scheduled-close instant (RFC3339)
                 example: "2025-05-01T00:00:00Z"
               max:
                 type: string
                 format: date-time
-                description: Maximum auction end datetime (inclusive, RFC3339 format)
+                description: Exclusive maximum exact lot scheduled-close instant (RFC3339)
                 example: "2025-05-31T23:59:59Z"
         - name: sort
           in: query
@@ -1739,7 +1993,7 @@ paths:
 
             "
           schema:
-            $ref: "#/components/schemas/ProductListingSearchCursorData"
+            type: string
           example: '{"fxRateId":"fx_0cwktgjtwnf4tb6hf2f8zm0x5k","searchAfter":[2999,"pl_5xdb465tg1enarx2knf04mxbxj"]}'
         - name: size
           in: query
@@ -4421,7 +4675,6 @@ paths:
           schema:
             type: string
           example: usr_01jw7j4azge008000000000004
-        - name: sort
         - name: size
           in: query
           required: false
@@ -11691,6 +11944,14 @@ components:
         Selected partner routes accept this scheme instead of the removed partner API-key flow.
 
         "
+  parameters:
+    ProductListingIdPath:
+      name: productListingId
+      in: path
+      required: true
+      description: Strict `pl_` UUIDv7 ProductListing TypeID.
+      schema: { type: string }
+
   schemas:
     ActorData:
       oneOf:
@@ -11737,6 +11998,10 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
+        auctionId:
+          type: string
+          description: Indexed Auction TypeID association. Omitted when this listing has no Auction association; search and similar results do not hydrate current Auction metadata.
+
         title:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -11817,6 +12082,7 @@ components:
         - viewUrl
         - images
         - auction
+        - lot
         - created
         - updated
       properties:
@@ -11885,25 +12151,55 @@ components:
             - $ref: "#/components/schemas/ContentPolicyData"
           nullable: true
         auction:
-          type: object
-          required:
-            - start
-            - end
-          properties:
-            start:
-              type: string
-              format: date-time
-              nullable: true
-            end:
-              type: string
-              format: date-time
-              nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AuctionSummaryData"
+          nullable: true
+          description: Current parent Auction presentation from the joined PostgreSQL detail read. Null when the listing has no parent Auction.
+        lot:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingLotData"
+          nullable: true
+          description: Listing-owned lot facts. Null when the listing has no lot facts.
         created:
           type: string
           format: date-time
         updated:
           type: string
           format: date-time
+    ProductListingLotData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          lotNumber,
+          cataloguePosition,
+          biddingOpens,
+          scheduledCloses,
+          reportedClosedAt,
+        ]
+      description: Listing-owned lot facts. These facts may exist without a parent Auction.
+      properties:
+        lotNumber:
+          type: string
+          nullable: true
+        cataloguePosition:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+        biddingOpens:
+          type: string
+          format: date-time
+          nullable: true
+        scheduledCloses:
+          type: string
+          format: date-time
+          nullable: true
+        reportedClosedAt:
+          type: string
+          format: date-time
+          nullable: true
     ProductListingPricingData:
       type: object
       properties:
@@ -12030,47 +12326,7 @@ components:
         searchAfter:
           - 2999
           - pl_5xdb465tg1enarx2knf04mxbxj
-    PersonalizedProductListingSearchResultData:
-      type: object
-      description:
-        "Paginated collection of personalized product-listings using cursor-based pagination (search-after pattern).
 
-        Each product may include user-specific state when the request is authenticated.
-
-        "
-      required:
-        - items
-        - size
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
-          description: Array of personalized product summaries in the current page
-        size:
-          type: integer
-          minimum: 0
-          description: Number of product-listings returned in the current page
-          example: 21
-        total:
-          type: integer
-          minimum: 0
-          description: Total number of product-listings matching the query (optional, may not always be available)
-          nullable: true
-          example: 127
-        searchAfter:
-          type: array
-          items: {}
-          description:
-            "Cursor for the next page (JSON value). Present when there are more results.
-
-            Pass this value as the `searchAfter` query parameter to get the next page.
-
-            This can be ANY heterogeneous array.
-
-            "
-          nullable: true
-          example: '[2999, "pl_5xdb465tg1enarx2knf04mxbxj"]'
     ProductListingUserStateData:
       type: object
       description: User-specific state information for a product
@@ -12460,43 +12716,83 @@ components:
 
         "
       example: ACTIVE
-    AuctionData:
+    ProductListingAuctionData:
       type: object
-      description:
-        "Auction time window information for product-listings from auction houses.
-
-        Contains optional start and end timestamps for scheduled auctions.
-
-        At least one of the fields (start or end) must be present when this object is included.
-
-        "
+      additionalProperties: false
+      description: Partner ProductListing nested write patch. `auctionId` must identify an existing Auction for the same ListingSource. Omit it to preserve membership, send null to clear membership, or send a value to set it. Omit a lot/timing leaf to preserve it, send null to clear a clearable leaf, or send a value to set it.
       properties:
-        start:
+        auctionId:
+          type: string
+          nullable: true
+          description: Existing same-ListingSource Aura Auction TypeID. Omit to preserve membership; send null to clear it.
+          example: auc_01jgfjjz4ne2g0000000000000
+        lotNumber:
+          type: string
+          maxLength: 128
+          nullable: true
+          description: Omit to preserve the lot label; send null to clear it; send a value to set it.
+          example: "42A"
+        cataloguePosition:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+          description: Omit to preserve the catalogue position; send null to clear it; send a value to set it.
+          example: 7
+        timing:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionTimesData"
+          nullable: true
+    ProductListingAuctionFactsData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          lotNumber,
+          cataloguePosition,
+          biddingOpens,
+          scheduledCloses,
+          reportedClosedAt,
+        ]
+      description: Immutable historical listing-owned Auction and lot facts. Their presence has no separate meaning. They never expose a source Auction key or shared Auction metadata.
+      properties:
+        auctionId:
+          type: string
+          description: Resolved Aura Auction TypeID. Omitted when no resolved membership is present.
+        lotNumber:
+          type: string
+          nullable: true
+          description: Optional source-assigned lot label.
+        cataloguePosition:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+          nullable: true
+          description: Optional one-based source catalogue position.
+        biddingOpens:
           type: string
           format: date-time
           nullable: true
-          description:
-            "Start datetime of the auction window for this product (RFC3339 format).
-
-            Only present for product-listings from auction houses with scheduled auction start times.
-
-            Used to indicate when bidding begins or when the item will be auctioned.
-
-            "
-          example: "2025-05-01T12:00:00Z"
-        end:
+        scheduledCloses:
           type: string
           format: date-time
           nullable: true
-          description:
-            "End datetime of the auction window for this product (RFC3339 format).
+        reportedClosedAt:
+          type: string
+          format: date-time
+          nullable: true
 
-            Only present for product-listings from auction houses with scheduled auction end times.
+    ProductListingAuctionTimesData:
+      type: object
+      additionalProperties: false
+      description: Omit each leaf to preserve it; send null to clear it; values are RFC3339 instants.
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        scheduledCloses: { type: string, format: date-time, nullable: true }
+        reportedClosedAt: { type: string, format: date-time, nullable: true }
 
-            Used to indicate when bidding ends or when the auction session concludes.
-
-            "
-          example: "2025-05-10T12:00:00Z"
     PriceEstimateData:
       type: object
       description: "Price estimate range for a product.
@@ -12639,7 +12935,9 @@ components:
           format: int64
           minimum: 0
         auction:
-          $ref: "#/components/schemas/AuctionData"
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
+          nullable: true
     ProductListingChangedHistoryPayloadData:
       type: object
       required:
@@ -12769,9 +13067,13 @@ components:
           enum:
             - AUCTION_CHANGED
         previous:
-          $ref: "#/components/schemas/AuctionData"
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
+          nullable: true
         current:
-          $ref: "#/components/schemas/AuctionData"
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionFactsData"
+          nullable: true
     ProductListingWithdrawalHistoryChangeData:
       type: object
       required:
@@ -12899,6 +13201,15 @@ components:
             type: string
           uniqueItems: true
           description: ListingSource IDs to exclude.
+          nullable: true
+        auctionId:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          maxItems: 100
+          nullable: true
+          description: Exact resolved Auction membership IDs. Omit to preserve; `null` clears.
         price:
           allOf: &id004
             - $ref: "#/components/schemas/RangeQueryUInt64"
@@ -12926,11 +13237,11 @@ components:
           allOf: &id008
             - $ref: "#/components/schemas/RangeQueryDateTime"
           nullable: true
-        auctionStart:
+        lotBiddingOpens:
           allOf: &id009
             - $ref: "#/components/schemas/RangeQueryDateTime"
           nullable: true
-        auctionEnd:
+        lotScheduledCloses:
           allOf: &id010
             - $ref: "#/components/schemas/RangeQueryDateTime"
           nullable: true
@@ -13017,7 +13328,7 @@ components:
     PatchProductListingSearchData:
       type: object
       description:
-        Partial ProductListing search criteria. Omitted fields are unchanged. `enhancedSearchDescription`, price,
+        Partial ProductListing search criteria. Omitted fields are unchanged. `enhancedSearchDescription`, `auctionId`, price,
         date ranges, and the availability query may be cleared with `null`; availability, orderability, and includeUnspecifiedAvailability`
         must be supplied together or all be `null`.
       properties:
@@ -13047,7 +13358,13 @@ components:
           items: *id003
           uniqueItems: true
           description: ListingSource IDs to exclude.
-          nullable: true
+        auctionId:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          maxItems: 100
+          description: Exact resolved Auction membership IDs. Values use strict `auc_` TypeIDs and OR together.
         price:
           allOf: *id004
           nullable: true
@@ -13070,10 +13387,10 @@ components:
         updated:
           allOf: *id008
           nullable: true
-        auctionStart:
+        lotBiddingOpens:
           allOf: *id009
           nullable: true
-        auctionEnd:
+        lotScheduledCloses:
           allOf: *id010
           nullable: true
     UserSearchFilterData:
@@ -14815,6 +15132,7 @@ components:
             page exists.
     CreateProductListingData:
       type: object
+      additionalProperties: false
       description:
         "Data for creating a single product via the partner batch-create endpoint.
 
@@ -14868,18 +15186,10 @@ components:
           example:
             - https://my-listing-source.com/images/violin-1.jpg
             - https://my-listing-source.com/images/violin-2.jpg
-        auctionStart:
-          type: string
-          format: date-time
-          nullable: true
-          description: Optional RFC3339 auction timestamp.
-          example: "2025-05-01T12:00:00Z"
-        auctionEnd:
-          type: string
-          format: date-time
-          nullable: true
-          description: Optional RFC3339 auction timestamp.
-          example: "2025-05-10T12:00:00Z"
+        auction:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionData"
+          description: Omit for no Auction or lot changes, or send an asserted nested Auction/lot-facts patch. `null` is invalid. `auctionId` must identify an existing Auction for this ListingSource.
     PartnerProductListingBatchFailuresResponse:
       type: array
       description:
@@ -14920,12 +15230,13 @@ components:
           example: baroque-violin-001
     UpdateProductListingData:
       type: object
+      additionalProperties: false
       description:
         "Data for synchronously updating one ProductListing. Omitted fields remain unchanged.
 
-        `availability: null` clears the current assertion. `null` clears price and auction fields;
+        `availability: null` clears the current assertion and `price: null` clears price. Omit `auction` to preserve
 
-        `url` and `images` reject null. Send `images: []` to remove all images.
+        its context; `auction: null`, `url: null`, and `images: null` are invalid. Send `images: []` to remove all images.
 
         "
       required:
@@ -14968,28 +15279,23 @@ components:
           description: Omit to leave unchanged. Send [] to remove all images; null is invalid.
           example:
             - https://my-listing-source.com/images/violin-1.jpg
-        auctionStart:
-          type: string
-          format: date-time
-          nullable: true
-          description: Omit to leave unchanged. Send null to clear the auction start.
-          example: "2026-04-10T10:00:00Z"
-        auctionEnd:
-          type: string
-          format: date-time
-          nullable: true
-          description: Omit to leave unchanged. Send null to clear the auction end.
-          example: "2026-04-10T12:00:00Z"
+        auction:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionData"
+          description: Omit to leave unchanged. Send an object to apply nested lot/timing leaf patches. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send null to clear it, or send an ID to set it. `null` for `auction` is invalid.
     UpsertProductListingData:
       type: object
+      additionalProperties: false
       description:
         "Data for synchronously upserting one ProductListing. Only `sourceListingId` is required.
 
-        Availability, price, each price estimate, and each auction timestamp are tri-state: omitted
+        Availability, price, and each price estimate are tri-state: omitted preserves an existing
 
-        preserves an existing value, `null` clears it, and a concrete value sets it. On creation,
+        value, `null` clears it, and a concrete value replaces it. The nested Auction/lot-facts patch is omitted
 
-        omitted and `null` both mean no value. Upsert restores a withdrawn listing before current
+        to preserve stored facts or supplied as a leaf patch; `null` is invalid. Within an asserted patch, lot/timing leaves
+
+        omit to preserve, use `null` to clear, or provide a value to set. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. Upsert restores a withdrawn listing before current
 
         facts apply. Images and URL use the field-specific rules documented below.
 
@@ -15056,18 +15362,10 @@ components:
           example:
             - https://my-listing-source.com/images/violin-1.jpg
             - https://my-listing-source.com/images/violin-2.jpg
-        auctionStart:
-          type: string
-          format: date-time
-          nullable: true
-          description: Optional RFC3339 auction timestamp.
-          example: "2025-05-01T12:00:00Z"
-        auctionEnd:
-          type: string
-          format: date-time
-          nullable: true
-          description: Optional RFC3339 auction timestamp.
-          example: "2025-05-10T12:00:00Z"
+        auction:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingAuctionData"
+          description: Omit to preserve the current context or send an object to apply nested leaf patches. `auctionId` must identify an existing Auction for this ListingSource; omit it to preserve membership, send null to clear it, or send an ID to set it. `null` for `auction` is invalid.
     WoocommerceProductWebhookImageData:
       type: object
       description: Image object extracted from a WooCommerce product payload.
@@ -15130,7 +15428,7 @@ components:
           description:
             "Optional WooCommerce price string for a captured `status: publish` UPSERT.
 
-            Intake writes raw-values V2 `MACHINE_DECIMAL`. A nonblank value must be an untrimmed unsigned ASCII decimal
+            Intake writes current raw-values schema `1` with `MACHINE_DECIMAL`. A nonblank value must be an untrimmed unsigned ASCII decimal
 
             (`digits` or `digits.digits`): no whitespace, signs, grouping separators, or currency symbols. A nonblank
 
@@ -16042,6 +16340,347 @@ components:
           enum:
             - APPROVE
             - REJECT
+    CreateAuctionData:
+      type: object
+      additionalProperties: false
+      required: [listingSourceId, sourceAuctionId]
+      properties:
+        listingSourceId:
+          type: string
+          description: Strict ListingSource TypeID.
+        sourceAuctionId:
+          type: string
+          maxLength: 512
+          description: 1–512 UTF-8 bytes after outer Unicode-whitespace trimming; case and internal whitespace are preserved.
+        name:
+          $ref: "#/components/schemas/LocalizedTextData"
+        catalogueUrl:
+          type: string
+          format: uri
+        format:
+          $ref: "#/components/schemas/AuctionFormatData"
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleInputData"
+        reportedStatus:
+          $ref: "#/components/schemas/AuctionReportedStatusData"
+        reportedLotCount:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+    UpdateAuctionData:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      description: Omitted members are unchanged. Nullable members explicitly clear their value.
+      properties:
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 1
+        name:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+        catalogueUrl:
+          type: string
+          format: uri
+          nullable: true
+        format:
+          allOf: [{ $ref: "#/components/schemas/AuctionFormatData" }]
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionSchedulePatchData"
+        reportedStatus:
+          allOf: [{ $ref: "#/components/schemas/AuctionReportedStatusData" }]
+          nullable: true
+        reportedLotCount:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          nullable: true
+    PublicAuctionDirectoryData:
+      type: object
+      additionalProperties: false
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicAuctionDirectoryItemData"
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/PublicAuctionDirectoryCursorData"
+          nullable: true
+          description: Omitted on the terminal page. Send the complete JSON value as the `searchAfter` query parameter.
+    PublicAuctionDirectoryItemData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          auctionId,
+          listingSource,
+          name,
+          format,
+          schedule,
+          reportedStatus,
+          created,
+        ]
+      properties:
+        auctionId:
+          type: string
+          description: Strict `auc_` UUIDv7 TypeID.
+        listingSource:
+          $ref: "#/components/schemas/PublicAuctionSourceData"
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleData"
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        created:
+          type: string
+          format: date-time
+    PublicAuctionData:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          auctionId,
+          listingSource,
+          name,
+          catalogueUrl,
+          viewUrl,
+          format,
+          schedule,
+          reportedStatus,
+          reportedLotCount,
+          visibleListingCount,
+        ]
+      properties:
+        auctionId:
+          type: string
+          description: Strict `auc_` UUIDv7 TypeID.
+        listingSource:
+          $ref: "#/components/schemas/PublicAuctionSourceData"
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        catalogueUrl:
+          type: string
+          format: uri
+          nullable: true
+        viewUrl:
+          type: string
+          format: uri
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleData"
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        reportedLotCount:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        visibleListingCount:
+          type: integer
+          format: int64
+          minimum: 0
+    PublicAuctionSourceData:
+      type: object
+      additionalProperties: false
+      required: [listingSourceId, name, slugId]
+      properties:
+        listingSourceId:
+          type: string
+        name:
+          type: string
+        slugId:
+          type: string
+    PublicAuctionDirectoryCursorData:
+      type: object
+      additionalProperties: false
+      required: [created, auctionId, scope]
+      properties:
+        created:
+          type: string
+          format: date-time
+        auctionId:
+          type: string
+        scope:
+          $ref: "#/components/schemas/PublicAuctionDirectoryCursorScopeData"
+    PublicAuctionDirectoryCursorScopeData:
+      type: object
+      additionalProperties: false
+      required: [listingSourceId, format, reportedStatus, timeRole, from, to]
+      properties:
+        listingSourceId:
+          type: string
+          nullable: true
+        format:
+          allOf:
+            - $ref: "#/components/schemas/AuctionFormatData"
+          nullable: true
+        reportedStatus:
+          allOf:
+            - $ref: "#/components/schemas/AuctionReportedStatusData"
+          nullable: true
+        timeRole:
+          type: string
+          enum: [BIDDING_OPENS, LIVE_STARTS, LOTS_BEGIN_CLOSING, SCHEDULED_END]
+          nullable: true
+        from:
+          type: string
+          format: date-time
+          nullable: true
+        to:
+          type: string
+          format: date-time
+          nullable: true
+    PublicAuctionCatalogueData:
+      type: object
+      additionalProperties: false
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/PublicAuctionCatalogueCursorData"
+          nullable: true
+          description: Omitted on the terminal page. Send the complete JSON value as the `searchAfter` query parameter.
+    PublicAuctionCatalogueCursorData:
+      type: object
+      additionalProperties: false
+      required: [auctionId, cataloguePosition, productListingId]
+      properties:
+        auctionId:
+          type: string
+        cataloguePosition:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        productListingId:
+          type: string
+    AuctionAdminData:
+      type: object
+      required:
+        [
+          auctionId,
+          listingSourceId,
+          sourceAuctionId,
+          name,
+          catalogueUrl,
+          format,
+          schedule,
+          reportedStatus,
+          reportedLotCount,
+          expectedVersion,
+          created,
+          updated,
+        ]
+      properties:
+        auctionId: { type: string, description: Strict `auc_` UUIDv7 TypeID. }
+        listingSourceId: { type: string }
+        sourceAuctionId: { type: string }
+        name:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+        catalogueUrl: { type: string, format: uri, nullable: true }
+        format:
+          allOf: [{ $ref: "#/components/schemas/AuctionFormatData" }]
+          nullable: true
+        schedule: { $ref: "#/components/schemas/AuctionScheduleData" }
+        reportedStatus:
+          allOf: [{ $ref: "#/components/schemas/AuctionReportedStatusData" }]
+          nullable: true
+        reportedLotCount: { type: integer, format: int64, nullable: true }
+        expectedVersion: { type: integer, format: int64, minimum: 1 }
+        created: { type: string, format: date-time }
+        updated: { type: string, format: date-time }
+    AuctionFormatData:
+      type: string
+      enum: [LIVE, TIMED]
+    AuctionReportedStatusData:
+      type: string
+      enum: [SCHEDULED, IN_PROGRESS, ENDED, POSTPONED, CANCELLED]
+
+    AuctionSummaryData:
+      type: object
+      additionalProperties: false
+      required: [auctionId, schedule]
+      description: Safe current parent Auction presentation included by PostgreSQL full-detail ProductListing reads.
+      properties:
+        auctionId:
+          type: string
+          description: Strict `auc_` UUIDv7 TypeID.
+        name:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+        format:
+          allOf: [{ $ref: "#/components/schemas/AuctionFormatData" }]
+          nullable: true
+        reportedStatus:
+          allOf: [{ $ref: "#/components/schemas/AuctionReportedStatusData" }]
+          nullable: true
+        schedule:
+          $ref: "#/components/schemas/AuctionScheduleData"
+    AuctionScheduleData:
+      type: object
+      additionalProperties: false
+      required: [biddingOpens, liveStarts, lotsBeginClosing, scheduledEnd]
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
+    AuctionScheduleInputData:
+      type: object
+      additionalProperties: false
+      description: Sparse Auction create schedule. Omitted roles remain absent.
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
+    AuctionSchedulePatchData:
+      type: object
+      additionalProperties: false
+      description: Omitted roles are unchanged; `null` clears an asserted RFC3339 instant.
+      properties:
+        biddingOpens: { type: string, format: date-time, nullable: true }
+        liveStarts: { type: string, format: date-time, nullable: true }
+        lotsBeginClosing: { type: string, format: date-time, nullable: true }
+        scheduledEnd: { type: string, format: date-time, nullable: true }
     ProductListingSourceData:
       type: object
       description: ListingSource presentation hydrated for a ProductListing response.
@@ -16061,6 +16700,7 @@ x-tagGroups:
     tags:
       - ProductListings
       - ListingSources
+      - Auctions
   - name: User Experience
     tags:
       - Search Filters
@@ -16076,6 +16716,8 @@ x-tagGroups:
       - OAuth
 
 tags:
+  - name: Auctions
+    description: Public Auction discovery, catalogue reads, and administrator Auction management.
   - name: ProductListings
     description:
       Product retrieval, product history, similar-product discovery, product search, and partner catalog ingestion

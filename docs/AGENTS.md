@@ -39,6 +39,7 @@
 ## Child DOX Index
 
 - `admin-overview.md` — administrator overview source and count semantics.
+- `auction.md` — Auction domain contract and current implementation status.
 - `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
 - `public-listing-source-search.md` — frozen #1634/#1602 public ListingSource collection and slug-read contract.
 - `public-listing-source-search-performance.md` — opt-in public ListingSource PostgreSQL plan and local timing record.

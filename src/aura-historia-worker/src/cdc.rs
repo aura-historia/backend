@@ -8,6 +8,7 @@ use notification_core::notification_delivery_id::NotificationDeliveryId;
 use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
+    product_listing_auction::LotNumber,
     product_listing_id::{ProductListingId, ProductListingKey},
     source_listing_id::SourceListingId,
     title::Title,
@@ -1134,21 +1135,86 @@ fn validate_auction_change(value: &Value) -> Result<(), CdcRouteError> {
     Ok(())
 }
 
-fn validate_auction(
-    value: &Value,
-    field: &str,
-) -> Result<(Option<OffsetDateTime>, Option<OffsetDateTime>), CdcRouteError> {
+fn validate_auction(value: &Value, field: &str) -> Result<Option<Value>, CdcRouteError> {
+    if value.is_null() {
+        return Ok(None);
+    }
     let object = required_object(value)?;
-    require_exact_keys(object, &["start", "end"], field)?;
-    let start =
-        parse_nullable_timestamp(require_value(object, "start")?, &format!("{field}.start"))?;
-    let end = parse_nullable_timestamp(require_value(object, "end")?, &format!("{field}.end"))?;
-    if start.zip(end).is_some_and(|(start, end)| start > end) {
+    require_exact_keys(
+        object,
+        &[
+            "auctionId",
+            "lotNumber",
+            "cataloguePosition",
+            "lotBiddingOpensAt",
+            "lotScheduledClosesAt",
+            "lotReportedClosedAt",
+        ],
+        field,
+    )?;
+
+    match require_value(object, "auctionId")? {
+        Value::Null => {}
+        Value::String(value) => {
+            let auction_id = parse_canonical_storage_uuid(
+                value,
+                || invalid_product_listing_field(format!("{field}.auctionId")),
+                || noncanonical_product_listing_field(format!("{field}.auctionId")),
+            )?;
+            if auction_id.get_version_num() != 7 {
+                return Err(invalid_product_listing_field(format!("{field}.auctionId")));
+            }
+        }
+        _ => return Err(invalid_product_listing_field(format!("{field}.auctionId"))),
+    }
+    match require_value(object, "lotNumber")? {
+        Value::Null => {}
+        Value::String(value) => {
+            let parsed = LotNumber::try_from(value.as_str())
+                .map_err(|_| invalid_product_listing_field(format!("{field}.lotNumber")))?;
+            if parsed.as_str() != value {
+                return Err(noncanonical_product_listing_field(format!(
+                    "{field}.lotNumber"
+                )));
+            }
+        }
+        _ => return Err(invalid_product_listing_field(format!("{field}.lotNumber"))),
+    }
+    match require_value(object, "cataloguePosition")? {
+        Value::Null => {}
+        value => {
+            let position = value.as_u64().ok_or_else(|| {
+                invalid_product_listing_field(format!("{field}.cataloguePosition"))
+            })?;
+            if position == 0 || position > u64::from(u32::MAX) {
+                return Err(invalid_product_listing_field(format!(
+                    "{field}.cataloguePosition"
+                )));
+            }
+        }
+    }
+    let bidding_opens = parse_nullable_timestamp(
+        require_value(object, "lotBiddingOpensAt")?,
+        format!("{field}.lotBiddingOpensAt").as_str(),
+    )?;
+    let scheduled_closes = parse_nullable_timestamp(
+        require_value(object, "lotScheduledClosesAt")?,
+        format!("{field}.lotScheduledClosesAt").as_str(),
+    )?;
+    let _reported_closed_at = parse_nullable_timestamp(
+        require_value(object, "lotReportedClosedAt")?,
+        format!("{field}.lotReportedClosedAt").as_str(),
+    )?;
+    if bidding_opens
+        .zip(scheduled_closes)
+        .is_some_and(|(open, close)| open > close)
+    {
         return Err(CdcRouteError::InconsistentProductListingEvent {
-            rule: format!("{field} start after end"),
+            rule: format!("{field} bidding opens after scheduled close"),
         });
     }
-    Ok((start, end))
+
+    Ok(Some(value.clone()))
 }
 
 fn validate_lifecycle(
@@ -1742,7 +1808,7 @@ mod tests {
                 "availability": null,
                 "url": "https://example.test/product",
                 "imageCount": 0,
-                "auction": {"start": null, "end": null}
+                "auction": null
             }),
             ("PRODUCT_LISTING_CHANGED", "DOMAIN") => serde_json::json!({
                 "availability": {"previous": null, "current": "AVAILABLE"}
@@ -2038,7 +2104,7 @@ mod tests {
                     "availability": null,
                     "url": "https://example.test/product",
                     "imageCount": 0,
-                    "auction": {"start": null, "end": null}
+                    "auction": null
                 }),
                 true,
             ),
@@ -2454,23 +2520,37 @@ mod tests {
             pricing.remove("price");
         }
 
-        let mut omitted_auction_start =
+        let mut omitted_auction_membership =
             product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
-        if let Some(payload) = omitted_auction_start
+        if let Some(payload) = omitted_auction_membership
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+        {
+            payload["auction"] = serde_json::json!({
+                "auctionId": null,
+                "lotNumber": null,
+                "cataloguePosition": null,
+                "lotBiddingOpensAt": null,
+                "lotScheduledClosesAt": null,
+                "lotReportedClosedAt": null
+            });
+        }
+        if let Some(payload) = omitted_auction_membership
             .record
             .as_mut()
             .and_then(|record| record.get_mut("payload"))
             .and_then(|payload| payload.get_mut("auction"))
             && let Some(auction) = payload.as_object_mut()
         {
-            auction.remove("start");
+            auction.remove("auctionId");
         }
 
         let cases = vec![
             ("unknown discovery field", unknown_discovery),
             ("omitted nullable discovery field", omitted_title),
             ("omitted pricing field", omitted_price),
-            ("omitted auction field", omitted_auction_start),
+            ("omitted auction field", omitted_auction_membership),
             (
                 "unknown localized field",
                 product_event_change_with_payload(
@@ -2485,7 +2565,7 @@ mod tests {
                         "availability": null,
                         "url": "https://example.test/product",
                         "imageCount": 0,
-                        "auction": {"start": null, "end": null}
+                        "auction": null
                     }),
                 ),
             ),
@@ -2503,7 +2583,7 @@ mod tests {
                         "availability": null,
                         "url": "https://example.com:443/product",
                         "imageCount": 0,
-                        "auction": {"start": null, "end": null}
+                        "auction": null
                     }),
                 ),
             ),
@@ -2561,30 +2641,61 @@ mod tests {
                 ),
             ),
             (
-                "invalid auction timestamp",
-                product_event_change_with_payload(
-                    "PRODUCT_LISTING_CHANGED",
-                    "DOMAIN",
-                    serde_json::json!({
-                        "auction": {
-                            "previous": {"start": "not a timestamp", "end": null},
-                            "current": {"start": null, "end": null}
-                        }
-                    }),
-                ),
-            ),
-            (
-                "auction start after end",
+                "invalid lot auction timestamp",
                 product_event_change_with_payload(
                     "PRODUCT_LISTING_CHANGED",
                     "DOMAIN",
                     serde_json::json!({
                         "auction": {
                             "previous": {
-                                "start": "2025-01-02T00:00:00Z",
-                                "end": "2025-01-01T00:00:00Z"
+                                "auctionId": null,
+                                "lotNumber": null,
+                                "cataloguePosition": null,
+                                "lotBiddingOpensAt": "not a timestamp",
+                                "lotScheduledClosesAt": null,
+                                "lotReportedClosedAt": null
                             },
-                            "current": {"start": null, "end": null}
+                            "current": null
+                        }
+                    }),
+                ),
+            ),
+            (
+                "date-only lot auction timestamp",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {
+                                "auctionId": null,
+                                "lotNumber": null,
+                                "cataloguePosition": null,
+                                "lotBiddingOpensAt": "2025-01-01",
+                                "lotScheduledClosesAt": null,
+                                "lotReportedClosedAt": null
+                            },
+                            "current": null
+                        }
+                    }),
+                ),
+            ),
+            (
+                "lot bidding opens after scheduled close",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {
+                                "auctionId": null,
+                                "lotNumber": null,
+                                "cataloguePosition": null,
+                                "lotBiddingOpensAt": "2025-01-02T00:00:00Z",
+                                "lotScheduledClosesAt": "2025-01-01T00:00:00Z",
+                                "lotReportedClosedAt": null
+                            },
+                            "current": null
                         }
                     }),
                 ),
@@ -2651,6 +2762,22 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_retired_auction_start_end_event_shape() {
+        let change = product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            serde_json::json!({
+                "auction": {
+                    "previous": {"start": null, "end": null},
+                    "current": null
+                }
+            }),
+        );
+
+        assert!(route_change(&change).is_err());
+    }
+
+    #[test]
     fn should_accept_product_listing_v1_positive_contract_matrix() {
         let cases = [
             product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN"),
@@ -2663,6 +2790,23 @@ mod tests {
                 "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
                 serde_json::json!({"images": {"previousCount": 2, "currentCount": 2}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "auction": {
+                        "previous": null,
+                        "current": {
+                            "auctionId": null,
+                            "lotNumber": "42A",
+                            "cataloguePosition": 7,
+                            "lotBiddingOpensAt": "2026-10-01T08:00:00Z",
+                            "lotScheduledClosesAt": "2026-10-05T18:32:00Z",
+                            "lotReportedClosedAt": null
+                        }
+                    }
+                }),
             ),
             product_event_change_with_payload(
                 "PRODUCT_LISTING_CHANGED",
