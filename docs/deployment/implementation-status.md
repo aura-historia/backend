@@ -6,6 +6,14 @@
 
 2026-09-13: clean `task/#1412-deployment` at `cf65af2c64bd3930908b3890b64636817291fc3c`. Local branch, cached tracking ref and read-only `git ls-remote origin refs/heads/task/#1412-deployment` all match. Earlier history preserved; no reset, force-push, merge or production deployment. Historical checks/commits are in `implementation-history.md`, not fresh validation or an active roadmap.
 
+## C1 — CI repair and legacy source guard
+
+2026-09-15: local C1 implementation starts from `eb9fb207672da624765fa854d01ec2bb6f504182`; implementation commit `920ce01fd5eab03710301603b4a9dbf4c5d8dceb`. Branch was not pushed. Cargo jobs now bind `COMMIT_SHA` to their actual checkout, Rust matrix jobs pull and inspect the checked-in Postgres reference before tests, and the fixture receives the inspected local ID. The new `deployment-checks` job runs the actual Compose-config test and permits only the cached-helper mount skip. The legacy `deploy.yml` is now a manual refusal with no deployment logic or credentials.
+
+Local evidence: Rust1.98.0 `cargo fmt --all -- --check`, `cargo depgraph-check check`, locked workspace Clippy with `-D warnings -D clippy::result-large-err`, and the narrow test-api fixture suite passed (`29` passed, `3` ignored; fake Docker only). Helper/runner regressions passed (`14` tests); the sanitized lightweight deployment runner passed (`198` tests, exactly one skip: the documented cached-helper test). Workflow YAML parsed; `actionlint` was unavailable. The real GHCR pull/image-ID preparation and `admin-overview-postgres`/`fxrate-postgres` disposable-runner tests were not run because this host is not an authorized isolated runner. PR CI is pending because no push or remote run was authorized. No C2, OpenSearch upgrade, live, or deployment operation was performed.
+
+Deployment readiness remains **false**. This branch source guard does not disable workflow copies on `develop`/`prod`, cancel in-flight runs, revoke roles, or change GitHub settings.
+
 Models: orchestrator GPT-6-Astra; delegation exposes no model selector. Requested Terra cannot be selected. Actual agent identities/results recorded below.
 
 ## Active sequence
