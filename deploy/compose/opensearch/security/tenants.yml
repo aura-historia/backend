@@ -1,0 +1,4 @@
+# No tenants or Dashboards access.
+_meta:
+  type: tenants
+  config_version: 2

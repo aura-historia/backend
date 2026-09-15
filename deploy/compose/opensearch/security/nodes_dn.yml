@@ -1,0 +1,4 @@
+# Node trust is the exact static nodes_dn in opensearch.yml, not dynamic grants.
+_meta:
+  type: nodesdn
+  config_version: 2

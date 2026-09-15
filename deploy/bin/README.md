@@ -32,6 +32,25 @@ The rehearsal verifies candidate start before switch, exact active Caddy configu
 
 The test has a30min bound and exact-owner cleanup. Unknown commands or unverified mixed state retain the printed journal/projects for inspection; never blindly rerun, delete by broad prefix, or prune. Test cleanup is not rollback. Caddy alone is technically egress-capable; fixture apps/platform are internal-only. No active SQS send/receipt/delete/redelivery or paid operation is credited.
 
+## Explicit OpenSearch setup command
+
+`opensearch initialize-fresh|verify` is separate platform setup, **never an application-release phase**. It loads current checked-in mappings/RRF from paths relative to the installation root. Install `deploy/bin/opensearch`, `opensearch/mappings/`, and `opensearch/hybrid-search-pipeline.json` together; the node separately needs the reviewed `opensearch/analysis/` files. Run with Python3 and protected environment inputs:
+
+| Input | Contract |
+|---|---|
+| `STAGE` | Exactly `dev` |
+| `OPENSEARCH_ENDPOINT_URL` | Direct HTTPS origin; no trailing slash, credentials, query or fragment |
+| `OPENSEARCH_CLUSTER_NAME` | Exact authorized cluster name |
+| `OPENSEARCH_SSL_ROOT_CERT` | Trusted public CA PEM |
+| `OPENSEARCH_ADMIN_CERT` | Separate admin client certificate PEM |
+| `OPENSEARCH_ADMIN_KEY` | Unencrypted private key, regular nonempty file, current-user-owned0600 |
+
+Hold the **existing deployment state-directory `lock` flock** and exclusive target custody for setup/inspection; this command does not acquire the lock itself. Fence writers, freeze reviewed inputs and independently verify the authorized target. No proxy/redirect/retry; verified CA/hostname and exact OpenSearch3.1.0/cluster gate. This unmaintained version is **compatibility-only, not approved live deployment**. See [native setup](../compose/README.md#secured-opensearch-fresh-setup).
+
+`initialize-fresh` requires both named indices and the pipeline absent before creating anything, then reads back mappings, declared settings/all analysis definitions and pipeline. `verify` performs only metadata GETs **with the admin certificate**, not a restricted verifier; it is not a check of all engine defaults or server-side synonym-file contents. Neither operation invokes securityadmin, adopts state, repairs drift, migrates or deletes data.
+
+Exit0 means verified; exit1 is a redacted failure; exit2 is usage. Output gives phase and whether writes were attempted. Once a PUT was attempted, failure means **partial/unknown: preserve custody and inspect, never blindly retry or assume rollback**. Work budget90s/socket10s/input-response1MiB; an outer watchdog must also bound output/process teardown. Timeout or runner loss does not prove remote work stopped. Security setup has its own separate non-atomic outcome. Removing tooling does not undo either operation.
+
 ## Install and prepare — operator authority required
 
 Do not run real-host setup until R3 trust/bootstrap/provider gates are resolved. Installation and first adoption are deliberate operator steps, not actions triggered by a builder or release file.

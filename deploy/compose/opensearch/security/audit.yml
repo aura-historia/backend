@@ -1,0 +1,15 @@
+# No request bodies or audit sink. Logs are not a compliance audit trail.
+_meta:
+  type: audit
+  config_version: 2
+config:
+  enabled: false
+  audit:
+    enable_rest: false
+    enable_transport: false
+    log_request_body: false
+    resolve_bulk_requests: false
+    resolve_indices: false
+    exclude_sensitive_headers: true
+  compliance:
+    enabled: false

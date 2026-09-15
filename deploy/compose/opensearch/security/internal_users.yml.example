@@ -1,0 +1,27 @@
+# NOT RUNNABLE. Deliberately no internal_users.yml, password or dummy bcrypt hash.
+# Operator: create a native internal_users.yml in a private directory (0700), file
+# 0600, owned/readable by the one-shot tool UID. For each fixed user below generate
+# a distinct strong password and bcrypt hash with the STOCK interactive tool:
+# /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh
+# Never use -p (password in argv), shell tracing or shared terminal/log capture.
+# Replace each null with its generated bcrypt string in the protected file ONLY.
+# Store runtime basic credentials in protected service env files, not this repo.
+# No backend_roles/opendistro_security_roles. Only roles_mapping.yml grants access.
+_meta:
+  type: internalusers
+  config_version: 2
+aura_reader:
+  hash: null
+  backend_roles: []
+aura_product_projector:
+  hash: null
+  backend_roles: []
+aura_filter_projector:
+  hash: null
+  backend_roles: []
+aura_percolator:
+  hash: null
+  backend_roles: []
+aura_cron:
+  hash: null
+  backend_roles: []

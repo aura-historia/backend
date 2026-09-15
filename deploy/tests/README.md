@@ -49,6 +49,27 @@ Work600s + cleanup90s; external timeout780s. Any acceptance/unknown-command fail
 
 Limits: synthetic superuser initialization and read-only verifier, not real runtime write grants, complete DDL drift, TTL-worker health, crash/commit-loss coverage, cross-target atomicity or live authority. TTL worker is not started in this snapshot fixture. Plaintext HBA exists only to detect client fallback; never reuse it in dev. Image source label describes the baseline plus uncommitted implementation, not clean-source provenance. No new SQL, adoption, repair, incremental upgrade or backfill machinery.
 
+## Secured stock OpenSearch rehearsal
+
+From repo root, with Python3/OpenSSL and local Linux/amd64 Docker/Compose:
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 -m unittest discover -s deploy/tests -p 'test_*.py'
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 deploy/tests/smoke-opensearch.py --reviewed-run
+```
+
+**Full rehearsal PASS; independent exact-command repeat PASS; all180 deployment Python tests PASS.** Cached stock image `sha256:0dd81b2051dc9ccd9e466596aa66b7764b55184886eeccd36c1cf17bdf5ed27d` and Python helper `sha256:adbdfc3fab194e4291b7e5db1eaa1dfa997ea8a51e5a50229bec60124374deb8`; no builds/pulls/cloud credentials. Stock OpenSearch3.1.0/Security3.1.0.0 is an **unmaintained compatibility fixture, not an approved live engine**.
+
+Tests execute checked-in native security tools/configuration and `deploy/bin/opensearch`: fresh mappings/RRF, GET-only admin verification, missing/partial/repeated/populated refusal; all five runtime roles; projector own-index writes, standard denials and exact item-level bulk denials. Content-free external-version fences survive older/equal writes beyond delete GC and after restart. Synthetic768-vector hybrid search and multipage PIT percolation succeed. Wrong CA/hostname/password/plaintext and node/unregistered admin certificates reject. Same-container restart preserves checked logical data/security/settings. No filtering of system alias entries or security snapshot sections; hashes do not attest all plugin/physical state or exclude transient writes.
+
+Native ML health waits for **one active shard**, not yellow status alone, before baselines/restart verification. Stock may report yellow with zero active primaries during creation. All five Query Insights settings are checked disabled/exporter none, with no exported insight indices at checkpoints. Security REST management denial does not require the response to echo a username; exact stock authorization signature and unchanged snapshots are required. Original denial/health responses remain bounded/private for diagnosis, never printed.
+
+Isolation: unique internal network/owned disposable data volume; no published ports, inherited credentials or external providers. Frozen source hashes checked before parsing; exact model/runtime/mount/ownership checks. Synthetic CA/node/admin/runtime credentials separated; admin tool UID1000, no admin key mounted to node. Work1200s + successful cleanup90s; use1380s external timeout. Failures retain exact ownership/evidence; inspect completed commands and exact resources before scoped cleanup. No blind rerun/prune. Both successful runs left no owned resources/temp directories; cached images retained.
+
+Limits: REST/platform compatibility, **not Rust-client CA wiring**, active CDC, application startup against this secured node, expired-certificate/rotation testing, host/daemon reboot, maintained-engine or live-dev acceptance. The node restart is not a host reboot. [Operator setup](../compose/README.md#secured-opensearch-fresh-setup) remains separate and requires real inputs/authority.
+
 ## Build and run
 
 Requires local Linux/amd64 Docker at `/var/run/docker.sock`, Python3, the existing PostgreSQL fixture image and the reviewed application/helper images. Build instructions: `../images/README.md`. Public registry/package downloads occur during build/pull only; the smoke never pulls.

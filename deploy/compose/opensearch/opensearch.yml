@@ -1,0 +1,40 @@
+# Stock OpenSearch 3.1.0 only; isolated compatibility input, NOT a maintained live pin.
+# Integrator: DISABLE_INSTALL_DEMO_CONFIG=true; NEVER DISABLE_SECURITY_PLUGIN=true.
+# Mount this file at config/opensearch.yml and repo opensearch/analysis at config/analysis.
+# Supply node cert (serverAuth + clientAuth; SAN opensearch), unencrypted PKCS8 node
+# key, and CA at the relative paths below, read-only and readable by the node UID.
+# Replace example cluster/DNs to match operator-issued certs; no demo certs.
+# NEVER mount admin key/cert or the native internal_users file into this node.
+cluster.name: aura-dev-search
+node.name: opensearch
+network.host: 0.0.0.0
+discovery.type: single-node
+action.auto_create_index: false
+# Fresh setup only: stock Query Insights otherwise captures and exports query bodies.
+# Changing an existing local_index exporter to none can delete its prior insight indices.
+search.insights.top_queries.latency.enabled: false
+search.insights.top_queries.cpu.enabled: false
+search.insights.top_queries.memory.enabled: false
+search.insights.top_queries.exporter.type: none
+search.query.metrics.enabled: false
+
+plugins.security.disabled: false
+plugins.security.allow_unsafe_democertificates: false
+plugins.security.allow_default_init_securityindex: false
+plugins.security.roles_mapping_resolution: MAPPING_ONLY
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: certs/node.pem
+plugins.security.ssl.http.pemkey_filepath: certs/node-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: certs/root-ca.pem
+plugins.security.ssl.http.clientauth_mode: OPTIONAL
+plugins.security.ssl.http.enabled_protocols: ["TLSv1.2", "TLSv1.3"]
+plugins.security.ssl.transport.pemcert_filepath: certs/node.pem
+plugins.security.ssl.transport.pemkey_filepath: certs/node-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: certs/root-ca.pem
+plugins.security.ssl.transport.enforce_hostname_verification: true
+plugins.security.ssl.transport.resolve_hostname: true
+plugins.security.ssl.transport.enabled_protocols: ["TLSv1.2", "TLSv1.3"]
+plugins.security.nodes_dn:
+  - "CN=opensearch,OU=Nodes,O=Aura Historia"
+plugins.security.authcz.admin_dn:
+  - "CN=opensearch-admin,OU=Operators,O=Aura Historia"
