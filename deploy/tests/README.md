@@ -70,6 +70,25 @@ Isolation: unique internal network/owned disposable data volume; no published po
 
 Limits: REST/platform compatibility, **not Rust-client CA wiring**, active CDC, application startup against this secured node, expired-certificate/rotation testing, host/daemon reboot, maintained-engine or live-dev acceptance. The node restart is not a host reboot. [Operator setup](../compose/README.md#secured-opensearch-fresh-setup) remains separate and requires real inputs/authority.
 
+## Rust search-client CA and mount checks
+
+Actual API, worker SDK/direct preflight and cron client constructors are tested with loopback TLS, not cloud/database fixtures. Run each command with a240s outer bound:
+
+```sh
+cargo test -p platform-opensearch -p aura-historia-api -p aura-historia-worker -p aura-historia-cron --lib --all-features --locked --offline
+cargo test -p aura-historia-worker --bin aura-historia-worker --all-features --locked --offline
+
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  AURA_TEST_COMPOSE_CONFIG=1 AURA_TEST_CA_MOUNT=1 \
+  python3 -m unittest discover -s deploy/tests -p 'test_*.py'
+```
+
+Independent validation: **761 Rust tests passed** across those suites, six ignored parent-owned/opt-in entries (owning tests invoke their required children); **184 Python tests passed, no skips** with both opt-ins. Workspace check/dependency rules/format passed. New tests require Unix/OpenSSL; no provider/paid calls. Trusted CA succeeds, wrong CA/hostname fails, supplied file replacement does not change frozen clients. Worker/cron negatives require certificate alerts, not timeout/reset. Shared SDK/direct clients also test two-CA trust overlap and direct no-redirect behavior.
+
+The Python opt-ins run actual Compose config (including candidate inheritance) and one cached Python helper with `--network=none`, UID10001, one public test-CA read-only mount. Reads match exact bytes; writing returns EROFS. Exact-owned container/temp cleanup checked; no app services or platform state touched. Default Python invocation skips those two opt-ins. Compose HTTP fixtures still leave the CA env input unset even though the bind file exists.
+
+This is runtime-client and mount evidence, **not newly built images, full application startup against the secured node, A→B replay, live permissions/credentials or maintained-engine acceptance**. SDK default redirects remain a documented limitation; the CA tests do not prove HTTPS on redirected hops. Historical R2–R4 image IDs below remain old artifacts.
+
 ## Build and run
 
 Requires local Linux/amd64 Docker at `/var/run/docker.sock`, Python3, the existing PostgreSQL fixture image and the reviewed application/helper images. Build instructions: `../images/README.md`. Public registry/package downloads occur during build/pull only; the smoke never pulls.

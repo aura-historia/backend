@@ -66,6 +66,13 @@
 - Parse PostgreSQL config once before networking/AWS discovery; reuse its protected snapshot. Existing pure `ApiConfig` parsing comes first. Full startup then calls shared `platform_postgres::verify_business_schema`, checks OpenSearch HEAD success and bounded Cognito JWKS GET, and only then constructs cloud clients/adapters. No scope synchronization, schema apply, domain writes, or inference in construction. Real CLI ordering tests prove bad stage/missing CA fail before endpoint access.
 - Private `postgres_config_tests` cover startup policy without connecting. `src/postgres-test-ca.crt` is public test-only CA material; never deploy it. Runtime fixtures need explicit local stage/TLS. Rollout wiring remains out of this slice; default-off stays off.
 
+## OpenSearch startup
+
+- `runtime.rs` applies `platform-opensearch::tls::OpenSearchTlsConfig` to the actual SDK client in `StartupConfig`, before networking/provider discovery. `OPENSEARCH_SSL_ROOT_CERT` is required with HTTPS in `dev`/`prod`; only exact `local`/`test`/`ephemeral` permit absent CA or HTTP. A supplied CA with HTTP fails. Empty/non-Unicode/unreadable/invalid inputs fail closed.
+- CA input is a regular, nonempty PEM certificate bundle, at most 1 MiB. Shared parsing reads once and freezes bytes; file replacement requires process restart. Certificate paths/bytes never enter errors. SDK verifies peer chain and hostname, adds supplied roots to built-in trust (not exclusive pinning), and disables proxies. Pinned SDK keeps its default redirect behavior; no redirect customization or fork.
+- Auth unchanged: only `ephemeral` omits Basic auth; all other stages still require username/password. No JWKS, PG, scheduling, route, or preflight-request changes.
+- Private `runtime::tests::opensearch_tls` covers full startup config, real-stage CA failures, exact local-stage policy, auth, safe source chains, and actual non-Unicode environment via a joined child. Existing public test CA is test-only. Actual startup SDK HEAD uses a generated loopback TLS peer: trusted CA succeeds after file replacement; wrong host/untrusted CA fail. No PG/cloud/provider startup. Owned temporary directories and bounded TLS threads clean up on failure too.
+
 ## Process lifecycle and preflight
 
 - Required `COMMIT_SHA`: full 40-character lowercase hexadecimal SHA in `dev`/`prod`. Only explicit `local`/`test`/`ephemeral` may set literal `unversioned`; no missing-input fallback. Release identity is immutable for the process.
@@ -86,7 +93,8 @@
 
 ## Verification
 
-- All commands use `--locked --offline` and an outer deadline at most 240s.
+- All Cargo commands use `--locked --offline` and an outer deadline at most 240s.
+- CA-only: `cargo test -p aura-historia-api --lib --all-features --locked --offline runtime::tests::opensearch_tls::`. No database/cloud; do not blanket-run ignored child fixtures.
 - `cargo check -p aura-historia-api --all-targets --all-features --locked --offline`
 - `cargo test -p aura-historia-api --lib --all-features --locked --offline`
 - `cargo test -p aura-historia-api --test cli --locked --offline`

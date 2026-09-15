@@ -9,6 +9,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_opensearch::tls::{OpenSearchTlsConfig, OpenSearchTlsError};
 use platform_postgres::{
     PostgresConnectError, PostgresPoolConfig, PostgresPoolConfigError, SqlxUnitOfWork,
 };
@@ -110,6 +111,7 @@ async fn prepare_from_env(check_only: bool) -> Result<Option<BuiltJob>, WiringEr
 struct PeriodicMatchConfig {
     postgres: PostgresPoolConfig,
     endpoint: url::Url,
+    tls: OpenSearchTlsConfig,
     auth: Option<(String, String)>,
     vertex_project_id: String,
     vertex_location: String,
@@ -126,7 +128,7 @@ impl PeriodicMatchConfig {
     fn from_lookup(
         get: &mut impl FnMut(&'static str) -> Result<String, VarError>,
     ) -> Result<Self, WiringError> {
-        let stage = env_value(get, "STAGE")?.map(|value| value.trim().to_owned());
+        let stage = env_value(get, "STAGE")?.ok_or(WiringError::MissingEnv { name: "STAGE" })?;
         let filter_page_size = nonzero(get, "PERIODIC_MATCH_FILTER_PAGE_SIZE", 100)?;
         let hybrid_scan_limit = nonzero(get, "PERIODIC_MATCH_HYBRID_SCAN_LIMIT", 100)?;
         let evaluation_limit = nonzero(get, "PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
@@ -140,7 +142,10 @@ impl PeriodicMatchConfig {
         }
         let endpoint_raw = required(get, "OPENSEARCH_ENDPOINT_URL")?;
         let endpoint = url::Url::parse(&endpoint_raw).map_err(WiringError::OpenSearchUrl)?;
-        let auth = if matches!(stage.as_deref(), Some("local" | "test" | "ephemeral")) {
+        let ca_path = env_value(get, "OPENSEARCH_SSL_ROOT_CERT")?;
+        let tls = OpenSearchTlsConfig::from_inputs(&stage, &endpoint, ca_path.as_deref())
+            .map_err(WiringError::OpenSearchTls)?;
+        let auth = if matches!(stage.as_str(), "local" | "test" | "ephemeral") {
             None
         } else {
             Some((
@@ -159,6 +164,7 @@ impl PeriodicMatchConfig {
         Ok(Self {
             postgres,
             endpoint,
+            tls,
             auth,
             vertex_project_id: required(get, "VERTEX_AI_PROJECT_ID")?,
             vertex_location: required(get, "VERTEX_AI_LOCATION")?,
@@ -198,6 +204,9 @@ mod config_tests;
 #[cfg(test)]
 #[path = "error_tests.rs"]
 mod error_tests;
+#[cfg(all(test, unix))]
+#[path = "opensearch_tls_tests.rs"]
+mod opensearch_tls_tests;
 #[cfg(test)]
 #[path = "postgres_config_tests.rs"]
 mod postgres_config_tests;
@@ -308,7 +317,10 @@ fn validate_schedule(schedule: &str) -> Result<(), WiringError> {
 }
 fn opensearch_client(config: &PeriodicMatchConfig) -> Result<OpenSearch, WiringError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint.clone());
-    let builder = TransportBuilder::new(pool);
+    let builder = config
+        .tls
+        .configure_transport(TransportBuilder::new(pool))
+        .map_err(WiringError::OpenSearchTls)?;
     let builder = match &config.auth {
         Some((username, password)) => {
             builder.auth(Credentials::Basic(username.to_owned(), password.to_owned()))
@@ -374,6 +386,8 @@ pub enum WiringError {
     PostgresConfig(#[source] PostgresPoolConfigError),
     #[error("invalid OpenSearch endpoint")]
     OpenSearchUrl(#[source] url::ParseError),
+    #[error("invalid OpenSearch TLS configuration")]
+    OpenSearchTls(#[source] OpenSearchTlsError),
     #[error("failed to connect to PostgreSQL")]
     Postgres(#[source] PostgresConnectError),
     #[error("failed to configure OpenSearch")]

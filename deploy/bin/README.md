@@ -68,6 +68,8 @@ deploy/compose/Caddyfile.replace
 
 Directories root-controlled, not group/world-writable; data files0644; executable0755. Tooling reads files relative to its installation root. The full R3 platform setup remains a separate installation/maintenance concern. Keep this tree outside application-controlled mounts.
 
+Current application Compose adds `opensearch-ca.pem` read-only for both API slots, cron and three search scopes. The host command snapshots this file and requires `OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem` for those consumers in dev/prod. Supply a UID10001-readable public CA bundle, never admin/private keys. Existing installations need explicit, flock-held tooling/config/mount convergence before adoption or ordinary apply; old container mounts will fail drift checks. Do not bypass them. Cached historical images do not gain CA support merely by mounting the file; rebuild and verify new images.
+
 Create the environment state directory root-owned0700; **never unlink or replace its `lock` file**. Keep host config/Compose env/application env/ADC/CA inputs protected as described in `deploy/compose/README.md`. Host config and release input paths must be absolute. Real stages require root execution. Test runs use only the test UID's own protected temporary tree.
 
 Example host JSON (operator selects actual names/paths/unused port; no secrets):

@@ -30,9 +30,9 @@ pub(super) async fn check(startup: &WorkerStartupConfig) -> Result<Prepared, sup
 
 async fn check_opensearch(config: &WorkerOpenSearchConfig) -> Result<(), super::MainError> {
     let result = tokio::time::timeout(Duration::from_secs(5), async {
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
+        let client = config
+            .tls()
+            .configure_http(reqwest::Client::builder())
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(5))
             .build()?;
@@ -78,6 +78,10 @@ fn compatible_opensearch(body: &[u8]) -> bool {
         && parts[1].parse::<u32>().is_ok_and(|minor| minor >= 1)
         && parts[2].parse::<u32>().is_ok()
 }
+
+#[cfg(all(test, unix))]
+#[path = "opensearch_tls_tests.rs"]
+mod opensearch_tls_tests;
 
 #[cfg(test)]
 mod tests {

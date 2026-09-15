@@ -1,4 +1,5 @@
-//! Shared OpenSearch protocol envelopes for adapter crates.
+//! Shared OpenSearch protocol envelopes and concrete client TLS policy.
 
 pub mod response;
 pub mod search_response;
+pub mod tls;

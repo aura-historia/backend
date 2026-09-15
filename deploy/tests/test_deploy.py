@@ -99,7 +99,7 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.Failure, "STATE_PERMISSIONS"):
             deploy.Host(self.config)
 
-    def test_compose_canonical_stop_budgets_are_accepted(self):
+    def application_models(self):
         # Reuse R3's pure model fixture; these durations came from real Compose config.
         from test_smoke_compose import SmokeComposeTests
         fixture = SmokeComposeTests()
@@ -118,8 +118,67 @@ class DeployTests(unittest.TestCase):
                 filenames.append("notification-delivery.env")
             raw["services"][name] = {"env_file": [{"path": str(fixture.directory / f)} for f in filenames]}
         self.host.files = fixture.directory
+        return raw, model
+
+    def test_compose_canonical_stop_budgets_are_accepted(self):
+        raw, model = self.application_models()
         self.host.compose.side_effect = [json.dumps(raw), json.dumps(model)]
         self.assertEqual(deploy.Host.model(self.host, A), model)
+
+    def test_search_ca_exact_receivers_and_mount_denials(self):
+        raw, model = self.application_models()
+        receivers = {"api", "api-candidate", "cron", "product-listing-opensearch",
+                     "search-filter-projection", "search-filter-percolator"}
+        ca = dict(type="bind", source=str(self.host.files / "opensearch-ca.pem"),
+                  target="/run/aura/opensearch-ca.pem", read_only=True,
+                  bind={"create_host_path": False})
+        self.assertEqual({name for name, service in model["services"].items()
+                          if ca in service["volumes"]}, receivers)
+        for name, service in model["services"].items():
+            mounts = service["volumes"]
+            variants = [mounts + [ca]]  # Duplicate for receivers; forbidden extra for others.
+            if name in receivers:
+                without = [m for m in mounts if m != ca]
+                variants += [without, without + [dict(ca, read_only=False)],
+                             without + [dict(ca, target="/run/aura/wrong-ca.pem")],
+                             without + [dict(ca, source=str(self.host.files / "postgres-ca.pem"))]]
+            for index, changed in enumerate(variants):
+                altered = copy.deepcopy(model)
+                altered["services"][name]["volumes"] = changed
+                self.host.compose.side_effect = [json.dumps(raw), json.dumps(altered)]
+                with self.subTest(service=name, variant=index), self.assertRaisesRegex(deploy.Failure, "^APPLICATION_MOUNTS$"):
+                    deploy.Host.model(self.host, A)
+
+    def test_real_stage_requires_exact_search_ca_path_only_for_receivers(self):
+        raw, model = self.application_models()
+        receivers = {"api", "api-candidate", "cron", "product-listing-opensearch",
+                     "search-filter-projection", "search-filter-percolator"}
+        key, path = "OPENSEARCH_SSL_ROOT_CERT", "/run/aura/opensearch-ca.pem"
+        self.host.call = Mock()
+        for stage in ("dev", "prod"):
+            # Test the pure model gate, not real-stage Host/root authority or execution.
+            self.host.config["stage"] = stage
+            for name, service in model["services"].items():
+                env = service["environment"]
+                env.update(STAGE=stage, POSTGRES_SSL_MODE="verify-full",
+                           POSTGRES_SSL_ROOT_CERT="/run/aura/postgres-ca.pem")
+                env.pop(key, None)
+                if name in receivers:
+                    env[key] = path
+            self.host.compose.side_effect = [json.dumps(raw), json.dumps(model)]
+            deploy.Host.model(self.host, A)
+            for name in sorted(receivers):
+                for value in (None, "", "/run/aura/postgres-ca.pem", "/run/aura/wrong-ca.pem", " " + path, path + " "):
+                    altered = copy.deepcopy(model)
+                    env = altered["services"][name]["environment"]
+                    env.pop(key)
+                    if value is not None:
+                        env[key] = value
+                    self.host.compose.side_effect = [json.dumps(raw), json.dumps(altered)]
+                    with self.subTest(stage=stage, service=name), self.assertRaisesRegex(deploy.Failure, "^SEARCH_CA_REQUIRED$"):
+                        deploy.Host.model(self.host, A)
+            self.host.call.assert_not_called()
+            self.host.ready.assert_not_called()
 
     def test_current_and_incomplete_guards(self):
         with self.assertRaisesRegex(deploy.Failure, "ADOPT_RUNNING_RELEASE_FIRST"):
@@ -267,7 +326,7 @@ class DeployTests(unittest.TestCase):
         static = self.directory / "static"
         static.mkdir()
         (self.directory / "deploy").mkdir()
-        names = ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "google-adc.json")
+        names = ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "opensearch-ca.pem", "google-adc.json")
         for name in names:
             deploy.atomic(self.directory / name, "synthetic\n")
         deploy.atomic(self.directory / "deploy/catalog.json", "{}")
@@ -287,15 +346,19 @@ class DeployTests(unittest.TestCase):
             self.assertEqual((self.host.state / "incomplete").read_bytes(), marker_bytes)
         with patch.object(deploy, "ROOT", self.directory), patch.object(deploy, "COMPOSE", static):
             self.host.snapshot = self.host.inputs()
-            self.assertEqual(len(self.host.snapshot), 14)
+            self.assertEqual(len(self.host.snapshot), 15)
+            ca_path = self.directory / "opensearch-ca.pem"
+            self.assertIn(str(ca_path), self.host.snapshot)
+            self.assertEqual(self.host.snapshot[str(ca_path)][2], hashlib.sha256(ca_path.read_bytes()).hexdigest())
             for filename in self.host.snapshot:
                 path = Path(filename)
                 old = path.read_text()
                 with self.subTest(path=path.name):
                     deploy.atomic(path, old + "changed")
+                    self.assertNotEqual(self.host.inputs()[filename], self.host.snapshot[filename])
                     refused()
                     deploy.atomic(path, old)
-            path = self.directory / "api.env"
+            path = ca_path
             path.chmod(0o640)
             refused()
             path.chmod(0o600)

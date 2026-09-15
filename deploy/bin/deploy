@@ -166,7 +166,7 @@ class Host:
         trusted(self.cli_config, True)
 
     def inputs(self):
-        paths = [self.files / name for name in ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "google-adc.json")]
+        paths = [self.files / name for name in ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "opensearch-ca.pem", "google-adc.json")]
         paths += [Path(self.config["compose_env"]), Path(self.config["https_ca"]), ROOT / "deploy/catalog.json"]
         paths += [COMPOSE / name for name in ("compose.application.yml", "compose.replace.yml", "compose.edge.yml", "Caddyfile.replace")]
         return {str(path): (trusted(path).stat().st_mode, path.stat().st_uid, hashlib.sha256(path.read_bytes()).hexdigest()) for path in paths}
@@ -269,6 +269,9 @@ class Host:
             expected_mounts = {str(self.files / "postgres-ca.pem"): "/run/aura/postgres-ca.pem"}
             if name in {"api", "api-candidate", "cron", "crawler", "search-filter-percolator", "product-embedding", "product-translation"}:
                 expected_mounts[str(self.files / "google-adc.json")] = "/run/aura/google-adc.json"
+            search = name in {"api", "api-candidate", "cron", "product-listing-opensearch", "search-filter-projection", "search-filter-percolator"}
+            if search:
+                expected_mounts[str(self.files / "opensearch-ca.pem")] = "/run/aura/opensearch-ca.pem"
             mounts = service.get("volumes", [])
             need(len(mounts) == len(expected_mounts) and all(m["type"] == "bind" and m.get("read_only")
                  and expected_mounts.get(m["source"]) == m["target"] for m in mounts), "APPLICATION_MOUNTS")
@@ -280,6 +283,8 @@ class Host:
             need(values.get("STAGE") == self.config["stage"] and values.get("COMMIT_SHA") == selected["source_sha"], "APPLICATION_STAGE")
             if self.config["stage"] in {"dev", "prod"}:
                 need(values.get("POSTGRES_SSL_MODE") == "verify-full" and values.get("POSTGRES_SSL_ROOT_CERT") == "/run/aura/postgres-ca.pem", "VERIFIED_TLS_REQUIRED")
+                if search:
+                    need(values.get("OPENSEARCH_SSL_ROOT_CERT") == "/run/aura/opensearch-ca.pem", "SEARCH_CA_REQUIRED")
             if name in WORKERS:
                 need(values.get("AURA_HISTORIA_WORKER_SCOPE") == name and values.get("AURA_HISTORIA_WORKER_QUEUE_URL"), "WORKER_SCOPE")
         return model

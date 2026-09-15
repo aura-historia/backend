@@ -202,6 +202,11 @@ class SmokeComposeTests(unittest.TestCase):
         self.assertEqual(smoke.BIND_MOUNTS["postgres"], {"postgres": "/etc/postgresql"})
         self.assertEqual(smoke.BIND_MOUNTS["sequin"], {"sequin.yaml": "/run/sequin/sequin.yaml"})
         self.assertEqual(set(smoke.PUBLIC_BINDS), {"opensearch", "provider"})
+        self.assertEqual({name for name, mounts in smoke.BIND_MOUNTS.items() if "opensearch-ca.pem" in mounts},
+                         {"api", "cron", "product-listing-opensearch", "search-filter-projection", "search-filter-percolator"})
+        for mounts in smoke.BIND_MOUNTS.values():
+            if "opensearch-ca.pem" in mounts:
+                self.assertEqual(mounts["opensearch-ca.pem"], "/run/aura/opensearch-ca.pem")
         self.assertEqual({n for n in smoke.SERVICES["application"] if "google-adc.json" in smoke.BIND_MOUNTS[n]},
                          {"api", "cron", "crawler", "search-filter-percolator", "product-embedding", "product-translation"})
         for kind, services in smoke.SERVICES.items():
@@ -420,11 +425,23 @@ class SmokeComposeTests(unittest.TestCase):
         self.assertEqual(self.directory.stat().st_mode & 0o777, 0o700)
         hashes = smoke.fixture_hashes(self.directory)
         self.assertEqual(hashes, smoke.fixture_hashes(self.directory))
+        ca = self.directory / "opensearch-ca.pem"
+        self.assertIn(ca.name, hashes)
+        self.assertEqual(ca.read_text(), "unused synthetic STAGE=test CA mount\n")
+        self.assertEqual(ca.stat().st_mode & 0o777, 0o444)
+        ca.chmod(0o600)
+        smoke.protected_write(self.directory, ca.name, "changed synthetic CA mount\n")
+        self.assertNotEqual(hashes[ca.name], smoke.fixture_hashes(self.directory)[ca.name])
+        ca.chmod(0o600)
+        smoke.protected_write(self.directory, ca.name, "unused synthetic STAGE=test CA mount\n")
         for kind in ("api", "worker", "cron", "crawler"):
             env = dict(line.split("=", 1) for line in (self.directory / (kind + ".env")).read_text().splitlines())
             self.assertEqual(env["STAGE"], "test")
             self.assertEqual(env["POSTGRES_SSL_MODE"], "disable")
             self.assertNotIn("POSTGRES_SSL_ROOT_CERT", env)
+            self.assertTrue("OPENSEARCH_SSL_ROOT_CERT" not in env, "HTTP test fixture enabled CA input")
+            if "OPENSEARCH_ENDPOINT_URL" in env:
+                self.assertTrue(env["OPENSEARCH_ENDPOINT_URL"].startswith("http://"))
         self.assertIn("AURA_NETWORK_INTERNAL=true\n", (self.directory / "compose.env").read_text())
         self.assertFalse(list(self.directory.glob("compose.*.yml")))
         self.directory.chmod(0o755)

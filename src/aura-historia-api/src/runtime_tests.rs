@@ -16,6 +16,8 @@ mod support;
 use support::{OwnedChild, OwnedDirectory, TestResult, inputs, wait_for_file};
 #[path = "local_postgres_fixture.rs"]
 mod local_postgres_fixture;
+#[path = "opensearch_tls_tests.rs"]
+mod opensearch_tls;
 
 #[tokio::test]
 #[ignore = "opt-in: owned local PostgreSQL container, cached image only"]

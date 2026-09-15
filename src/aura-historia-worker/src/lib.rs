@@ -16,6 +16,7 @@ pub mod search_filter_projection;
 pub mod watchlist_notifications;
 mod wire;
 
+use platform_opensearch::tls::{OpenSearchTlsConfig, OpenSearchTlsError};
 use platform_postgres::{PostgresPoolConfig, PostgresPoolConfigError};
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
@@ -43,6 +44,7 @@ pub const WORKER_STAGE_ENV: &str = "STAGE";
 pub const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
 pub const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
 pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
+const OPENSEARCH_SSL_ROOT_CERT_ENV: &str = "OPENSEARCH_SSL_ROOT_CERT";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const VERTEX_AI_MODEL_ENV: &str = "VERTEX_AI_MODEL";
@@ -233,9 +235,15 @@ pub enum WorkerConfigError {
 pub struct WorkerOpenSearchConfig {
     endpoint: url::Url,
     basic_auth: Option<(String, String)>,
+    tls: OpenSearchTlsConfig,
 }
 
 impl WorkerOpenSearchConfig {
+    /// Frozen trust shared by the binary's SDK client and read-only preflight.
+    pub fn tls(&self) -> &OpenSearchTlsConfig {
+        &self.tls
+    }
+
     pub fn endpoint(&self) -> &url::Url {
         &self.endpoint
     }
@@ -457,6 +465,8 @@ where
 }
 
 #[cfg(test)]
+mod opensearch_config_tests;
+#[cfg(test)]
 mod postgres_config_tests;
 
 fn opensearch_config<F>(
@@ -469,16 +479,14 @@ where
     let endpoint = required_env(get, OPENSEARCH_ENDPOINT_URL_ENV)?;
     let endpoint = url::Url::parse(&endpoint)
         .map_err(|source| WorkerStartupConfigError::InvalidOpenSearchEndpoint { source })?;
-    if endpoint.host_str().is_none()
-        || !endpoint.username().is_empty()
-        || endpoint.password().is_some()
-        || endpoint.query().is_some()
-        || endpoint.fragment().is_some()
-        || !(endpoint.scheme() == "https"
-            || (is_local_development_stage(stage) && endpoint.scheme() == "http"))
-    {
-        return Err(WorkerStartupConfigError::UnsupportedOpenSearchEndpoint);
-    }
+    let ca_path = get(OPENSEARCH_SSL_ROOT_CERT_ENV);
+    let tls = OpenSearchTlsConfig::from_inputs(
+        stage.ok_or(WorkerStartupConfigError::MissingEnv {
+            name: WORKER_STAGE_ENV,
+        })?,
+        &endpoint,
+        ca_path.as_deref(),
+    )?;
     let basic_auth = if is_local_development_stage(stage) {
         None
     } else {
@@ -491,6 +499,7 @@ where
     Ok(WorkerOpenSearchConfig {
         endpoint,
         basic_auth,
+        tls,
     })
 }
 
@@ -526,8 +535,8 @@ pub enum WorkerStartupConfigError {
     UnsafeDeploymentBudgets,
     #[error("COMMIT_SHA must be a canonical non-placeholder 40-character lowercase release SHA")]
     InvalidReleaseSha,
-    #[error("unsupported OpenSearch endpoint configuration")]
-    UnsupportedOpenSearchEndpoint,
+    #[error("invalid OpenSearch TLS configuration")]
+    OpenSearchTls(#[from] OpenSearchTlsError),
     #[error("invalid OpenSearch endpoint URL")]
     InvalidOpenSearchEndpoint { source: url::ParseError },
 }
@@ -1003,6 +1012,10 @@ mod tests {
                 values.insert(
                     OPENSEARCH_ENDPOINT_URL_ENV,
                     "https://opensearch:9200".to_owned(),
+                );
+                values.insert(
+                    OPENSEARCH_SSL_ROOT_CERT_ENV,
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/src/postgres-test-ca.crt").to_owned(),
                 );
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());

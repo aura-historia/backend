@@ -48,6 +48,13 @@
 - Job numeric defaults: `PERIODIC_MATCH_FILTER_PAGE_SIZE=100`, `PERIODIC_MATCH_HYBRID_SCAN_LIMIT=100`, `PERIODIC_MATCH_EVALUATION_LIMIT=50`, `PERIODIC_MATCH_LLM_CONCURRENCY=8`, `PERIODIC_MATCH_MAX_ATTEMPTS=3`, `PERIODIC_MATCH_PROJECTION_LAG_SECONDS=900`, `PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS=7200`. Positive counts; hybrid limit at most 100, evaluation at most hybrid limit, attempts at most 10; lag/overlap allow zero.
 - Job text/numbers retain trim behavior. Defaults only for absent inputs; present empty, malformed, or non-Unicode schedule/numeric inputs fail before dependency I/O. Wiring error causes remain typed and redacted.
 
+## OpenSearch startup
+
+- `PeriodicMatchConfig` parses `OPENSEARCH_SSL_ROOT_CERT` through `platform-opensearch::tls::OpenSearchTlsConfig` before any PostgreSQL connect, including `--check-config`. Normal `opensearch_client` reuses the frozen TLS snapshot; preflight still constructs no OpenSearch client and sends no OpenSearch request.
+- Exact `dev`/`prod` require HTTPS and a CA file. Only exact `local`/`test`/`ephemeral` permit HTTP or absent CA. Supplied CA with HTTP fails. Every stage rejects URL userinfo/query/fragment and non-HTTP(S) schemes. No trim/default for stage or CA path. Existing auth unchanged: local/test/ephemeral omit Basic auth; dev/prod require username/password.
+- CA must be a regular, nonempty PEM certificate bundle at most 1 MiB; missing real-stage, empty, non-Unicode, unreadable, or invalid CA fails before dependency I/O. Shared helper reads once; restart to load replacement bytes. SDK uses full peer/hostname verification with additive roots, disables proxies, and retains pinned SDK default redirects (no setter/fork). Paths, certificate bytes, and raw encoding failures stay out of error chains.
+- Private wiring config regressions cover CA policy before PG parsing, unchanged auth/local stages, endpoint rejection, non-Unicode input, safe typed causes, and repeat actual client construction after CA file replacement. Test uses existing public test-only CA and removes only its exact create-new temporary file. No DB/cloud/paid calls. Private `opensearch_tls_tests` additionally exercise actual cron client TLS in dev/prod with frozen CA and peer-attributed wrong-CA/hostname rejection; reuse worker's private fixture source, not a runtime dependency. Owned listeners/children/temp files are bounded and cleaned.
+
 ## PostgreSQL startup
 
 - Periodic-match wiring uses `platform-postgres::PostgresPoolConfig::from_lookup`. Required: `STAGE`, `POSTGRES_SSL_MODE`, `POSTGRES_HOST`, `POSTGRES_DATABASE`, `POSTGRES_USERNAME`, and exactly one of `POSTGRES_PASSWORD` / `POSTGRES_PASSWORD_FILE`.
@@ -57,6 +64,7 @@
 
 ## Verification
 
+- CA/config-only: `cargo test -p aura-historia-cron --lib --all-features --locked --offline wiring::`. No DB/cloud; ignored production-binary matrix remains opt-in.
 - Keep commands bounded to 240s, locked/offline: `cargo check -p aura-historia-cron --all-targets --all-features --locked --offline`; `cargo test -p aura-historia-cron --lib --all-features --locked --offline`.
 - Signal slice: `cargo test -p aura-historia-cron --lib --all-features --locked --offline process::tests:: -- --test-threads=1`. Covers 18 real SIGINT/SIGTERM scenarios (daemon/once completion, failure, cancel, stuck poll/drop, idle, startup) plus 14 private-process bind/budget negatives. Fake inbound service only; no database.
 - Beside-code tests cover 20ms execution / 200ms OS-controlled blocking poll with one Tokio worker, retained admission during destructor join, active vs historic drain failures, opaque typed startup causes, compound cleanup failures, private bind policy, and 300/330 headroom/3600 caps. Source/error formatting tests use synthetic canaries, never secrets.

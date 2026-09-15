@@ -22,6 +22,12 @@ x-ca: &ca
   target: /run/aura/postgres-ca.pem
   read_only: true
   bind: { create_host_path: false }
+x-search-ca: &search-ca
+  type: bind
+  source: ${AURA_CONFIG_DIR:?Set host-owned config directory}/opensearch-ca.pem
+  target: /run/aura/opensearch-ca.pem
+  read_only: true
+  bind: { create_host_path: false }
 x-adc: &adc
   type: bind
   source: ${AURA_CONFIG_DIR:?Set host-owned config directory}/google-adc.json
@@ -46,21 +52,23 @@ services:
     env_file:
       - path: ${AURA_CONFIG_DIR:?}/api.env
         format: raw
-    volumes: [*ca, *adc]
+    volumes: [*ca, *search-ca, *adc]
 
   product-listing-opensearch:
     <<: *worker
+    volumes: [*ca, *search-ca]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: product-listing-opensearch
       AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_LISTING_OPENSEARCH:?Set source queue URL}
   search-filter-projection:
     <<: *worker
+    volumes: [*ca, *search-ca]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: search-filter-projection
       AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_PROJECTION:?Set source queue URL}
   search-filter-percolator:
     <<: *worker
-    volumes: [*ca, *adc]
+    volumes: [*ca, *search-ca, *adc]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: search-filter-percolator
       AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_PERCOLATOR:?Set source queue URL}
@@ -114,7 +122,7 @@ services:
     env_file:
       - path: ${AURA_CONFIG_DIR:?}/cron.env
         format: raw
-    volumes: [*ca, *adc]
+    volumes: [*ca, *search-ca, *adc]
 
   crawler:
     <<: *app

@@ -627,7 +627,10 @@ fn vertex_ai_credentials()
 
 fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, MainError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint().clone());
-    let builder = TransportBuilder::new(pool);
+    let builder = config
+        .tls()
+        .configure_transport(TransportBuilder::new(pool))
+        .map_err(WorkerStartupConfigError::from)?;
     let transport = match config.basic_auth() {
         Some((username, password)) => {
             builder.auth(Credentials::Basic(username.to_owned(), password.to_owned()))
@@ -635,9 +638,7 @@ fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, Main
         None => builder,
     }
     .build()
-    .map_err(|error| MainError::OpenSearch {
-        detail: error.to_string(),
-    })?;
+    .map_err(|_| MainError::OpenSearch)?;
     Ok(OpenSearch::new(transport))
 }
 
@@ -846,8 +847,8 @@ enum MainError {
     #[error("missing validated configuration for {scope:?} worker scope")]
     MissingScopeConfig { scope: WorkerScope },
 
-    #[error("failed to configure OpenSearch: {detail}")]
-    OpenSearch { detail: String },
+    #[error("failed to configure OpenSearch transport")]
+    OpenSearch,
     #[error("failed to initialize Vertex AI credentials: {detail}")]
     VertexAiCredentials { detail: String },
     #[error("failed to build Vertex AI HTTP client: {0}")]

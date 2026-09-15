@@ -67,6 +67,8 @@ BIND_MOUNTS = {
 }
 for _name in {"api", "cron", "crawler", *provider.GOOGLE_SCOPES}:
     BIND_MOUNTS[_name]["google-adc.json"] = provider.ADC_PATH
+for _name in {"api", "cron", "product-listing-opensearch", "search-filter-projection", "search-filter-percolator"}:
+    BIND_MOUNTS[_name]["opensearch-ca.pem"] = "/run/aura/opensearch-ca.pem"
 PUBLIC_BINDS = {
     "opensearch": {ROOT / "opensearch/analysis": "/usr/share/opensearch/config/analysis"},
     "provider": {ROOT / "deploy/tests": "/smoke"},
@@ -150,6 +152,7 @@ def materialize(directory, projects, port, images, environments=None):
     protected_write(directory, "notification-delivery.env", env_text(delivery))
     protected_write(directory, "google-adc.json", json.dumps(provider.fixture_adc()))
     protected_write(directory, "postgres-ca.pem", "unused synthetic STAGE=test CA mount\n")
+    protected_write(directory, "opensearch-ca.pem", "unused synthetic STAGE=test CA mount\n")
     protected_write(directory, "postgres.env", env_text(dict(POSTGRES_USER="postgres", POSTGRES_PASSWORD=r2.SECRET)))
     protected_write(directory, "postgres/postgresql.conf", "listen_addresses='*'\nshared_preload_libraries='pg_ttl_index'\nwal_level=logical\nmax_replication_slots=10\nmax_wal_senders=10\nmax_connections=120\nssl=off\n")
     (directory / "postgres").chmod(0o755)

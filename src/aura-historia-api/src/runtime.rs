@@ -8,6 +8,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_opensearch::tls::OpenSearchTlsConfig;
 use platform_postgres::{PostgresPoolConfig, verify_business_schema};
 use sqlx::PgPool;
 use std::{
@@ -180,7 +181,11 @@ impl StartupConfig {
             "OPENSEARCH_ENDPOINT_URL",
             real,
         )?;
-        let builder = TransportBuilder::new(SingleNodeConnectionPool::new(search_endpoint));
+        let ca_path = get("OPENSEARCH_SSL_ROOT_CERT");
+        let tls = OpenSearchTlsConfig::from_inputs(&stage, &search_endpoint, ca_path.as_deref())?;
+        let builder = tls.configure_transport(TransportBuilder::new(
+            SingleNodeConnectionPool::new(search_endpoint),
+        ))?;
         let builder = if stage == "ephemeral" {
             builder
         } else {

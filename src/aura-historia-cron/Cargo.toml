@@ -13,6 +13,7 @@ google-cloud-auth = { workspace = true }
 large-language-model = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
@@ -26,6 +27,7 @@ tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sig
 tracing = { workspace = true }
 
 [dev-dependencies]
+rustls = { workspace = true, features = ["ring"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }

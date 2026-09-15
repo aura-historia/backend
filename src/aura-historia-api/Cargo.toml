@@ -32,6 +32,7 @@ oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 
 jsonwebtokens = { workspace = true }

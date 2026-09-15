@@ -30,6 +30,7 @@ notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-opensearch = { workspace = true }
@@ -59,6 +60,7 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-th
 tracing = { workspace = true }
 
 [dev-dependencies]
+rustls = { workspace = true, features = ["ring"] }
 rstest = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }

@@ -60,6 +60,7 @@ Keep `/etc/aura-historia/dev` root-controlled0700; raw env files root-owned0600,
 | `cron.env` | PostgreSQL, search, Vertex/ADC, `AURA_HISTORIA_CRON_ENABLED_JOBS=search-filter-periodic-match` and schedule |
 | `crawler.env` | `LOCAL_DB_URL`, `BUSINESS_DATABASE_URL`, shared stage/TLS, Vertex/ADC, `SPIDER_MAX_SIZE_BYTES` |
 | `postgres-ca.pem` | Public trusted CA, mounted read-only at `/run/aura/postgres-ca.pem`; applications must be able to read it |
+| `opensearch-ca.pem` | Public search CA bundle, read-only `/run/aura/opensearch-ca.pem`; API/both slots, cron and three search workers only; readable by UID10001 |
 | `google-adc.json` | Approved ADC, mounted read-only at `/run/aura/google-adc.json`; only API/cron/crawler/percolator/embedding/translation receive this file |
 | `postgres.env`, `postgres/` | PostgreSQL bootstrap secret inputs; `postgresql.conf`, referenced HBA and server cert/key files |
 | `opensearch.yml`, `opensearch-certs/` | Operator-reviewed security-enabled OpenSearch/node HTTP+transport TLS configuration and certs; analysis files already mounted from repository |
@@ -85,6 +86,7 @@ POSTGRES_MAX_CONNECTIONS=2
 OPENSEARCH_ENDPOINT_URL=
 OPENSEARCH_USERNAME=
 OPENSEARCH_PASSWORD=
+OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem
 VERTEX_AI_PROJECT_ID=
 VERTEX_AI_LOCATION=
 VERTEX_AI_MODEL=
@@ -92,6 +94,10 @@ GOOGLE_APPLICATION_CREDENTIALS=/run/aura/google-adc.json
 AWS_REGION=
 COMMIT_SHA=
 ```
+
+Search clients now require `OPENSEARCH_SSL_ROOT_CERT` in dev/prod; set it in `api.env`, `cron.env` and search-worker configuration. The file must contain only PEM certificates, nonempty and <=1MiB. No CA private key or admin certificate goes to apps. Compose requires the bind file even in local/test setups; HTTP test fixtures leave the CA env input unset (supplied CA + HTTP rejects). Runtime trust is frozen at startup and augments built-in roots; restart to load a replacement/overlap bundle. Host deployment snapshots the CA and rejects drift/wrong real-stage paths. Install updated host tooling/Compose together under its existing lock; an already-adopted installation needs explicit mount convergence before normal apply, not blind replacement of tooling.
+
+Pinned SDK2.4 disables proxies but retains redirects: redirects may change host or downgrade HTTPS and replay request bodies. Use a trusted nonredirecting OpenSearch endpoint; this is not an HTTPS-only-per-hop guarantee. Direct worker preflight refuses redirects. Actual API/worker/cron client constructors passed loopback TLS tests; rebuilt-image startup against the secured node remains untested.
 
 `POSTGRES_HOST=postgres` is only suitable when the certificate SAN contains that DNS name. Replace with private/remote DNS later; no app code change. Crawler's explicit URLs use separate runtime roles/databases but the same verified-TLS contract. Never use an implicit localhost to reach a different container. Native operational listeners remain container-loopback: API9080, cron8082, crawler9083; crawler review7878 private. Probe them in the container namespace, not through public Caddy. Worker8081 includes ingress/probes and is private-network-only.
 
@@ -164,7 +170,7 @@ Additional concrete live gates:
 
 1. Supply reviewed pinned PostgreSQL16/TTL3 image/server TLS/HBA. Base Compose publishes no PostgreSQL port. R5's public Lambda access requires separate approved exact-EIP firewall/publishing work, not broad exposure.
 2. Sequin0.14.6 native `ssl:true`/metadata SSL does **not** perform certificate verification. Use the tested stock-stunnel overlay below; real endpoints/CA and rollout still require operator setup. Preserve stable slot/publication and no-backfill sink configuration; Sequin YAML reapplication on restart can change configuration.
-3. Use the [secured OpenSearch fresh setup](#secured-opensearch-fresh-setup) below. Stock-native setup and both mappings/RRF are tested in isolation, not activated. A maintained engine pin and app→search CA/auth wiring remain gates; PostgreSQL CA configuration does not secure OpenSearch.
+3. Use the [secured OpenSearch fresh setup](#secured-opensearch-fresh-setup) below. Stock-native setup and both mappings/RRF are tested in isolation, not activated. A maintained engine pin and rebuilt-app→secured-node acceptance remain gates; PostgreSQL CA configuration does not secure OpenSearch.
 4. TTL3 dynamic worker needs explicit `ttl_start_worker()` after a PostgreSQL restart; presence is not expiry proof. No reboot recovery claimed. Restrict TTL functions/public-schema writes; runtime expiry guards remain authoritative.
 5. Approved AWS/Google credential delivery/refresh, actual queues, compiled mail assets, FX snapshot, host budgets, backups and real endpoint trust must be supplied/tested. Crawler initial source sync and normalizer reconciliation run immediately; empty fixture behavior is not a scheduling-disable mechanism.
 
@@ -172,7 +178,7 @@ Once these gates and target authority exist, use normal Compose with separate `-
 
 ## Secured OpenSearch fresh setup
 
-**Isolated compatibility accepted; not live-ready.** The [real rehearsal](../tests/README.md#secured-stock-opensearch-rehearsal) uses unchanged platform Compose with a test-only override, stock OpenSearch3.1.0/Security3.1.0.0, checked-in native configuration and tools. This engine is unmaintained; review/test a maintained immutable pin before live use. Rust API/worker/cron CA wiring remains a separate slice. No automatic security upload on node/application startup.
+**Isolated compatibility accepted; not live-ready.** The [real rehearsal](../tests/README.md#secured-stock-opensearch-rehearsal) uses unchanged platform Compose with a test-only override, stock OpenSearch3.1.0/Security3.1.0.0, checked-in native configuration and tools. This engine is unmaintained; review/test a maintained immutable pin before live use. Rust API/worker/cron CA wiring is tested on loopback; rebuilt images and full secured-node startup remain separate gates. No automatic security upload on node/application startup.
 
 Operator sequence, only for an authorized fresh target under the **existing deployment flock** and exclusive custody:
 

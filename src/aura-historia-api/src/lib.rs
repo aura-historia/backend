@@ -1610,6 +1610,8 @@ pub enum ApiStateError {
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch")]
     OpenSearch,
+    #[error("invalid OpenSearch TLS configuration")]
+    OpenSearchTls(#[from] platform_opensearch::tls::OpenSearchTlsError),
     #[error("failed to initialize Vertex AI credentials")]
     VertexAiCredentials,
     #[error("invalid runtime configuration {name}")]
