@@ -975,10 +975,9 @@ async fn should_retry_real_fd_exhaustion_and_recover_or_stop_on_signal(
     })
     .await??;
     let exhausted_at = Instant::now();
-    assert_eq!(
-        std::fs::read_dir(format!("/proc/{}/fd", child.0.id()))?.count(),
-        64
-    );
+    // The child's soft/hard RLIMIT_NOFILE was checked above, and the pressure loop
+    // observed an actual accept EMFILE. A total /proc descriptor count need not equal
+    // that limit: pre-existing inherited descriptors above the lowered limit can remain open.
     // Existing work/probes keep running; resource pressure alone never starts DRAINING.
     let version: serde_json::Value = client
         .get(format!("http://{operations}/version"))
