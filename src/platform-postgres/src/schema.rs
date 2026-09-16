@@ -14,6 +14,8 @@ const BASELINE_TABLES: &[&str] = &[
     "listing_source_web_crawl_ingestion_configurations",
     "listing_source_shopify_ingestion_configurations",
     "listing_source_woocommerce_ingestion_configurations",
+    "auctions",
+    "auction_events",
     "product_listing_raw_streams",
     "product_listing_raw_provider_observation_receipts",
     "product_listing_raw_revisions",
