@@ -8,10 +8,9 @@ use listing_source_service::ports::{
 };
 use product_listing_normalization::{
     NormalizationContext, NormalizationInputError, ProductListingNormalizationContextV1,
-    ProductListingNormalizationInput, ProductListingRawValuesPatch,
-    ProductListingRawValuesPriceFormat, ProductListingRawValuesV2, RawProductListingOperation,
-    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
-    SourcePayload,
+    ProductListingNormalizationInput, ProductListingRawValues, ProductListingRawValuesPatch,
+    ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
+    RawProductListingProvenance, RawProductListingValues, SourcePayload,
 };
 use product_listing_service::ports::{
     ProductListingRawIngestionMethod, ProductListingRawProviderReceipt,
@@ -322,7 +321,7 @@ impl WoocommerceProductEventKind {
             operation,
             RawProductListingPayloadFormat::WoocommerceProduct,
             PAYLOAD_SCHEMA_VERSION,
-            product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION_V2,
+            product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             source_payload,
             raw_values,
             context,
@@ -406,7 +405,7 @@ fn upsert_raw_values(
         return Err(WoocommerceWebhookIntakeError::MissingListingSourceCurrency);
     }
 
-    let values = ProductListingRawValuesV2 {
+    let values = ProductListingRawValues {
         source_listing_id: product.id.to_string(),
         title: ProductListingRawValuesPatch::Set(title.to_owned()),
         description: description_patch(product),
@@ -423,8 +422,6 @@ fn upsert_raw_values(
                 .map(|image| image.src.clone())
                 .collect(),
         ),
-        auction_start: ProductListingRawValuesPatch::Unchanged,
-        auction_end: ProductListingRawValuesPatch::Unchanged,
         attributes: Default::default(),
     };
     serde_json::to_value(values)
@@ -1038,7 +1035,7 @@ mod tests {
             RawProductListingOperation::Upsert
         );
         assert_eq!(
-            product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION_V2,
+            product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             observation.input.raw_values_schema_version()
         );
         assert_eq!(
@@ -1082,7 +1079,7 @@ mod tests {
                 Some(WoocommerceRawObservation { input, .. })
                     if input.operation() == RawProductListingOperation::Delete
                         && input.raw_values_schema_version()
-                            == product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION_V2
+                            == product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION
             ));
         }
     }

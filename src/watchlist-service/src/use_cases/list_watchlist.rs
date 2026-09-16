@@ -4,6 +4,7 @@ use application::operation_context::{
 };
 use application::pagination::{Cursor, CursoredResult};
 use application::transaction::{Transaction, UnitOfWork};
+
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -330,6 +331,7 @@ impl From<ProductListingPricingPresentationError> for ListWatchlistError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use application::error::box_error;
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::personalized::Personalized;
@@ -348,9 +350,7 @@ mod tests {
     use product_listing_core::source_listing_id::SourceListingId;
 
     use product_listing_core::description::Description;
-    use product_listing_core::product_listing::{
-        ListingSaleObservation, ProductListingAuction, ProductListingPricing,
-    };
+    use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
     use product_listing_core::title::Title;
     use product_listing_service::ports::{
         ListingSourceSummary, PersonalizedProductListingDetailsReadModel,
@@ -638,7 +638,8 @@ mod tests {
                 view_url: url,
                 images: Default::default(),
                 content_policy: None,
-                auction: ProductListingAuction::default(),
+                auction: None,
+                lot: None,
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },

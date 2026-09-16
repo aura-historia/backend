@@ -169,6 +169,9 @@
             "eventId": {
                 "type": "keyword"
             },
+            "auctionId": {
+                "type": "keyword"
+            },
             "title": {
                 "type": "object",
                 "properties": {
@@ -284,11 +287,11 @@
                     }
                 }
             },
-            "auctionStart": {
+            "lotBiddingOpensAt": {
                 "type": "date",
                 "format": "strict_date_time"
             },
-            "auctionEnd": {
+            "lotScheduledClosesAt": {
                 "type": "date",
                 "format": "strict_date_time"
             },

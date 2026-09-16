@@ -22,7 +22,8 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
+        CataloguePosition, LotNumber, NewProductListing, ProductListing, ProductListingAuction,
+        ProductListingPricing,
     },
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
@@ -758,11 +759,26 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let product_listing_id = ProductListingId::new();
     let source_offset =
         UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
-    let auction_start = (OffsetDateTime::from_unix_timestamp(1_700_000_000)
+    let lot_bidding_opens = (OffsetDateTime::from_unix_timestamp(1_700_000_000)
         .unwrap_or_else(|error| panic!("auction start: {error}"))
         + Duration::nanoseconds(123_456_789))
     .to_offset(source_offset);
-    let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
+    let lot_scheduled_closes = (lot_bidding_opens + Duration::hours(3)).to_offset(source_offset);
+    let auction = ProductListingAuction::new(
+        None,
+        Some(
+            LotNumber::try_from("42A").unwrap_or_else(|error| panic!("valid lot number: {error}")),
+        ),
+        Some(
+            CataloguePosition::new(7)
+                .unwrap_or_else(|error| panic!("valid catalogue position: {error}")),
+        ),
+        Some(lot_bidding_opens),
+        Some(lot_scheduled_closes),
+        Some((lot_scheduled_closes + Duration::minutes(15)).to_offset(source_offset)),
+    )
+    .unwrap_or_else(|error| panic!("valid auction facts: {error}"))
+    .unwrap_or_else(|| panic!("non-empty auction facts should be retained"));
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
         title_slug_id: ProductListingSlugId::from_title_and_suffix(
@@ -789,10 +805,7 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
         url: Url::parse("https://api-acceptance.example/timestamped-history")
             .unwrap_or_else(|error| panic!("product URL: {error}")),
         images: IndexSet::new(),
-        auction: ProductListingAuction {
-            start: Some(auction_start),
-            end: Some(auction_end),
-        },
+        auction: Some(auction),
     })
     .unwrap_or_else(|error| panic!("create timestamped history product: {error}"));
     let created_event = stamp_product_listing_event(
@@ -805,10 +818,25 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let created_event_id = created_event.event_id;
 
     product
-        .replace_auction(ProductListingAuction {
-            start: Some((auction_start + Duration::days(1)).to_offset(source_offset)),
-            end: Some((auction_end + Duration::days(1)).to_offset(source_offset)),
-        })
+        .replace_auction(
+            ProductListingAuction::new(
+                None,
+                Some(
+                    LotNumber::try_from("43A")
+                        .unwrap_or_else(|error| panic!("valid replacement lot number: {error}")),
+                ),
+                Some(CataloguePosition::new(8).unwrap_or_else(|error| {
+                    panic!("valid replacement catalogue position: {error}")
+                })),
+                Some((lot_bidding_opens + Duration::days(1)).to_offset(source_offset)),
+                Some((lot_scheduled_closes + Duration::days(1)).to_offset(source_offset)),
+                Some(
+                    (lot_scheduled_closes + Duration::days(1) + Duration::minutes(15))
+                        .to_offset(source_offset),
+                ),
+            )
+            .unwrap_or_else(|error| panic!("valid replacement auction facts: {error}")),
+        )
         .unwrap_or_else(|error| panic!("change auction: {error}"));
     let changed_event = stamp_product_listing_event(
         product_listing_id,
@@ -877,8 +905,12 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let discovered = event("PRODUCT_LISTING_DISCOVERED");
     assert_eq!(json!(0), discovered["payload"]["imageCount"]);
     assert!(discovered["payload"].get("images").is_none());
-    assert!(discovered["payload"]["auction"]["start"].is_string());
-    assert!(discovered["payload"]["auction"]["end"].is_string());
+    let discovered_auction = &discovered["payload"]["auction"];
+    assert_eq!(json!("42A"), discovered_auction["lotNumber"]);
+    assert_eq!(json!(7), discovered_auction["cataloguePosition"]);
+    assert!(discovered_auction["biddingOpens"].is_string());
+    assert!(discovered_auction["scheduledCloses"].is_string());
+    assert!(discovered_auction["reportedClosedAt"].is_string());
 
     let changed = event("PRODUCT_LISTING_CHANGED");
     let changes = changed["payload"]["changes"]
@@ -887,10 +919,14 @@ async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     assert_eq!(1, changes.len());
     assert_eq!(json!("AUCTION_CHANGED"), changes[0]["type"]);
     let auction = &changes[0];
-    assert!(auction["previous"]["start"].is_string());
-    assert!(auction["previous"]["end"].is_string());
-    assert!(auction["current"]["start"].is_string());
-    assert!(auction["current"]["end"].is_string());
+    assert_eq!(json!("42A"), auction["previous"]["lotNumber"]);
+    assert_eq!(json!("43A"), auction["current"]["lotNumber"]);
+    assert!(auction["previous"]["biddingOpens"].is_string());
+    assert!(auction["previous"]["scheduledCloses"].is_string());
+    assert!(auction["previous"]["reportedClosedAt"].is_string());
+    assert!(auction["current"]["biddingOpens"].is_string());
+    assert!(auction["current"]["scheduledCloses"].is_string());
+    assert!(auction["current"]["reportedClosedAt"].is_string());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -1796,8 +1832,6 @@ fn search_document_with_source(
             "url": "https://listing-source.example/product",
             "images": [],
             "embedding": null,
-            "auctionStart": null,
-            "auctionEnd": null,
             "created": created,
             "updated": created
         }),

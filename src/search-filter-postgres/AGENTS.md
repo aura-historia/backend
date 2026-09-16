@@ -8,7 +8,7 @@
 ## Core Design
 
 - Implements `search-filter-service` repositories for `platform_postgres::SqlxTransaction`; structural JSON storage types own persisted shape while local codecs map ProductListingSearch semantic leaves to canonical domain types and preserve their values.
-- ProductListing search JSON stores `listing_source_id_query` and `exclude_listing_source_id_query` as UUID sets. It has no Shop, seller, type, country, continent, or geo filter keys. It also stores optional `availability_query` with canonical exact `ListingAvailability` and derived `ListingOrderability` codes plus `include_unspecified`; state and lifecycle query fields are absent.
+- ProductListing search JSON stores `listing_source_id_query`, `exclude_listing_source_id_query`, and `auction_id_query` as UUID sets. It has no Shop, seller, type, country, continent, or geo filter keys. It also stores optional `availability_query` with canonical exact `ListingAvailability` and derived `ListingOrderability` codes plus `include_unspecified`; state and lifecycle query fields are absent.
 - Implements ordinary `SqlxSearchFilterReader` for read models, `SqlxSearchFilterIndexReader` for complete versioned index reads, and focused transaction-scoped active-candidate, monthly notification-rank quota, match-write, and typed match-notification source reader factories.
 - Maps `search_filters` and `search_filter_matches` rows, including nullable paired `CURRENT`/`EVENT`/`SALE` price-match FX provenance. Invalid partial or unknown persisted provenance fails mapping.
 - Advisory-lock sessions use shared verified PostgreSQL configuration, a 5s connection deadline, and redacted SQLx causes; their extra connection is outside the pool cap.

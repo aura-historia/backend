@@ -1,4 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
+
 use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
@@ -13,8 +14,10 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
-    ProductListingPricing,
+    ListingSaleObservation, NewProductListing, ProductListing, ProductListingPricing,
+};
+use product_listing_core::product_listing_auction::{
+    CataloguePosition, LotNumber, ProductListingAuction,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -152,6 +155,87 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert_eq!(product.source_listing_id().as_ref(), persisted_identity.2);
     assert_eq!(update_event.event_id.into_uuid(), persisted_identity.3);
     assert_eq!(2, persisted_identity.4);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_round_trip_flat_listing_auction_fields() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-auction-context").await;
+    let auction = ProductListingAuction::new(
+        None,
+        Some(LotNumber::try_from("Lot 42").unwrap_or_else(|error| panic!("lot: {error}"))),
+        Some(CataloguePosition::new(7).unwrap_or_else(|error| panic!("position: {error}"))),
+        Some(OffsetDateTime::UNIX_EPOCH),
+        Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+        Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2)),
+    )
+    .unwrap_or_else(|error| panic!("auction: {error}"));
+    let mut input = sample_new_product_listing(
+        "postgres-product-auction-context",
+        listing_source_id,
+        SourceListingId::try_from("postgres-product-auction-context")
+            .unwrap_or_else(|error| panic!("source listing ID: {error}")),
+        ProductListingId::new(),
+    );
+    input.auction = auction.clone();
+    let product = ProductListing::create(input)
+        .unwrap_or_else(|error| panic!("create product with auction: {error}"));
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let loaded = product_listings
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+        .unwrap_or_else(|error| panic!("load auction: {error:?}"))
+        .unwrap_or_else(|| panic!("persisted auction is missing"));
+    commit(tx).await;
+    assert_eq!(auction.as_ref(), loaded.value.auction());
+
+    type PersistedAuctionLotFacts = (
+        Option<String>,
+        Option<i64>,
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+    );
+    let persisted: PersistedAuctionLotFacts = sqlx::query_as(
+        "SELECT lot_number, catalogue_position, lot_bidding_opens_at, lot_scheduled_closes_at, lot_reported_closed_at FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product.id().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read persisted auction: {error}"));
+    assert_eq!(Some("Lot 42".to_owned()), persisted.0);
+    assert_eq!(Some(7), persisted.1);
+    assert_eq!(Some(OffsetDateTime::UNIX_EPOCH), persisted.2);
+    assert_eq!(
+        Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+        persisted.3
+    );
+    assert_eq!(
+        Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2)),
+        persisted.4
+    );
+
+    let invalid_schedule = sqlx::query(
+        "UPDATE product_listings SET lot_bidding_opens_at = $1, lot_scheduled_closes_at = $2 WHERE product_listing_id = $3",
+    )
+    .bind(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2))
+    .bind(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1))
+    .bind(product.id().into_uuid())
+    .execute(&pool)
+    .await;
+    assert!(matches!(
+        invalid_schedule,
+        Err(sqlx::Error::Database(error))
+            if error.constraint() == Some("product_listings_lot_schedule_check")
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -776,7 +860,7 @@ async fn insert_product_row(
         "availability": null,
         "url": "https://example.test/product",
         "imageCount": 0,
-        "auction": {"start": null, "end": null}
+        "auction": null
     }))
     .execute(&mut *tx)
     .await?;
@@ -931,7 +1015,7 @@ fn sample_new_product_listing(
         availability: None,
         url: url(&format!("https://example.com/{slug}")),
         images,
-        auction: ProductListingAuction::default(),
+        auction: None,
     }
 }
 

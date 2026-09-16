@@ -190,6 +190,7 @@ fn map_summary_fields(
         event_id: document.event_id,
         listing_source_id: document.listing_source_id,
         source_listing_id: document.source_listing_id,
+        auction_id: document.auction_id,
         title,
         display_price,
         price_valuation,
@@ -596,25 +597,38 @@ pub(crate) fn build_common_filter_clauses(
             }
         }));
     }
+    if !search.auction_id_query.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductListingDocumentSerdeField::AuctionId.as_str(): search.auction_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
+            }
+        }));
+    }
 
     apply_availability_filter(&mut filter, search.availability_query.as_ref());
 
-    for (query, field) in [
+    // Creation and update filters are inclusive at both bounds. Lot timing remains half-open so
+    // adjacent auction time windows do not overlap.
+    for (query, field, upper_bound) in [
         (
             &search.created_query,
             ProductListingDocumentSerdeField::Created,
+            "lte",
         ),
         (
             &search.updated_query,
             ProductListingDocumentSerdeField::Updated,
+            "lte",
         ),
         (
-            &search.auction_start_query,
-            ProductListingDocumentSerdeField::AuctionStart,
+            &search.lot_bidding_opens_query,
+            ProductListingDocumentSerdeField::LotBiddingOpensAt,
+            "lt",
         ),
         (
-            &search.auction_end_query,
-            ProductListingDocumentSerdeField::AuctionEnd,
+            &search.lot_scheduled_closes_query,
+            ProductListingDocumentSerdeField::LotScheduledClosesAt,
+            "lt",
         ),
     ] {
         if let Some(min) = query.and_then(|query| query.min) {
@@ -627,7 +641,12 @@ pub(crate) fn build_common_filter_clauses(
             let value = max
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
-            filter.push(json!({ "range": { field.as_str(): { "lte": value } } }));
+            let bound = if upper_bound == "lte" {
+                json!({ "lte": value })
+            } else {
+                json!({ "lt": value })
+            };
+            filter.push(json!({ "range": { field.as_str(): bound } }));
         }
     }
 
@@ -814,6 +833,7 @@ fn availability_matches_query(
 mod tests {
     use super::*;
     use crate::product_listing_document::{SalePricesDocument, SourcePriceDocument, TextDocument};
+    use auction_core::AuctionId;
     use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
@@ -910,6 +930,7 @@ mod tests {
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
+            auction_id: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
@@ -927,8 +948,8 @@ mod tests {
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             images: IndexSet::new(),
             embedding: None,
-            auction_start: None,
-            auction_end: None,
+            lot_bidding_opens_at: None,
+            lot_scheduled_closes_at: None,
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
@@ -967,6 +988,88 @@ mod tests {
             filter.to_string().contains("shop")
                 || filter.to_string().contains("seller")
                 || filter.to_string().contains("geo")
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn should_filter_by_any_resolved_auction_membership_and_intersect_other_dimensions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let first = AuctionId::new();
+        let second = AuctionId::new();
+        let source = ListingSourceId::new();
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_auction_id_query([first, second].into_iter().collect())
+            .with_listing_source_id_query([source].into_iter().collect());
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/terms/auctionId")
+                == Some(&json!([first.to_string(), second.to_string()]))
+                || filter.pointer("/terms/auctionId")
+                    == Some(&json!([second.to_string(), first.to_string()]))
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/terms/listingSourceId") == Some(&json!([source.to_string()]))
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_half_open_exact_lot_time_ranges() -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_lot_bidding_opens_query(domain_primitives::query::range_query::RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert_eq!(
+            Some(&json!("2026-01-03T00:00:00Z")),
+            filters[0].pointer("/range/lotBiddingOpensAt/gte")
+        );
+        assert_eq!(
+            Some(&json!("2026-01-04T00:00:00Z")),
+            filters[1].pointer("/range/lotBiddingOpensAt/lt")
+        );
+        assert!(
+            filters
+                .iter()
+                .all(|filter| !filter.to_string().contains("lte"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_inclusive_created_and_updated_ranges() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_created_query(domain_primitives::query::range_query::RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            })
+            .with_updated_query(domain_primitives::query::range_query::RangeQuery {
+                min: Some(datetime!(2026-01-05 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-06 00:00:00 UTC)),
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/created/gte") == Some(&json!("2026-01-03T00:00:00Z"))
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/created/lte") == Some(&json!("2026-01-04T00:00:00Z"))
+                && filter.pointer("/range/created/lt").is_none()
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/updated/gte") == Some(&json!("2026-01-05T00:00:00Z"))
+        }));
+        assert!(filters.iter().any(|filter| {
+            filter.pointer("/range/updated/lte") == Some(&json!("2026-01-06T00:00:00Z"))
+                && filter.pointer("/range/updated/lt").is_none()
         }));
         Ok(())
     }

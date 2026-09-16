@@ -5,6 +5,7 @@ use crate::{
     },
     product_listing_image_document::ProductListingImageDocument,
 };
+use auction_core::AuctionId;
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
@@ -64,6 +65,8 @@ struct ProductListingPercolationDocument {
     #[serde(with = "crate::product_listing_document::source_listing_id")]
     source_listing_id: SourceListingId,
     event_id: EventId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auction_id: Option<AuctionId>,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
     title_de: Option<String>,
@@ -89,12 +92,12 @@ struct ProductListingPercolationDocument {
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none"
     )]
-    auction_start: Option<OffsetDateTime>,
+    lot_bidding_opens_at: Option<OffsetDateTime>,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none"
     )]
-    auction_end: Option<OffsetDateTime>,
+    lot_scheduled_closes_at: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -147,6 +150,10 @@ fn build_product_listing_percolation_document(
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
+        auction_id: product
+            .auction
+            .as_ref()
+            .and_then(|auction| auction.auction_id()),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -165,11 +172,23 @@ fn build_product_listing_percolation_document(
             .cloned()
             .map(ProductListingImageDocument::from)
             .collect(),
-        auction_start: product.auction.start,
-        auction_end: product.auction.end,
+        lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
+        lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
         created: product.created,
         updated: product.updated,
     }
+}
+
+fn exact_lot_bidding_opens_at(
+    auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
+) -> Option<OffsetDateTime> {
+    auction.and_then(|auction| auction.bidding_opens())
+}
+
+fn exact_lot_scheduled_closes_at(
+    auction: Option<&product_listing_core::product_listing_auction::ProductListingAuction>,
+) -> Option<OffsetDateTime> {
+    auction.and_then(|auction| auction.scheduled_closes())
 }
 
 fn percolation_prices(
@@ -212,6 +231,10 @@ pub(crate) fn product_listing_document(
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
+        auction_id: product
+            .auction
+            .as_ref()
+            .and_then(|auction| auction.auction_id()),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -231,8 +254,8 @@ pub(crate) fn product_listing_document(
             .map(ProductListingImageDocument::from)
             .collect(),
         embedding: product.embedding.clone(),
-        auction_start: product.auction.start,
-        auction_end: product.auction.end,
+        lot_bidding_opens_at: exact_lot_bidding_opens_at(product.auction.as_ref()),
+        lot_scheduled_closes_at: exact_lot_scheduled_closes_at(product.auction.as_ref()),
         created: product.created,
         updated: product.updated,
     })
@@ -382,6 +405,7 @@ mod tests {
             ListingSaleObservation, ProductListingAuction, ProductListingPriceValuationBasis,
             ProductListingPricing,
         },
+        product_listing_auction::{CataloguePosition, LotNumber},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
@@ -431,7 +455,7 @@ mod tests {
             image: None,
             images: IndexSet::new(),
             embedding: None,
-            auction: ProductListingAuction::default(),
+            auction: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
         })
@@ -561,10 +585,14 @@ mod tests {
         product.images = IndexSet::from([ProductListingImage::new(Url::parse(
             "https://shop.example.test/product_listings/blue-vase/image.jpg",
         )?)]);
-        product.auction = ProductListingAuction {
-            start: Some(OffsetDateTime::UNIX_EPOCH),
-            end: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
-        };
+        product.auction = ProductListingAuction::new(
+            None,
+            Some(LotNumber::try_from("Lot 12")?),
+            Some(CataloguePosition::new(12)?),
+            Some(OffsetDateTime::UNIX_EPOCH),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+            Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2)),
+        )?;
         product.created = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
         product.updated = OffsetDateTime::UNIX_EPOCH + time::Duration::days(2);
 
@@ -586,6 +614,50 @@ mod tests {
         assert!(paths.contains("priceByCurrency.chf"));
         assert!(paths.contains("images.url"));
         assert!(paths.contains("titleIt"));
+        assert!(paths.contains("lotBiddingOpensAt"));
+        assert!(paths.contains("lotScheduledClosesAt"));
+        assert!(!paths.contains("lotReportedClosedAt"));
+        assert!(!paths.iter().any(|path| path.contains("auctionId")));
+        Ok(())
+    }
+
+    #[test]
+    fn should_project_only_exact_lot_times() -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = source()?;
+        let bidding_opens_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+        let scheduled_closes_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(2);
+        let reported_closed_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(3);
+        product.auction = ProductListingAuction::new(
+            None,
+            Some(LotNumber::try_from("Lot 12A")?),
+            Some(CataloguePosition::new(12)?),
+            Some(bidding_opens_at),
+            Some(scheduled_closes_at),
+            Some(reported_closed_at),
+        )?;
+
+        let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product.clone(),
+            valuation: None,
+        })?;
+        let persistent = serde_json::to_value(product_listing_document(&product, None)?)?;
+
+        for document in [&temporary, &persistent] {
+            assert_eq!(
+                Some(&serde_json::json!(
+                    bidding_opens_at.format(&time::format_description::well_known::Rfc3339)?
+                )),
+                document.get("lotBiddingOpensAt"),
+            );
+            assert_eq!(
+                Some(&serde_json::json!(
+                    scheduled_closes_at.format(&time::format_description::well_known::Rfc3339)?
+                )),
+                document.get("lotScheduledClosesAt"),
+            );
+            assert!(document.get("lotReportedClosedAt").is_none());
+            assert!(document.get("auctionId").is_none());
+        }
         Ok(())
     }
 
@@ -646,6 +718,7 @@ mod tests {
         match mapping.get("type").and_then(Value::as_str) {
             Some("keyword" | "text" | "date") => value.is_string(),
             Some("unsigned_long") => value.is_number(),
+            Some("boolean") => value.is_boolean(),
             _ => false,
         }
     }

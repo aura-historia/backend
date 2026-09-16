@@ -4,7 +4,7 @@ use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use money::Currency;
 use product_listing_normalization::{
     NormalizationContext, NormalizationInputError, ProductListingNormalizationInput,
-    ProductListingRawValuesPatch, ProductListingRawValuesV1, RawProductListingOperation,
+    ProductListingRawValuesPatch, ProductListingRawValuesPriceFormat, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
     SourcePayload,
 };
@@ -12,7 +12,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use url::Url;
 
-/// Builds the complete V1 input retained by the operational raw-revision stream.
+/// Builds the complete current raw input retained by the operational raw-revision stream.
 ///
 /// Source payload keeps the untouched extraction. Generic raw values use the
 /// crawler-validated image projection and omit price fields that deterministic
@@ -38,23 +38,19 @@ pub(crate) fn crawler_raw_input(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let raw_values = ProductListingRawValuesV1 {
-        source_listing_id: raw.source_listing_id.clone(),
-        title: ProductListingRawValuesPatch::Set(raw.title.clone()),
-        description: ProductListingRawValuesPatch::Set(raw.description.clone()),
-        price: price_patch(raw.price.clone(), resolved_price_fields[0]),
-        price_estimate_min: price_patch(raw.price_estimate_min.clone(), resolved_price_fields[1]),
-        price_estimate_max: price_patch(raw.price_estimate_max.clone(), resolved_price_fields[2]),
-        availability: ProductListingRawValuesPatch::Set(raw.state.clone()),
-        url: ProductListingRawValuesPatch::Set(candidate_url.to_string()),
-        images: ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
-        auction_start: patch(raw.auction_start.clone()),
-        auction_end: patch(raw.auction_end.clone()),
-        attributes,
-    };
-    let raw_values = serde_json::to_value(raw_values)
-        .map_err(NormalizationInputError::JsonSerialization)
-        .and_then(RawProductListingValues::new)?;
+    let raw_values = RawProductListingValues::new(json!({
+        "sourceListingId": raw.source_listing_id,
+        "title": ProductListingRawValuesPatch::Set(raw.title.clone()),
+        "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
+        "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
+        "price": price_patch(raw.price.clone(), resolved_price_fields[0]),
+        "priceEstimateMin": price_patch(raw.price_estimate_min.clone(), resolved_price_fields[1]),
+        "priceEstimateMax": price_patch(raw.price_estimate_max.clone(), resolved_price_fields[2]),
+        "availability": ProductListingRawValuesPatch::Set(raw.state.clone()),
+        "url": ProductListingRawValuesPatch::Set(candidate_url.to_string()),
+        "images": ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
+        "attributes": attributes,
+    }))?;
     let context = NormalizationContext::new(json!({
         "baseUrl": candidate_url,
         "fallbackCurrency": fallback_currency.map(|currency| currency.as_str()),
@@ -133,8 +129,6 @@ mod tests {
             price_estimate_max: None,
             state: "In Stock".to_owned(),
             images: vec!["/chair.jpg".to_owned()],
-            auction_start: None,
-            auction_end: None,
             raw_attributes: BTreeMap::new(),
         }
     }
@@ -161,6 +155,7 @@ mod tests {
             Some(&serde_json::json!({"action": "SET", "value": "100 EUR"})),
             input.raw_values().value().get("price")
         );
+        assert!(input.raw_values().value().get("auction").is_none());
         assert_eq!(
             Some(&serde_json::json!(["/chair.jpg"])),
             input.source_payload().value().get("images")

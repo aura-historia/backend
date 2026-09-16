@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 axum = { workspace = true }
 application = { workspace = true }
+
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
@@ -51,6 +52,7 @@ serde_json = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
+
 uuid = { workspace = true }
 
 sqlx = { workspace = true }

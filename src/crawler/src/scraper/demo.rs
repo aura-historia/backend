@@ -122,10 +122,6 @@ async fn main() -> Result<(), LocalDatabaseError> {
             listing_source_id: "ls_01h455vb4pex5ty7enb1p677vj".try_into().unwrap(),
             url: "https://nostalgie-palast.de/couchtisch-uebersee-mit-glasplatte-113-m-x-053-m/",
         },
-        ScrapeTarget {
-            listing_source_id: "ls_01h455vb4pex5ty7enb1p677vk".try_into().unwrap(),
-            url: "https://www.lot-tissimo.com/de-de/auction-catalogues/chiswick-auctions/catalogue-id-srchis11168/lot-61a5b754-6fc7-435b-80b3-b3fa0141c94e",
-        },
     ];
 
     unsafe { std::env::set_var("LOG_LEVEL", "info") };

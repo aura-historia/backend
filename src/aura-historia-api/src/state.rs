@@ -1,6 +1,13 @@
 use crate::auth::TokenAuthenticator;
 use admin_overview_service::GetAdminOverviewUseCase;
 use async_trait::async_trait;
+use auction_service::use_cases::{
+    commands::{create_auction::CreateAuctionUseCase, update_auction::UpdateAuctionUseCase},
+    queries::{
+        get_auction::GetAuctionUseCase, get_public_auction::GetPublicAuctionUseCase,
+        list_auctions::ListAuctionsUseCase,
+    },
+};
 use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
@@ -52,9 +59,9 @@ use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
-    CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
-    GetSimilarProductListingsUseCase, SearchProductListingsUseCase, UpdateProductListingUseCase,
-    UpsertProductListingUseCase, WithdrawProductListingUseCase,
+    CreateProductListingUseCase, GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase,
+    GetProductListingUseCase, GetSimilarProductListingsUseCase, SearchProductListingsUseCase,
+    UpdateProductListingUseCase, UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -116,6 +123,8 @@ pub struct AppState {
     pub(crate) newsletter: Option<NewsletterState>,
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
+    pub(crate) auctions: Option<AuctionsState>,
+    pub(crate) public_auctions: Option<PublicAuctionsState>,
 }
 
 impl Default for AppState {
@@ -142,6 +151,8 @@ impl AppState {
             newsletter: None,
             notifications: None,
             webhooks: None,
+            auctions: None,
+            public_auctions: None,
         }
     }
 
@@ -224,6 +235,64 @@ impl AppState {
     pub fn with_notifications(mut self, notifications: NotificationsState) -> Self {
         self.notifications = Some(notifications);
         self
+    }
+
+    pub fn with_auctions(mut self, auctions: AuctionsState) -> Self {
+        self.auctions = Some(auctions);
+        self
+    }
+
+    pub fn with_public_auctions(mut self, public_auctions: PublicAuctionsState) -> Self {
+        self.public_auctions = Some(public_auctions);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct AuctionsState {
+    pub(crate) create: Arc<dyn CreateAuctionUseCase>,
+    pub(crate) get: Arc<dyn GetAuctionUseCase>,
+    pub(crate) update: Arc<dyn UpdateAuctionUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl AuctionsState {
+    pub fn new(
+        create: Arc<dyn CreateAuctionUseCase>,
+        get: Arc<dyn GetAuctionUseCase>,
+        update: Arc<dyn UpdateAuctionUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create,
+            get,
+            update,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PublicAuctionsState {
+    pub(crate) get: Arc<dyn GetPublicAuctionUseCase>,
+    pub(crate) list: Arc<dyn ListAuctionsUseCase>,
+    pub(crate) catalogue: Arc<dyn GetAuctionCatalogueUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PublicAuctionsState {
+    pub fn new(
+        get: Arc<dyn GetPublicAuctionUseCase>,
+        list: Arc<dyn ListAuctionsUseCase>,
+        catalogue: Arc<dyn GetAuctionCatalogueUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            get,
+            list,
+            catalogue,
+            authenticator,
+        }
     }
 }
 

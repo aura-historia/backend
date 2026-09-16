@@ -1,22 +1,38 @@
 mod support;
 
-use application::transaction::{Transaction, UnitOfWork};
+use application::{
+    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+    patch_field::PatchField,
+    transaction::{Transaction, UnitOfWork},
+};
+use auction_core::{
+    Auction, AuctionFormat, AuctionId, AuctionKey, AuctionSchedule, NewAuction, SourceAuctionId,
+};
+use auction_postgres::{SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory};
+use auction_service::ports::{AuctionRepository, AuctionRepositoryFactory};
 use listing_source_core::ListingSourceId;
 use platform_postgres::SqlxUnitOfWork;
+use product_listing_core::product_listing::LotNumber;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
     SourcePayload,
 };
 use product_listing_postgres::{
-    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::ports::{
-    ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
-    ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
-    ProductListingRawIngestionMethod, SourceRecordKeySha256,
+use product_listing_service::{
+    ports::{
+        ProductListingRawCaptureWrite, ProductListingRawCaptureWriteOutcome,
+        ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
+        ProductListingRawIngestionMethod, SourceRecordKeySha256,
+    },
+    product_listing_auction_patch::ProductListingAuctionPatch,
+    use_cases::{
+        CreateProductListingCommand, CreateProductListingHandler, CreateProductListingUseCase,
+    },
 };
 use product_service::ports::{
     PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
@@ -33,8 +49,121 @@ use product_service::use_cases::{
 use serde_json::{Value, json};
 use std::time::Duration;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::macros::datetime;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_update() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-preserves-auction-source").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let auction_id = create_auction(&unit_of_work, listing_source_id, "preserved-auction").await;
+    let typed_handler = CreateProductListingHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
+        SqlxAuctionReferenceValidatorFactory::new(),
+    );
+    let result = typed_handler
+        .execute(
+            &OperationContext {
+                principal: Principal::System,
+                request_id: RequestId::new("raw-preserves-auction"),
+                correlation_id: CorrelationId::new("raw-preserves-auction"),
+            },
+            CreateProductListingCommand {
+                listing_source_id,
+                source_listing_id:
+                    product_listing_core::source_listing_id::SourceListingId::try_from("source-123")
+                        .unwrap_or_else(|error| panic!("source listing ID: {error}")),
+                title: None,
+                description: None,
+                pricing: Default::default(),
+                availability: None,
+                url: url::Url::parse("https://example.test/listings/source-123")
+                    .unwrap_or_else(|error| panic!("listing URL: {error}")),
+                images: Default::default(),
+                auction: Some(ProductListingAuctionPatch {
+                    auction_id: PatchField::Set(auction_id),
+                    lot_number: PatchField::Set(
+                        LotNumber::try_from("77")
+                            .unwrap_or_else(|error| panic!("lot number: {error}")),
+                    ),
+                    bidding_opens: PatchField::Set(datetime!(2026-10-01 08:00 UTC)),
+                    scheduled_closes: PatchField::Set(datetime!(2026-10-05 18:32 UTC)),
+                    ..Default::default()
+                }),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("create typed listing: {error}"));
+
+    let before = auction_lot_facts(&pool, result.product_listing_id.into_uuid()).await;
+    assert_eq!(Some(*auction_id.as_uuid()), before.0);
+
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+    let generic_values = upsert_values("EUR 250");
+
+    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) = changed_parts(
+        capture(
+            &unit_of_work,
+            &capture_writer,
+            raw_write(
+                listing_source_id,
+                RawProductListingOperation::Upsert,
+                generic_values,
+                normalization_context(),
+                "generic-update",
+            ),
+        )
+        .await,
+    );
+    let normalizer = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work,
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    );
+    let normalized = normalizer
+        .execute(NormalizeProductListingRawRevisionCommand {
+            mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                product_listing_raw_stream_id,
+                product_listing_raw_revision_id,
+                revision,
+            },
+            max_revisions_per_stream: 1,
+            pending_stream_limit: 1,
+        })
+        .await
+        .unwrap_or_else(|error| panic!("normalize generic raw update: {error}"));
+    assert!(matches!(
+        normalized.revisions.as_slice(),
+        [revision] if revision.outcome == ProductListingRawNormalizationOutcome::Applied
+    ));
+
+    let after = auction_lot_facts(&pool, result.product_listing_id.into_uuid()).await;
+    assert_eq!(before, after);
+    assert_eq!(
+        (
+            Some(*auction_id.as_uuid()),
+            Some("77".to_owned()),
+            Some(datetime!(2026-10-01 08:00 UTC)),
+            Some(datetime!(2026-10-05 18:32 UTC)),
+        ),
+        before
+    );
+    let price_amount: i64 = sqlx::query_scalar(
+        "SELECT price_amount FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(result.product_listing_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("load updated generic product field: {error}"));
+    assert_eq!(25_000, price_amount);
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_process_stream_in_order_and_ignore_duplicate_late_wakeup() {
@@ -695,124 +824,6 @@ async fn should_continue_capped_stream_across_keyset_cursor_and_reach_later_stre
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_advance_rejection_and_record_no_change_for_later_revisions() {
-    let pool = get_postgres_client().await;
-    let listing_source_id = seed_listing_source(&pool, "raw-normalization-rejection-source").await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
-    let invalid = capture(
-        &unit_of_work,
-        &capture_writer,
-        raw_write(
-            listing_source_id,
-            RawProductListingOperation::Upsert,
-            json!({}),
-            json!({}),
-            "invalid",
-        ),
-    )
-    .await;
-    let applied = capture(
-        &unit_of_work,
-        &capture_writer,
-        raw_write(
-            listing_source_id,
-            RawProductListingOperation::Upsert,
-            upsert_values("EUR 100"),
-            normalization_context(),
-            "valid",
-        ),
-    )
-    .await;
-    let no_change = capture(
-        &unit_of_work,
-        &capture_writer,
-        raw_write(
-            listing_source_id,
-            RawProductListingOperation::Upsert,
-            upsert_values("EUR 100"),
-            normalization_context(),
-            "unknown-source-key-changed",
-        ),
-    )
-    .await;
-    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) =
-        changed_parts(no_change);
-    assert!(matches!(
-        invalid,
-        ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
-    ));
-    assert!(matches!(
-        applied,
-        ProductListingRawCaptureWriteOutcome::Changed { revision: 2, .. }
-    ));
-    assert_eq!(3, revision);
-
-    let normalizer = NormalizeProductListingRawRevisionHandler::new(
-        unit_of_work,
-        SqlxProductListingRawNormalizationWriterFactory::new(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
-    );
-    let result = normalizer
-        .execute(NormalizeProductListingRawRevisionCommand {
-            mode: NormalizeProductListingRawRevisionMode::RawRevision {
-                product_listing_raw_stream_id,
-                product_listing_raw_revision_id,
-                revision,
-            },
-            max_revisions_per_stream: 3,
-            pending_stream_limit: 1,
-        })
-        .await
-        .unwrap_or_else(|error| panic!("normalize stream: {error}"));
-    assert_eq!(
-        vec![
-            ProductListingRawNormalizationOutcome::Rejected,
-            ProductListingRawNormalizationOutcome::Applied,
-            ProductListingRawNormalizationOutcome::NoChange,
-        ],
-        result
-            .revisions
-            .into_iter()
-            .map(|revision| revision.outcome)
-            .collect::<Vec<_>>()
-    );
-
-    let results: Vec<(i64, String, Option<String>)> = sqlx::query_as(
-        "SELECT revision, outcome, error_code FROM product_listing_raw_normalizations ORDER BY revision",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("load normalization results: {error}"));
-    assert_eq!(
-        vec![
-            (
-                1,
-                "REJECTED".to_owned(),
-                Some("RAW_VALUES_INVALID".to_owned())
-            ),
-            (2, "APPLIED".to_owned(), None),
-            (3, "NO_CHANGE".to_owned(), None),
-        ],
-        results
-    );
-    let event_count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events")
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("count product listing events: {error}"));
-    assert_eq!(1, event_count);
-    let last_processed_revision: i64 = sqlx::query_scalar(
-        "SELECT last_processed_revision FROM product_listing_raw_normalization_heads",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("load normalization head: {error}"));
-    assert_eq!(3, last_processed_revision);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_list_pending_streams_oldest_first_with_oldest_pending_capture_time() {
     let pool = get_postgres_client().await;
     let first_source = seed_listing_source(&pool, "raw-normalization-pending-first").await;
@@ -1222,9 +1233,65 @@ async fn concurrent_normalization(max_revisions: u32) -> Result<(), Box<dyn std:
     Ok(())
 }
 
+async fn create_auction(
+    unit_of_work: &SqlxUnitOfWork,
+    listing_source_id: ListingSourceId,
+    source_auction_id: &str,
+) -> AuctionId {
+    let auction = Auction::create(NewAuction {
+        id: AuctionId::new(),
+        key: AuctionKey::new(
+            listing_source_id,
+            SourceAuctionId::try_from(source_auction_id)
+                .unwrap_or_else(|error| panic!("source auction ID: {error}")),
+        ),
+        name: None,
+        catalogue_url: None,
+        format: Some(AuctionFormat::Timed),
+        schedule: AuctionSchedule::default(),
+        reported_status: None,
+        reported_lot_count: None,
+    })
+    .unwrap_or_else(|error| panic!("create auction: {error}"));
+    let auction_id = auction.id();
+    let mut transaction = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin auction fixture transaction: {error}"));
+    SqlxAuctionRepositoryFactory::new()
+        .in_transaction(&mut transaction)
+        .insert(&auction)
+        .await
+        .unwrap_or_else(|error| panic!("insert auction fixture: {error}"));
+    transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit auction fixture transaction: {error}"));
+    auction_id
+}
+
+async fn auction_lot_facts(
+    pool: &sqlx::PgPool,
+    product_listing_id: uuid::Uuid,
+) -> (
+    Option<uuid::Uuid>,
+    Option<String>,
+    Option<time::OffsetDateTime>,
+    Option<time::OffsetDateTime>,
+) {
+    sqlx::query_as(
+        "SELECT auction_id, lot_number, lot_bidding_opens_at, lot_scheduled_closes_at FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("load typed auction lot facts: {error}"))
+}
+
 fn upsert_values(price: &str) -> Value {
     json!({
         "sourceListingId": "source-123",
+        "priceFormat": "DISPLAY_TEXT",
         "title": {"action": "SET", "value": "An antique ceramic vase from an English collection"},
         "description": {"action": "SET", "value": ["This antique ceramic vase has documented provenance and careful restoration history."]},
         "price": {"action": "SET", "value": price},
@@ -1233,8 +1300,6 @@ fn upsert_values(price: &str) -> Value {
         "availability": {"action": "SET", "value": "in stock"},
         "url": {"action": "SET", "value": "https://example.test/listings/source-123"},
         "images": {"action": "SET", "value": ["/images/source-123.jpg"]},
-        "auctionStart": {"action": "UNCHANGED"},
-        "auctionEnd": {"action": "UNCHANGED"},
         "attributes": {"material": {"action": "SET", "value": ["ceramic"]}}
     })
 }

@@ -1,4 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
+
 use aura_historia_worker::{
     WorkerRunError, WorkerScope,
     product_listing_raw_normalization::consume_product_listing_raw_normalization_queue,
@@ -456,6 +457,7 @@ fn raw_write(
             .unwrap_or_else(|error| panic!("source payload: {error}")),
         RawProductListingValues::new(json!({
             "sourceListingId": "worker-source-123",
+            "priceFormat": "DISPLAY_TEXT",
             "title": {"action": "SET", "value": "An antique ceramic vase from an English collection"},
             "description": {"action": "SET", "value": ["This antique ceramic vase has documented provenance and careful restoration history."]},
             "price": {"action": "SET", "value": price},
@@ -464,8 +466,6 @@ fn raw_write(
             "availability": {"action": "SET", "value": "in stock"},
             "url": {"action": "SET", "value": "https://example.test/listings/worker-source-123"},
             "images": {"action": "SET", "value": ["/images/worker-source-123.jpg"]},
-            "auctionStart": {"action": "UNCHANGED"},
-            "auctionEnd": {"action": "UNCHANGED"},
             "attributes": {}
         }))
         .unwrap_or_else(|error| panic!("raw values: {error}")),

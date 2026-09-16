@@ -15,13 +15,12 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
-use listing_source_core::ListingSourceId;
-use localization::Language;
-use money::Currency;
-
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use listing_source_core::ListingSourceId;
+use localization::Language;
+use money::Currency;
 
 use time::OffsetDateTime;
 
@@ -127,6 +126,7 @@ pub struct GetSimilarProductListingsHandler<U, E, F, S, L, P, A> {
 }
 
 impl<U, E, F, S, L, P, A> GetSimilarProductListingsHandler<U, E, F, S, L, P, A> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         embedding_reader: E,
@@ -221,8 +221,9 @@ where
                 price_filter_plan,
             ))
             .await?;
-        let mut products = hydrate_listing_source_summaries(products, &self.listing_sources)
-            .await?
+        let sourced_products =
+            hydrate_listing_source_summaries(products, &self.listing_sources).await?;
+        let mut products = sourced_products
             .into_iter()
             .map(|item| Personalized {
                 item,
@@ -328,6 +329,8 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
     use crate::ports::ListingSourceSummary;
     use crate::ports::{ProductListingEmbedding, ProductListingSimilarProductListingsReadError};
     use crate::use_cases::{ProductListingSearchItem, ProductListingSummaryPriceValuation};
@@ -352,7 +355,6 @@ mod tests {
 
     use crate::user_state::ProductListingUserState;
     use product_listing_core::title::Title;
-    use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -711,6 +713,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            auction_id: None,
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(
                 product_listing_core::product_listing_price::ProductListingPrice::from(Price::new(
@@ -865,7 +868,9 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let product_listing_id = ProductListingId::new();
-        let item = product_search_item_with_image(product_listing_id)?;
+        let auction_id = auction_core::AuctionId::new();
+        let mut item = product_search_item_with_image(product_listing_id)?;
+        item.auction_id = Some(auction_id);
         let image_url = item
             .images
             .first()
@@ -913,6 +918,7 @@ mod tests {
             Some(ContentPolicyDecision::Allowed),
             products[0].item.content_policy
         );
+        assert_eq!(Some(auction_id), products[0].item.auction_id);
         assert_eq!(
             vec![crate::use_cases::ProductListingImageView {
                 url: Some(image_url),

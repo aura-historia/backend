@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
+auction-core = { workspace = true }
 search-filter-core = { workspace = true }
 user-core = { workspace = true }
 async-trait = { workspace = true }
@@ -34,6 +35,8 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+auction-postgres = { workspace = true }
+auction-service = { workspace = true }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }

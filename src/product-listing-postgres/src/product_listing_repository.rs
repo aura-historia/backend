@@ -1,6 +1,11 @@
 #![allow(dead_code)]
 
-use crate::object_id::try_from_uuid;
+use crate::{
+    object_id::try_from_uuid,
+    product_listing_auction::{
+        ProductListingAuctionParts, auction_from_parts, auction_write_parts,
+    },
+};
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
@@ -14,8 +19,7 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListing, ProductListingAuction, ProductListingPricing,
-    RehydratedProductListingState,
+    ListingSaleObservation, ProductListing, ProductListingPricing, RehydratedProductListingState,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -68,8 +72,12 @@ struct ProductListingRow {
     url: String,
     product_images: serde_json::Value,
     embedding: Option<Vec<f32>>,
-    auction_start: Option<OffsetDateTime>,
-    auction_end: Option<OffsetDateTime>,
+    auction_id: Option<uuid::Uuid>,
+    lot_number: Option<String>,
+    catalogue_position: Option<i64>,
+    lot_bidding_opens_at: Option<OffsetDateTime>,
+    lot_scheduled_closes_at: Option<OffsetDateTime>,
+    lot_reported_closed_at: Option<OffsetDateTime>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
 }
@@ -108,14 +116,17 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_title_slug_id, version, current_event_id, listing_source_id, source_listing_id,
+                product_listings.product_listing_id, product_listing_title_slug_id, version, current_event_id, product_listings.listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_kind, price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
-                product_images, embedding, auction_start, auction_end, created, updated
+                product_images, embedding,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at,
+                product_listings.created, product_listings.updated
             FROM product_listings
-            WHERE product_listing_id = $1
+            WHERE product_listings.product_listing_id = $1
             "#,
         )
         .bind(id.as_uuid())
@@ -133,15 +144,18 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_title_slug_id, version, current_event_id, listing_source_id, source_listing_id,
+                product_listings.product_listing_id, product_listing_title_slug_id, version, current_event_id, product_listings.listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_kind, price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
-                product_images, embedding, auction_start, auction_end, created, updated
+                product_images, embedding,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at,
+                product_listings.created, product_listings.updated
             FROM product_listings
-            WHERE listing_source_id = $1
-              AND source_listing_id = $2
+            WHERE product_listings.listing_source_id = $1
+              AND product_listings.source_listing_id = $2
             "#,
         )
         .bind(key.listing_source_id.as_uuid())
@@ -159,7 +173,6 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         current_event_id: EventId,
     ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
         let pricing = product.pricing();
-        let auction = product.auction();
         let title = product.title();
         let description = product.description();
         let (price_kind, price_amount, price_currency) =
@@ -177,6 +190,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
+        let auction = auction_write_parts(product.auction());
         let version = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO product_listings (
@@ -185,10 +199,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 description_text, description_language, price_kind, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
-                availability, lifecycle, url, product_images, auction_start, auction_end
+                availability, lifecycle, url, product_images,
+                auction_id, lot_number, catalogue_position, lot_bidding_opens_at,
+                lot_scheduled_closes_at, lot_reported_closed_at
             ) VALUES (
                 $1, $2, $3, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+                $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
             )
             RETURNING version
             "#,
@@ -227,8 +243,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
-        .bind(auction.start)
-        .bind(auction.end)
+        .bind(auction.auction_id)
+        .bind(auction.lot_number)
+        .bind(auction.catalogue_position)
+        .bind(auction.lot_bidding_opens_at)
+        .bind(auction.lot_scheduled_closes_at)
+        .bind(auction.lot_reported_closed_at)
         .fetch_one(&mut *self.connection)
         .await
         .map_err(ProductListingInsertSqlxError)?;
@@ -246,7 +266,6 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         effects: ProductListingWriteEffects,
     ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
         let pricing = product.pricing();
-        let auction = product.auction();
         let title = product.title();
         let description = product.description();
         let (price_kind, price_amount, price_currency) =
@@ -264,6 +283,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
+        let auction = auction_write_parts(product.auction());
         let expected_version = i64::try_from(expected_version.into_inner())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let version = sqlx::query_scalar::<_, i64>(
@@ -290,12 +310,16 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 lifecycle = $17,
                 url = $18,
                 product_images = $19,
-                auction_start = $20,
-                auction_end = $21,
+                auction_id = $20,
+                lot_number = $21,
+                catalogue_position = $22,
+                lot_bidding_opens_at = $23,
+                lot_scheduled_closes_at = $24,
+                lot_reported_closed_at = $25,
                 version = version + 1,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $22 AND version = $23
+            WHERE product_listing_id = $26 AND version = $27
             RETURNING version
             "#,
         )
@@ -330,8 +354,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
-        .bind(auction.start)
-        .bind(auction.end)
+        .bind(auction.auction_id)
+        .bind(auction.lot_number)
+        .bind(auction.catalogue_position)
+        .bind(auction.lot_bidding_opens_at)
+        .bind(auction.lot_scheduled_closes_at)
+        .bind(auction.lot_reported_closed_at)
         .bind(product.id().as_uuid())
         .bind(expected_version)
         .fetch_optional(&mut *self.connection)
@@ -355,6 +383,15 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
         let description = localized_description_from_row(&row)?;
         let source_listing_id = SourceListingId::try_from(row.source_listing_id)
             .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?;
+        let auction = auction_from_parts(ProductListingAuctionParts {
+            auction_id: row.auction_id,
+            lot_number: row.lot_number,
+            catalogue_position: row.catalogue_position,
+            lot_bidding_opens_at: row.lot_bidding_opens_at,
+            lot_scheduled_closes_at: row.lot_scheduled_closes_at,
+            lot_reported_closed_at: row.lot_reported_closed_at,
+        })
+        .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
         let product = ProductListing::rehydrate(RehydratedProductListingState {
             id: try_from_uuid(row.product_listing_id, "ProductListing ID")
                 .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?,
@@ -389,10 +426,7 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
             url: Url::parse(&row.url)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingUrlPersisted)?,
             images: images_from_json(row.product_images)?,
-            auction: ProductListingAuction {
-                start: row.auction_start,
-                end: row.auction_end,
-            },
+            auction,
         })
         .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
 
@@ -925,8 +959,12 @@ mod tests {
             url: "https://example.com/unit-product".to_owned(),
             product_images: json!([{ "url": "https://example.com/unit-product.jpg" }]),
             embedding: None,
-            auction_start: None,
-            auction_end: None,
+            auction_id: None,
+            lot_number: None,
+            catalogue_position: None,
+            lot_bidding_opens_at: None,
+            lot_scheduled_closes_at: None,
+            lot_reported_closed_at: None,
             created: now,
             updated: now,
         }

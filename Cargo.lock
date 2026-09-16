@@ -215,6 +215,67 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auction-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "rstest",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "auction-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "auction-core",
+ "auction-service",
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "platform-postgres",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "auction-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "auction-core",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "localization",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
 name = "aura-historia-api"
 version = "0.1.0"
 dependencies = [
@@ -222,6 +283,9 @@ dependencies = [
  "admin-overview-service",
  "application",
  "async-trait",
+ "auction-core",
+ "auction-postgres",
+ "auction-service",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "axum",
@@ -686,9 +750,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.145.0"
+version = "1.146.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0e6320417a37c8a62f78b443d0b4cf628b57cd340a09b0eb56173d47cc94e93"
+checksum = "2cd651b4400d4011b8927b83a9552bf90ff11e6e5da0b9f0a7583247aceec971"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -2614,7 +2678,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3435,9 +3499,9 @@ checksum = "c9356095b4b41197bba32173600e1582792cda618f65d12f68e2e77d273413c5"
 
 [[package]]
 name = "html-to-markdown-rs"
-version = "3.12.3"
+version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92a0c610a5780d769f7e2e0c3e7e36003582f688d5648ea8263d11161561f461"
+checksum = "6d7a15d966d18c9e245708eb4aa10d2c395dd7a1eae5776d83b0f31a82fb2ecc"
 dependencies = [
  "ahash",
  "astral-tl",
@@ -4822,7 +4886,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5757,6 +5821,7 @@ dependencies = [
 name = "product-listing-core"
 version = "0.1.0"
 dependencies = [
+ "auction-core",
  "domain-primitives",
  "fake",
  "fxrate-core",
@@ -5806,6 +5871,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -5838,6 +5904,9 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-postgres",
+ "auction-service",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -5873,6 +5942,8 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
+ "auction-service",
  "domain-primitives",
  "embedding",
  "fake",
@@ -6018,7 +6089,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6460,7 +6531,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6540,7 +6611,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6692,6 +6763,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "indexmap 2.14.2",
@@ -6724,6 +6796,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "fxrate-core",
  "listing-source-core",
@@ -6752,6 +6825,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-core",
  "domain-primitives",
  "embedding",
  "fxrate-core",
@@ -7164,6 +7238,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "auction-postgres",
  "aws_lambda_events",
  "fxrate-core",
  "fxrate-postgres",
@@ -8652,9 +8727,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.26.0"
+version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
+checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
 dependencies = [
  "atomic",
  "getrandom 0.4.3",
@@ -8944,7 +9019,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

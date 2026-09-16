@@ -1,6 +1,9 @@
-use crate::object_id::try_from_uuid;
 use crate::product_listing_event_codec;
 use crate::url::referral_configuration;
+use crate::{
+    object_id::try_from_uuid,
+    product_listing_auction::{ProductListingAuctionParts, auction_from_parts},
+};
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 
@@ -13,7 +16,7 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
-    product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
+    product_listing::{ListingSaleObservation, ProductListingPricing},
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
@@ -74,8 +77,12 @@ struct SourceRow {
     url: String,
     product_images: serde_json::Value,
     embedding: Option<Vec<f32>>,
-    auction_start: Option<OffsetDateTime>,
-    auction_end: Option<OffsetDateTime>,
+    auction_id: Option<uuid::Uuid>,
+    lot_number: Option<String>,
+    catalogue_position: Option<i64>,
+    lot_bidding_opens_at: Option<OffsetDateTime>,
+    lot_scheduled_closes_at: Option<OffsetDateTime>,
+    lot_reported_closed_at: Option<OffsetDateTime>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
     translation_language: Option<String>,
@@ -221,8 +228,9 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.url,
                 product.product_images,
                 product.embedding,
-                product.auction_start,
-                product.auction_end,
+                product.auction_id, product.lot_number, product.catalogue_position,
+                product.lot_bidding_opens_at, product.lot_scheduled_closes_at,
+                product.lot_reported_closed_at,
                 product.created,
                 product.updated,
                 translation.language AS translation_language,
@@ -235,6 +243,7 @@ impl ProductListingSearchFilterMatchSourceReader
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
+
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
             FOR SHARE OF product
@@ -341,6 +350,15 @@ fn source_from_rows(
     })?;
 
     let event_kind = event_kind_from_row(row)?;
+    let auction = auction_from_parts(ProductListingAuctionParts {
+        auction_id: row.auction_id,
+        lot_number: row.lot_number.clone(),
+        catalogue_position: row.catalogue_position,
+        lot_bidding_opens_at: row.lot_bidding_opens_at,
+        lot_scheduled_closes_at: row.lot_scheduled_closes_at,
+        lot_reported_closed_at: row.lot_reported_closed_at,
+    })
+    .map_err(SourceRowMappingError::with_source)?;
     Ok(Some(ProductListingSearchFilterMatchSource {
         event_id: try_from_uuid(row.event_id, "event ID")
             .map_err(SourceRowMappingError::with_source)?,
@@ -387,10 +405,7 @@ fn source_from_rows(
         image: images.iter().next().cloned(),
         images,
         embedding: row.embedding.clone(),
-        auction: ProductListingAuction {
-            start: row.auction_start,
-            end: row.auction_end,
-        },
+        auction,
         created: row.created,
         updated: row.updated,
     }))

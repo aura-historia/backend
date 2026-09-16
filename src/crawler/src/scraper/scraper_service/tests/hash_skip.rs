@@ -24,12 +24,17 @@ async fn should_extract_for_capture_when_local_fingerprints_match(
 ) {
     let id = listing_source_id();
     let url = product_url();
-    let html = sample_html();
-    let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
+    let stored_html = sample_html();
+    let matching_hash = hash_main_fragment(&stored_html).unwrap_or_else(|| hash_html(&stored_html));
+    let fetched_html = stored_html.replacen(
+        "<body>",
+        r#"<head><meta name="crawler-regression" content="changed"></head><body>"#,
+        1,
+    );
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
-        let html = html.clone();
+        let html = fetched_html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 

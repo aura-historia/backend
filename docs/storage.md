@@ -33,6 +33,13 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 - The admin Partnership detail reader uses one joined PostgreSQL statement with correlated, UUID-ordered association arrays. It returns at most 100 member IDs and 100 ListingSource IDs using SQL-side limits, plus complete member/grant counts; empty associations decode as empty arrays. It performs no N+1 reads.
 - The safe admin read models contain only Partnership ID, Party ID/immutable slug/name, member and grant references or counts, and `created`/`updated`. They omit Party contact, persistence `version`, provider credentials, webhook secrets, and crawler-local configuration.
 
+## Auctions
+
+PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, an optional canonical name, four optional exact `timestamptz` schedule columns, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion.
+
+`auction_events` is an immutable journal of `AUCTION_DISCOVERED` and `AUCTION_CHANGED` payloads. The current schema version is `1`; state snapshot and semantic event commit atomically. It has no CDC, projection, or worker route. Rehydration and event encoding validate canonical IDs, enum codes, localization pairs, URLs, RFC3339 instants, and version values; invalid persisted state is an explicit operation error.
+
+
 ## Credentials
 
 PostgreSQL is authoritative for User access tokens and canonical OAuth credentials:
@@ -48,7 +55,9 @@ The initial business schema requires a provisioned and preloaded `pg_ttl_index` 
 
 ## ProductListing events and revisions
 
-`product_listings` remains the authoritative ProductListing write model. Its revision fields have separate purposes:
+`product_listings` remains the authoritative ProductListing write model. Its optional `auction_id`, lot label/order, and exact lot timestamp columns are listing-owned facts written and version-fenced only through the root ProductListing repository. All absent leaves mean no supplied fact; there is no context-presence row or boolean. A nullable composite foreign key ensures any Auction ID belongs to the listing's ListingSource, while independently auctioned listings may retain lot times without an Auction ID. The schedule check rejects bidding-open after scheduled-close.
+
+Its revision fields have separate purposes:
 
 - `version` is numeric aggregate optimistic-concurrency metadata. It starts at 1, advances once for each changed domain write, and never advances for enrichment or assessment writes.
 - `current_event_id` identifies the latest projection-visible ProductListing event.
@@ -60,7 +69,7 @@ These are separate concepts. Enrichment advances `current_event_id` and `project
 
 `product_listing_events` is the immutable ProductListing event journal and direct Sequin CDC source, not an outbox. Every row has immutable event ID/time, a positive persisted schema version, and an object JSON payload. Allowed groups are `DOMAIN` and `ENRICHMENT`, with the initial schema constraining domain events to `PRODUCT_LISTING_DISCOVERED`/`PRODUCT_LISTING_CHANGED` and enrichment events to `ENRICHMENT_EMBEDDED`/`ENRICHMENT_TRANSLATED_TITLES`. Application and router code fail closed on the concrete v1 type/group/version/payload contracts. Deferred same-listing foreign keys tie current and source marker IDs to journal rows.
 
-`product_listing_raw_streams` has a restrictive ListingSource FK: a ListingSource with any raw stream cannot be deleted. A late raw capture whose source has already been removed maps that exact FK failure to a typed missing-source outcome; it does not create a replacement identity. `product_listing_raw_streams` is a mutable, change-only capture head for `WEB_CRAWL`, `SHOPIFY`, and `WOOCOMMERCE`; `product_listing_raw_revisions` is immutable source evidence and independently persists optional `source_event_id` plus provenance. `product_listing_raw_normalization_heads` serializes stream progress and binding, while `product_listing_raw_normalizations` retains immutable terminal outcomes and stable rejection codes. Raw JSON has no broad GIN index. Raw revisions CDC only to the `product-listing-normalization` worker scope; they never enter `product_listing_events` or downstream ProductListing consumers. Safe backlog, rejection, growth, and crawler-dormancy queries are in `docs/product-listing-raw-normalization-runbook.md`.
+`product_listing_raw_streams` has a restrictive ListingSource FK: a ListingSource with any raw stream cannot be deleted. A late raw capture whose source has already been removed maps that exact FK failure to a typed missing-source outcome; it does not create a replacement identity. `product_listing_raw_streams` is a mutable, change-only capture head for `WEB_CRAWL`, `SHOPIFY`, and `WOOCOMMERCE`; `product_listing_raw_revisions` is immutable source evidence and independently persists optional `source_event_id` plus provenance. `product_listing_raw_normalization_heads` serializes stream progress and binding, while `product_listing_raw_normalizations` retains immutable terminal outcomes and stable codes. Raw JSON has no broad GIN index. Raw revisions CDC only to the `product-listing-normalization` worker scope; they never enter `product_listing_events` or downstream ProductListing consumers. Safe backlog, rejection, growth, and crawler-dormancy queries are in `docs/product-listing-raw-normalization-runbook.md`.
 
 `product_listing_raw_provider_observation_receipts` is operational provider-delivery idempotency state for Shopify and WooCommerce, separate from raw revisions and CDC. Its rows are created or reused only for provider observations that map to raw capture. An authorized ignored WooCommerce create/update status event returns before receipt construction and persists no receipt row, even when it carries a delivery ID. Each `(raw stream, provider scope, delivery ID)` receipt stores only a canonical source-evidence digest, never source evidence or JSON, for a 90-day logical window. `expires_at` is a logical expiry: capture deletes a matching expired row in the same transaction before lookup/reuse, and asynchronous `pg_ttl_index` cleanup is not part of correctness. Receipt expiry does not reset the stream source-order head or alter raw revisions. No delivery identity or source timestamp is required for accepted intake.
 
@@ -76,6 +85,7 @@ Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LIS
 - The unique raw-revision `(product_listing_raw_stream_id, revision)` constraint provides its B-tree; no redundant ordinary index duplicates it.
 - `product_listings.listing_source_id` and `product_listing_raw_streams.listing_source_id` use `ON DELETE RESTRICT`. A JSON `EXISTING_LISTING_SOURCE` proposal obtains a PostgreSQL `FOR KEY SHARE` lock through the proposal trigger; source deletion takes `FOR UPDATE`, so either proposal creation commits first and blocks deletion, or deletion wins and the proposal fails. The partial `partnership_applications_existing_source_proposal_idx` supports the deletion check.
 - Admin Partnership lists use keyset pagination in fixed `created DESC, partnership_id DESC` order; the `partnerships_created_id_idx` index matches this cursor path.
+- Public Auction directories use keyset pagination in fixed `created DESC, auction_id DESC` order; the `auctions_created_id_idx` index matches this cursor path.
 
 ## FX snapshots
 

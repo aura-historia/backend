@@ -82,8 +82,8 @@ PINS = {
     "opensearch/analysis/italian_synonyms.txt": "642b99c285c25097ed4823367ac354a2ed681c72d27e2512633bb2fa27ef35e6",
     "opensearch/analysis/spanish_synonyms.txt": "d546b97027be2881f83b5a83af60c9000a1071c654d4ec4209d9b32b5608a9f4",
     "opensearch/hybrid-search-pipeline.json": "a1cda77697797ab4790a56729eca1b7eb29984e327aef407552ec848bcf05b83",
-    "opensearch/mappings/product_listings.json": "1862d3bd5d707544b5c72fa4464d00748bd26b7029bfe6f0c61a036c43782b79",
-    "opensearch/mappings/user_search_filters.json": "6d6cb3b20e73e54103b1cd43cd2d317a66dcaed5c01fe2350c3d3792ad37b8b0",
+    "opensearch/mappings/product_listings.json": "b75fe70793fa7563c88fc5608fd6a8a288eb2e799aba2066f450871b93c655b5",
+    "opensearch/mappings/user_search_filters.json": "b8996a4cf4c50c06965414e3936b13b7b49bb3c59c4633ec4f293113f7bcbdfc",
 }
 
 
