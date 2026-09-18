@@ -5,7 +5,7 @@ Run only after integrator review: python3 deploy/tests/smoke-opensearch.py
   --reviewed-run [--hostname opensearch] [--wrong-hostname wrong-opensearch]
   [--port 9200] [--cluster-name aura-stock-fixture]
 No pulls, builds, packages, published ports, PG, cloud, or real credentials.
-Stock 3.1.0 is unmaintained: compatibility test ONLY, never live readiness.
+The maintained engine is selected only from the reviewed deploy/compose/opensearch/image.ref.
 1200s work + 90s success cleanup. ANY failed/unknown run retains exact resources
 and private ownership.json/evidence.json; no automatic retry or failure cleanup.
 Inspect retained IDs before separately authorized exact cleanup. The next run
@@ -49,7 +49,7 @@ import uuid
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "org.aura-historia.opensearch-test"
-STOCK = "sha256:0dd81b2051dc9ccd9e466596aa66b7764b55184886eeccd36c1cf17bdf5ed27d"
+IMAGE_REF = "deploy/compose/opensearch/image.ref"
 PYTHON = "sha256:adbdfc3fab194e4291b7e5db1eaa1dfa997ea8a51e5a50229bec60124374deb8"
 BASELINE = "02e842f23aaa5ccb54c225d6b1307cbc1df5f175"
 LIMIT = 1024 * 1024
@@ -67,8 +67,9 @@ PINS = {
     "deploy/compose/compose.opensearch-admin.yml": "17bab5c38b1d9525b29c50bfe8ef7d84f01f222d30157aa4f68a01d6e886d0ae",
     "deploy/tests/opensearch.fixture.yml": "73a5a36a4911543237831ed99a779bf35f17af95f1347e4672889b9a10097f04",
     "deploy/tests/smoke-sequin-tls.py": "b56b77ca6c4400f416102ffeea0a6d66ccd61095820317627f72c78ae6a73573",
-    "deploy/bin/opensearch": "4044e8506a3224e01b8c325bfe24a42ca503e3990c9ef616e172824515acf9be",
-    "deploy/compose/opensearch/opensearch.yml": "8c391cce6ff68df743e0708fcfb91e98501b5d4497e06705190ffd699c1e30ee",
+    "deploy/bin/opensearch": "4f14a2d9bdd5de77993fefe60605a8a8f9e1b8fd7139ce358a781f945ba672a9",
+    "deploy/compose/opensearch/image.ref": "d50192cc63d5983c74ea06ce70b03a1cf014a2af4a8d2d77fd908e7d93894463",
+    "deploy/compose/opensearch/opensearch.yml": "a6fb94a06b370eb2f4fc0e90c763789f044b0fd17f9e36d1517f30668cdadcbb",
     "deploy/compose/opensearch/security/action_groups.yml": "efa55912b14bf8be310cf219932d5d8163e50f62a42db268708e3ec4d9ed06de",
     "deploy/compose/opensearch/security/audit.yml": "8ed2cd75f419cddd6146b22f69951e6c4ba9cf7618071179f03bd05a17ae691c",
     "deploy/compose/opensearch/security/config.yml": "04d7bd05058ba4c86ddda920dd2071db888df9cd99a098f72a565b597c40ce86",
@@ -97,7 +98,28 @@ def require(condition, code):
 
 
 def image_pins_guard():
-    require(all(re.fullmatch(r"sha256:[0-9a-f]{64}", image) for image in (STOCK, PYTHON)), "MALFORMED_IMAGE_PIN")
+    require(re.fullmatch(r"sha256:[0-9a-f]{64}", PYTHON) is not None, "MALFORMED_IMAGE_PIN")
+
+
+def selected_engine(raw):
+    require(isinstance(raw, bytes) and len(raw) <= 256, "ENGINE_PIN_INVALID")
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        raise Failure("ENGINE_PIN_INVALID") from None
+    match = re.fullmatch(
+        r"(opensearchproject/opensearch:(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
+        r"@(?P<digest>sha256:[0-9a-f]{64}))\n?",
+        text,
+    )
+    require(match is not None, "ENGINE_PIN_INVALID")
+    return match.group(1), match.group("version"), match.group("digest")
+
+
+def local_image_id(value):
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise argparse.ArgumentTypeError("local immutable image ID required")
+    return value
 
 
 def digest(value):
@@ -181,8 +203,12 @@ def autocreate_policy(response):
 
 
 def pipeline_absence(response):
-    # Stock3.1.0 GET search-pipeline routes return an empty object, not a typed error.
-    return response.get("status") == 404 and response.get("body") == {}
+    # Preserve the observed empty-body response and the exact typed absence shape.
+    body = response.get("body")
+    typed = (isinstance(body, dict) and body.get("status") == 404
+             and isinstance(body.get("error"), dict)
+             and body["error"].get("type") == "resource_not_found_exception")
+    return response.get("status") == 404 and (body == {} or typed)
 
 
 def ml_index_ready(response, cluster):
@@ -410,6 +436,7 @@ class Probe:
         self.volume, self.network = self.project + "-data", None
         self.deadline = time.monotonic() + 1200
         self.ids, self.specs, self.images, self.frozen, self.events = {}, {}, {}, {}, []
+        self.engine_ref = self.engine_version = self.engine_digest = self.engine_image = None
         self.generated = {}
         self.pending = None
         for name in ("docker", "stage", "client-tree", "secrets", "pki"):
@@ -447,7 +474,7 @@ class Probe:
 
     def inspect(self, kind, name):
         code, raw = self.call(kind, "inspect", name, check=False)
-        if code and kind == "image" and name in (STOCK, PYTHON) and "no such image:" in raw.lower():
+        if code and kind == "image" and name in (getattr(self, "engine_image", None), PYTHON) and "no such image:" in raw.lower():
             raise Failure("CACHED_IMAGE_MISSING:" + name)
         require(code == 0, "DOCKER_INSPECT_FAILED")
         return json.loads(raw)[0]
@@ -540,7 +567,8 @@ class Probe:
             require(digest(raw) == PINS[name], "SNAPSHOT_CHANGED")
             path = self.write("stage/" + name, raw, 0o444)
             self.frozen[path] = PINS[name]
-            if name == "deploy/bin/opensearch" or name.startswith("opensearch/mappings/") or name == "opensearch/hybrid-search-pipeline.json":
+            if (name == "deploy/bin/opensearch" or name == IMAGE_REF
+                    or name.startswith("opensearch/mappings/") or name == "opensearch/hybrid-search-pipeline.json"):
                 copied = self.write("client-tree/" + name, raw, 0o444)
                 self.frozen[copied] = PINS[name]
 
@@ -575,20 +603,33 @@ class Probe:
     def prepare(self):
         image_pins_guard()
         snapshot = source_guard()
+        self.engine_ref, self.engine_version, self.engine_digest = selected_engine(snapshot[IMAGE_REF])
+        self.engine_image = getattr(getattr(self, "args", None), "opensearch_image", None) or self.engine_ref
         require(not self.call("container", "ls", "-q").strip(), "OTHER_RUNNING_CONTAINERS")
         # No second environment, including retained stopped one-shots/volumes.
         for kind in ("container", "network", "volume"):
             require(not self.call(kind, "ls", "-q", *( ["-a"] if kind == "container" else []),
                 "--filter", "label=" + OWNER).strip(), "PRIOR_RESOURCES_RETAINED")
-        for image in (STOCK, PYTHON):
+        engine_reference = self.engine_image
+        for image in (engine_reference, PYTHON):
             item = self.inspect("image", image)
-            require(item["Id"] == image and not item["Config"].get("Volumes")
-                and not item["Config"].get("Healthcheck"), "IMAGE_CONTRACT")
+            if image == engine_reference:
+                repository = self.engine_ref.rsplit("@", 1)[0].rsplit(":", 1)[0]
+                require(repository + "@" + self.engine_digest in item.get("RepoDigests", []),
+                        "OPENSEARCH_REGISTRY_IDENTITY")
+                require(item["Os"] == "linux" and item["Architecture"] == "amd64", "OPENSEARCH_PLATFORM")
+            else:
+                require(item["Id"] == image, "IMAGE_ID")
+            require(not item["Config"].get("Volumes") and not item["Config"].get("Healthcheck"), "IMAGE_CONTRACT")
             env = dict(e.split("=", 1) for e in item["Config"].get("Env", []))
             require(not any(k.startswith(("AWS_", "GOOGLE_", "GCP_", "AZURE_")) or
-                any(s in k for s in ("PASSWORD", "TOKEN", "CREDENTIAL", "PROXY")) for k in env), "IMAGE_AMBIENT_SECRET_ENV")
+                any(marker in k for marker in ("PASSWORD", "TOKEN", "CREDENTIAL", "PROXY"))
+                for k in env), "IMAGE_AMBIENT_SECRET_ENV")
             self.images[image] = item
-        require(self.images[STOCK]["Config"].get("User") in ("1000", "1000:1000", "opensearch"), "STOCK_NONROOT")
+        require(self.images[engine_reference]["Config"].get("User") in ("1000", "1000:1000", "opensearch"), "STOCK_NONROOT")
+        self.engine_image = self.images[engine_reference]["Id"]
+        if engine_reference != self.engine_image:
+            self.images[self.engine_image] = self.images.pop(engine_reference)
         self.stage_sources(snapshot)
         copied = self.write("client-tree/deploy/tests/smoke-opensearch.py", checked_bytes(Path(__file__).resolve()), 0o444)
         self.frozen[copied] = digest(copied.read_bytes())
@@ -603,7 +644,7 @@ class Probe:
         self.passwords = {user: secrets.token_hex(24) for user in USERS}
         hashes = {}
         for user in USERS:
-            spec = self.plain_spec(STOCK, ["-env", "FIXTURE_PASSWORD"], offline=True)
+            spec = self.plain_spec(self.engine_image, ["-env", "FIXTURE_PASSWORD"], offline=True)
             spec["entrypoint"] = [TOOL + "hash.sh"]
             spec["user"] = "1000:1000"  # Stock tools are UID/GID1000 mode0750.
             spec["environment"] = {"FIXTURE_PASSWORD": self.passwords[user], "JAVA_TOOL_OPTIONS": "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1"}
@@ -620,7 +661,7 @@ class Probe:
         self.write("secrets/admin/security/internal_users.yml", json.dumps(users))  # JSON is native YAML subset.
         self.write("secrets/client/users.json", json.dumps(self.passwords))
         self.permissions()
-        env = dict(OPENSEARCH_IMAGE=STOCK, POSTGRES_IMAGE=STOCK, REDIS_IMAGE=STOCK, SEQUIN_IMAGE=STOCK,
+        env = dict(OPENSEARCH_IMAGE=self.engine_image, POSTGRES_IMAGE=self.engine_image, REDIS_IMAGE=self.engine_image, SEQUIN_IMAGE=self.engine_image,
             AURA_CONFIG_DIR=str(self.directory / "secrets"), AURA_OPENSEARCH_ADMIN_DIR=str(self.directory / "secrets/admin"),
             AURA_NETWORK=self.project, FIXTURE_VOLUME=self.volume, FIXTURE_OWNER=self.token,
             FIXTURE_HOST=self.args.hostname, FIXTURE_WRONG_HOST=self.args.wrong_hostname)
@@ -636,7 +677,8 @@ class Probe:
         self.create_plain("client", spec)
         self.call("start", self.ids["client"])
         self.runtime("client")
-        self.event("isolation-prepared", stock=STOCK, helper=PYTHON, sources=PINS)
+        self.event("isolation-prepared", engine_ref=self.engine_ref, engine_digest=self.engine_digest,
+            engine_image=self.engine_image, helper=PYTHON, sources=PINS)
 
     def certificates(self):
         def openssl(*args):
@@ -703,7 +745,7 @@ class Probe:
     def compose_create(self, service, command=None):
         self.guard()
         stage = self.directory / "stage"
-        common = dict(image=STOCK, pull_policy="never", security_opt=SECURITY, logging=LOGGING,
+        common = dict(image=self.engine_image, pull_policy="never", security_opt=SECURITY, logging=LOGGING,
             labels={OWNER: self.token}, container_name=self.project + "-" + service)
         overlay = {"services": {service: {"container_name": common["container_name"], "labels": common["labels"]}}}
         if service == "opensearch":
@@ -784,7 +826,7 @@ class Probe:
         self.event("trusted-admin-root", result=safe_result(response))
         require(response.get("status") == 200, "TARGET_ROOT_NOT_200_RETAINED")
         result = response["body"]
-        require(result.get("cluster_name") == self.args.cluster_name and result.get("version", {}).get("number") == "3.1.0"
+        require(result.get("cluster_name") == self.args.cluster_name and result.get("version", {}).get("number") == self.engine_version
             and result["version"].get("distribution") == "opensearch", "TARGET_IDENTITY")
 
     def wait_node(self):
@@ -806,7 +848,7 @@ class Probe:
             "-cn", self.args.cluster_name, "-cacert", "/operator/root-ca.pem", "-cert", "/operator/" + identity + ".pem",
             "-key", "/operator/" + identity + "-key.pem", "-cd", "/operator/security", "-ff"]
         if not offline:
-            self.target()  # -cn does not enforce identity in stock3.1.0.
+            self.target()  # -cn labels output; the authenticated root check enforces identity.
         self.compose_create("opensearch-admin", command)
         code, raw = self.finish("opensearch-admin", 120)
         self.event("securityadmin-" + ("offline" if offline else identity), exit=code, output_sha256=digest(raw.encode()))
@@ -1125,6 +1167,8 @@ def main(argv=None):
     parser.add_argument("--wrong-hostname", type=hostname, default="wrong-opensearch")
     parser.add_argument("--cluster-name", type=hostname, default="aura-stock-fixture")
     parser.add_argument("--port", type=int, default=9200)
+    parser.add_argument("--opensearch-image", type=local_image_id,
+                        help="optional preloaded linux/amd64 local image ID; default uses image.ref")
     args = parser.parse_args(argv)
     require(args.reviewed_run, "INTEGRATOR_PRE_REVIEW_REQUIRED")
     require(1024 <= args.port <= 65535 and args.port != 9300 and args.hostname != args.wrong_hostname

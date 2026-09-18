@@ -10,6 +10,18 @@ env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
 
 `run_ci.py` discovers `test_*.py`, requires nonzero discovery and a successful result, and rejects failures, errors, unexpected successes and any skip outside the one documented case: `test_search_ca_compose.SearchCaComposeTests.test_actual_candidate_ca_bind_is_readable_and_readonly_as_uid10001`, skipped for `opt-in cached networkless helper only`. C1 does not set `AURA_TEST_CA_MOUNT=1`; it does not build images or start application services. The Compose-config test executes against the checked-in files.
 
+## C2 — maintained secured OpenSearch pin and scoped identities
+
+2026-09-18 implementation handoff: official downloads, version history and artifacts identify OpenSearch3.8.0, released2026-08-04. Registry metadata confirms the official multi-platform index `sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40`; linux/amd64 child manifest is `sha256:68a688de28fb9bb66601552650b91a52a9fd5e7eac5481dd2b225ecb66fd09b0`. Checked-in `deploy/compose/opensearch/image.ref` contains the full official reference. No local3.8.0 image was present; no pull or engine rehearsal was run.
+
+C2 code makes `deploy/bin/opensearch initialize-fresh|verify` parse that immutable pin and require the exact server version/distribution before any write. The secured-node harness stages and verifies the same pin, uses its actual local image ID only after registry-digest/platform proof, and performs no runtime pull/build. Native node/admin Compose still share `OPENSEARCH_IMAGE`; the node remains HTTPS/native-security/no-demo/no-auto-create/no-query-capture by configuration. The current mapping, analysis and RRF bytes remain unchanged; mapping hashes are recorded in the source guard.
+
+Ordinary application Compose now gives `product-listing-opensearch.env`, `search-filter-projection.env` and `search-filter-percolator.env` after shared `worker.env`, all `format: raw`. API/api-candidate use `aura_reader`; the three workers use `aura_product_projector`, `aura_filter_projector`, `aura_percolator`; cron uses `aura_cron`. The seven other worker scopes and crawler receive no OpenSearch credentials. Host model/input checks enforce exact paths, private0600 scoped files, snapshots, drift rejection and real-stage username/nonblank-password identity checks.
+
+Observed safe checks: `run_ci.py` passed206 deployment tests with exactly the one documented skip; focused operator tests passed28, secured-harness tests47, host tests31, pure Compose tests26, and actual Compose-config tests passed with one expected helper skip. Rust format, focused locked/all-feature tests, worker binary tests and strict Clippy passed. These are unit, loopback TLS, source-guard and actual Compose evidence—not selected-engine, native application startup or Rust-SDK-to-OpenSearch evidence.
+
+The real3.8.0 secured-node and real-client rehearsal is **NOT RUN/BLOCKED**: no authorized disposable Linux/amd64 runner and no cached selected image ID were established. Do not use the historical OpenSearch3.1.0 R2/R3 pass below as C2 evidence. SDK2.4 redirect limitation remains: direct preflight refuses redirects, but the public SDK builder has no same-origin/no-follow control; C2 uses only a trusted private nonredirecting endpoint when that rehearsal is later authorized.
+
 # Native image smoke (R2)
 
 For simultaneous13-process ordinary Compose startup and same-version restart (R3), see [`../compose/README.md`](../compose/README.md). R2 below remains the separate per-image/signal regression. For the actual host-command A→B/fault-candidate rehearsal (R4), see [`../bin/README.md`](../bin/README.md).

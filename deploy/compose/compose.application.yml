@@ -56,18 +56,33 @@ services:
 
   product-listing-opensearch:
     <<: *worker
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/worker.env
+        format: raw
+      - path: ${AURA_CONFIG_DIR:?}/product-listing-opensearch.env
+        format: raw
     volumes: [*ca, *search-ca]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: product-listing-opensearch
       AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_PRODUCT_LISTING_OPENSEARCH:?Set source queue URL}
   search-filter-projection:
     <<: *worker
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/worker.env
+        format: raw
+      - path: ${AURA_CONFIG_DIR:?}/search-filter-projection.env
+        format: raw
     volumes: [*ca, *search-ca]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: search-filter-projection
       AURA_HISTORIA_WORKER_QUEUE_URL: ${QUEUE_SEARCH_FILTER_PROJECTION:?Set source queue URL}
   search-filter-percolator:
     <<: *worker
+    env_file:
+      - path: ${AURA_CONFIG_DIR:?}/worker.env
+        format: raw
+      - path: ${AURA_CONFIG_DIR:?}/search-filter-percolator.env
+        format: raw
     volumes: [*ca, *search-ca, *adc]
     environment:
       AURA_HISTORIA_WORKER_SCOPE: search-filter-percolator

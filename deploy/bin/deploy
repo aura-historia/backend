@@ -29,6 +29,21 @@ WORKERS = tuple(w["scope"] for w in CATALOG["workers"])
 JOBS = ("cron", "crawler")
 SLOTS = ("api", "api-candidate")
 SERVICES = {*WORKERS, *JOBS, *SLOTS}
+SEARCH_WORKER_ENVFILES = {
+    "product-listing-opensearch": "product-listing-opensearch.env",
+    "search-filter-projection": "search-filter-projection.env",
+    "search-filter-percolator": "search-filter-percolator.env",
+}
+SEARCH_IDENTITIES = {
+    "api": "aura_reader",
+    "api-candidate": "aura_reader",
+    "product-listing-opensearch": "aura_product_projector",
+    "search-filter-projection": "aura_filter_projector",
+    "search-filter-percolator": "aura_percolator",
+    "cron": "aura_cron",
+}
+SEARCH_SECRET_FILES = frozenset(SEARCH_WORKER_ENVFILES.values())
+SEARCH_SECRET_KEYS = ("OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD")
 BINS = dict(api="aura-historia-api", worker="aura-historia-worker", cron="aura-historia-cron", crawler="server")
 BUDGETS = dict(api=60, worker=300, cron=330, crawler=330)
 PORTS = dict(api=9080, worker=8081, cron=8082, crawler=9083)
@@ -63,6 +78,24 @@ def trusted(path, directory=False):
     info = path.stat()
     need((stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
          and info.st_uid in {0, os.geteuid()} and not info.st_mode & 0o022, "UNTRUSTED_FILE")
+    return path
+
+
+def secret_env_file(path, validate_fields=True):
+    try:
+        path = trusted(path)
+    except FileNotFoundError:
+        raise Failure("UNTRUSTED_FILE") from None
+    need(stat.S_IMODE(path.stat().st_mode) == 0o600, "ENV_FILE_PERMISSIONS")
+    if validate_fields:
+        try:
+            lines = path.read_text(encoding="ascii").splitlines()
+        except (OSError, UnicodeError):
+            raise Failure("SEARCH_SECRET_FIELDS") from None
+        keys = [line.split("=", 1)[0] for line in lines if line]
+        need(len(lines) == len(SEARCH_SECRET_KEYS) and all("=" in line for line in lines)
+             and sorted(keys) == sorted(SEARCH_SECRET_KEYS),
+             "SEARCH_SECRET_FIELDS")
     return path
 
 
@@ -167,9 +200,17 @@ class Host:
 
     def inputs(self):
         paths = [self.files / name for name in ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "opensearch-ca.pem", "google-adc.json")]
+        paths += [self.files / name for name in SEARCH_WORKER_ENVFILES.values()]
         paths += [Path(self.config["compose_env"]), Path(self.config["https_ca"]), ROOT / "deploy/catalog.json"]
         paths += [COMPOSE / name for name in ("compose.application.yml", "compose.replace.yml", "compose.edge.yml", "Caddyfile.replace")]
-        return {str(path): (trusted(path).stat().st_mode, path.stat().st_uid, hashlib.sha256(path.read_bytes()).hexdigest()) for path in paths}
+        result = {}
+        for path in paths:
+            if path.parent == self.files and path.name in SEARCH_SECRET_FILES:
+                info = secret_env_file(path, validate_fields=False).stat()
+            else:
+                info = trusted(path).stat()
+            result[str(path)] = (info.st_mode, info.st_uid, hashlib.sha256(path.read_bytes()).hexdigest())
+        return result
 
     def unchanged(self):
         if self.snapshot is not None:
@@ -256,11 +297,13 @@ class Host:
             component = kind(name)
             base = "api" if name in SLOTS else component
             envfiles = [self.files / (base + ".env")]
+            if name in SEARCH_WORKER_ENVFILES:
+                envfiles.append(self.files / SEARCH_WORKER_ENVFILES[name])
             if name == "notification-delivery":
-                envfiles += [self.files / "notification-delivery.env"]
+                envfiles.append(self.files / "notification-delivery.env")
             need([e["path"] for e in raw["services"][name]["env_file"]] == [str(p) for p in envfiles], "ENV_FILE_LOCATION")
             for path in envfiles:
-                trusted(path)
+                (secret_env_file if path.name in SEARCH_SECRET_FILES else trusted)(path)
             need(service["image"] == selected["images"][component] and service["user"] == "10001:10001"
                  and service["restart"] == "unless-stopped" and service["read_only"]
                  and seconds(service["stop_grace_period"]) == BUDGETS[component], "APPLICATION_BUDGET_OR_IDENTITY")
@@ -278,6 +321,13 @@ class Host:
             for path in expected_mounts:
                 trusted(path)
             values = service["environment"]
+            if self.config["stage"] in {"dev", "prod"} and name in SEARCH_IDENTITIES:
+                need(values.get("OPENSEARCH_USERNAME") == SEARCH_IDENTITIES[name]
+                     and isinstance(values.get("OPENSEARCH_PASSWORD"), str)
+                     and bool(values["OPENSEARCH_PASSWORD"].strip()), "SEARCH_RUNTIME_IDENTITY")
+            if name in (set(WORKERS) - set(SEARCH_WORKER_ENVFILES)) or name == "crawler":
+                need("OPENSEARCH_USERNAME" not in values and "OPENSEARCH_PASSWORD" not in values,
+                     "UNEXPECTED_SEARCH_CREDENTIALS")
             stop_key = {"api": "AURA_HISTORIA_API_STOP_SECONDS", "worker": "AURA_HISTORIA_WORKER_STOP_TIMEOUT_SECONDS", "cron": "AURA_HISTORIA_CRON_STOP_TIMEOUT_SECONDS", "crawler": "CRAWLER_STOP_TIMEOUT_SECONDS"}[component]
             need(values.get(stop_key, str(BUDGETS[component])) == str(BUDGETS[component]), "RUNTIME_STOP_BUDGET")
             need(values.get("STAGE") == self.config["stage"] and values.get("COMMIT_SHA") == selected["source_sha"], "APPLICATION_STAGE")

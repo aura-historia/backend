@@ -22,15 +22,34 @@ class SourceTests(unittest.TestCase):
         smoke.source_guard()
         smoke.image_pins_guard()
 
-    def test_both_image_pins_reject_malformed_ids_before_docker(self):
-        for name in ("STOCK", "PYTHON"):
-            for bad in (getattr(smoke, name) + "3", "sha256:" + "a" * 63, "sha256:" + "A" * 64, "opensearch:3.1.0"):
-                probe = object.__new__(smoke.Probe)
-                probe.call = Mock()
-                with self.subTest(name=name, bad=bad), patch.object(smoke, name, bad):
-                    with self.assertRaisesRegex(smoke.Failure, "MALFORMED_IMAGE_PIN"):
-                        probe.prepare()
-                probe.call.assert_not_called()
+    def test_helper_image_pin_rejects_malformed_id_before_docker(self):
+        for bad in (smoke.PYTHON + "3", "sha256:" + "a" * 63, "sha256:" + "A" * 64, "python:latest"):
+            probe = object.__new__(smoke.Probe)
+            probe.call = Mock()
+            with self.subTest(bad=bad), patch.object(smoke, "PYTHON", bad):
+                with self.assertRaisesRegex(smoke.Failure, "MALFORMED_IMAGE_PIN"):
+                    probe.prepare()
+            probe.call.assert_not_called()
+
+    def test_engine_pin_rejects_malformed_reference_before_docker(self):
+        snapshot = smoke.source_guard()
+        for bad in (b"opensearchproject/opensearch:latest\n",
+                    b"opensearchproject/opensearch:3.8.0-rc1@sha256:" + b"a" * 64 + b"\n",
+                    b"opensearchproject/opensearch:3.8.0@sha256:" + b"a" * 63 + b"\n",
+                    b"opensearchproject/opensearch:3.8.0@sha256:" + b"A" * 64 + b"\n"):
+            altered = dict(snapshot, **{smoke.IMAGE_REF: bad})
+            probe = object.__new__(smoke.Probe)
+            probe.call = Mock()
+            with self.subTest(bad=bad), patch.object(smoke, "source_guard", return_value=altered):
+                with self.assertRaisesRegex(smoke.Failure, "^ENGINE_PIN_INVALID$"):
+                    probe.prepare()
+            probe.call.assert_not_called()
+
+    def test_local_image_override_accepts_only_immutable_ids(self):
+        self.assertEqual(smoke.local_image_id("sha256:" + "a" * 64), "sha256:" + "a" * 64)
+        for value in ("opensearchproject/opensearch:3.8.0", "latest", "sha256:" + "A" * 64):
+            with self.assertRaises(smoke.argparse.ArgumentTypeError):
+                smoke.local_image_id(value)
 
     def test_source_change_rejected_before_any_docker_call(self):
         probe = object.__new__(smoke.Probe)
@@ -311,7 +330,8 @@ class ClientTests(unittest.TestCase):
 
 class ModelTests(unittest.TestCase):
     def setUp(self):
-        self.expected = {"image": smoke.STOCK, "networks": {"backend": None}}
+        self.engine_ref = smoke.selected_engine(smoke.checked_bytes(smoke.ROOT / smoke.IMAGE_REF))[0]
+        self.expected = {"image": self.engine_ref, "networks": {"backend": None}}
         self.model = {"name": "owned", "services": {"opensearch": copy.deepcopy(self.expected)},
             "networks": {"backend": {"name": "owned", "external": True}},
             "volumes": {"opensearch-data": {"name": "owned-data", "external": True}}}
@@ -331,8 +351,8 @@ class ModelTests(unittest.TestCase):
             lambda m: m["services"]["opensearch"].update(privileged=True),
             lambda m: m["networks"]["backend"].update(name="host-network"),
             lambda m: m["volumes"]["opensearch-data"].update(name="existing-data"),
-            lambda m: m["services"].update(postgres={"image": smoke.STOCK}),
-            lambda m: m["services"].update(unreviewed={"image": smoke.STOCK})]
+            lambda m: m["services"].update(postgres={"image": self.engine_ref}),
+            lambda m: m["services"].update(unreviewed={"image": self.engine_ref})]
         for change in changes:
             model = copy.deepcopy(self.model)
             change(model)
@@ -343,6 +363,7 @@ class ModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             probe = object.__new__(smoke.Probe)
             probe.directory = Path(folder)
+            probe.engine_image = self.engine_ref
             probe.project, probe.token = "owned", "token"
             probe.guard, probe.journal = Mock(), Mock()
             probe.call = Mock(side_effect=[json.dumps({"services": {}}), "created"])
@@ -442,12 +463,13 @@ class OwnershipTests(unittest.TestCase):
                 smoke.owned_volume(volume | {key: value}, "owned-data", "token")
 
     def test_runtime_rejects_extra_mounts_env_ports_namespaces_and_root_node(self):
-        image = {"Id": smoke.STOCK, "Config": {"Env": ["PATH=/usr/bin"], "Entrypoint": ["node"], "Cmd": []}}
-        spec = dict(image=smoke.STOCK, user="1000:1000", environment={}, restart="unless-stopped",
+        image_id = "sha256:" + "b" * 64
+        image = {"Id": image_id, "Config": {"Env": ["PATH=/usr/bin"], "Entrypoint": ["node"], "Cmd": []}}
+        spec = dict(image=image_id, user="1000:1000", environment={}, restart="unless-stopped",
             mem_limit=1024, cpus=1, pids_limit=32, networks={"backend": {"aliases": ["opensearch"]}},
             volumes=[smoke.bind("/owned/node", "/certs"),
                 {"type": "volume", "source": "owned-data", "target": "/data"}])
-        item = {"Name": "/owned-node", "Image": smoke.STOCK,
+        item = {"Name": "/owned-node", "Image": image_id,
             "Config": {"Labels": {smoke.OWNER: "token"}, "User": "1000:1000", "Entrypoint": ["node"], "Cmd": [], "Env": ["PATH=/usr/bin"]},
             "HostConfig": {"SecurityOpt": smoke.SECURITY, "IpcMode": "private", "ReadonlyRootfs": False,
                 "Memory": 1024, "PidsLimit": 32, "NanoCpus": 1000000000, "RestartPolicy": {"Name": "unless-stopped"},
@@ -579,7 +601,7 @@ class EvidenceTests(unittest.TestCase):
                 check({"defaults": expected}, indices)
         self.assertNotIn("secret-canary", str(probe.event.call_args_list))
 
-    def test_pipeline_absence_is_only_stock_empty_json_404(self):
+    def test_pipeline_absence_accepts_only_verified_absence_shapes(self):
         self.assertTrue(smoke.pipeline_absence({"status": 404, "body": {}}))
         for response in ({"status": 200, "body": {}}, {"status": 503, "body": {}},
                 {"status": 404}, {"status": 404, "body": []}, {"status": 404, "body": {"unexpected": True}},
@@ -740,13 +762,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(safe["actions"], ["cluster:monitor/main"])
 
     def test_missing_cached_image_reports_only_reviewed_id(self):
+        missing = "sha256:" + "c" * 64
         probe = object.__new__(smoke.Probe)
+        probe.engine_image = missing
         probe.call = Mock(return_value=(1, "Error: No such image: secret-canary"))
         with self.assertRaises(smoke.Failure) as caught:
-            probe.inspect("image", smoke.STOCK)
-        self.assertEqual(str(caught.exception), "CACHED_IMAGE_MISSING:" + smoke.STOCK)
+            probe.inspect("image", missing)
+        self.assertEqual(str(caught.exception), "CACHED_IMAGE_MISSING:" + missing)
         self.assertNotIn("secret-canary", str(caught.exception))
-        probe.call.assert_called_once_with("image", "inspect", smoke.STOCK, check=False)
+        probe.call.assert_called_once_with("image", "inspect", missing, check=False)
 
     def test_never_started_permission_failure_is_classified_without_raw_error(self):
         probe = object.__new__(smoke.Probe)

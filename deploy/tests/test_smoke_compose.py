@@ -89,6 +89,34 @@ class SmokeComposeTests(unittest.TestCase):
         self.assertIn("OPENSEARCH_ENDPOINT_URL", common)
         self.assertEqual(common["STAGE"], "test")
 
+    def test_search_identities_are_scope_specific_and_non_search_workers_clean(self):
+        expected = {
+            "api": "aura_reader",
+            "api-candidate": "aura_reader",
+            "product-listing-opensearch": "aura_product_projector",
+            "search-filter-projection": "aura_filter_projector",
+            "search-filter-percolator": "aura_percolator",
+            "cron": "aura_cron",
+        }
+        self.assertEqual(smoke.SEARCH_IDENTITIES, expected)
+        for name, username in expected.items():
+            values = self.environments["api" if name == "api-candidate" else name]
+            self.assertTrue(values.get("OPENSEARCH_USERNAME") == username)
+            self.assertTrue(values.get("OPENSEARCH_PASSWORD"))
+        non_search = (set(smoke.provider.SCOPES) - set(smoke.SEARCH_WORKER_ENVFILES)) | {"crawler"}
+        for name in non_search:
+            values = self.environments[name]
+            self.assertNotIn("OPENSEARCH_USERNAME", values)
+            self.assertNotIn("OPENSEARCH_PASSWORD", values)
+        common, _ = smoke.worker_environment()
+        self.assertNotIn("OPENSEARCH_USERNAME", common)
+        self.assertNotIn("OPENSEARCH_PASSWORD", common)
+        for name in smoke.SEARCH_WORKER_ENVFILES.values():
+            path = self.directory / name
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            keys = {line.split("=", 1)[0] for line in path.read_text().splitlines()}
+            self.assertEqual(keys, {"OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"})
+
     def test_native_sequin_catalog_not_compose(self):
         catalog = json.loads((smoke.ROOT / "deploy/catalog.json").read_text())
         config = smoke.native_sequin(catalog)

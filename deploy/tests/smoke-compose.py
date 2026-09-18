@@ -56,6 +56,27 @@ VOLUME_MOUNTS = {
     "redis": {"redis-data": "/data"},
     "caddy": {"caddy-data": "/data", "caddy-config": "/config"},
 }
+SEARCH_WORKER_ENVFILES = {
+    "product-listing-opensearch": "product-listing-opensearch.env",
+    "search-filter-projection": "search-filter-projection.env",
+    "search-filter-percolator": "search-filter-percolator.env",
+}
+SEARCH_IDENTITIES = {
+    "api": "aura_reader",
+    "api-candidate": "aura_reader",
+    "product-listing-opensearch": "aura_product_projector",
+    "search-filter-projection": "aura_filter_projector",
+    "search-filter-percolator": "aura_percolator",
+    "cron": "aura_cron",
+}
+SEARCH_PASSWORDS = {
+    "api": "c2-synthetic-api-reader-password",
+    "cron": "c2-synthetic-cron-password",
+    "product-listing-opensearch": "c2-synthetic-product-projector-password",
+    "search-filter-projection": "c2-synthetic-filter-projector-password",
+    "search-filter-percolator": "c2-synthetic-percolator-password",
+}
+SEARCH_SECRET_FILES = frozenset(SEARCH_WORKER_ENVFILES.values())
 BIND_MOUNTS = {
     "postgres": {"postgres": "/etc/postgresql"},
     "opensearch": {"opensearch.yml": "/usr/share/opensearch/config/opensearch.yml",
@@ -75,7 +96,8 @@ PUBLIC_BINDS = {
 }
 ENV_FILES = {"postgres": ["postgres.env"], "sequin": ["sequin.env"],
              **{name: [name + ".env"] for name in ("api", "cron", "crawler")},
-             **{name: ["worker.env"] for name in provider.SCOPES},
+             **{name: ["worker.env"] + ([SEARCH_WORKER_ENVFILES[name]] if name in SEARCH_WORKER_ENVFILES else [])
+                for name in provider.SCOPES},
              "notification-delivery": ["worker.env", "notification-delivery.env"]}
 TMPFS = {**{name: "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777" for name in SERVICES["application"]},
          "bootstrap": "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777"}
@@ -97,16 +119,17 @@ def worker_environment():
             target = delivery if key in DELIVERY else common
             require(key not in target or target[key] == value, "WORKER_ENV_CONFLICT")
             target[key] = value
-    require(set(delivery) == DELIVERY, "DELIVERY_ENV")
+    require(set(delivery) == DELIVERY and not {"OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"} & common.keys(),
+            "DELIVERY_ENV")
     return common, delivery
 
 
-def protected_write(directory, name, text):
+def protected_write(directory, name, text, mode=0o444):
     path = directory / name
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     path.write_text(text)
-    # Public synthetic contents only. Bind-mounted apps run UID10001; host parent is 0700.
-    path.chmod(0o444)
+    # Public synthetic contents only, except raw search credentials kept private even in fixtures.
+    path.chmod(mode)
 
 
 def env_text(values):
@@ -134,9 +157,15 @@ def native_sequin(catalog):
 def app_environments():
     common, delivery = worker_environment()
     values = {name: provider.fixture_environment(name) for name in ("api", "cron", "crawler")}
+    for name in ("api", "cron"):
+        values[name].update(OPENSEARCH_USERNAME=SEARCH_IDENTITIES[name], OPENSEARCH_PASSWORD=SEARCH_PASSWORDS[name])
+    values["crawler"].pop("OPENSEARCH_USERNAME", None)
+    values["crawler"].pop("OPENSEARCH_PASSWORD", None)
     for scope in provider.SCOPES:
         scoped = provider.fixture_environment("worker", scope)
         values[scope] = dict(common, **{key: scoped[key] for key in QUEUE_FIELDS})
+        if scope in SEARCH_WORKER_ENVFILES:
+            values[scope].update(OPENSEARCH_USERNAME=SEARCH_IDENTITIES[scope], OPENSEARCH_PASSWORD=SEARCH_PASSWORDS[scope])
         if scope == "notification-delivery":
             values[scope].update(delivery)
     return values
@@ -150,6 +179,9 @@ def materialize(directory, projects, port, images, environments=None):
     common, delivery = worker_environment()
     protected_write(directory, "worker.env", env_text(common))
     protected_write(directory, "notification-delivery.env", env_text(delivery))
+    for scope, filename in SEARCH_WORKER_ENVFILES.items():
+        credentials = {key: environments[scope][key] for key in ("OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD")}
+        protected_write(directory, filename, env_text(credentials), mode=0o600)
     protected_write(directory, "google-adc.json", json.dumps(provider.fixture_adc()))
     protected_write(directory, "postgres-ca.pem", "unused synthetic STAGE=test CA mount\n")
     protected_write(directory, "opensearch-ca.pem", "unused synthetic STAGE=test CA mount\n")
@@ -206,7 +238,8 @@ def fixture_hashes(directory):
     result = {}
     for name in names:
         path = directory / name
-        require(path.is_file() and stat.S_IMODE(path.stat().st_mode) == 0o444, "FIXTURE_FILE_PERMISSIONS")
+        expected_mode = 0o600 if name in SEARCH_SECRET_FILES else 0o444
+        require(path.is_file() and stat.S_IMODE(path.stat().st_mode) == expected_mode, "FIXTURE_FILE_PERMISSIONS")
         result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     return result
 

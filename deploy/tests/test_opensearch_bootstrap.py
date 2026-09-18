@@ -32,7 +32,7 @@ class Cluster:
         self.calls = []
         definitions, pipeline = bootstrap.assets()
         self.target = {"cluster_name": self.cluster,
-                       "version": {"distribution": "opensearch", "number": "3.1.0"}}
+                       "version": {"distribution": "opensearch", "number": bootstrap.selected_engine()[1]}}
         self.values = {} if fresh else {
             "/" + name + "?flat_settings=true": index_response(name, value) for name, value in definitions}
         if not fresh:
@@ -54,6 +54,32 @@ class Cluster:
                 return None
             raise bootstrap.Failure("MISSING")
         return self.values[path]
+
+
+class EnginePinTests(unittest.TestCase):
+    def test_checked_in_pin_has_exact_published_reference_and_version(self):
+        self.assertEqual(
+            bootstrap.selected_engine(),
+            ("opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40", "3.8.0"),
+        )
+
+    def test_pin_rejects_missing_mutable_prerelease_and_invalid_references(self):
+        values = (
+            b"",
+            b"opensearchproject/opensearch:3.8.0\n",
+            b"opensearchproject/opensearch:latest@sha256:" + b"a" * 64 + b"\n",
+            b"opensearchproject/opensearch:3.8.0-rc1@sha256:" + b"a" * 64 + b"\n",
+            b"opensearchproject/opensearch:3.8.0@sha256:" + b"a" * 63 + b"\n",
+            b"opensearchproject/opensearch:3.8.0@sha256:" + b"A" * 64 + b"\n",
+            "opensearchproject/opensearch:3.8.0@sha256:".encode() + b"a" * 64 + "é\n".encode(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image.ref"
+            with patch.object(bootstrap, "ENGINE_PIN_PATH", path):
+                for value in values:
+                    path.write_bytes(value)
+                    with self.subTest(value=value), self.assertRaisesRegex(bootstrap.Failure, "^ENGINE_PIN_INVALID$"):
+                        bootstrap.selected_engine()
 
 
 class FlowTests(unittest.TestCase):
@@ -96,8 +122,8 @@ class FlowTests(unittest.TestCase):
 
     def test_target_cluster_distribution_version_must_match_before_other_calls(self):
         for target in ({"cluster_name": "wrong"},
-                       {"version": {"distribution": "other", "number": "3.1.0"}},
-                       {"version": {"distribution": "opensearch", "number": "3.2.0"}}):
+                       {"version": {"distribution": "other", "number": bootstrap.selected_engine()[1]}},
+                       {"version": {"distribution": "opensearch", "number": "3.8.1"}}):
             client = Cluster(fresh=True)
             client.target.update(target)
             with self.assertRaises(bootstrap.Failure):

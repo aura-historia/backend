@@ -45,7 +45,7 @@ The test has a30min bound and exact-owner cleanup. Unknown commands or unverifie
 | `OPENSEARCH_ADMIN_CERT` | Separate admin client certificate PEM |
 | `OPENSEARCH_ADMIN_KEY` | Unencrypted private key, regular nonempty file, current-user-owned0600 |
 
-Hold the **existing deployment state-directory `lock` flock** and exclusive target custody for setup/inspection; this command does not acquire the lock itself. Fence writers, freeze reviewed inputs and independently verify the authorized target. No proxy/redirect/retry; verified CA/hostname and exact OpenSearch3.1.0/cluster gate. This unmaintained version is **compatibility-only, not approved live deployment**. See [native setup](../compose/README.md#secured-opensearch-fresh-setup).
+Hold the **existing deployment state-directory `lock` flock** and exclusive target custody for setup/inspection; this command does not acquire the lock itself. Fence writers, freeze reviewed inputs and independently verify the authorized target. No proxy/redirect/retry; verified CA/hostname and exact version from the reviewed `deploy/compose/opensearch/image.ref`/cluster gate. The current reviewed stable pin is OpenSearch3.8.0; no mutable `latest` or runtime version discovery is accepted. See [native setup](../compose/README.md#secured-opensearch-fresh-setup).
 
 `initialize-fresh` requires both named indices and the pipeline absent before creating anything, then reads back mappings, declared settings/all analysis definitions and pipeline. `verify` performs only metadata GETs **with the admin certificate**, not a restricted verifier; it is not a check of all engine defaults or server-side synonym-file contents. Neither operation invokes securityadmin, adopts state, repairs drift, migrates or deletes data.
 
@@ -55,7 +55,7 @@ Exit0 means verified; exit1 is a redacted failure; exit2 is usage. Output gives 
 
 Do not run real-host setup until R3 trust/bootstrap/provider gates are resolved. Installation and first adoption are deliberate operator steps, not actions triggered by a builder or release file.
 
-Install these **six reviewed files together**, preserving their relative paths, in a root-controlled directory (for example `/opt/aura-historia`). Do not replace host tooling as part of an ordinary app release:
+Install these **six application-release files together**, preserving their relative paths, in a root-controlled directory (for example `/opt/aura-historia`). Install the separate OpenSearch operator, `deploy/compose/opensearch/image.ref`, native security files and current mappings/analysis as one reviewed setup bundle. Do not replace host tooling as part of an ordinary app release:
 
 ```text
 deploy/bin/deploy
@@ -68,7 +68,7 @@ deploy/compose/Caddyfile.replace
 
 Directories root-controlled, not group/world-writable; data files0644; executable0755. Tooling reads files relative to its installation root. The full R3 platform setup remains a separate installation/maintenance concern. Keep this tree outside application-controlled mounts.
 
-Current application Compose adds `opensearch-ca.pem` read-only for both API slots, cron and three search scopes. The host command snapshots this file and requires `OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem` for those consumers in dev/prod. Supply a UID10001-readable public CA bundle, never admin/private keys. Existing installations need explicit, flock-held tooling/config/mount convergence before adoption or ordinary apply; old container mounts will fail drift checks. Do not bypass them. Cached historical images do not gain CA support merely by mounting the file; rebuild and verify new images.
+Current application Compose adds `opensearch-ca.pem` read-only for both API slots, cron and three search scopes. The host command snapshots this file and requires `OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem` for those consumers in dev/prod. Supply a UID10001-readable public CA bundle, never admin/private keys. Search workers also require separate root-owned0600 raw files: `product-listing-opensearch.env` → `aura_product_projector`, `search-filter-projection.env` → `aura_filter_projector`, and `search-filter-percolator.env` → `aura_percolator`. Shared `worker.env` and crawler receive no OpenSearch credentials; API/api-candidate share `aura_reader`, and cron uses `aura_cron`. Existing installations need explicit, flock-held tooling/config/credential/mount convergence before adoption or ordinary apply; old container mounts/files will fail drift checks. Do not bypass them. Cached historical images do not gain CA/auth support merely by mounting files; rebuild and verify new images.
 
 Create the environment state directory root-owned0700; **never unlink or replace its `lock` file**. Keep host config/Compose env/application env/ADC/CA inputs protected as described in `deploy/compose/README.md`. Host config and release input paths must be absolute. Real stages require root execution. Test runs use only the test UID's own protected temporary tree.
 

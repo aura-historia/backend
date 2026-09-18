@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import ssl
 import stat
@@ -26,6 +27,7 @@ import sys
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
+ENGINE_PIN_PATH = ROOT / "deploy/compose/opensearch/image.ref"
 LIMIT = 1024 * 1024
 INDICES = (("product-listings", "product_listings.json"),
            ("user_search_filters", "user_search_filters.json"))
@@ -57,6 +59,21 @@ def checked_file(path, secret=False):
     with path.open("rb") as stream:
         require(len(stream.read(LIMIT + 1)) <= LIMIT, "FILE_LIMIT")
     return path
+
+
+def selected_engine():
+    try:
+        raw = checked_file(ENGINE_PIN_PATH).read_text(encoding="ascii")
+    except (Failure, OSError, UnicodeError):
+        raise Failure("ENGINE_PIN_INVALID") from None
+    require(len(raw) <= 256, "ENGINE_PIN_INVALID")
+    match = re.fullmatch(
+        r"(opensearchproject/opensearch:(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
+        r"@sha256:[0-9a-f]{64})\n?",
+        raw,
+    )
+    require(match is not None, "ENGINE_PIN_INVALID")
+    return match.group(1), match.group("version")
 
 
 def endpoint(value):
@@ -105,7 +122,7 @@ class Client:
             value = json.loads(raw)
             require(isinstance(value, dict), "RESPONSE_SHAPE")
             if response.status == 404:
-                # Stock 3.1.0 returns an empty object for this missing pipeline only.
+                # The selected engine returns an empty object for this missing pipeline only.
                 if (method == "GET" and path == PIPELINE_PATH
                         and missing == "resource_not_found_exception" and value == {}):
                     return None
@@ -186,12 +203,14 @@ class Bootstrap:
 
     def run(self, mode):
         definitions, pipeline = assets()
+        _engine_ref, expected_version = selected_engine()
         client = Client()
         self.phase = "target"
         target = client.request("GET", "/")
         require(target.get("cluster_name") == client.cluster, "CLUSTER_MISMATCH")
-        require(target.get("version", {}).get("distribution") == "opensearch"
-                and target["version"].get("number") == "3.1.0", "VERSION_MISMATCH")
+        version = target.get("version") if isinstance(target, dict) else None
+        require(isinstance(version, dict) and version.get("distribution") == "opensearch"
+                and version.get("number") == expected_version, "VERSION_MISMATCH")
         if mode == "initialize-fresh":
             self.phase = "absence"
             for name, _ in definitions:

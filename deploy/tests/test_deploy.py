@@ -114,6 +114,8 @@ class DeployTests(unittest.TestCase):
             service.update(restart="unless-stopped", stop_grace_period={
                 "api": "1m0s", "worker": "5m0s", "cron": "5m30s", "crawler": "5m30s"}[component])
             filenames = [component + ".env"]
+            if name in deploy.SEARCH_WORKER_ENVFILES:
+                filenames.append(deploy.SEARCH_WORKER_ENVFILES[name])
             if name == "notification-delivery":
                 filenames.append("notification-delivery.env")
             raw["services"][name] = {"env_file": [{"path": str(fixture.directory / f)} for f in filenames]}
@@ -148,6 +150,76 @@ class DeployTests(unittest.TestCase):
                 self.host.compose.side_effect = [json.dumps(raw), json.dumps(altered)]
                 with self.subTest(service=name, variant=index), self.assertRaisesRegex(deploy.Failure, "^APPLICATION_MOUNTS$"):
                     deploy.Host.model(self.host, A)
+
+    def test_real_stage_requires_scoped_search_identity(self):
+        raw, model = self.application_models()
+        receivers = {"api", "api-candidate", "cron", "product-listing-opensearch",
+                     "search-filter-projection", "search-filter-percolator"}
+        self.host.config["stage"] = "dev"
+        for name, service in model["services"].items():
+            service["environment"].update(STAGE="dev", POSTGRES_SSL_MODE="verify-full",
+                                           POSTGRES_SSL_ROOT_CERT="/run/aura/postgres-ca.pem")
+            if name in receivers:
+                service["environment"]["OPENSEARCH_SSL_ROOT_CERT"] = "/run/aura/opensearch-ca.pem"
+        self.host.compose.side_effect = [json.dumps(raw), json.dumps(model)]
+        deploy.Host.model(self.host, A)
+        for name in deploy.SEARCH_IDENTITIES:
+            wrong_username = ("aura_product_projector"
+                              if deploy.SEARCH_IDENTITIES[name] == "aura_reader" else "aura_reader")
+            for key, value in (("OPENSEARCH_USERNAME", wrong_username),
+                               ("OPENSEARCH_PASSWORD", ""), ("OPENSEARCH_PASSWORD", " ")):
+                altered = copy.deepcopy(model)
+                altered["services"][name]["environment"][key] = value
+                self.host.compose.side_effect = [json.dumps(raw), json.dumps(altered)]
+                with self.subTest(service=name, field=key), self.assertRaisesRegex(
+                        deploy.Failure, "^SEARCH_RUNTIME_IDENTITY$"):
+                    deploy.Host.model(self.host, A)
+        for name in deploy.SEARCH_IDENTITIES:
+            altered = copy.deepcopy(model)
+            altered["services"][name]["environment"].pop("OPENSEARCH_PASSWORD", None)
+            self.host.compose.side_effect = [json.dumps(raw), json.dumps(altered)]
+            with self.subTest(service=name, field="missing password"), self.assertRaisesRegex(
+                    deploy.Failure, "^SEARCH_RUNTIME_IDENTITY$"):
+                deploy.Host.model(self.host, A)
+
+    def test_scoped_secret_files_require_private_mode_and_exact_paths(self):
+        raw, model = self.application_models()
+        for filename in deploy.SEARCH_SECRET_FILES:
+            path = self.host.files / filename
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        product = self.host.files / deploy.SEARCH_WORKER_ENVFILES["product-listing-opensearch"]
+        product.chmod(0o644)
+        with self.assertRaisesRegex(deploy.Failure, "^ENV_FILE_PERMISSIONS$"):
+            deploy.Host.inputs(self.host)
+        product.chmod(0o600)
+        original = product.read_text()
+        product.write_text(original + "STAGE=test\n")
+        self.host.compose.side_effect = [json.dumps(raw), json.dumps(model)]
+        with self.assertRaisesRegex(deploy.Failure, "^SEARCH_SECRET_FIELDS$"):
+            deploy.Host.model(self.host, A)
+        product.write_text(original)
+        original_stat = Path.stat
+        other_owner = 1 if os.geteuid() != 1 else 2
+        def foreign_owner(candidate, *args, **kwargs):
+            info = original_stat(candidate, *args, **kwargs)
+            if candidate == product:
+                values = list(info)
+                values[4] = other_owner
+                return os.stat_result(values)
+            return info
+        with patch.object(Path, "stat", foreign_owner):
+            with self.assertRaisesRegex(deploy.Failure, "^UNTRUSTED_FILE$"):
+                deploy.Host.inputs(self.host)
+        product.unlink()
+        with self.assertRaisesRegex(deploy.Failure, "^UNTRUSTED_FILE$"):
+            deploy.Host.inputs(self.host)
+        raw, model = self.application_models()
+        altered = copy.deepcopy(raw)
+        entries = altered["services"]["product-listing-opensearch"]["env_file"]
+        entries[1]["path"] = str(self.host.files / "search-filter-projection.env")
+        self.host.compose.side_effect = [json.dumps(altered), json.dumps(model)]
+        with self.assertRaisesRegex(deploy.Failure, "^ENV_FILE_LOCATION$"):
+            deploy.Host.model(self.host, A)
 
     def test_real_stage_requires_exact_search_ca_path_only_for_receivers(self):
         raw, model = self.application_models()
@@ -326,9 +398,13 @@ class DeployTests(unittest.TestCase):
         static = self.directory / "static"
         static.mkdir()
         (self.directory / "deploy").mkdir()
-        names = ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env", "postgres-ca.pem", "opensearch-ca.pem", "google-adc.json")
+        names = ("api.env", "worker.env", "notification-delivery.env", "cron.env", "crawler.env",
+                 "product-listing-opensearch.env", "search-filter-projection.env", "search-filter-percolator.env",
+                 "postgres-ca.pem", "opensearch-ca.pem", "google-adc.json")
         for name in names:
-            deploy.atomic(self.directory / name, "synthetic\n")
+            content = ("OPENSEARCH_USERNAME=aura_reader\nOPENSEARCH_PASSWORD=synthetic\n"
+                       if name in deploy.SEARCH_SECRET_FILES else "synthetic\n")
+            deploy.atomic(self.directory / name, content)
         deploy.atomic(self.directory / "deploy/catalog.json", "{}")
         for name in ("compose.application.yml", "compose.replace.yml", "compose.edge.yml", "Caddyfile.replace"):
             deploy.atomic(static / name, "synthetic\n")
@@ -346,7 +422,7 @@ class DeployTests(unittest.TestCase):
             self.assertEqual((self.host.state / "incomplete").read_bytes(), marker_bytes)
         with patch.object(deploy, "ROOT", self.directory), patch.object(deploy, "COMPOSE", static):
             self.host.snapshot = self.host.inputs()
-            self.assertEqual(len(self.host.snapshot), 15)
+            self.assertEqual(len(self.host.snapshot), 18)
             ca_path = self.directory / "opensearch-ca.pem"
             self.assertIn(str(ca_path), self.host.snapshot)
             self.assertEqual(self.host.snapshot[str(ca_path)][2], hashlib.sha256(ca_path.read_bytes()).hexdigest())

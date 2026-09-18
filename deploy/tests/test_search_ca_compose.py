@@ -68,6 +68,58 @@ class SearchCaComposeTests(unittest.TestCase):
         self.assertEqual(smoke.fixture_hashes(self.directory), before)
         self.assertTrue([path.read_bytes() for path in sources] == source_bytes, "Compose sources changed")
 
+    @unittest.skipUnless(os.environ.get("AURA_TEST_COMPOSE_CONFIG") == "1", "opt-in local Compose config only")
+    def test_actual_compose_config_resolves_scoped_raw_credentials(self):
+        special = 'C2-literal-$cash-#hash-"double"-\'single\'-=tail'
+        credential_text = "\n".join((
+            "OPENSEARCH_USERNAME=aura_product_projector",
+            "OPENSEARCH_PASSWORD=" + special,
+            "",
+        ))
+        smoke.protected_write(
+            self.directory,
+            smoke.SEARCH_WORKER_ENVFILES["product-listing-opensearch"],
+            credential_text,
+            mode=0o600,
+        )
+        raw = json.loads(self.host.compose(
+            "application", self.selected, "config", "--no-env-resolution", "--format", "json"))
+        resolved = json.loads(self.host.compose("application", self.selected, "config", "--format", "json"))
+        scoped = {
+            "product-listing-opensearch": ("product-listing-opensearch.env", "aura_product_projector", special),
+            "search-filter-projection": ("search-filter-projection.env", "aura_filter_projector",
+                                          smoke.SEARCH_PASSWORDS["search-filter-projection"]),
+            "search-filter-percolator": ("search-filter-percolator.env", "aura_percolator",
+                                          smoke.SEARCH_PASSWORDS["search-filter-percolator"]),
+        }
+        for name, (filename, username, password) in scoped.items():
+            with self.subTest(service=name):
+                entries = raw["services"][name]["env_file"]
+                self.assertEqual(
+                    [(entry["path"], entry["format"]) for entry in entries],
+                    [(str(self.directory / "worker.env"), "raw"), (str(self.directory / filename), "raw")],
+                )
+                environment = resolved["services"][name]["environment"]
+                rendered_password = environment.get("OPENSEARCH_PASSWORD")
+                self.assertTrue(environment.get("OPENSEARCH_USERNAME") == username)
+                # Compose's canonical JSON doubles literal dollars for a reparse;
+                # the raw-file value itself is the single-dollar runtime value.
+                self.assertTrue(isinstance(rendered_password, str)
+                                and rendered_password.replace("$$", "$") == password)
+                self.assertTrue(all(rendered_password != other
+                                    for other in smoke.SEARCH_PASSWORDS.values() if other != password))
+        for name, username, password in (("api", "aura_reader", smoke.SEARCH_PASSWORDS["api"]),
+                                          ("api-candidate", "aura_reader", smoke.SEARCH_PASSWORDS["api"]),
+                                          ("cron", "aura_cron", smoke.SEARCH_PASSWORDS["cron"])):
+            environment = resolved["services"][name]["environment"]
+            self.assertTrue(environment.get("OPENSEARCH_USERNAME") == username)
+            self.assertTrue(environment.get("OPENSEARCH_PASSWORD") == password)
+        non_search = (set(smoke.provider.SCOPES) - set(smoke.SEARCH_WORKER_ENVFILES)) | {"crawler"}
+        for name in non_search:
+            environment = resolved["services"][name]["environment"]
+            self.assertNotIn("OPENSEARCH_USERNAME", environment)
+            self.assertNotIn("OPENSEARCH_PASSWORD", environment)
+
     @unittest.skipUnless(os.environ.get("AURA_TEST_CA_MOUNT") == "1", "opt-in cached networkless helper only")
     def test_actual_candidate_ca_bind_is_readable_and_readonly_as_uid10001(self):
         model = self.host.model(self.selected)

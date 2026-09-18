@@ -12,7 +12,7 @@ Three checked-in projects; no renderer or deployment framework:
 
 ## Run the actual isolated stack
 
-From repository root; Linux/amd64, Python3, and local Docker with the reviewed Compose 5.4.0 plugin. `env_file.format: raw` needs2.30+, but that syntax minimum is not sufficient for the host command's unresolved `env_file` JSON contract. Existing R2 immutable images/helper/PostgreSQL/OpenSearch must already be loaded; build commands: [`../images/README.md`](../images/README.md).
+From repository root; Linux/amd64, Python3, and local Docker with the reviewed Compose 5.4.0 plugin. `env_file.format: raw` needs2.30+, but that syntax minimum is not sufficient for the host command's unresolved `env_file` JSON contract. Existing immutable images/helper/PostgreSQL/OpenSearch must already be loaded; build commands: [`../images/README.md`](../images/README.md).
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/tests -p 'test_*.py' -v
@@ -54,11 +54,14 @@ Keep `/etc/aura-historia/dev` root-controlled0700; raw env files root-owned0600,
 | Host input | Required content / receiver |
 |---|---|
 | `compose.env` | Filled `env.example`, nonsecret image/queue/project settings |
-| `api.env` | PostgreSQL/runtime, Cognito, Stripe, Zoho, search, Vertex/ADC and approved AWS credential inputs |
-| `worker.env` | PostgreSQL, search/Vertex configuration, approved AWS SDK inputs; per-scope queue/scope comes from Compose |
+| `api.env` | PostgreSQL/runtime, Cognito, Stripe, Zoho, search/reader identity `aura_reader`, Vertex/ADC and approved AWS credential inputs |
+| `worker.env` | Shared PostgreSQL, search/Vertex configuration and approved AWS SDK inputs; **no** OpenSearch username/password; per-scope queue/scope comes from Compose |
+| `product-listing-opensearch.env` | Only `OPENSEARCH_USERNAME=aura_product_projector` and its separate strong password; root-owned0600 |
+| `search-filter-projection.env` | Only `OPENSEARCH_USERNAME=aura_filter_projector` and its separate strong password; root-owned0600 |
+| `search-filter-percolator.env` | Only `OPENSEARCH_USERNAME=aura_percolator` and its separate strong password; root-owned0600 |
 | `notification-delivery.env` | Only delivery: `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`, `NOTIFICATION_EMAIL_REPLY_TO` |
-| `cron.env` | PostgreSQL, search, Vertex/ADC, `AURA_HISTORIA_CRON_ENABLED_JOBS=search-filter-periodic-match` and schedule |
-| `crawler.env` | `LOCAL_DB_URL`, `BUSINESS_DATABASE_URL`, shared stage/TLS, Vertex/ADC, `SPIDER_MAX_SIZE_BYTES` |
+| `cron.env` | PostgreSQL, search/cron identity `aura_cron`, Vertex/ADC, `AURA_HISTORIA_CRON_ENABLED_JOBS=search-filter-periodic-match` and schedule |
+| `crawler.env` | `LOCAL_DB_URL`, `BUSINESS_DATABASE_URL`, shared stage/TLS, Vertex/ADC, `SPIDER_MAX_SIZE_BYTES`; no OpenSearch credentials |
 | `postgres-ca.pem` | Public trusted CA, mounted read-only at `/run/aura/postgres-ca.pem`; applications must be able to read it |
 | `opensearch-ca.pem` | Public search CA bundle, read-only `/run/aura/opensearch-ca.pem`; API/both slots, cron and three search workers only; readable by UID10001 |
 | `google-adc.json` | Approved ADC, mounted read-only at `/run/aura/google-adc.json`; only API/cron/crawler/percolator/embedding/translation receive this file |
@@ -84,8 +87,6 @@ POSTGRES_USERNAME=
 POSTGRES_PASSWORD=
 POSTGRES_MAX_CONNECTIONS=2
 OPENSEARCH_ENDPOINT_URL=
-OPENSEARCH_USERNAME=
-OPENSEARCH_PASSWORD=
 OPENSEARCH_SSL_ROOT_CERT=/run/aura/opensearch-ca.pem
 VERTEX_AI_PROJECT_ID=
 VERTEX_AI_LOCATION=
@@ -95,7 +96,31 @@ AWS_REGION=
 COMMIT_SHA=
 ```
 
-Search clients now require `OPENSEARCH_SSL_ROOT_CERT` in dev/prod; set it in `api.env`, `cron.env` and search-worker configuration. The file must contain only PEM certificates, nonempty and <=1MiB. No CA private key or admin certificate goes to apps. Compose requires the bind file even in local/test setups; HTTP test fixtures leave the CA env input unset (supplied CA + HTTP rejects). Runtime trust is frozen at startup and augments built-in roots; restart to load a replacement/overlap bundle. Host deployment snapshots the CA and rejects drift/wrong real-stage paths. Install updated host tooling/Compose together under its existing lock; an already-adopted installation needs explicit mount convergence before normal apply, not blind replacement of tooling.
+Search identity files contain exactly these two keys; values below are examples only and passwords stay blank in documentation:
+
+```dotenv
+# api.env
+OPENSEARCH_USERNAME=aura_reader
+OPENSEARCH_PASSWORD=
+
+# cron.env
+OPENSEARCH_USERNAME=aura_cron
+OPENSEARCH_PASSWORD=
+
+# product-listing-opensearch.env
+OPENSEARCH_USERNAME=aura_product_projector
+OPENSEARCH_PASSWORD=
+
+# search-filter-projection.env
+OPENSEARCH_USERNAME=aura_filter_projector
+OPENSEARCH_PASSWORD=
+
+# search-filter-percolator.env
+OPENSEARCH_USERNAME=aura_percolator
+OPENSEARCH_PASSWORD=
+```
+
+Search clients now require `OPENSEARCH_SSL_ROOT_CERT` in dev/prod; set it in `api.env`, `cron.env` and shared `worker.env` while keeping each runtime username/password in its own file. The three search-worker files are raw two-key files, root-owned0600, and are never mounted into containers. The file must contain only PEM certificates, nonempty and <=1MiB. No CA private key or admin certificate goes to apps. Compose requires the bind file even in local/test setups; HTTP test fixtures leave the CA env input unset (supplied CA + HTTP rejects). Runtime trust is frozen at startup and augments built-in roots; restart to load a replacement/overlap bundle. Host deployment snapshots the CA and all three scoped files, rejects drift/wrong real-stage paths, and rejects OpenSearch credentials on the other seven workers/crawler. Install updated host tooling/Compose and all new files together under the existing lock; an already-adopted installation needs explicit credential/mount convergence before normal apply, not blind replacement of tooling.
 
 Pinned SDK2.4 disables proxies but retains redirects: redirects may change host or downgrade HTTPS and replay request bodies. Use a trusted nonredirecting OpenSearch endpoint; this is not an HTTPS-only-per-hop guarantee. Direct worker preflight refuses redirects. Actual API/worker/cron client constructors passed loopback TLS tests; rebuilt-image startup against the secured node remains untested.
 
@@ -178,17 +203,17 @@ Once these gates and target authority exist, use normal Compose with separate `-
 
 ## Secured OpenSearch fresh setup
 
-**Isolated compatibility accepted; not live-ready.** The [real rehearsal](../tests/README.md#secured-stock-opensearch-rehearsal) uses unchanged platform Compose with a test-only override, stock OpenSearch3.1.0/Security3.1.0.0, checked-in native configuration and tools. This engine is unmaintained; review/test a maintained immutable pin before live use. Rust API/worker/cron CA wiring is tested on loopback; rebuilt images and full secured-node startup remain separate gates. No automatic security upload on node/application startup.
+**C2 pin reviewed; real-engine acceptance remains pending.** Official downloads/version history/artifacts identify OpenSearch3.8.0, released2026-08-04. `deploy/compose/opensearch/image.ref` pins `opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40`; the linux/amd64 child manifest is `sha256:68a688de28fb9bb66601552650b91a52a9fd5e7eac5481dd2b225ecb66fd09b0`. The rehearsal code consumes this pin without runtime discovery or pulls; no local3.8.0 image ID or authorized disposable-engine run is claimed here. The historical stock3.1.0 rehearsal below remains compatibility evidence only. No automatic security upload runs at node/application startup.
 
 Operator sequence, only for an authorized fresh target under the **existing deployment flock** and exclusive custody:
 
 1. Prepare `opensearch/opensearch.yml` for actual cluster/DNS/certificate DNs. Mount it at `/usr/share/opensearch/config/opensearch.yml`; mount current repo `opensearch/analysis/` at its `config/analysis/`. Set `DISABLE_INSTALL_DEMO_CONFIG=true`; never disable the security plugin. The example binds container interfaces but publishes no host ports. Keep transport9300/private REST9200 inaccessible from unapproved networks.
 2. Supply CA plus node certificate/key read-only under `config/certs/` (`root-ca.pem`, `node.pem`, `node-key.pem`). Node certificate needs the configured DNS SAN and server/client usages; key is unencrypted PKCS8. Node UID1000 must read it. **Never mount admin credentials or internal-user hashes into the node.** HTTP basic auth runs only over TLS; admin client certificates are separate.
 3. Prepare a separate root-controlled parent with a UID1000-owned0700 operator subdirectory, private files0600. Put `root-ca.pem`, `admin.pem`, `admin-key.pem` and `security/` inside. Copy reviewed native security YAML; create `internal_users.yml` from the deliberately non-runnable example using **five distinct strong passwords/stock bcrypt hashes**. Use stock interactive `hash.sh` privately; never password argv (`-p`), shell tracing or shared log capture. Demo admin-password env does not provision users when demo setup is disabled. Store runtime credentials only in their intended protected service inputs.
-4. Set `OPENSEARCH_IMAGE` to the reviewed preloaded immutable stock image, `AURA_NETWORK` to the existing private backend network, `AURA_OPENSEARCH_ADMIN_DIR` to that separate operator directory. `compose.opensearch-admin.yml` is a separate explicit profile/project: no restart, UID1000, read-only, capdrop ALL. Stock tools live below UID1000 mode0700, so cap-dropped root is not a substitute. Its default command `-cd /operator/security -vc 7` **validates offline only**.
+4. Copy the exact reviewed `deploy/compose/opensearch/image.ref` value into protected `OPENSEARCH_IMAGE` input after the image is separately preloaded; use that same immutable reference for the node and `compose.opensearch-admin.yml`. Set `AURA_NETWORK` to the existing private backend network and `AURA_OPENSEARCH_ADMIN_DIR` to that separate operator directory. The admin project is a separate explicit profile/project: no restart, UID1000, read-only, capdrop ALL. Tools and server come from one distribution. Its default command `-cd /operator/security -vc 7` **validates offline only**.
 5. Before any upload, make a verified admin-certificate HTTPS `GET /` and compare actual cluster/version with the authorized target. Native `-cn` labels output; it does **not** enforce identity. Explicit native upload arguments are shown in `opensearch/security/config.yml`: HTTPS port9200, CA/admin cert/key and `-cd`; never `-nhnv`. Keep native diagnostics in protected logs, not CI output. Upload can replace security state and is **not atomic or fresh-only**. Inspect any failed/unknown outcome; no automatic retry.
 6. On confirmed security success, use [the fixed initializer](../bin/README.md#explicit-opensearch-setup-command) with its separate protected environment. It creates current `product-listings`, `user_search_filters` and `hybrid-search-pipeline` only if all three are absent. Run GET-only `verify` afterward, then validate runtime roles and application trust before writers start. The host-side operator key copy must belong to its effective UID; do not relax key permissions to reuse the tool's UID1000 copy.
 
-Roles map exact usernames: `aura_reader` reads both indices; each projector indexes only its own index; `aura_percolator` searches/gets filters and manages their PITs; `aura_cron` searches products. Projectors need the exact bulk coordinator plus own-index shard action even for single-document indexing. No document-delete, mapping/create, pipeline/security administration or unrelated-index grants. Runtime certificate/credential rotation requires controlled process recycling; no automatic rotation is claimed.
+Roles map exact usernames: `aura_reader` reads both indices; each projector indexes only its own index; `aura_percolator` searches/gets filters and manages their PITs; `aura_cron` searches products. API and api-candidate intentionally share `aura_reader`; the three search workers use `product-listing-opensearch.env`, `search-filter-projection.env` and `search-filter-percolator.env` in that order after `worker.env`. Projectors need the exact bulk coordinator plus own-index shard action even for single-document indexing. No document-delete, mapping/create, pipeline/security administration or unrelated-index grants. Runtime certificate/credential rotation requires controlled process recycling; no automatic rotation is claimed.
 
 Fresh configuration disables all Query Insights capture/export settings to avoid storing query bodies. **Changing an existing local-index exporter to none can delete prior insight indices. Do not apply this as a harmless existing-cluster update.** Audit configuration here is not a compliance audit solution. Removing files/tooling never undoes uploaded security or initialized data; do not delete state or fall back to insecure configuration.
