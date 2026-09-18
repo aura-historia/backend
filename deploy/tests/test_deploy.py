@@ -99,6 +99,38 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.Failure, "STATE_PERMISSIONS"):
             deploy.Host(self.config)
 
+    def test_compose_config_decoder_inverts_one_output_encoding_only(self):
+        literals = (
+            "plain",
+            "$",
+            "$$",
+            "$$$",
+            "$cash",
+            "${SHOULD_STAY_LITERAL}",
+            "$$${ALSO_LITERAL}",
+            'dollar-$-hash-#-double-"-single-\'-equals-=-slash-\\',
+            " leading-and-trailing ",
+        )
+        for literal in literals:
+            expected = {"services": {"worker": {
+                "environment": {"OPENSEARCH_PASSWORD": literal}
+            }}}
+            encoded = json.dumps(expected).replace("$", "$$")
+            observed = deploy.compose_config_json(encoded)
+            with self.subTest(case=literals.index(literal)):
+                self.assertTrue(observed == expected, "literal Compose value changed")
+
+        expected = {"$service": {"$path": "$$value"}}
+        encoded = json.dumps(expected).replace("$", "$$")
+        self.assertTrue(deploy.compose_config_json(encoded) == expected, "literal Compose map key changed")
+
+        for encoded in ("{", "[]", "null", None):
+            with self.subTest(input_type=type(encoded).__name__), self.assertRaisesRegex(
+                    deploy.Failure, "^COMPOSE_JSON_FORMAT$"):
+                deploy.compose_config_json(encoded)
+        with self.assertRaisesRegex(deploy.Failure, "^DUPLICATE_JSON_KEY$"):
+            deploy.compose_config_json('{"services": {}, "services": {}}')
+
     def application_models(self):
         # Reuse R3's pure model fixture; these durations came from real Compose config.
         from test_smoke_compose import SmokeComposeTests
@@ -482,6 +514,65 @@ class DeployTests(unittest.TestCase):
                 deploy.Host.ready(self.host, "api", A, model)
         self.host.probe.assert_not_called()
         self.host.call.assert_not_called()
+
+    def test_ready_compares_decoded_expected_and_literal_runtime_environment_exactly(self):
+        _, base_model = self.application_models()
+        service = "product-listing-opensearch"
+        identifier = "c" * 64
+        baked = {"HOME": "/home/aura", "IMAGE_LITERAL": "already$$literal",
+                 "OPENSEARCH_PASSWORD": "image-only"}
+        self.host.images.return_value = {"worker": baked}
+        self.host.actual_process = Mock()
+
+        def fixture(expected, actual, extra=None, missing=False):
+            candidate = copy.deepcopy(base_model)
+            candidate["services"][service]["environment"]["OPENSEARCH_PASSWORD"] = expected
+            model = deploy.compose_config_json(json.dumps(candidate).replace("$", "$$"))
+            values = dict(baked, **model["services"][service]["environment"])
+            if missing:
+                values.pop("OPENSEARCH_PASSWORD")
+            else:
+                values["OPENSEARCH_PASSWORD"] = actual
+            if extra is not None:
+                values["UNEXPECTED_ENV"] = extra
+            item = {
+                "Id": identifier,
+                "Image": A["images"]["worker"],
+                "State": {"Running": True, "OOMKilled": False, "Restarting": False},
+                "RestartCount": 0,
+                "Config": {"Env": [f"{key}={value}" for key, value in values.items()]},
+                "HostConfig": {"RestartPolicy": {"Name": "unless-stopped"}, "PortBindings": {}},
+                "NetworkSettings": {"Networks": {model["networks"]["backend"]["name"]: {}}},
+            }
+            self.host.containers = Mock(return_value={service: item})
+            self.host.probe = Mock(side_effect=[
+                (200, None),
+                (200, {"source_sha": A["source_sha"], "scope": service}),
+                (200, None),
+            ])
+            return model
+
+        for literal in ("x$y", "x$$y", "${UNCHANGED}"):
+            with self.subTest(result="pass", literal=literal):
+                model = fixture(literal, literal)
+                self.assertEqual(deploy.Host.ready(self.host, service, A, model), identifier)
+                self.assertEqual(self.host.probe.call_count, 3)
+
+        failures = (
+            ("changed-single-dollar", "x$y", "x$$y", False, None),
+            ("changed-double-dollar", "x$$y", "x$y", False, None),
+            ("changed-role-password", "role-$password", "role-$changed", False, None),
+            ("missing-credential", "present$credential", None, True, None),
+            ("unexpected-key", "present$credential", "present$credential", False, "unexpected"),
+        )
+        for label, expected, actual, missing, extra in failures:
+            with self.subTest(result="drift", case=label):
+                model = fixture(expected, actual, extra=extra, missing=missing)
+                with self.assertRaisesRegex(deploy.Failure, "^RUNNING_CONFIG_DRIFT$"):
+                    deploy.Host.ready(self.host, service, A, model)
+                self.assertEqual(self.host.probe.call_count, 0)
+                self.assertTrue(model["services"][service]["environment"]["OPENSEARCH_PASSWORD"] == expected,
+                                "decoded expected literal changed")
 
     def edge_fixture(self, slot="api"):
         backend = "r4-unit-backend"

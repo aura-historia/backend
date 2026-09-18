@@ -72,6 +72,23 @@ def pairs(items):
     return result
 
 
+def compose_config_json(encoded):
+    """Decode interpolating Compose 5.4.0 `config --format json` output.
+
+    Compose doubles each literal dollar after serialization. This consumer is a
+    semantic validator, not another Compose-file loader, so invert only that
+    output encoding at this boundary.
+    """
+    need(isinstance(encoded, str), "COMPOSE_JSON_FORMAT")
+    decoded = encoded.replace("$$", "$")
+    try:
+        value = json.loads(decoded, object_pairs_hook=pairs)
+    except json.JSONDecodeError:
+        raise Failure("COMPOSE_JSON_FORMAT") from None
+    need(isinstance(value, dict), "COMPOSE_JSON_FORMAT")
+    return value
+
+
 def trusted(path, directory=False):
     path = Path(path)
     need(path.is_absolute() and path.resolve() == path, "UNTRUSTED_PATH")
@@ -289,8 +306,10 @@ class Host:
 
     def model(self, selected):
         # Config is host-owned, not supplied by the release. Capture it; never print it.
-        raw = json.loads(self.compose("application", selected, "config", "--no-env-resolution", "--format", "json"))
-        model = json.loads(self.compose("application", selected, "config", "--format", "json"))
+        raw = compose_config_json(self.compose(
+            "application", selected, "config", "--no-env-resolution", "--format", "json"))
+        model = compose_config_json(self.compose(
+            "application", selected, "config", "--format", "json"))
         need(set(model["services"]) == SERVICES and not model.get("volumes"), "APPLICATION_SERVICE_SET")
         need(set(model["networks"]) == {"backend"} and model["networks"]["backend"].get("external") is True, "APPLICATION_NETWORK")
         for name, service in model["services"].items():
@@ -412,7 +431,8 @@ class Host:
         items = self.containers("edge")
         need(set(items) == {"caddy"} and items["caddy"]["State"]["Running"], "EDGE_NOT_RUNNING")
         item = items["caddy"]
-        edge_model = json.loads(self.compose("edge", selected, "config", "--format", "json"))
+        edge_model = compose_config_json(self.compose(
+            "edge", selected, "config", "--format", "json"))
         image = edge_model["services"]["caddy"]["image"]
         need(re.fullmatch(r"(?:sha256:|[a-z0-9./:_-]+@sha256:)[0-9a-f]{64}", image), "EDGE_IMAGE_PIN")
         need(item["Image"] == json.loads(self.call("image", "inspect", image)[1])[0]["Id"], "EDGE_IMAGE_DRIFT")

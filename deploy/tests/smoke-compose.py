@@ -10,6 +10,7 @@ Unknown Docker outcomes retain the 0700 journal/config directory; no blind retry
 import argparse
 import hashlib
 import http.client
+import importlib.machinery
 import importlib.util
 import io
 import json
@@ -34,6 +35,12 @@ spec.loader.exec_module(provider)
 r2 = provider.r2
 require = r2.require
 ROOT = Path(__file__).resolve().parents[2]
+deploy_loader = importlib.machinery.SourceFileLoader(
+    "r4_deploy_for_compose", str(ROOT / "deploy/bin/deploy"))
+deploy_spec = importlib.util.spec_from_loader(deploy_loader.name, deploy_loader)
+deploy = importlib.util.module_from_spec(deploy_spec)
+deploy_loader.exec_module(deploy)
+compose_config_json = deploy.compose_config_json
 CADDY = "caddy@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a"
 CADDYFILE = "{\n admin off\n auto_https disable_redirects\n}\nhttps://localhost {\n tls internal\n reverse_proxy api:8080\n}\n"
 IMAGES = dict(
@@ -450,9 +457,9 @@ class Harness:
                          *files, *args, seconds=seconds, **kwargs)
 
     def model(self, kind):
-        raw = json.loads(self.compose(kind, "config", "--no-env-resolution", "--format", "json"))
+        raw = compose_config_json(self.compose(kind, "config", "--no-env-resolution", "--format", "json"))
         validate_env_files(kind, raw, self.directory)
-        resolved = json.loads(self.compose(kind, "config", "--format", "json"))
+        resolved = compose_config_json(self.compose(kind, "config", "--format", "json"))
         validate_model(kind, resolved, self.images, self.projects, self.directory, self.port, self.environments)
         return resolved
 
