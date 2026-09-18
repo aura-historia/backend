@@ -67,6 +67,16 @@ FROM runtime AS crawler
 COPY --from=build /app/target/release/server /usr/local/bin/server
 ENTRYPOINT ["/usr/local/bin/server"]
 
+# Python-only secured-engine test helper. No dependency on build/smoke-build.
+# Never published or deployed as an application image.
+FROM runtime AS opensearch-test-helper
+USER root
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+USER 10001:10001
+ENTRYPOINT ["/usr/bin/python3"]
+
 # Explicit dev initialization only; never shipped inside a long-running application.
 FROM build AS dev-bootstrap-build
 RUN cargo build --release --locked -p crawler --bin bootstrap-dev

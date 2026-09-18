@@ -18,9 +18,9 @@ C2 code makes `deploy/bin/opensearch initialize-fresh|verify` parse that immutab
 
 Ordinary application Compose now gives `product-listing-opensearch.env`, `search-filter-projection.env` and `search-filter-percolator.env` after shared `worker.env`, all `format: raw`. API/api-candidate use `aura_reader`; the three workers use `aura_product_projector`, `aura_filter_projector`, `aura_percolator`; cron uses `aura_cron`. The seven other worker scopes and crawler receive no OpenSearch credentials. Host model/input checks enforce exact paths, private0600 scoped files, snapshots, drift rejection and real-stage username/nonblank-password identity checks.
 
-Observed safe checks: `run_ci.py` passed206 deployment tests with exactly the one documented skip; focused operator tests passed28, secured-harness tests47, host tests31, pure Compose tests26, and actual Compose-config tests passed with one expected helper skip. Rust format, focused locked/all-feature tests, worker binary tests and strict Clippy passed. These are unit, loopback TLS, source-guard and actual Compose evidence—not selected-engine, native application startup or Rust-SDK-to-OpenSearch evidence.
+Observed safe checks: `run_ci.py` passed209 deployment tests with exactly the documented cached-helper skip. Current focused source counts are host/decoder33, secured-harness48, pure Compose26; actual Compose-config identity/credential tests passed with one expected helper skip. Rust format, focused locked/all-feature Rust library tests, worker binary tests and strict Clippy passed at the reviewed C2 checkpoint. These are unit, source-guard, loopback TLS and Compose-config evidence—not selected-engine, native application startup or Rust-SDK-to-OpenSearch evidence.
 
-The real3.8.0 secured-node and real-client rehearsal is **NOT RUN/BLOCKED**: no authorized disposable Linux/amd64 runner and no cached selected image ID were established. Do not use the historical OpenSearch3.1.0 R2/R3 pass below as C2 evidence. SDK2.4 redirect limitation remains: direct preflight refuses redirects, but the public SDK builder has no same-origin/no-follow control; C2 uses only a trusted private nonredirecting endpoint when that rehearsal is later authorized.
+The real3.8.0 secured-node and real-client rehearsal is **NOT RUN/BLOCKED** at this handoff: local Docker has no disposable daemon/socket, and the new ordinary-PR `opensearch-secured` job has not yet supplied execution evidence. Do not use the historical OpenSearch3.1.0 R2/R3 pass below as C2 evidence. SDK2.4 redirect limitation remains: direct preflight refuses redirects, but the public SDK builder has no same-origin/no-follow control; C2 uses only a trusted private nonredirecting endpoint when that rehearsal is later authorized.
 
 # Native image smoke (R2)
 
@@ -73,7 +73,26 @@ Work600s + cleanup90s; external timeout780s. Any acceptance/unknown-command fail
 
 Limits: synthetic superuser initialization and read-only verifier, not real runtime write grants, complete DDL drift, TTL-worker health, crash/commit-loss coverage, cross-target atomicity or live authority. TTL worker is not started in this snapshot fixture. Plaintext HBA exists only to detect client fallback; never reuse it in dev. Image source label describes the baseline plus uncommitted implementation, not clean-source provenance. No new SQL, adoption, repair, incremental upgrade or backfill machinery.
 
-## Secured stock OpenSearch rehearsal
+## C2a secured-engine CI gate
+
+The ordinary `opensearch-secured` PR job uses a fresh GitHub-hosted `ubuntu-24.04` runner, installs checksum-verified Compose5.4.0, builds only `opensearch-test-helper`, pulls the checked-in OpenSearch3.8.0 digest for linux/amd64, runs the literal raw-environment Compose witness, and then passes both inspected local IDs to the existing rehearsal. It has `contents: read` only and no AWS credentials, OIDC, deployment environment, published port, application service or full-stack dependency.
+
+The witness uses `literal-env.fixture.yml` and `literal-env-witness.py`: raw `env_file` values include single/double dollars and a literal `${...}`; the nonroot, read-only, capability-free, `network_mode: none` container emits only `LITERAL_ENV_OK`. Docker `Config.Env` is compared privately with the decoded Compose model and exact baked-image merge. Failure/unknown ownership remains bounded and is not converted to a skip.
+
+The gate's final rehearsal command is:
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  python3 deploy/tests/smoke-opensearch.py --reviewed-run \
+  --helper-image "$C2_HELPER_IMAGE" \
+  --opensearch-image "$C2_OPENSEARCH_IMAGE"
+```
+
+`C2_HELPER_IMAGE` is the iidfile ID from `.github/scripts/prepare-opensearch-test-images.sh`; `C2_OPENSEARCH_IMAGE` is the inspected local ID for the validated `deploy/compose/opensearch/image.ref`. The helper option does not change engine selection.
+
+Current C2a source checks: decoder/host tests **33 passed**; secured-harness tests **48 passed**; pure Compose tests **26 passed**; `run_ci.py` **209 passed with one documented skip**; actual Compose-config identity/credential tests **passed with one expected helper skip**. The real-container witness and selected-engine rehearsal are **NOT RUN locally** because this workstation has no Docker socket. The CI gate remains **PENDING**; no OpenSearch3.8.0 version/plugin or Rust SDK request is claimed here.
+
+## Historical secured stock OpenSearch rehearsal (3.1.0 compatibility fixture)
 
 From repo root, with Python3/OpenSSL and local Linux/amd64 Docker/Compose:
 

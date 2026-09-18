@@ -78,6 +78,20 @@ docker --host unix:///var/run/docker.sock pull --platform linux/amd64 opensearch
 
 OpenSearch3.1.0 platform digest was resolved from official index `sha256:474ea3fdf25d229e103018b14c8a0d5bb858113f919bc3f0652a3c2e98f16f1e`. PostgreSQL uses the existing pinned PG16/TTL3 fixture; no new DB image or migration framework.
 
+## Python-only secured-engine helper
+
+`opensearch-test-helper` is a test-only target derived directly from `runtime`. It installs only Python3 and has no `build`, `smoke-build`, Cargo, or application-binary dependency. It is never published or deployed. CI passes its inspected local immutable ID explicitly to `smoke-opensearch.py`; the historical `smoke-helper` remains separate for R2/R3 fixtures.
+
+```sh
+DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
+  --target opensearch-test-helper \
+  --build-arg COMMIT_SHA="$(git rev-parse --verify HEAD)" \
+  --iidfile "$RUNNER_TEMP/c2-opensearch-helper.iid" \
+  -f deploy/images/Dockerfile .
+```
+
+The disposable CI job validates the iidfile ID, UID10001/Python entrypoint, platform, no volumes/healthcheck and no ambient provider credentials before use. It also pulls the single checked-in OpenSearch stable pin for linux/amd64 and passes that inspected local ID separately; registry digest and running version remain rehearsal assertions.
+
 ## Verified scope
 
 Four builds and actual idle startup **passed**. Cold shared release compile14m56s under the owner-approved30min ceiling; other final targets reused it. Helper compile5m42s. Earlier230s attempt timed out and exported no image; not credited.

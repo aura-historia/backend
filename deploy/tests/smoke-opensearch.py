@@ -97,8 +97,10 @@ def require(condition, code):
         raise Failure(code)
 
 
-def image_pins_guard():
+def image_pins_guard(helper=None):
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", PYTHON) is not None, "MALFORMED_IMAGE_PIN")
+    if helper is not None:
+        require(re.fullmatch(r"sha256:[0-9a-f]{64}", helper) is not None, "MALFORMED_HELPER_IMAGE")
 
 
 def selected_engine(raw):
@@ -437,6 +439,7 @@ class Probe:
         self.deadline = time.monotonic() + 1200
         self.ids, self.specs, self.images, self.frozen, self.events = {}, {}, {}, {}, []
         self.engine_ref = self.engine_version = self.engine_digest = self.engine_image = None
+        self.helper_image = getattr(args, "helper_image", None) or PYTHON
         self.generated = {}
         self.pending = None
         for name in ("docker", "stage", "client-tree", "secrets", "pki"):
@@ -474,7 +477,8 @@ class Probe:
 
     def inspect(self, kind, name):
         code, raw = self.call(kind, "inspect", name, check=False)
-        if code and kind == "image" and name in (getattr(self, "engine_image", None), PYTHON) and "no such image:" in raw.lower():
+        if code and kind == "image" and name in (getattr(self, "engine_image", None),
+                                                    getattr(self, "helper_image", PYTHON)) and "no such image:" in raw.lower():
             raise Failure("CACHED_IMAGE_MISSING:" + name)
         require(code == 0, "DOCKER_INSPECT_FAILED")
         return json.loads(raw)[0]
@@ -506,7 +510,8 @@ class Probe:
         self.guard()
         return item
 
-    def plain_spec(self, image=PYTHON, command=None, mounts=None, offline=False):
+    def plain_spec(self, image=None, command=None, mounts=None, offline=False):
+        image = getattr(self, "helper_image", PYTHON) if image is None else image
         return dict(image=image, user="0:0", entrypoint=["python3"], command=command or [],
             restart="no", read_only=True, cap_drop=["ALL"], security_opt=SECURITY,
             mem_limit=536870912, cpus="1", pids_limit=128, environment={}, logging=LOGGING,
@@ -601,7 +606,9 @@ class Probe:
         self.frozen[manifest] = digest(checked_bytes(manifest))
 
     def prepare(self):
-        image_pins_guard()
+        requested_helper = getattr(getattr(self, "args", None), "helper_image", None)
+        self.helper_image = requested_helper or PYTHON
+        image_pins_guard(requested_helper)
         snapshot = source_guard()
         self.engine_ref, self.engine_version, self.engine_digest = selected_engine(snapshot[IMAGE_REF])
         self.engine_image = getattr(getattr(self, "args", None), "opensearch_image", None) or self.engine_ref
@@ -611,7 +618,7 @@ class Probe:
             require(not self.call(kind, "ls", "-q", *( ["-a"] if kind == "container" else []),
                 "--filter", "label=" + OWNER).strip(), "PRIOR_RESOURCES_RETAINED")
         engine_reference = self.engine_image
-        for image in (engine_reference, PYTHON):
+        for image in (engine_reference, self.helper_image):
             item = self.inspect("image", image)
             if image == engine_reference:
                 repository = self.engine_ref.rsplit("@", 1)[0].rsplit(":", 1)[0]
@@ -619,7 +626,10 @@ class Probe:
                         "OPENSEARCH_REGISTRY_IDENTITY")
                 require(item["Os"] == "linux" and item["Architecture"] == "amd64", "OPENSEARCH_PLATFORM")
             else:
-                require(item["Id"] == image, "IMAGE_ID")
+                require(item["Id"] == image and item["Os"] == "linux" and item["Architecture"] == "amd64",
+                        "HELPER_IMAGE_PLATFORM")
+                require(item["Config"].get("User") == "10001:10001"
+                        and item["Config"].get("Entrypoint") == ["/usr/bin/python3"], "HELPER_IMAGE_CONTRACT")
             require(not item["Config"].get("Volumes") and not item["Config"].get("Healthcheck"), "IMAGE_CONTRACT")
             env = dict(e.split("=", 1) for e in item["Config"].get("Env", []))
             require(not any(k.startswith(("AWS_", "GOOGLE_", "GCP_", "AZURE_")) or
@@ -628,6 +638,7 @@ class Probe:
             self.images[image] = item
         require(self.images[engine_reference]["Config"].get("User") in ("1000", "1000:1000", "opensearch"), "STOCK_NONROOT")
         self.engine_image = self.images[engine_reference]["Id"]
+        require(self.helper_image != self.engine_image, "IMAGE_ROLE_COLLISION")
         if engine_reference != self.engine_image:
             self.images[self.engine_image] = self.images.pop(engine_reference)
         self.stage_sources(snapshot)
@@ -678,7 +689,7 @@ class Probe:
         self.call("start", self.ids["client"])
         self.runtime("client")
         self.event("isolation-prepared", engine_ref=self.engine_ref, engine_digest=self.engine_digest,
-            engine_image=self.engine_image, helper=PYTHON, sources=PINS)
+            engine_image=self.engine_image, helper=self.helper_image, sources=PINS)
 
     def certificates(self):
         def openssl(*args):
@@ -1169,6 +1180,8 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=9200)
     parser.add_argument("--opensearch-image", type=local_image_id,
                         help="optional preloaded linux/amd64 local image ID; default uses image.ref")
+    parser.add_argument("--helper-image", type=local_image_id,
+                        help="optional prepared linux/amd64 Python-only helper image ID; default is the historical cached helper")
     args = parser.parse_args(argv)
     require(args.reviewed_run, "INTEGRATOR_PRE_REVIEW_REQUIRED")
     require(1024 <= args.port <= 65535 and args.port != 9300 and args.hostname != args.wrong_hostname

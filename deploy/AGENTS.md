@@ -31,7 +31,7 @@
 
 - `catalog.json` — actual four native binaries, five Lambdas, ten scopes and existing assets.
 - `control/`, `schemas/`, `bootstrap/` — dormant old framework; retain useful catalog/hash/tag/redaction helpers, do not expand.
-- `images/` — shared multistage Dockerfile, four nonroot runnable application targets; separate explicit dev fresh-initializer target; fixture-only bootstrap/Python helper; stock stunnel5.80 sidecar for Sequin PostgreSQL verification.
+- `images/` — shared multistage Dockerfile, four nonroot runnable application targets; separate explicit dev fresh-initializer target; fixture-only bootstrap/Python helper; Python-only `opensearch-test-helper` derived from `runtime` for the secured-engine CI witness; stock stunnel5.80 sidecar for Sequin PostgreSQL verification.
 - `tests/` — isolated real-image idle startup/signals, genuine fresh PostgreSQL/OpenSearch, non-forwarding provider doubles and ownership-safe cleanup.
 - `compose/` — ordinary independent platform/application/edge projects; all13 apps tested together with empty isolated fixtures. Host config remains explicit; no live trust/bootstrap acceptance.
 - R3 reproduction/gates: `compose/README.md`; `tests/smoke-compose.py` uses these files plus a test-only override. Only Caddy gets an extra edge bridge; app/platform fixtures stay internal. No real SQS custody or A→B claim.

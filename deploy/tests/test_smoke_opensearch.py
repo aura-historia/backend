@@ -31,6 +31,26 @@ class SourceTests(unittest.TestCase):
                     probe.prepare()
             probe.call.assert_not_called()
 
+        valid_default = "sha256:" + "b" * 64
+        for bad in ("sha256:" + "a" * 63, "sha256:" + "A" * 64, "python:latest",
+                    "repo@sha256:" + "c" * 64, valid_default + "\n"):
+            probe = object.__new__(smoke.Probe)
+            probe.args = SimpleNamespace(helper_image=bad)
+            probe.call = Mock()
+            with self.subTest(explicit=bad), patch.object(smoke, "PYTHON", valid_default):
+                with self.assertRaisesRegex(smoke.Failure, "MALFORMED_HELPER_IMAGE"):
+                    probe.prepare()
+            probe.call.assert_not_called()
+
+    def test_explicit_helper_id_controls_default_python_specs(self):
+        helper = "sha256:" + "d" * 64
+        engine = "sha256:" + "e" * 64
+        with tempfile.TemporaryDirectory() as folder:
+            probe = smoke.Probe(Path(folder), SimpleNamespace(helper_image=helper), Mock())
+            self.assertEqual(probe.helper_image, helper)
+            self.assertEqual(probe.plain_spec()["image"], helper)
+            self.assertEqual(probe.plain_spec(engine)["image"], engine)
+
     def test_engine_pin_rejects_malformed_reference_before_docker(self):
         snapshot = smoke.source_guard()
         for bad in (b"opensearchproject/opensearch:latest\n",
@@ -397,6 +417,7 @@ class OwnershipTests(unittest.TestCase):
         for corrupt in (False, True):
             with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
                 probe = smoke.Probe(Path(folder), SimpleNamespace(), Mock())
+                probe.helper_image = "sha256:" + "h" * 64
                 root = probe.directory / "secrets"
                 for name in ("admin/admin-key.pem", "client/admin-key.pem", "opensearch-certs/node-key.pem"):
                     probe.write("secrets/" + name, "synthetic-key")
@@ -407,6 +428,7 @@ class OwnershipTests(unittest.TestCase):
                 probe.retire = Mock()
                 probe.permissions()
                 helper = probe.create_plain.call_args.args[1]
+                self.assertEqual(helper["image"], probe.helper_image)
                 self.assertEqual(helper["user"], "0:0")
                 self.assertEqual(helper["cap_drop"], ["ALL"])
                 self.assertEqual(helper["cap_add"], ["CHOWN", "FOWNER"])
@@ -441,6 +463,7 @@ class OwnershipTests(unittest.TestCase):
                 self.assertEqual({str(p.relative_to(root)): smoke.digest(p.read_bytes()) for p in root.rglob("*") if p.is_file()}, probe.generated)
                 probe.permissions(restore=True)
                 restore = probe.create_plain.call_args.args[1]
+                self.assertEqual(restore["image"], probe.helper_image)
                 self.assertEqual(restore["volumes"], [smoke.bind(root, "/fixture") | {"read_only": False}])
                 with patch.object(smoke.os, "chown", side_effect=chown):
                     exec(restore["command"][1].replace("'/fixture'", repr(str(root))), {})
@@ -762,15 +785,18 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(safe["actions"], ["cluster:monitor/main"])
 
     def test_missing_cached_image_reports_only_reviewed_id(self):
-        missing = "sha256:" + "c" * 64
-        probe = object.__new__(smoke.Probe)
-        probe.engine_image = missing
-        probe.call = Mock(return_value=(1, "Error: No such image: secret-canary"))
-        with self.assertRaises(smoke.Failure) as caught:
-            probe.inspect("image", missing)
-        self.assertEqual(str(caught.exception), "CACHED_IMAGE_MISSING:" + missing)
-        self.assertNotIn("secret-canary", str(caught.exception))
-        probe.call.assert_called_once_with("image", "inspect", missing, check=False)
+        for field in ("engine_image", "helper_image"):
+            missing = "sha256:" + ("c" if field == "engine_image" else "d") * 64
+            probe = object.__new__(smoke.Probe)
+            probe.engine_image = "sha256:" + "e" * 64
+            probe.helper_image = "sha256:" + "f" * 64
+            setattr(probe, field, missing)
+            probe.call = Mock(return_value=(1, "Error: No such image: secret-canary"))
+            with self.subTest(field=field), self.assertRaises(smoke.Failure) as caught:
+                probe.inspect("image", missing)
+            self.assertEqual(str(caught.exception), "CACHED_IMAGE_MISSING:" + missing)
+            self.assertNotIn("secret-canary", str(caught.exception))
+            probe.call.assert_called_once_with("image", "inspect", missing, check=False)
 
     def test_never_started_permission_failure_is_classified_without_raw_error(self):
         probe = object.__new__(smoke.Probe)

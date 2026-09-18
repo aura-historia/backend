@@ -370,6 +370,112 @@ jobs:
             AURA_TEST_COMPOSE_CONFIG=1 \
             python3 deploy/tests/run_ci.py
 
+  opensearch-secured:
+    name: Test secured OpenSearch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install verified Compose for deployment checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+            echo "::error::This reviewed Compose artifact requires Linux x86_64"
+            exit 1
+          fi
+
+          version='5.4.0'
+          expected_sha256='837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be'
+          scratch="$(mktemp -d "${RUNNER_TEMP:?}/aura-compose-ci.XXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --connect-timeout 15 --max-time 180 \
+            --output "$scratch/docker-compose" \
+            "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-x86_64"
+
+          printf '%s  %s\n' "$expected_sha256" "$scratch/docker-compose" \
+            | sha256sum --check --strict -
+
+          sudo -n install -d -m 0755 /usr/local/lib/docker/cli-plugins
+          sudo -n install -m 0755 "$scratch/docker-compose" \
+            /usr/local/lib/docker/cli-plugins/docker-compose
+
+          mkdir -m 0700 "$scratch/docker-config"
+          actual="$(env -i PATH=/usr/bin:/bin /usr/bin/docker \
+            --host unix:///var/run/docker.sock \
+            --config "$scratch/docker-config" \
+            compose version --short)"
+          if [[ "${actual#v}" != "$version" ]]; then
+            echo "::error::Sanitized Docker invocation did not select the reviewed Compose version"
+            exit 1
+          fi
+          printf 'Secured OpenSearch gate uses Docker Compose %s\n' "$version"
+
+      - name: Bind build identity to checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine canonical checkout SHA"
+            exit 1
+          fi
+          printf 'COMMIT_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'Testing secured OpenSearch checkout %s\n' "$sha"
+
+      - name: Prepare isolated search fixture images
+        shell: bash
+        run: bash .github/scripts/prepare-opensearch-test-images.sh
+
+      - name: Prepare disposable OpenSearch kernel setting
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(cat /proc/sys/vm/max_map_count)"
+          if [[ ! "$current" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read vm.max_map_count"
+            exit 1
+          fi
+          if (( current < 262144 )); then
+            sudo -n sysctl -w vm.max_map_count=262144
+          fi
+          final="$(cat /proc/sys/vm/max_map_count)"
+          if [[ ! "$final" =~ ^[0-9]+$ ]] || (( final < 262144 )); then
+            echo "::error::Selected OpenSearch requirement vm.max_map_count was not met"
+            exit 1
+          fi
+
+      - name: Verify literal raw environment handling
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=15s 240s \
+            env -i PATH=/usr/bin:/bin PYTHONPATH=deploy/tests PYTHONDONTWRITEBYTECODE=1 \
+              AURA_TEST_COMPOSE_CONFIG=1 AURA_TEST_LITERAL_ENV=1 \
+              AURA_TEST_HELPER_IMAGE="$C2_HELPER_IMAGE" \
+              python3 -m unittest -v \
+                test_search_ca_compose.SearchCaComposeTests.test_actual_compose_config_resolves_scoped_raw_credentials
+
+      - name: Rehearse secured selected OpenSearch
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 1380s \
+            env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+              python3 deploy/tests/smoke-opensearch.py --reviewed-run \
+                --helper-image "$C2_HELPER_IMAGE" \
+                --opensearch-image "$C2_OPENSEARCH_IMAGE"
+
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [test]
