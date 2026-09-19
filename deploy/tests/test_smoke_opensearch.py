@@ -588,6 +588,29 @@ class ModelTests(unittest.TestCase):
     def validate(self, model):
         smoke.validate_model(model, "opensearch", self.expected, "owned", "owned-data")
 
+    def capture_admin_expected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            probe = object.__new__(smoke.Probe)
+            probe.directory = Path(folder)
+            probe.engine_image = self.engine_ref
+            probe.project, probe.token = "owned", "token"
+            probe.guard, probe.journal = Mock(), Mock()
+            probe.call = Mock(side_effect=[json.dumps({"services": {}}), "created"])
+            probe.inspect = Mock(return_value={"Id": "a" * 64})
+            probe.remember = Mock()
+            with patch.object(smoke, "validate_model") as validate:
+                probe.compose_create("opensearch-admin", ["-cd", "/operator/security", "-vc", "7"])
+            return copy.deepcopy(validate.call_args.args[2])
+
+    def admin_model(self):
+        expected = self.capture_admin_expected()
+        model = {"name": "owned", "services": {"opensearch-admin": copy.deepcopy(expected)},
+            "networks": {"backend": {"name": "owned", "external": True}}}
+        return expected, model
+
+    def validate_admin(self, model, expected):
+        smoke.validate_model(model, "opensearch-admin", expected, "owned")
+
     def test_exact_model_and_dangerous_changes(self):
         self.validate(self.model)
         self.model["services"]["opensearch"].update(entrypoint=None, command=None)
@@ -625,20 +648,90 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(argv[-5:], ("create", "--pull", "never", "--no-build", "opensearch-admin"))
             self.assertNotIn("--no-deps", argv)
             self.assertNotIn("depends_on", validate.call_args.args[2])
-            self.assertEqual(validate.call_args.args[2]["user"], "1000:1000")
+            expected = validate.call_args.args[2]
+            self.assertEqual(expected["user"], "1000:1000")
             self.assertEqual(probe.remember.call_args.args[2]["user"], "1000:1000")
-            self.assertEqual(validate.call_args.args[2]["cap_drop"], ["ALL"])
-            self.assertNotIn("cap_add", validate.call_args.args[2])
+            self.assertEqual(expected["cap_drop"], ["ALL"])
+            self.assertNotIn("cap_add", expected)
+            self.assertEqual(expected["tmpfs"], smoke.ADMIN_TMPFS)
+            self.assertEqual(expected["environment"], {"JAVA_TOOL_OPTIONS": smoke.ADMIN_JAVA_TOOL_OPTIONS})
+            self.assertEqual(expected["volumes"], [smoke.bind(probe.directory / "secrets/admin", "/operator")])
             self.assertEqual(probe.plain_spec()["user"], "0:0")
             self.assertEqual(probe.plain_spec()["cap_drop"], ["ALL"])
             self.assertNotIn("cap_add", probe.plain_spec())
 
+    def test_admin_model_requires_noexec_broad_tmp_and_private_executable_native_tmp(self):
+        expected, model = self.admin_model()
+        self.validate_admin(model, expected)
+        self.assertEqual(expected["tmpfs"], [
+            "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777",
+            "/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000",
+        ])
+        self.assertEqual(expected["environment"], {"JAVA_TOOL_OPTIONS":
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 "
+            "-Djava.io.tmpdir=/securityadmin-native-tmp "
+            "-Djna.tmpdir=/securityadmin-native-tmp"})
+        self.assertEqual(expected["volumes"], [smoke.bind(model["services"]["opensearch-admin"]["volumes"][0]["source"], "/operator")])
+        cases = [
+            lambda service: service["tmpfs"].__setitem__(0, "/tmp:rw,nosuid,nodev,exec,size=64m,mode=1777"),
+            lambda service: service["tmpfs"].__setitem__(0, "/tmp:rw,nosuid,nodev,size=64m,mode=1777"),
+            lambda service: service["tmpfs"].pop(),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:ro,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,suid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,nosuid,dev,exec,size=16m,mode=0700,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,nosuid,nodev,noexec,size=16m,mode=0700,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=64m,mode=0700,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=1777,uid=1000,gid=1000"),
+            lambda service: service["tmpfs"].__setitem__(1, "/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=0,gid=0"),
+        ]
+        for change in cases:
+            altered = copy.deepcopy(model)
+            change(altered["services"]["opensearch-admin"])
+            with self.subTest(change=change), self.assertRaises(smoke.Failure):
+                self.validate_admin(altered, expected)
+
+    def test_admin_java_temp_paths_are_only_dedicated_native_tmp(self):
+        expected, model = self.admin_model()
+        for value in (
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/tmp -Djna.tmpdir=/tmp",
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/operator -Djna.tmpdir=/securityadmin-native-tmp",
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/securityadmin-native-tmp -Djna.tmpdir=/operator",
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/securityadmin-native-tmp",
+            "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/securityadmin-native-tmp -Djna.tmpdir=/securityadmin-native-tmp -Djava.io.tmpdir=/tmp",
+            "-Xms32m -Xmx256m -XX:ActiveProcessorCount=1 -Djava.io.tmpdir=/securityadmin-native-tmp -Djna.tmpdir=/securityadmin-native-tmp",
+        ):
+            altered = copy.deepcopy(model)
+            altered["services"]["opensearch-admin"]["environment"]["JAVA_TOOL_OPTIONS"] = value
+            with self.subTest(value=value), self.assertRaises(smoke.Failure):
+                self.validate_admin(altered, expected)
+
+        altered = copy.deepcopy(model)
+        altered["services"]["opensearch-admin"]["volumes"][0]["read_only"] = False
+        with self.assertRaises(smoke.Failure):
+            self.validate_admin(altered, expected)
+
+    def test_application_services_cannot_receive_admin_native_tmpfs(self):
+        expected, model = self.admin_model()
+        model["services"]["api"] = {"tmpfs": [smoke.ADMIN_TMPFS[1]]}
+        with self.assertRaisesRegex(smoke.Failure, "MODEL_SERVICES"):
+            self.validate_admin(model, expected)
+
+        model["services"].pop("api")
+        model["services"]["postgres"] = {
+            "profiles": ["excluded-from-opensearch-test"],
+            "tmpfs": [smoke.ADMIN_TMPFS[1]],
+        }
+        with self.assertRaisesRegex(smoke.Failure, "MODEL_EXCLUDED_SERVICE"):
+            self.validate_admin(model, expected)
+
     def test_inactive_platform_services_cannot_keep_mounts(self):
         self.model["services"]["postgres"] = {"profiles": ["excluded-from-opensearch-test"]}
         self.validate(self.model)
-        self.model["services"]["postgres"]["volumes"] = ["host-data:/data"]
-        with self.assertRaisesRegex(smoke.Failure, "EXCLUDED_SERVICE"):
-            self.validate(self.model)
+        for field, value in (("volumes", ["host-data:/data"]), ("tmpfs", ["/securityadmin-native-tmp:rw"])):
+            self.model["services"]["postgres"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(smoke.Failure, "EXCLUDED_SERVICE"):
+                self.validate(self.model)
+            self.model["services"]["postgres"].pop(field)
 
 
 class OwnershipTests(unittest.TestCase):

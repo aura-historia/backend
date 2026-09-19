@@ -17,12 +17,21 @@ services:
     cpus: 1
     pids_limit: 128
     working_dir: /tmp
-    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777"]
+    # Keep broad /tmp noexec; only Java/JNA native extraction gets this bounded,
+    # memory-backed executable scratch area inside the short-lived admin container.
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+      - /securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000
     entrypoint:
       [/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh]
     command: [-cd, /operator/security, -vc, "7"]
     environment:
-      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:ActiveProcessorCount=1
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx256m
+        -XX:ActiveProcessorCount=1
+        -Djava.io.tmpdir=/securityadmin-native-tmp
+        -Djna.tmpdir=/securityadmin-native-tmp
     volumes:
       - type: bind
         source: ${AURA_OPENSEARCH_ADMIN_DIR:?Set separate protected admin directory}

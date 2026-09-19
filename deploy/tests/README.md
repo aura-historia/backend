@@ -110,6 +110,12 @@ C2d adds one preflight after node readiness and before the unchanged online nati
 
 `SECURITYADMIN_RESULT` now adds fixed upstream 3.8.0 error categories, safe simple unexpected-exception class extraction, and boolean progress markers. Unknown `ERR:` output remains `unclassified_failure`; raw output stays private `0600`, and native flags, retention, and verdict semantics are unchanged. Local C2d validation is **72 focused tests passed** and **235 lightweight tests passed with the one documented skip**. The C2c remote facts remain: run `35432020086`, job `105868211680`, online exit `255`, `ERR:` true, no recognized config-upload result, and current classification **unclassified**. Root cause is **PENDING** until a changed-revision secured run.
 
+## C2e/C2f — maintained secured-engine native stage
+
+C2e final remote evidence: head `0a6f5656be44f31c7106d794c1653a53524d4406`; `Integrate (CI)` run `35435402516`; synthetic merge `43c7e33132e2acdd9dc64a6bf5a8c89e8860272d`; secured job `105877083797`. The selected node was OpenSearch3.8.0 with Security3.8.0.0. GET-only preflight passed with one node, matching admin DN, `admin=true`, `node_certificate=false`, plugin present/version `3.8.0.0`, and bounded yellow health. Online native SecurityAdmin then exited255 with `unexpected_exception_class=UnsatisfiedLinkError` before `Connected as`; no progress markers were seen. The complete inventory was **78 success, 1 failure, 0 cancelled, 0 skipped, 0 queued, 0 in progress**; only the secured job failed.
+
+C2f preserves `/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777` and adds only to `opensearch-admin` a bounded memory-backed `/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000`. `java.io.tmpdir` and `jna.tmpdir` point there; heap/CPU limits and all existing isolation/retention rules remain. The exact Compose 5.4.0 model and source pin reject weaker `/tmp`, missing or unsafe native temp, wrong Java paths, writable `/operator`, and propagation to another service. C2f local evidence is **75 focused tests passed** and **238 lightweight tests passed with the one documented cached-helper skip**. A changed-revision secured-engine run is required to confirm or disprove that the native loader failure is removed; no remote C2f result is claimed here.
+
 ## Historical secured stock OpenSearch rehearsal (3.1.0 compatibility fixture)
 
 From repo root, with Python3/OpenSSL and local Linux/amd64 Docker/Compose:

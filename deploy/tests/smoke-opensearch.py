@@ -61,10 +61,19 @@ ML_HEALTH = "/_cluster/health/" + ML_INDEX + "?level=indices&wait_for_status=yel
 TOOL = "/usr/share/opensearch/plugins/opensearch-security/tools/"
 LOGGING = {"driver": "local", "options": {"max-size": "1m", "max-file": "1", "compress": "false"}}
 SECURITY = ["no-new-privileges:true"]
+ADMIN_TMPFS = [
+    "/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777",
+    "/securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000",
+]
+ADMIN_JAVA_TOOL_OPTIONS = (
+    "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1 "
+    "-Djava.io.tmpdir=/securityadmin-native-tmp "
+    "-Djna.tmpdir=/securityadmin-native-tmp"
+)
 # Reviewed bytes, never learn expected hashes from the current checkout at run time.
 PINS = {
     "deploy/compose/compose.platform.yml": "08c96e0d3b459612bf3092a0930fa6f860b4ef2366a41891ec40baaa40e7a31b",
-    "deploy/compose/compose.opensearch-admin.yml": "17bab5c38b1d9525b29c50bfe8ef7d84f01f222d30157aa4f68a01d6e886d0ae",
+    "deploy/compose/compose.opensearch-admin.yml": "edbd53187181b8de21f2152d2c1eeb1d6aec74c5802d0daf75d3f16f0cf9580c",
     "deploy/tests/opensearch.fixture.yml": "73a5a36a4911543237831ed99a779bf35f17af95f1347e4672889b9a10097f04",
     "deploy/tests/smoke-sequin-tls.py": "b56b77ca6c4400f416102ffeea0a6d66ccd61095820317627f72c78ae6a73573",
     "deploy/bin/opensearch": "4f14a2d9bdd5de77993fefe60605a8a8f9e1b8fd7139ce358a781f945ba672a9",
@@ -493,7 +502,7 @@ def validate_model(model, service, expected, project, volume=None):
     for name, svc in services.items():
         if name != service:
             require(svc.get("profiles") == ["excluded-from-opensearch-test"] and not svc.get("volumes")
-                and not svc.get("env_file"), "MODEL_EXCLUDED_SERVICE")
+                and not svc.get("tmpfs") and not svc.get("env_file"), "MODEL_EXCLUDED_SERVICE")
     observed = dict(services.get(service) or {})
     # Compose emits null for inherited image entrypoint/Cmd; [] would override them.
     for field in ("entrypoint", "command"):
@@ -905,9 +914,9 @@ class Probe:
             overlay["services"][service]["command"] = command
             expected = common | dict(profiles=["security-setup"], restart="no", user="1000:1000", read_only=True,
                 cap_drop=["ALL"], networks={"backend": None}, mem_limit="1073741824", cpus=1.0, pids_limit=128,
-                working_dir="/tmp", tmpfs=["/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777"],
+                working_dir="/tmp", tmpfs=list(ADMIN_TMPFS),
                 entrypoint=[TOOL + "securityadmin.sh"], command=command,
-                environment={"JAVA_TOOL_OPTIONS": "-Xms64m -Xmx256m -XX:ActiveProcessorCount=1"},
+                environment={"JAVA_TOOL_OPTIONS": ADMIN_JAVA_TOOL_OPTIONS},
                 volumes=[bind(self.directory / "secrets/admin", "/operator")])
             volume = None
         case = self.write("case.json", json.dumps(overlay))
