@@ -142,6 +142,161 @@ class SourceTests(unittest.TestCase):
             smoke.main(["--reviewed-run", "--wrong-hostname", "opensearch"])
 
 
+class SecurityPreflightTests(unittest.TestCase):
+    def whoami(self, **changes):
+        body = {
+            "dn": smoke.EXPECTED_ADMIN_DN,
+            "is_admin": True,
+            "is_node_certificate_request": False,
+            "unused": "secret-canary",
+        }
+        body.update(changes)
+        return {"status": 200, "body": body}
+
+    def nodes(self, **changes):
+        node = {
+            "version": "3.8.0",
+            "plugins": [
+                {"name": smoke.SECURITY_PLUGIN_NAME, "version": "3.8.0.0", "unused": "secret-canary"},
+                {"name": "org.example.OtherPlugin", "version": "secret-canary"},
+            ],
+            "unused": "secret-canary",
+        }
+        node.update(changes)
+        return {"status": 200, "body": {"nodes": {"node-id": node}, "unused": "secret-canary"}}
+
+    def health(self, **changes):
+        body = {"cluster_name": "owned-cluster", "status": "yellow", "timed_out": False,
+            "unused": "secret-canary"}
+        body.update(changes)
+        return {"status": 200, "body": body}
+
+    def invoke(self, responses):
+        probe = object.__new__(smoke.Probe)
+        probe.args = SimpleNamespace(hostname="opensearch", port=9200, cluster_name="owned-cluster")
+        probe.engine_version = "3.8.0"
+        probe.client = Mock(side_effect=responses)
+        probe.event = Mock()
+        output = io.StringIO()
+        result, error = None, None
+        with contextlib.redirect_stdout(output):
+            try:
+                result = probe.security_preflight()
+            except Exception as caught:
+                error = caught
+        return probe, output.getvalue(), result, error
+
+    def assert_get_only(self, probe):
+        self.assertEqual([call.args[0]["path"] for call in probe.client.call_args_list],
+            [smoke.SECURITY_WHOAMI, smoke.SECURITY_NODES, smoke.SECURITY_PREFLIGHT_HEALTH])
+        for call in probe.client.call_args_list:
+            case = call.args[0]
+            self.assertEqual(case["method"], "GET")
+            self.assertEqual(case["cert"], "admin")
+            self.assertNotIn(case["method"], {"POST", "PUT", "DELETE", "PATCH"})
+
+    def assert_failure(self, responses, code):
+        probe, output, result, error = self.invoke(responses)
+        self.assertIsNone(result)
+        self.assertIsInstance(error, smoke.Failure)
+        self.assertEqual(str(error), code)
+        self.assertEqual(probe.event.call_count, 0)
+        self.assertNotIn("secret-canary", output)
+        self.assertNotIn("secret-canary", str(error))
+        for call in probe.client.call_args_list:
+            self.assertEqual(call.args[0]["method"], "GET")
+
+    def test_success_is_fixed_safe_and_get_only(self):
+        probe, output, facts, error = self.invoke([self.whoami(), self.nodes(), self.health()])
+        self.assertIsNone(error)
+        self.assertEqual(facts, {
+            "whoami_status": 200,
+            "admin": True,
+            "node_certificate": False,
+            "admin_dn_matches": True,
+            "node_count": 1,
+            "node_versions": ["3.8.0"],
+            "security_plugin_present": True,
+            "security_plugin_versions": ["3.8.0.0"],
+            "cluster_health": "yellow",
+            "cluster_timed_out": False,
+        })
+        self.assertEqual(output.count("SECURITY_PREFLIGHT "), 1)
+        self.assertEqual(json.loads(output.split(" ", 1)[1]), facts)
+        self.assertNotIn(smoke.EXPECTED_ADMIN_DN, output)
+        self.assertNotIn("secret-canary", output)
+        self.assertEqual(probe.event.call_args.args, ("security-preflight",))
+        self.assertEqual(probe.event.call_args.kwargs, facts)
+        self.assert_get_only(probe)
+
+    def test_success_writes_only_fixed_values_to_safe_evidence(self):
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
+            probe = smoke.Probe(Path(folder), SimpleNamespace(cluster_name="owned-cluster"), Mock())
+            probe.engine_version = "3.8.0"
+            probe.client = Mock(side_effect=[self.whoami(), self.nodes(), self.health()])
+            facts = probe.security_preflight()
+            evidence = (Path(folder) / "evidence.json").read_text()
+        self.assertIn('"check": "security-preflight"', evidence)
+        self.assertIn('"cluster_health": "yellow"', evidence)
+        self.assertNotIn(smoke.EXPECTED_ADMIN_DN, evidence)
+        self.assertNotIn("secret-canary", evidence)
+        self.assertEqual(facts["security_plugin_versions"], ["3.8.0.0"])
+
+    def test_whoami_rejections_require_real_booleans_and_expected_identity(self):
+        cases = [
+            (self.whoami(is_admin=False), "SECURITY_PREFLIGHT_ADMIN"),
+            (self.whoami(is_node_certificate_request=True), "SECURITY_PREFLIGHT_NODE_CERTIFICATE"),
+            (self.whoami(is_admin="true"), "SECURITY_PREFLIGHT_WHOAMI_FLAGS"),
+            (self.whoami(is_node_certificate_request=0), "SECURITY_PREFLIGHT_WHOAMI_FLAGS"),
+            ({"status": 401, "body": {"unused": "secret-canary"}}, "SECURITY_PREFLIGHT_WHOAMI_STATUS"),
+            ({"status": 200, "body": []}, "SECURITY_PREFLIGHT_WHOAMI_BODY"),
+            (self.whoami(dn="wrong-secret-canary"), "SECURITY_PREFLIGHT_ADMIN_DN"),
+            (self.whoami() | {"body": {"is_admin": True, "is_node_certificate_request": False}},
+                "SECURITY_PREFLIGHT_ADMIN_DN"),
+        ]
+        for response, code in cases:
+            with self.subTest(code=code):
+                self.assert_failure([response], code)
+
+    def test_node_info_rejections_are_strict(self):
+        base = self.whoami()
+        cases = []
+        cases.append(({"status": 503, "body": {"unused": "secret-canary"}}, "SECURITY_PREFLIGHT_NODES_STATUS"))
+        cases.append(({"status": 200, "body": []}, "SECURITY_PREFLIGHT_NODES_BODY"))
+        cases.append(({"status": 200, "body": {"nodes": []}}, "SECURITY_PREFLIGHT_NODES_MAP"))
+        cases.append(({"status": 200, "body": {"nodes": {}}}, "SECURITY_PREFLIGHT_NODE_COUNT"))
+        cases.append((self.nodes(version="3.7.0"), "SECURITY_PREFLIGHT_ENGINE_VERSION"))
+        cases.append((self.nodes(plugins=None), "SECURITY_PREFLIGHT_NODE_PLUGINS"))
+        cases.append((self.nodes(plugins={}), "SECURITY_PREFLIGHT_NODE_PLUGINS"))
+        cases.append((self.nodes(plugins=[{"name": "other", "version": "3.8.0.0"}]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
+        cases.append((self.nodes(plugins=[{"name": smoke.SECURITY_PLUGIN_NAME, "version": "3.8.0"}]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN_VERSION"))
+        for nodes, code in cases:
+            with self.subTest(code=code):
+                self.assert_failure([base, nodes], code)
+
+    def test_health_records_all_exact_states_but_rejects_malformed_values(self):
+        for status in ("green", "yellow", "red"):
+            with self.subTest(status=status):
+                probe, output, facts, error = self.invoke([self.whoami(), self.nodes(), self.health(status=status)])
+                self.assertIsNone(error)
+                self.assertEqual(facts["cluster_health"], status)
+                self.assertFalse(facts["cluster_timed_out"])
+                self.assert_get_only(probe)
+                self.assertNotIn("secret-canary", output)
+        for status in ("GREEN", "unknown", 1, None, []):
+            with self.subTest(status=status):
+                self.assert_failure([self.whoami(), self.nodes(), self.health(status=status)],
+                    "SECURITY_PREFLIGHT_HEALTH_STATE")
+        for timed_out in (None, "false", 0, 1, []):
+            with self.subTest(timed_out=timed_out):
+                self.assert_failure([self.whoami(), self.nodes(), self.health(timed_out=timed_out)],
+                    "SECURITY_PREFLIGHT_HEALTH_TIMEOUT")
+        self.assert_failure([self.whoami(), self.nodes(), self.health(cluster_name="other")],
+            "SECURITY_PREFLIGHT_HEALTH_CLUSTER")
+
+
 class MLReadinessTests(unittest.TestCase):
     def response(self, status="yellow"):
         return {"status": 200, "body": {"cluster_name": "owned-cluster", "timed_out": False, "status": status,
@@ -226,13 +381,14 @@ class MLReadinessTests(unittest.TestCase):
             probe.ids = {"opensearch": "owned-node"}
             probe.directory = Path("/unused-unit-fixture")
             calls = Mock()
-            for name in ("prepare", "admin", "compose_create", "call", "wait_node", "target", "ml_config_ready",
+            for name in ("prepare", "admin", "compose_create", "call", "wait_node", "security_preflight", "target", "ml_config_ready",
                     "unchanged", "operator", "grants", "denied_changes", "tombstones", "searches", "trust_tests",
                     "snapshot", "runtime", "request", "event"):
                 method = Mock()
                 setattr(probe, name, method)
                 calls.attach_mock(method, name)
             probe.snapshot.return_value = "unchanged-full-state"
+            probe.wait_node.side_effect = probe.target
             probe.runtime.side_effect = [{"State": {"StartedAt": "before"}}, {"State": {"Running": False}},
                 {"State": {"StartedAt": "after"}}]
             probe.request.side_effect = lambda method, path, *args, **kw: (
@@ -248,6 +404,9 @@ class MLReadinessTests(unittest.TestCase):
                     probe.run()
             names = [call[0] for call in calls.mock_calls]
             first = names.index("ml_config_ready")
+            preflight = names.index("security_preflight")
+            self.assertEqual(names[preflight - 2:preflight + 2],
+                ["wait_node", "target", "security_preflight", "admin"])
             self.assertEqual(names[first-2:first], ["admin", "target"])
             if failed_gate == 1:
                 self.assertEqual(names[-1], "ml_config_ready")
@@ -257,7 +416,7 @@ class MLReadinessTests(unittest.TestCase):
                 continue
             self.assertEqual(names[first+1], "unchanged")
             last = len(names) - 1 - names[::-1].index("ml_config_ready")
-            self.assertEqual(names[last-2:last], ["wait_node", "runtime"])
+            self.assertEqual(names[last-3:last], ["wait_node", "target", "runtime"])
             if failed_gate == 2:
                 self.assertEqual(names[-1], "ml_config_ready")
                 self.assertEqual(probe.snapshot.call_count, 1)  # Original pre-stop snapshot only.
@@ -265,6 +424,50 @@ class MLReadinessTests(unittest.TestCase):
                 self.assertEqual(names[last+1:last+3], ["operator", "snapshot"])
                 self.assertEqual(probe.ml_config_ready.call_count, 2)
                 self.assertEqual(probe.snapshot.call_count, 2)
+
+
+class SecurityPreflightRunOrderTests(unittest.TestCase):
+    def test_failed_preflight_stops_before_online_securityadmin(self):
+        probe = object.__new__(smoke.Probe)
+        probe.ids = {"opensearch": "owned-node"}
+        calls = Mock()
+        for name in ("prepare", "admin", "compose_create", "call", "wait_node", "security_preflight", "target"):
+            method = Mock()
+            setattr(probe, name, method)
+            calls.attach_mock(method, name)
+        probe.security_preflight.side_effect = smoke.Failure("SECURITY_PREFLIGHT_ADMIN")
+        with self.assertRaisesRegex(smoke.Failure, "^SECURITY_PREFLIGHT_ADMIN$"):
+            probe.run()
+        names = [call[0] for call in calls.mock_calls]
+        self.assertEqual(names[names.index("security_preflight") - 1], "wait_node")
+        self.assertEqual(probe.admin.call_count, 1)
+        self.assertEqual(probe.admin.call_args.kwargs, {"offline": True})
+        self.assertEqual(probe.compose_create.call_count, 1)  # The node, not native admin.
+
+    def test_valid_red_diagnostic_does_not_skip_or_repeat_native_admin(self):
+        probe = object.__new__(smoke.Probe)
+        probe.ids = {"opensearch": "owned-node"}
+        probe.directory = Path("/unused-unit-fixture")
+        calls = Mock()
+        for name in ("prepare", "admin", "compose_create", "call", "wait_node", "security_preflight", "target",
+                "ml_config_ready", "unchanged", "operator", "grants", "denied_changes", "tombstones", "searches",
+                "trust_tests", "snapshot", "runtime", "request", "event"):
+            method = Mock()
+            setattr(probe, name, method)
+            calls.attach_mock(method, name)
+        probe.security_preflight.return_value = {"cluster_health": "red"}
+        probe.snapshot.return_value = "unchanged-full-state"
+        probe.runtime.side_effect = [{"State": {"StartedAt": "before"}}, {"State": {"Running": False}},
+            {"State": {"StartedAt": "after"}}]
+        probe.request.side_effect = lambda method, path, *args, **kw: (
+            {"status": 404, "body": {}} if path == smoke.PIPELINE and method == "GET"
+            else {"status": 200, "body": {"acknowledged": True}})
+        with patch.object(smoke, "checked_bytes", return_value=b"{}"):
+            probe.run()
+        self.assertEqual(probe.admin.call_count, 2)
+        self.assertEqual(probe.admin.call_args_list[0].kwargs, {"offline": True})
+        self.assertEqual(probe.admin.call_args_list[1].args, ())
+        self.assertEqual(probe.security_preflight.call_count, 1)
 
 
 class ClientTests(unittest.TestCase):
@@ -654,6 +857,97 @@ class SecurityAdminDiagnosticTests(unittest.TestCase):
         self.assertFalse("arbitrary-type" in public)
         self.assertFalse("suffix-canary" in public)
         self.assertFalse("exception-suffix-canary" in public)
+
+    def test_known_upstream_error_prefixes_use_only_closed_categories(self):
+        cases = {
+            "parse_failure": "ERR: Parsing failed.  Reason: secret-canary\n",
+            "socket_unreachable": "ERR: Seems there is no OpenSearch running on secret-canary:9200 - Will exit\n",
+            "admin_not_registered": "ERR: \\\"CN=secret-canary,...\\\" is not an admin user\n",
+            "node_certificate_as_admin": "ERR: Seems you use a node certificate which is also an admin certificate\n",
+            "unexpected_exception": "ERR: An unexpected NullPointerException occurred: secret-canary\n",
+            "cluster_state_fetch_failed": "ERR: Cannot retrieve cluster state due to: secret-canary\n",
+            "cluster_state_timeout": "ERR: Timed out while waiting for a green or yellow cluster state.\n",
+            "security_index_state_timeout": "ERR: Timed out while waiting for .opendistro_security index state.\n",
+            "security_index_red": "ERR: .opendistro_security index state is RED.\n",
+            "security_index_state_failed": "ERR: Cannot retrieve .opendistro_security index state state due to secret-canary.\n",
+            "invalid_config_type": "ERR: Invalid type 'secret-canary'\n",
+            "config_upload_failed": "ERR: cannot upload configuration, see errors above\n",
+        }
+        self.assertEqual(tuple(cases), smoke.ADMIN_ERROR_CATEGORIES)
+        for category, raw in cases.items():
+            with self.subTest(category=category):
+                observed = self.invoke(raw, code=1)
+                self.assertEqual(observed["facts"]["error_categories"], [category])
+                public = observed["stdout"] + json.dumps(observed["facts"]) + observed["evidence"]
+                self.assertNotIn("secret-canary", public)
+
+    def test_admin_dn_rejection_category_hides_returned_dn(self):
+        observed = self.invoke(
+            'Connected as "CN=secret-canary,..."\nERR: "CN=secret-canary,..." is not an admin user\n', code=255)
+        self.assertEqual(observed["facts"]["error_categories"], ["admin_not_registered"])
+        self.assertTrue(observed["facts"]["connected_as_seen"])
+        self.assertFalse(observed["facts"]["unclassified_failure"])
+        self.assertNotIn("secret-canary", observed["stdout"] + json.dumps(observed["facts"]) + observed["evidence"])
+
+    def test_node_certificate_category_is_exact_and_fixed(self):
+        observed = self.invoke(
+            "ERR: Seems you use a node certificate which is also an admin certificate\n", code=255)
+        self.assertEqual(observed["facts"]["error_categories"], ["node_certificate_as_admin"])
+        self.assertIsNone(observed["facts"]["unexpected_exception_class"])
+
+    def test_cluster_state_failure_records_contact_progress_without_cluster_text(self):
+        observed = self.invoke(
+            "Contacting opensearch cluster 'secret-canary' and wait for YELLOW clusterstate ...\n"
+            "ERR: Cannot retrieve cluster state due to: secret-canary\n", code=255)
+        facts = observed["facts"]
+        self.assertEqual(facts["error_categories"], ["cluster_state_fetch_failed"])
+        self.assertTrue(facts["cluster_contact_seen"])
+        self.assertFalse(facts["cluster_identity_seen"])
+        self.assertNotIn("secret-canary", observed["stdout"] + json.dumps(facts) + observed["evidence"])
+
+    def test_unexpected_exception_extracts_only_simple_class(self):
+        observed = self.invoke(
+            "ERR: An unexpected NullPointerException occurred: secret-canary\nTrace:\nsecret-canary\n", code=255)
+        facts = observed["facts"]
+        self.assertEqual(facts["error_categories"], ["unexpected_exception"])
+        self.assertEqual(facts["unexpected_exception_class"], "NullPointerException")
+        self.assertFalse(facts["unclassified_failure"])
+        public = observed["stdout"] + json.dumps(facts) + observed["evidence"]
+        self.assertNotIn("secret-canary", public)
+        malicious = self.invoke(
+            "ERR: An unexpected BadClass-suffix-canary occurred: secret-canary\n", code=255)
+        self.assertEqual(malicious["facts"]["error_categories"], [])
+        self.assertIsNone(malicious["facts"]["unexpected_exception_class"])
+        self.assertTrue(malicious["facts"]["unclassified_failure"])
+        self.assertNotIn("secret-canary", malicious["stdout"] + json.dumps(malicious["facts"]) + malicious["evidence"])
+
+    def test_progress_markers_are_boolean_only(self):
+        observed = self.invoke(
+            'Connected as "secret-canary"\n'
+            "Contacting opensearch cluster 'secret-canary' and wait for YELLOW clusterstate ...\n"
+            "Clustername: secret-canary\n"
+            ".opendistro_security index does not exists, attempt to create it ...\n"
+            "Populate config from /secret-canary\n", code=0)
+        facts = observed["facts"]
+        for field in ("connected_as_seen", "cluster_contact_seen", "cluster_identity_seen",
+                "populate_config_seen", "security_index_create_seen"):
+            self.assertTrue(facts[field])
+        self.assertNotIn("secret-canary", observed["stdout"] + json.dumps(facts) + observed["evidence"])
+
+    def test_config_upload_category_retains_known_failed_type(self):
+        observed = self.invoke(
+            "FAIL: Configuration for 'roles' failed because of secret-canary\n"
+            "ERR: cannot upload configuration, see errors above\n", code=255)
+        self.assertEqual(observed["facts"]["error_categories"], ["config_upload_failed"])
+        self.assertEqual(observed["facts"]["failed_types"], ["roles"])
+        self.assertFalse(observed["facts"]["unclassified_failure"])
+        self.assertNotIn("secret-canary", observed["stdout"] + json.dumps(observed["facts"]) + observed["evidence"])
+
+    def test_unknown_err_stays_unclassified(self):
+        observed = self.invoke("ERR: A future native path: secret-canary\n", code=255)
+        self.assertEqual(observed["facts"]["error_categories"], [])
+        self.assertTrue(observed["facts"]["unclassified_failure"])
+        self.assertNotIn("secret-canary", observed["stdout"] + json.dumps(observed["facts"]) + observed["evidence"])
 
     def test_unknown_native_command_outcome_has_no_fabricated_result_or_retirement(self):
         observed = self.invoke("transport details must stay private\n", finish_side_effect=smoke.Failure("COMMAND_UNCONFIRMED"))

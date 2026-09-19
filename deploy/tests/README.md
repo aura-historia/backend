@@ -104,6 +104,12 @@ The literal witness uses one unresolved Compose5.4.0 render for raw `env_file` d
 
 The 3.8.0.0 native source was inspected: required/optional configuration behavior is not changed by this slice, and no guessed YAML file was added. The reviewed C2b run `35428127852` proved preparation, the real literal witness and deployment-tooling job, but its public log did not contain the native result. Local focused validation is **57 secured-harness tests passed**; the full daemon-free deployment runner is **220 passed with one documented cached-helper skip**. C2c source changes are not pushed; the local Docker daemon is not treated as an authorized disposable runner. Therefore the resulting native rehearsal, packaged-plugin observation, root cause and full acceptance remain **NOT RUN/BLOCKED** until the existing CI lane runs the changed revision.
 
+## C2d — read-only native stage isolation
+
+C2d adds one preflight after node readiness and before the unchanged online native command. It uses the isolated admin-certificate client for GET-only `/_plugins/_security/whoami`, `/_nodes`, and bounded `/_cluster/health?level=cluster&timeout=5s` checks. The single `SECURITY_PREFLIGHT` line publishes only fixed booleans, node count/versions, numeric Security plugin versions, and `green|yellow|red` health plus the timeout boolean; the same facts are retained in safe evidence. The preflight does not fail only on red health, and a failed preflight stops before online SecurityAdmin.
+
+`SECURITYADMIN_RESULT` now adds fixed upstream 3.8.0 error categories, safe simple unexpected-exception class extraction, and boolean progress markers. Unknown `ERR:` output remains `unclassified_failure`; raw output stays private `0600`, and native flags, retention, and verdict semantics are unchanged. Local C2d validation is **72 focused tests passed** and **235 lightweight tests passed with the one documented skip**. The C2c remote facts remain: run `35432020086`, job `105868211680`, online exit `255`, `ERR:` true, no recognized config-upload result, and current classification **unclassified**. Root cause is **PENDING** until a changed-revision secured run.
+
 ## Historical secured stock OpenSearch rehearsal (3.1.0 compatibility fixture)
 
 From repo root, with Python3/OpenSSL and local Linux/amd64 Docker/Compose:

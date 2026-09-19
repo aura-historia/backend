@@ -275,6 +275,29 @@ ADMIN_OUTPUT_FILES = {
     "unregistered": "securityadmin-unregistered-output.txt",
 }
 ADMIN_CASES = frozenset(ADMIN_OUTPUT_FILES)
+EXPECTED_ADMIN_DN = "CN=opensearch-admin,OU=Operators,O=Aura Historia"
+SECURITY_WHOAMI = "/_plugins/_security/whoami"
+SECURITY_NODES = "/_nodes"
+SECURITY_PREFLIGHT_HEALTH = "/_cluster/health?level=cluster&timeout=5s"
+SECURITY_PLUGIN_NAME = "org.opensearch.security.OpenSearchSecurityPlugin"
+SECURITY_PLUGIN_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+ADMIN_ERROR_CATEGORIES = (
+    "parse_failure",
+    "socket_unreachable",
+    "admin_not_registered",
+    "node_certificate_as_admin",
+    "unexpected_exception",
+    "cluster_state_fetch_failed",
+    "cluster_state_timeout",
+    "security_index_state_timeout",
+    "security_index_red",
+    "security_index_state_failed",
+    "invalid_config_type",
+    "config_upload_failed",
+)
+UNEXPECTED_EXCEPTION_RE = re.compile(
+    r"(?m)^ERR: An unexpected (?P<class>[A-Za-z_$][A-Za-z0-9_$]{0,80}) occurred:"
+)
 
 
 def securityadmin_rejection(raw, identity):
@@ -308,6 +331,38 @@ def admin_diagnostic(case, code, raw):
         match = re.fullmatch(r'OpenSearch Security Version: "?([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"?', line)
         if match and match.group(1) not in security_versions:
             security_versions.append(match.group(1))
+
+    categories = []
+    if "ERR: Parsing failed.  Reason:" in raw:
+        categories.append("parse_failure")
+    if ("ERR: Seems there is no OpenSearch running on " in raw
+            or "ERR: Cannot connect to OpenSearch." in raw):
+        categories.append("socket_unreachable")
+    if re.search(r"(?m)^ERR: .+ is not an admin user$", raw):
+        categories.append("admin_not_registered")
+    if ("ERR: Seems you use a node certificate which is also an admin certificate" in raw
+            or "ERR: You try to connect with a TLS node certificate instead of an admin client certificate" in raw):
+        categories.append("node_certificate_as_admin")
+    unexpected = UNEXPECTED_EXCEPTION_RE.search(raw)
+    if unexpected:
+        categories.append("unexpected_exception")
+    if "ERR: Cannot retrieve cluster state due to:" in raw:
+        categories.append("cluster_state_fetch_failed")
+    if "ERR: Timed out while waiting for a green or yellow cluster state." in raw:
+        categories.append("cluster_state_timeout")
+    if any(re.fullmatch(r"ERR: Timed out while waiting for \S+ index state\.", line) for line in lines):
+        categories.append("security_index_state_timeout")
+    if any(re.fullmatch(r"ERR: \S+ index state is RED\.", line) for line in lines):
+        categories.append("security_index_red")
+    if any(re.match(r"ERR: Cannot retrieve \S+ index state state due to ", line) for line in lines):
+        categories.append("security_index_state_failed")
+    if any(line.startswith("ERR: Invalid type '") for line in lines):
+        categories.append("invalid_config_type")
+    if "ERR: cannot upload configuration, see errors above" in raw:
+        categories.append("config_upload_failed")
+
+    unexpected_exception_class = unexpected.group("class") if unexpected else None
+    failed_result = code != 0 or any(markers.values())
     return {
         "case": case,
         "exit_code": code,
@@ -320,8 +375,14 @@ def admin_diagnostic(case, code, raw):
         "failed_types": failed,
         "exception_labels": exceptions,
         "security_plugin_versions": security_versions,
-        "unclassified_failure": (code != 0 or any(markers.values()))
-                                and not failed and not exceptions,
+        "error_categories": categories,
+        "unexpected_exception_class": unexpected_exception_class,
+        "connected_as_seen": any(line.startswith("Connected as ") for line in lines),
+        "cluster_contact_seen": any(line.startswith("Contacting opensearch cluster '") for line in lines),
+        "cluster_identity_seen": any(line.startswith("Clustername: ") for line in lines),
+        "populate_config_seen": any(line.startswith("Populate config from ") for line in lines),
+        "security_index_create_seen": "index does not exists, attempt to create it" in raw,
+        "unclassified_failure": failed_result and not failed and not exceptions and not categories,
     }
 
 
@@ -906,6 +967,74 @@ class Probe:
         require(result.get("cluster_name") == self.args.cluster_name and result.get("version", {}).get("number") == self.engine_version
             and result["version"].get("distribution") == "opensearch", "TARGET_IDENTITY")
 
+    def security_preflight(self):
+        whoami = self.client({"method": "GET", "path": SECURITY_WHOAMI, "cert": "admin"})
+        require(isinstance(whoami, dict) and whoami.get("status") == 200, "SECURITY_PREFLIGHT_WHOAMI_STATUS")
+        whoami_body = whoami.get("body")
+        require(isinstance(whoami_body, dict), "SECURITY_PREFLIGHT_WHOAMI_BODY")
+        is_admin = whoami_body.get("is_admin")
+        is_node_certificate = whoami_body.get("is_node_certificate_request")
+        require(type(is_admin) is bool and type(is_node_certificate) is bool,
+            "SECURITY_PREFLIGHT_WHOAMI_FLAGS")
+        require(is_admin, "SECURITY_PREFLIGHT_ADMIN")
+        require(not is_node_certificate, "SECURITY_PREFLIGHT_NODE_CERTIFICATE")
+        require(whoami_body.get("dn") == EXPECTED_ADMIN_DN, "SECURITY_PREFLIGHT_ADMIN_DN")
+
+        nodes_response = self.client({"method": "GET", "path": SECURITY_NODES, "cert": "admin"})
+        require(isinstance(nodes_response, dict) and nodes_response.get("status") == 200,
+            "SECURITY_PREFLIGHT_NODES_STATUS")
+        nodes_body = nodes_response.get("body")
+        require(isinstance(nodes_body, dict), "SECURITY_PREFLIGHT_NODES_BODY")
+        nodes = nodes_body.get("nodes")
+        require(isinstance(nodes, dict), "SECURITY_PREFLIGHT_NODES_MAP")
+        require(len(nodes) == 1, "SECURITY_PREFLIGHT_NODE_COUNT")
+        node_versions, plugin_versions = [], []
+        for node in nodes.values():
+            require(isinstance(node, dict), "SECURITY_PREFLIGHT_NODE_BODY")
+            version = node.get("version")
+            require(isinstance(version, str), "SECURITY_PREFLIGHT_NODE_VERSION")
+            require(version == self.engine_version, "SECURITY_PREFLIGHT_ENGINE_VERSION")
+            node_versions.append(version)
+            plugins = node.get("plugins")
+            require(isinstance(plugins, list), "SECURITY_PREFLIGHT_NODE_PLUGINS")
+            security_plugins = [plugin for plugin in plugins if isinstance(plugin, dict)
+                and plugin.get("name") == SECURITY_PLUGIN_NAME]
+            require(security_plugins, "SECURITY_PREFLIGHT_SECURITY_PLUGIN")
+            for plugin in security_plugins:
+                plugin_version = plugin.get("version")
+                require(isinstance(plugin_version, str)
+                    and SECURITY_PLUGIN_VERSION_RE.fullmatch(plugin_version) is not None,
+                    "SECURITY_PREFLIGHT_SECURITY_PLUGIN_VERSION")
+                plugin_versions.append(plugin_version)
+
+        health_response = self.client({"method": "GET", "path": SECURITY_PREFLIGHT_HEALTH, "cert": "admin"})
+        require(isinstance(health_response, dict) and health_response.get("status") == 200,
+            "SECURITY_PREFLIGHT_HEALTH_STATUS")
+        health_body = health_response.get("body")
+        require(isinstance(health_body, dict), "SECURITY_PREFLIGHT_HEALTH_BODY")
+        require(health_body.get("cluster_name") == self.args.cluster_name, "SECURITY_PREFLIGHT_HEALTH_CLUSTER")
+        health = health_body.get("status")
+        require(isinstance(health, str) and health in ("green", "yellow", "red"),
+            "SECURITY_PREFLIGHT_HEALTH_STATE")
+        timed_out = health_body.get("timed_out")
+        require(type(timed_out) is bool, "SECURITY_PREFLIGHT_HEALTH_TIMEOUT")
+
+        facts = {
+            "whoami_status": 200,
+            "admin": is_admin,
+            "node_certificate": is_node_certificate,
+            "admin_dn_matches": True,
+            "node_count": len(nodes),
+            "node_versions": node_versions,
+            "security_plugin_present": True,
+            "security_plugin_versions": plugin_versions,
+            "cluster_health": health,
+            "cluster_timed_out": timed_out,
+        }
+        self.event("security-preflight", **facts)
+        print("SECURITY_PREFLIGHT " + json.dumps(facts, sort_keys=True), flush=True)
+        return facts
+
     def wait_node(self):
         end = min(self.deadline, time.monotonic() + 180)
         while time.monotonic() < end:
@@ -1184,6 +1313,7 @@ class Probe:
         self.compose_create("opensearch")
         self.call("start", self.ids["opensearch"])
         self.wait_node()
+        self.security_preflight()
         self.admin()
         self.target()
         self.ml_config_ready()
