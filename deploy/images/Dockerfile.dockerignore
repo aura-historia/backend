@@ -14,6 +14,10 @@
 !src/crawler/src/review/ui/inspector.js
 !src/crawler/src/review/ui/styles.css
 !src/test-api/postgres/image-ref.txt
+!src/test-api/src/sequin/base.yaml
+!src/test-api/src/sequin/webhook-sink.yaml
+!src/test-api/src/sequin/notification-delivery-webhook-sink.yaml
+!src/test-api/src/sequin/product-listing-normalization-webhook-sink.yaml
 !docs/swagger.yaml
 !migrations/*.sql
 !opensearch/mappings/*.json
