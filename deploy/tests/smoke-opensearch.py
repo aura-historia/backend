@@ -795,7 +795,7 @@ class Probe:
             argv += ["--env-file", str(path)]
         self.pending = self.project + "-" + name
         self.journal()
-        identifier = self.call(*argv, spec["image"], *spec["command"]).strip()
+        identifier = self.call(*argv, spec["image"], *(spec["command"] or [])).strip()
         return self.remember(name, identifier, spec)
 
     def finish(self, name, seconds=100):
@@ -1427,6 +1427,7 @@ class Probe:
             spec = self.plain_spec(self.witness_image, mounts=[mount])
             spec["user"] = "10001:10001"
             spec["entrypoint"] = ["/usr/local/bin/opensearch-tls-witness"]
+            spec["command"] = None
             spec["environment"] = self.witness_environment(runtime, user, scope)
             name = "rust-witness-" + str(ordinal)
             self.create_plain(name, spec)
