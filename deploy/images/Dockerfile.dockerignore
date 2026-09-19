@@ -15,6 +15,7 @@
 !src/crawler/src/review/ui/styles.css
 !src/test-api/postgres/image-ref.txt
 !src/aura-historia-worker/src/postgres-test-ca.crt
+!src/aura-historia-cron/src/postgres-test-ca.crt
 !src/test-api/src/sequin/base.yaml
 !src/test-api/src/sequin/webhook-sink.yaml
 !src/test-api/src/sequin/notification-delivery-webhook-sink.yaml
