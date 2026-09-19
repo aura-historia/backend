@@ -2,11 +2,11 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
 import uuid
+from pathlib import Path
 
 import test_deploy as host_tests
 import test_smoke_compose as compose_tests
@@ -23,12 +23,16 @@ class SearchCaComposeTests(unittest.TestCase):
         images = dict(smoke.IMAGES, caddy=smoke.CADDY)
         smoke.materialize(self.directory, projects, 12345, images)
         (self.directory / "state").mkdir(mode=0o700)
-        self.host = host_tests.deploy.Host(dict(stage="test", application_project=projects["application"],
-            edge_project=projects["edge"], config_dir=str(self.directory),
-            compose_env=str(self.directory / "compose.env"), state_dir=str(self.directory / "state"),
-            https_port=12345, https_ca=str(self.directory / "postgres-ca.pem")))
-        self.selected = dict(source_sha=host_tests.A["source_sha"],
-                             images={kind: images[kind] for kind in host_tests.deploy.BINS})
+        self.host = host_tests.deploy.Host({
+            "stage": "test", "application_project": projects["application"],
+            "edge_project": projects["edge"], "config_dir": str(self.directory),
+            "compose_env": str(self.directory / "compose.env"), "state_dir": str(self.directory / "state"),
+            "https_port": 12345, "https_ca": str(self.directory / "postgres-ca.pem"),
+        })
+        self.selected = {
+            "source_sha": host_tests.A["source_sha"],
+            "images": {kind: images[kind] for kind in host_tests.deploy.BINS},
+        }
 
     def cleanup(self):
         if self.docker is not None:
@@ -133,6 +137,79 @@ class SearchCaComposeTests(unittest.TestCase):
         if os.environ.get("AURA_TEST_LITERAL_ENV") == "1":
             self.literal_environment_witness()
 
+    def literal_environment_models(self, docker_args):
+        if self.docker is None:
+            self.fail("literal witness Docker client was not initialized")
+        docker = self.docker
+        declared = host_tests.deploy.compose_config_json(
+            docker.call(*docker_args, "config", "--no-env-resolution", "--format", "json"))
+        resolved = host_tests.deploy.compose_config_json(
+            docker.call(*docker_args, "config", "--format", "json"))
+        self.assertTrue(
+            set(declared["services"]) == {"literal-env"}
+            and set(resolved["services"]) == {"literal-env"},
+            "literal witness service set changed",
+        )
+        return declared, resolved
+
+    @unittest.skipUnless(os.environ.get("AURA_TEST_COMPOSE_CONFIG") == "1", "opt-in local Compose config only")
+    def test_actual_literal_environment_fixture_config(self):
+        literals = {
+            "LITERAL_SINGLE": "$cash",
+            "LITERAL_DOUBLE": "$$",
+            "LITERAL_BRACED": "${SHOULD_STAY_LITERAL}",
+            "LITERAL_MIXED": 'x$y-$$-${ALSO_LITERAL}-#-"-\'-,=\\',
+        }
+        raw_path = self.directory / "literal.env"
+        raw_bytes = smoke.env_text(literals).encode()
+        smoke.protected_write(self.directory, raw_path.name, raw_bytes.decode(), mode=0o600)
+        expected_path = self.directory / "literal-expected.json"
+        smoke.protected_write(expected_path.parent, expected_path.name, json.dumps(literals), mode=0o444)
+        fixture = smoke.ROOT / "deploy/tests/literal-env.fixture.yml"
+        witness = smoke.ROOT / "deploy/tests/literal-env-witness.py"
+        project = "aura-literal-config-" + uuid.uuid4().hex
+        token = uuid.uuid4().hex
+        # Synthetic image reference is Compose syntax input only; this test does not inspect or run it.
+        synthetic_helper_image = "sha256:" + "a" * 64
+        compose_env = self.directory / "literal-compose.env"
+        smoke.protected_write(self.directory, compose_env.name, smoke.env_text({
+            "EXPECTED_FILE": str(expected_path),
+            "FIXTURE_TOKEN": token,
+            "HELPER_IMAGE": synthetic_helper_image,
+            "RAW_ENV_FILE": str(raw_path),
+            "WITNESS_FILE": str(witness),
+        }), mode=0o600)
+        self.docker = smoke.r2.Docker(self.directory)
+        docker_args = ("compose", "--project-name", project, "--env-file", str(compose_env),
+                       "-f", str(fixture))
+        declared, resolved = self.literal_environment_models(docker_args)
+        service = resolved["services"]["literal-env"]
+        entries = declared["services"]["literal-env"]["env_file"]
+        self.assertEqual([(entry["path"], entry["format"]) for entry in entries],
+                         [(str(raw_path), "raw")])
+        self.assertEqual(service["image"], synthetic_helper_image)
+        self.assertTrue(all(service["environment"].get(key) == value for key, value in literals.items()),
+                        "Compose literal environment changed")
+        self.assertEqual(service["network_mode"], "none")
+        self.assertFalse(service.get("ports"))
+        self.assertIs(service["read_only"], True)
+        self.assertEqual(service["user"], "10001:10001")
+        self.assertEqual(service["cap_drop"], ["ALL"])
+        self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
+        self.assertEqual(service["restart"], "no")
+        self.assertEqual(service["pull_policy"], "never")
+        self.assertEqual(
+            sorted((mount["source"], mount["target"], mount["read_only"],
+                    mount["bind"]["create_host_path"]) for mount in service["volumes"]),
+            sorted((source, target, True, False) for source, target in (
+                (str(witness), "/witness/literal-env-witness.py"),
+                (str(expected_path), "/expected/expected.json"),
+            )),
+        )
+        self.assertEqual(raw_path.read_bytes(), raw_bytes, "raw literal file changed")
+        self.assertEqual(raw_path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(compose_env.stat().st_mode & 0o777, 0o600)
+
     def literal_environment_witness(self):
         helper = os.environ.get("AURA_TEST_HELPER_IMAGE")
         self.assertTrue(isinstance(helper, str) and helper.startswith("sha256:") and len(helper) == 71
@@ -164,14 +241,13 @@ class SearchCaComposeTests(unittest.TestCase):
         docker_args = ("compose", "--project-name", project, "--env-file", str(compose_env),
                        "-f", str(fixture))
         image = json.loads(self.docker.call("image", "inspect", helper))[0]
-        config_raw = self.docker.call(*docker_args, "config", "--format", "json")
-        model = host_tests.deploy.compose_config_json(config_raw)
-        service = model["services"]["literal-env"]
+        declared, resolved = self.literal_environment_models(docker_args)
+        service = resolved["services"]["literal-env"]
         self.assertTrue(service["image"] == helper and service["network_mode"] == "none"
                         and not service.get("ports") and service["read_only"] is True
                         and service["user"] == "10001:10001" and service["cap_drop"] == ["ALL"],
                         "literal witness service boundary changed")
-        entries = service["env_file"]
+        entries = declared["services"]["literal-env"]["env_file"]
         self.assertTrue([(entry["path"], entry["format"]) for entry in entries]
                         == [(str(raw_path), "raw")], "literal witness raw env contract changed")
         self.assertTrue(all(service["environment"].get(key) == value for key, value in literals.items()),

@@ -92,6 +92,12 @@ env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
 
 Current C2a source checks: decoder/host tests **33 passed**; secured-harness tests **48 passed**; pure Compose tests **26 passed**; `run_ci.py` **209 passed with one documented skip**; actual Compose-config identity/credential tests **passed with one expected helper skip**. The real-container witness and selected-engine rehearsal are **NOT RUN locally** because this workstation has no Docker socket. The CI gate remains **PENDING**; no OpenSearch3.8.0 version/plugin or Rust SDK request is claimed here.
 
+## C2b — secured OpenSearch gate corrections
+
+2026-09-18: The preparation script keeps the tagged pinned pull input but verifies the tagless repository digest in Docker `RepoDigests`. Its local ID, Linux/amd64, helper-contract, immutable-pin, build and pull failures remain fail-closed. The actual script is regression-tested with a non-forwarding Docker stub across canonical success and metadata/input/build/pull failures; synthetic IDs in that test are not observed images.
+
+The literal witness uses one unresolved Compose5.4.0 render for raw `env_file` declarations and one resolved render for effective values, both through the existing decoder. A new lightweight test renders the checked-in `literal-env.fixture.yml` without inspecting, creating or starting a container, and checks literal bytes, `0600` mode, mount/security boundaries and the synthetic image syntax input. Local C2b `run_ci.py` evidence is **211 passed, one documented cached-helper skip**. Observed `Integrate (CI)` run `35367462503` completed with **78 successful jobs and one failed secured OpenSearch job**; preparation failed at canonical image identity validation, so the literal container and selected-engine rehearsal did not run. No real literal container, selected OpenSearch3.8.0 rehearsal or Rust SDK request ran locally; a new remote run is still required after this unpushed correction.
+
 ## Historical secured stock OpenSearch rehearsal (3.1.0 compatibility fixture)
 
 From repo root, with Python3/OpenSSL and local Linux/amd64 Docker/Compose:

@@ -95,7 +95,8 @@ import sys
 metadata = json.load(open(sys.argv[1], encoding="utf-8"))
 reference = sys.argv[2]
 identifier = sys.argv[3]
-repository, digest = reference.rsplit("@", 1)
+tagged_repository, digest = reference.rsplit("@", 1)
+repository, _version = tagged_repository.rsplit(":", 1)
 if (
     metadata.get("Id") != identifier
     or metadata.get("Os") != "linux"
