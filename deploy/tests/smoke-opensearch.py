@@ -249,6 +249,32 @@ def safe_result(response):
     return value
 
 
+def http_assertion_diagnostic(method, path, identity, response):
+    """Returns fixed, nonsecret facts for an unexpected harness response."""
+    body = response.get("body")
+    try:
+        encoded_body = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    except (TypeError, ValueError):
+        encoded_body = b""
+    error = body.get("error") if isinstance(body, dict) else None
+    root_causes = error.get("root_cause") if isinstance(error, dict) else None
+    root_cause = root_causes[0] if isinstance(root_causes, list) and root_causes else None
+    error_kind = error_type(response)
+    root_cause_kind = root_cause.get("type") if isinstance(root_cause, dict) else None
+    result = {
+        "request": {("GET", "/"): "root"}.get((method, path), "other"),
+        "identity": identity if identity in (*USERS, "admin") else "other",
+        "status": response.get("status") if type(response.get("status")) is int else None,
+        "body_bytes": len(encoded_body),
+        "body_sha256": digest(encoded_body),
+    }
+    if isinstance(error_kind, str) and re.fullmatch(r"[a-z_]{1,80}", error_kind):
+        result["error_type"] = error_kind
+    if isinstance(root_cause_kind, str) and re.fullmatch(r"[a-z_]{1,80}", root_cause_kind):
+        result["root_cause_type"] = root_cause_kind
+    return result
+
+
 OPERATOR_MODES = frozenset(("verify", "initialize-fresh"))
 OPERATOR_OUTCOMES = frozenset((
     "verified",
@@ -1058,7 +1084,9 @@ class Probe:
             case["body"] = body
         result = self.client(case)
         if result.get("status") not in expected:
-            self.event("unexpected-http", method=method, path=path, user=user or cert, result=safe_result(result))
+            diagnostic = http_assertion_diagnostic(method, path, user or cert, result)
+            self.event("unexpected-http", **diagnostic)
+            print("HTTP_ASSERTION " + json.dumps(diagnostic, sort_keys=True), flush=True)
             raise Failure("HTTP_ASSERTION_RETAINED")
         return result
 

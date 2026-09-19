@@ -1555,6 +1555,38 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("secret-canary", json.dumps(safe))
         self.assertEqual(safe["actions"], ["cluster:monitor/main"])
 
+    def test_unexpected_http_diagnostic_is_closed_and_nonsecret(self):
+        response = {
+            "status": 403,
+            "body": {
+                "password": "secret-canary",
+                "error": {
+                    "type": "security_exception",
+                    "reason": "secret-canary",
+                    "root_cause": [{"type": "security_exception", "reason": "secret-canary"}],
+                },
+            },
+        }
+        probe = object.__new__(smoke.Probe)
+        probe.client = Mock(return_value=response)
+        probe.event = Mock()
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output), self.assertRaisesRegex(smoke.Failure, "HTTP_ASSERTION_RETAINED"):
+            probe.request("GET", "/", user=smoke.USERS[0])
+
+        line = output.getvalue().removeprefix("HTTP_ASSERTION ").strip()
+        diagnostic = json.loads(line)
+        self.assertEqual(diagnostic["request"], "root")
+        self.assertEqual(diagnostic["identity"], smoke.USERS[0])
+        self.assertEqual(diagnostic["status"], 403)
+        self.assertEqual(diagnostic["error_type"], "security_exception")
+        self.assertEqual(diagnostic["root_cause_type"], "security_exception")
+        self.assertGreater(diagnostic["body_bytes"], 0)
+        self.assertRegex(diagnostic["body_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("secret-canary", output.getvalue())
+        probe.event.assert_called_once_with("unexpected-http", **diagnostic)
+
     def test_missing_cached_image_reports_only_reviewed_id(self):
         for field in ("engine_image", "helper_image"):
             missing = "sha256:" + ("c" if field == "engine_image" else "d") * 64
