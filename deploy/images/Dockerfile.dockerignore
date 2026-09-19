@@ -13,6 +13,7 @@
 !src/crawler/src/review/ui/app.js
 !src/crawler/src/review/ui/inspector.js
 !src/crawler/src/review/ui/styles.css
+!src/test-api/postgres/image-ref.txt
 !migrations/*.sql
 !opensearch/mappings/*.json
 !opensearch/analysis/*.txt
