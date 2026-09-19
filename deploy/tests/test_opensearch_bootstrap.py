@@ -82,6 +82,26 @@ class EnginePinTests(unittest.TestCase):
                         bootstrap.selected_engine()
 
 
+class ProductListingsMappingCompatibilityTests(unittest.TestCase):
+    def test_explicit_faiss_sq_fp16_encoder_declares_16_bits(self):
+        definitions, _pipeline = bootstrap.assets()
+        product = dict(definitions)["product-listings"]
+        encoder = (
+            product["mappings"]["properties"]["embedding"]
+            ["method"]["parameters"]["encoder"]
+        )
+
+        self.assertEqual(encoder["name"], "sq")
+        self.assertEqual(
+            encoder["parameters"],
+            {
+                "bits": 16,
+                "type": "fp16",
+                "clip": False,
+            },
+        )
+
+
 class FlowTests(unittest.TestCase):
     def run_flow(self, mode, client):
         operation = bootstrap.Bootstrap()
