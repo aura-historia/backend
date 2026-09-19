@@ -408,7 +408,7 @@ class MLReadinessTests(unittest.TestCase):
             probe.directory = Path("/unused-unit-fixture")
             calls = Mock()
             for name in ("prepare", "admin", "compose_create", "call", "wait_node", "security_preflight", "target", "ml_config_ready",
-                    "unchanged", "operator", "grants", "denied_changes", "tombstones", "searches", "trust_tests",
+                    "unchanged", "operator", "grants", "runtime_witnesses", "denied_changes", "tombstones", "searches", "trust_tests",
                     "snapshot", "runtime", "request", "event"):
                 method = Mock()
                 setattr(probe, name, method)
@@ -476,7 +476,7 @@ class SecurityPreflightRunOrderTests(unittest.TestCase):
         probe.directory = Path("/unused-unit-fixture")
         calls = Mock()
         for name in ("prepare", "admin", "compose_create", "call", "wait_node", "security_preflight", "target",
-                "ml_config_ready", "unchanged", "operator", "grants", "denied_changes", "tombstones", "searches",
+                "ml_config_ready", "unchanged", "operator", "grants", "runtime_witnesses", "denied_changes", "tombstones", "searches",
                 "trust_tests", "snapshot", "runtime", "request", "event"):
             method = Mock()
             setattr(probe, name, method)
@@ -1303,6 +1303,63 @@ class OperatorDiagnosticTests(unittest.TestCase):
         self.assertNotIn("body", json.dumps(facts))
 
 
+class WitnessTests(unittest.TestCase):
+    def test_witnesses_use_five_hardened_scoped_containers_after_grants(self):
+        password = "synthetic-password-canary"
+        probe = object.__new__(smoke.Probe)
+        probe.directory = Path("/private-fixture")
+        probe.args = SimpleNamespace(hostname="opensearch", port=9200)
+        probe.witness_image = "sha256:" + "a" * 64
+        probe.passwords = {
+            "aura_reader": password,
+            "aura_product_projector": password,
+            "aura_filter_projector": password,
+            "aura_percolator": password,
+            "aura_cron": password,
+        }
+        probe.plain_spec = Mock(side_effect=lambda *args, **kwargs: {
+            "image": args[0], "user": "0:0", "entrypoint": ["python3"], "command": [],
+            "restart": "no", "read_only": True, "cap_drop": ["ALL"],
+            "security_opt": smoke.SECURITY, "mem_limit": 536870912, "cpus": "1",
+            "pids_limit": 128, "environment": {}, "logging": smoke.LOGGING,
+            "volumes": kwargs["mounts"], "network_mode": "owned-network",
+        })
+        probe.create_plain = Mock()
+        probe.finish = Mock(return_value=(0, "test result: ok. 1 passed; 0 failed\n"))
+        probe.retire = Mock()
+        probe.event = Mock()
+
+        probe.runtime_witnesses()
+
+        self.assertEqual(probe.create_plain.call_count, 5)
+        names = [call.args[0] for call in probe.create_plain.call_args_list]
+        self.assertEqual(names, ["rust-witness-1", "rust-witness-2", "rust-witness-3", "rust-witness-4", "rust-witness-5"])
+        specs = [call.args[1] for call in probe.create_plain.call_args_list]
+        self.assertEqual([spec["environment"]["AURA_OPENSEARCH_WITNESS_RUNTIME"] for spec in specs],
+            ["api", "worker", "worker", "worker", "cron"])
+        self.assertEqual([spec["environment"].get("AURA_HISTORIA_WORKER_SCOPE") for spec in specs],
+            [None, "product-listing-opensearch", "search-filter-projection", "search-filter-percolator", None])
+        for spec in specs:
+            self.assertEqual(spec["image"], probe.witness_image)
+            self.assertEqual(spec["user"], "10001:10001")
+            self.assertTrue(spec["read_only"])
+            self.assertEqual(spec["cap_drop"], ["ALL"])
+            self.assertEqual(spec["security_opt"], smoke.SECURITY)
+            self.assertEqual(spec["volumes"], [{"type": "bind", "source": "/private-fixture/secrets/client/root-ca.pem",
+                "target": "/run/aura/opensearch-root-ca.pem", "read_only": True,
+                "bind": {"create_host_path": False}}])
+        evidence = json.dumps([call.kwargs for call in probe.event.call_args_list])
+        self.assertNotIn(password, evidence)
+        self.assertEqual(probe.retire.call_count, 5)
+
+    def test_witness_environment_rejects_unknown_worker_scope(self):
+        probe = object.__new__(smoke.Probe)
+        probe.args = SimpleNamespace(hostname="opensearch", port=9200)
+        probe.passwords = {"aura_reader": "synthetic"}
+        with self.assertRaisesRegex(smoke.Failure, "WITNESS_SCOPE"):
+            probe.witness_environment("worker", "aura_reader", "other")
+
+
 class EvidenceTests(unittest.TestCase):
     def test_bulk_denials_require_every_exact_item_not_just_http200(self):
         targets = [("delete", "product-listings", "product-0"), ("index", "user_search_filters", "filter-0"),
@@ -1654,7 +1711,9 @@ class EvidenceTests(unittest.TestCase):
                 patch.object(smoke.tempfile, "mkdtemp", return_value=folder), \
                 patch.object(smoke.Path, "glob", return_value=[]), \
                 contextlib.redirect_stdout(output):
-            self.assertEqual(smoke.main(["--reviewed-run"]), 1)
+            self.assertEqual(smoke.main([
+                "--reviewed-run", "--witness-image", "sha256:" + "a" * 64,
+            ]), 1)
         probe.cleanup.assert_not_called()
         self.assertIn("RETAINED", output.getvalue())
         self.assertNotIn("secret-canary", output.getvalue())

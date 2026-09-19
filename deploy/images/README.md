@@ -92,6 +92,10 @@ DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
 
 The disposable CI job validates the iidfile ID, UID10001/Python entrypoint, platform, no volumes/healthcheck and no ambient provider credentials before use. It also pulls the single checked-in OpenSearch stable pin for linux/amd64 and passes that inspected local ID separately; registry digest and running version remain rehearsal assertions.
 
+## Rust OpenSearch TLS witness
+
+`opensearch-tls-witness` is a test-only runtime image built from `opensearch-tls-witness-build`, not from the four-release-binary `build` stage. Its build compiles only the API library, worker binary, and cron library unit-test executables. The UID10001 entrypoint selects exactly one ignored API, worker, or cron TLS ping via `AURA_OPENSEARCH_WITNESS_RUNTIME`; it is never published or deployed. The secured fixture supplies an immutable inspected image ID, an internal HTTPS endpoint, a read-only generated root CA, and one synthetic scoped role at a time. It starts five short-lived hardened containers after role grants: API, all three OpenSearch worker scopes, and cron.
+
 ## Verified scope
 
 Four builds and actual idle startup **passed**. Cold shared release compile14m56s under the owner-approved30min ceiling; other final targets reused it. Helper compile5m42s. Earlier230s attempt timed out and exported no image; not credited.

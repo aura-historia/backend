@@ -474,6 +474,7 @@ jobs:
             env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
               python3 deploy/tests/smoke-opensearch.py --reviewed-run \
                 --helper-image "$C2_HELPER_IMAGE" \
+                --witness-image "$C2_WITNESS_IMAGE" \
                 --opensearch-image "$C2_OPENSEARCH_IMAGE"
 
   sonar:

@@ -13,9 +13,11 @@ fi
 umask 077
 helper_iid="$RUNNER_TEMP/c2-opensearch-helper.iid"
 helper_meta="$RUNNER_TEMP/c2-opensearch-helper.json"
+witness_iid="$RUNNER_TEMP/c2-opensearch-witness.iid"
+witness_meta="$RUNNER_TEMP/c2-opensearch-witness.json"
 engine_ref_file="$RUNNER_TEMP/c2-opensearch-engine.ref"
 engine_meta="$RUNNER_TEMP/c2-opensearch-engine.json"
-rm -f "$helper_iid" "$helper_meta" "$engine_ref_file" "$engine_meta"
+rm -f "$helper_iid" "$helper_meta" "$witness_iid" "$witness_meta" "$engine_ref_file" "$engine_meta"
 
 DOCKER_BUILDKIT=1 docker build \
   --platform linux/amd64 \
@@ -59,6 +61,53 @@ for item in config.get("Env") or []:
 if not re.fullmatch(r"sha256:[0-9a-f]{64}", identifier):
     raise SystemExit("helper image ID format failed")
 PY
+
+# The witness is a CI-only test image. The non-forwarding unit stub deliberately
+# omits GITHUB_ACTIONS and continues to exercise the helper/engine contract.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+DOCKER_BUILDKIT=1 docker build \
+  --platform linux/amd64 \
+  --file deploy/images/Dockerfile \
+  --target opensearch-tls-witness \
+  --build-arg COMMIT_SHA="$COMMIT_SHA" \
+  --iidfile "$witness_iid" \
+  .
+
+witness_id="$(cat "$witness_iid")"
+if [[ ! "$witness_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "::error::Witness build did not produce an immutable local image ID" >&2
+  exit 1
+fi
+test "$(docker image inspect --format '{{.Id}}' "$witness_id")" = "$witness_id"
+docker image inspect --format '{{json .}}' "$witness_id" > "$witness_meta"
+python3 - "$witness_meta" "$witness_id" <<'PY'
+import json
+import re
+import sys
+
+metadata = json.load(open(sys.argv[1], encoding="utf-8"))
+identifier = sys.argv[2]
+config = metadata.get("Config") or {}
+if (
+    metadata.get("Id") != identifier
+    or metadata.get("Os") != "linux"
+    or metadata.get("Architecture") != "amd64"
+    or config.get("User") != "10001:10001"
+    or config.get("Entrypoint") != ["/usr/local/bin/opensearch-tls-witness"]
+    or config.get("Volumes")
+    or config.get("Healthcheck")
+):
+    raise SystemExit("witness image contract failed")
+for item in config.get("Env") or []:
+    key = item.split("=", 1)[0]
+    if key.startswith(("AWS_", "GOOGLE_", "GCP_", "AZURE_")) or any(
+        marker in key for marker in ("PASSWORD", "TOKEN", "CREDENTIAL", "PROXY")
+    ):
+        raise SystemExit("witness image contains ambient credential configuration")
+if not re.fullmatch(r"sha256:[0-9a-f]{64}", identifier):
+    raise SystemExit("witness image ID format failed")
+PY
+fi
 
 python3 - "deploy/compose/opensearch/image.ref" "$engine_ref_file" <<'PY'
 from pathlib import Path
@@ -108,4 +157,7 @@ if (
 PY
 
 printf 'C2_HELPER_IMAGE=%s\n' "$helper_id" >> "$GITHUB_ENV"
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  printf 'C2_WITNESS_IMAGE=%s\n' "$witness_id" >> "$GITHUB_ENV"
+fi
 printf 'C2_OPENSEARCH_IMAGE=%s\n' "$engine_id" >> "$GITHUB_ENV"

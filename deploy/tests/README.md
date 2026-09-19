@@ -75,7 +75,7 @@ Limits: synthetic superuser initialization and read-only verifier, not real runt
 
 ## C2a secured-engine CI gate
 
-The ordinary `opensearch-secured` PR job uses a fresh GitHub-hosted `ubuntu-24.04` runner, installs checksum-verified Compose5.4.0, builds only `opensearch-test-helper`, pulls the checked-in OpenSearch3.8.0 digest for linux/amd64, runs the literal raw-environment Compose witness, and then passes both inspected local IDs to the existing rehearsal. It has `contents: read` only and no AWS credentials, OIDC, deployment environment, published port, application service or full-stack dependency.
+The ordinary `opensearch-secured` PR job uses a fresh GitHub-hosted `ubuntu-24.04` runner, installs checksum-verified Compose5.4.0, builds `opensearch-test-helper` plus the test-executable-only `opensearch-tls-witness`, pulls the checked-in OpenSearch3.8.0 digest for linux/amd64, runs the literal raw-environment Compose witness, and then passes all inspected local IDs to the existing rehearsal. It has `contents: read` only and no AWS credentials, OIDC, deployment environment, published port, application service or full-stack dependency.
 
 The witness uses `literal-env.fixture.yml` and `literal-env-witness.py`: raw `env_file` values include single/double dollars and a literal `${...}`; the nonroot, read-only, capability-free, `network_mode: none` container emits only `LITERAL_ENV_OK`. Docker `Config.Env` is compared privately with the decoded Compose model and exact baked-image merge. Failure/unknown ownership remains bounded and is not converted to a skip.
 
@@ -85,10 +85,11 @@ The gate's final rehearsal command is:
 env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
   python3 deploy/tests/smoke-opensearch.py --reviewed-run \
   --helper-image "$C2_HELPER_IMAGE" \
+  --witness-image "$C2_WITNESS_IMAGE" \
   --opensearch-image "$C2_OPENSEARCH_IMAGE"
 ```
 
-`C2_HELPER_IMAGE` is the iidfile ID from `.github/scripts/prepare-opensearch-test-images.sh`; `C2_OPENSEARCH_IMAGE` is the inspected local ID for the validated `deploy/compose/opensearch/image.ref`. The helper option does not change engine selection.
+`C2_HELPER_IMAGE` and `C2_WITNESS_IMAGE` are iidfile IDs from `.github/scripts/prepare-opensearch-test-images.sh`; `C2_OPENSEARCH_IMAGE` is the inspected local ID for the validated `deploy/compose/opensearch/image.ref`. The helper and witness options do not change engine selection. After existing grants, the harness runs five short-lived read-only/capability-free UID10001 witness containers on the fixture’s internal network: API reader, each of the three worker search scopes, and cron. Each mounts only the generated root CA read-only and receives one synthetic role’s OpenSearch credentials; retained evidence records fixed runtime/scope/role, exit status, output size, and output hash—not passwords or output.
 
 Current C2a source checks: decoder/host tests **33 passed**; secured-harness tests **48 passed**; pure Compose tests **26 passed**; `run_ci.py` **209 passed with one documented skip**; actual Compose-config identity/credential tests **passed with one expected helper skip**. The real-container witness and selected-engine rehearsal are **NOT RUN locally** because this workstation has no Docker socket. The CI gate remains **PENDING**; no OpenSearch3.8.0 version/plugin or Rust SDK request is claimed here.
 

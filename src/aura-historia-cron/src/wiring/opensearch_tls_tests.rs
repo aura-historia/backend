@@ -72,6 +72,16 @@ async fn exercise(trusted: bool, hostname: bool) -> TestResult {
 }
 
 #[tokio::test]
+#[ignore = "secured OpenSearch image witness"]
+async fn should_ping_secured_opensearch_from_witness_environment() -> TestResult {
+    let config = PeriodicMatchConfig::from_env()?;
+    let client = opensearch_client(&config)?;
+    let response = tokio::time::timeout(REQUEST_BOUND, client.ping().send()).await??;
+    assert!(response.status_code().is_success());
+    Ok(())
+}
+
+#[tokio::test]
 async fn should_use_frozen_ca_in_actual_cron_sdk_for_dev_and_prod() -> TestResult {
     exercise(true, true).await
 }

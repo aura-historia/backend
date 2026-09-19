@@ -106,10 +106,12 @@ def require(condition, code):
         raise Failure(code)
 
 
-def image_pins_guard(helper=None):
+def image_pins_guard(helper=None, witness=None):
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", PYTHON) is not None, "MALFORMED_IMAGE_PIN")
     if helper is not None:
         require(re.fullmatch(r"sha256:[0-9a-f]{64}", helper) is not None, "MALFORMED_HELPER_IMAGE")
+    if witness is not None:
+        require(re.fullmatch(r"sha256:[0-9a-f]{64}", witness) is not None, "MALFORMED_WITNESS_IMAGE")
 
 
 def selected_engine(raw):
@@ -696,6 +698,7 @@ class Probe:
         self.ids, self.specs, self.images, self.frozen, self.events = {}, {}, {}, {}, []
         self.engine_ref = self.engine_version = self.engine_digest = self.engine_image = None
         self.helper_image = getattr(args, "helper_image", None) or PYTHON
+        self.witness_image = getattr(args, "witness_image", None)
         self.generated = {}
         self.pending = None
         for name in ("docker", "stage", "client-tree", "secrets", "pki"):
@@ -863,10 +866,13 @@ class Probe:
 
     def prepare(self):
         requested_helper = getattr(getattr(self, "args", None), "helper_image", None)
+        requested_witness = getattr(getattr(self, "args", None), "witness_image", None)
         self.helper_image = requested_helper or PYTHON
-        image_pins_guard(requested_helper)
+        image_pins_guard(requested_helper, requested_witness)
         snapshot = source_guard()
         self.engine_ref, self.engine_version, self.engine_digest = selected_engine(snapshot[IMAGE_REF])
+        require(requested_witness is not None, "WITNESS_IMAGE_REQUIRED")
+        self.witness_image = requested_witness
         self.engine_image = getattr(getattr(self, "args", None), "opensearch_image", None) or self.engine_ref
         require(not self.call("container", "ls", "-q").strip(), "OTHER_RUNNING_CONTAINERS")
         # No second environment, including retained stopped one-shots/volumes.
@@ -874,18 +880,24 @@ class Probe:
             require(not self.call(kind, "ls", "-q", *( ["-a"] if kind == "container" else []),
                 "--filter", "label=" + OWNER).strip(), "PRIOR_RESOURCES_RETAINED")
         engine_reference = self.engine_image
-        for image in (engine_reference, self.helper_image):
+        for image in (engine_reference, self.helper_image, self.witness_image):
             item = self.inspect("image", image)
             if image == engine_reference:
                 repository = self.engine_ref.rsplit("@", 1)[0].rsplit(":", 1)[0]
                 require(repository + "@" + self.engine_digest in item.get("RepoDigests", []),
                         "OPENSEARCH_REGISTRY_IDENTITY")
                 require(item["Os"] == "linux" and item["Architecture"] == "amd64", "OPENSEARCH_PLATFORM")
-            else:
+            elif image == self.helper_image:
                 require(item["Id"] == image and item["Os"] == "linux" and item["Architecture"] == "amd64",
                         "HELPER_IMAGE_PLATFORM")
                 require(item["Config"].get("User") == "10001:10001"
                         and item["Config"].get("Entrypoint") == ["/usr/bin/python3"], "HELPER_IMAGE_CONTRACT")
+            else:
+                require(item["Id"] == image and item["Os"] == "linux" and item["Architecture"] == "amd64",
+                        "WITNESS_IMAGE_PLATFORM")
+                require(item["Config"].get("User") == "10001:10001"
+                        and item["Config"].get("Entrypoint") == ["/usr/local/bin/opensearch-tls-witness"],
+                        "WITNESS_IMAGE_CONTRACT")
             require(not item["Config"].get("Volumes") and not item["Config"].get("Healthcheck"), "IMAGE_CONTRACT")
             env = dict(e.split("=", 1) for e in item["Config"].get("Env", []))
             require(not any(k.startswith(("AWS_", "GOOGLE_", "GCP_", "AZURE_")) or
@@ -894,7 +906,7 @@ class Probe:
             self.images[image] = item
         require(self.images[engine_reference]["Config"].get("User") in ("1000", "1000:1000", "opensearch"), "STOCK_NONROOT")
         self.engine_image = self.images[engine_reference]["Id"]
-        require(self.helper_image != self.engine_image, "IMAGE_ROLE_COLLISION")
+        require(len({self.helper_image, self.witness_image, self.engine_image}) == 3, "IMAGE_ROLE_COLLISION")
         if engine_reference != self.engine_image:
             self.images[self.engine_image] = self.images.pop(engine_reference)
         self.stage_sources(snapshot)
@@ -945,7 +957,7 @@ class Probe:
         self.call("start", self.ids["client"])
         self.runtime("client")
         self.event("isolation-prepared", engine_ref=self.engine_ref, engine_digest=self.engine_digest,
-            engine_image=self.engine_image, helper=self.helper_image, sources=PINS)
+            engine_image=self.engine_image, helper=self.helper_image, witness=self.witness_image, sources=PINS)
 
     def certificates(self):
         def openssl(*args):
@@ -1339,6 +1351,92 @@ class Probe:
         require(not gaps, "ROLE_GRANT_GAPS:" + ",".join(gaps))
         self.event("core-grants-passed")
 
+    def witness_environment(self, runtime, user, scope=None):
+        values = {
+            "STAGE": "dev",
+            "COMMIT_SHA": "14fa8e7d80841d34ce69dd51e77a98e51a213c67",
+            "POSTGRES_SSL_MODE": "verify-full",
+            "POSTGRES_HOST": "postgres.example.test",
+            "POSTGRES_DATABASE": "synthetic",
+            "POSTGRES_USERNAME": "synthetic",
+            "POSTGRES_PASSWORD": "synthetic",
+            "POSTGRES_SSL_ROOT_CERT": "/run/aura/opensearch-root-ca.pem",
+            "OPENSEARCH_ENDPOINT_URL": f"https://{self.args.hostname}:{self.args.port}",
+            "OPENSEARCH_SSL_ROOT_CERT": "/run/aura/opensearch-root-ca.pem",
+            "OPENSEARCH_USERNAME": user,
+            "OPENSEARCH_PASSWORD": self.passwords[user],
+            "AURA_OPENSEARCH_WITNESS_RUNTIME": runtime,
+        }
+        if runtime == "api":
+            values.update({
+                "AURA_HISTORIA_API_BIND_ADDR": "127.0.0.1:0",
+                "AURA_HISTORIA_API_OPERATIONS_BIND_ADDR": "127.0.0.1:0",
+                "AURA_HISTORIA_COGNITO_ISSUER": "https://cognito.example.test/pool",
+                "AURA_HISTORIA_COGNITO_JWKS_URL": "https://cognito.example.test/jwks",
+                "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS": "synthetic",
+                "AURA_HISTORIA_COGNITO_USER_POOL_ID": "synthetic",
+                "STRIPE_API_KEY": "synthetic",
+                "STRIPE_CHECKOUT_SUCCESS_URL": "https://example.test/success",
+                "STRIPE_CHECKOUT_CANCEL_URL": "https://example.test/cancel",
+                "STRIPE_PORTAL_RETURN_URL": "https://example.test/return",
+                "STRIPE_PRO_MONTHLY_PRICE_ID": "synthetic",
+                "STRIPE_PRO_YEARLY_PRICE_ID": "synthetic",
+                "STRIPE_ULTIMATE_MONTHLY_PRICE_ID": "synthetic",
+                "STRIPE_ULTIMATE_YEARLY_PRICE_ID": "synthetic",
+                "ZOHO_LIST_KEY": "synthetic",
+                "ZOHO_CLIENT_ID": "synthetic",
+                "ZOHO_CLIENT_SECRET": "synthetic",
+                "ZOHO_REFRESH_TOKEN": "synthetic",
+                "ZOHO_ACCOUNTS_URL": "https://zoho.example.test",
+                "ZOHO_CAMPAIGNS_URL": "https://zoho.example.test",
+                "VERTEX_AI_PROJECT_ID": "synthetic",
+                "VERTEX_AI_LOCATION": "eu",
+                "AWS_EC2_METADATA_DISABLED": "true",
+                "AWS_REGION": "eu-central-1",
+            })
+        elif runtime == "worker":
+            require(scope in ("product-listing-opensearch", "search-filter-projection", "search-filter-percolator"),
+                "WITNESS_SCOPE")
+            values.update({
+                "AURA_HISTORIA_WORKER_SCOPE": scope,
+                "AURA_HISTORIA_WORKER_QUEUE_URL": "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-" + scope + "-dev",
+                "AWS_REGION": "eu-central-1",
+                "VERTEX_AI_PROJECT_ID": "synthetic",
+                "VERTEX_AI_LOCATION": "eu",
+                "VERTEX_AI_MODEL": "synthetic",
+            })
+        else:
+            require(runtime == "cron" and scope is None, "WITNESS_RUNTIME")
+            values.update({
+                "VERTEX_AI_PROJECT_ID": "synthetic",
+                "VERTEX_AI_LOCATION": "eu",
+                "VERTEX_AI_MODEL": "synthetic",
+            })
+        return values
+
+    def runtime_witnesses(self):
+        cases = [
+            ("api", "aura_reader", None),
+            ("worker", "aura_product_projector", "product-listing-opensearch"),
+            ("worker", "aura_filter_projector", "search-filter-projection"),
+            ("worker", "aura_percolator", "search-filter-percolator"),
+            ("cron", "aura_cron", None),
+        ]
+        mount = bind(self.directory / "secrets/client/root-ca.pem", "/run/aura/opensearch-root-ca.pem")
+        for ordinal, (runtime, user, scope) in enumerate(cases, 1):
+            spec = self.plain_spec(self.witness_image, mounts=[mount])
+            spec["user"] = "10001:10001"
+            spec["entrypoint"] = ["/usr/local/bin/opensearch-tls-witness"]
+            spec["environment"] = self.witness_environment(runtime, user, scope)
+            name = "rust-witness-" + str(ordinal)
+            self.create_plain(name, spec)
+            code, raw = self.finish(name, 30)
+            require(code == 0 and "test result: ok. 1 passed" in raw, "RUST_WITNESS_FAILED")
+            require(not any(password in raw for password in self.passwords.values()), "RUST_WITNESS_SECRET_OUTPUT")
+            self.event("rust-client-witness", runtime=runtime, scope=scope, role=user,
+                exit=code, output_bytes=len(raw.encode()), output_sha256=digest(raw.encode()))
+            self.retire(name)
+
     def denied_changes(self):
         self.request("PUT", "/fixture-cross-index", {"mappings": {"properties": {"name": {"type": "keyword"}}}})
         self.request("PUT", "/fixture-cross-index/_doc/sentinel?refresh=true", {"name": "preserve"}, expected=(201,))
@@ -1466,6 +1564,7 @@ class Probe:
         self.unchanged("verify-unchanged", lambda: self.operator("verify", True))
         self.unchanged("repeat-init-refused-unchanged", lambda: self.operator("initialize-fresh", False))
         self.grants()
+        self.runtime_witnesses()
         self.denied_changes()
         self.tombstones()
         self.unchanged("populated-verify-unchanged", lambda: self.operator("verify", True))
@@ -1520,10 +1619,13 @@ def main(argv=None):
                         help="optional preloaded linux/amd64 local image ID; default uses image.ref")
     parser.add_argument("--helper-image", type=local_image_id,
                         help="optional prepared linux/amd64 Python-only helper image ID; default is the historical cached helper")
+    parser.add_argument("--witness-image", type=local_image_id,
+                        help="prepared linux/amd64 immutable Rust TLS witness image ID")
     args = parser.parse_args(argv)
     require(args.reviewed_run, "INTEGRATOR_PRE_REVIEW_REQUIRED")
     require(1024 <= args.port <= 65535 and args.port != 9300 and args.hostname != args.wrong_hostname
         and args.wrong_hostname != "opensearch" and "opensearch-admin" not in (args.hostname, args.wrong_hostname), "FIXTURE_ENDPOINT_INPUT")
+    require(args.witness_image is not None, "WITNESS_IMAGE_REQUIRED")
     # Lock this existing file read-only: no global lock/config file or broad host writes.
     with Path(__file__).open("rb") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

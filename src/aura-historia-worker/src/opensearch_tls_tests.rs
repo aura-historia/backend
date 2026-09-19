@@ -84,6 +84,17 @@ fn should_reject_wrong_identity_after_successful_preflight_tls(
 }
 
 #[tokio::test]
+#[ignore = "secured OpenSearch image witness"]
+async fn should_ping_secured_opensearch_from_witness_environment() -> TestResult {
+    let startup = WorkerStartupConfig::from_env()?;
+    let search = startup.opensearch().ok_or("worker search config missing")?;
+    let client = crate::opensearch_client(search)?;
+    let response = tokio::time::timeout(REQUEST_BOUND, client.ping().send()).await??;
+    assert!(response.status_code().is_success());
+    Ok(())
+}
+
+#[tokio::test]
 #[ignore = "parent-owned loopback TLS child; never run directly"]
 async fn tls_child() -> TestResult {
     // Only parse config and invoke these two search-only functions. Never call

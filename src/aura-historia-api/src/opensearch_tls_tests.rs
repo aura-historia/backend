@@ -340,6 +340,15 @@ async fn should_use_frozen_ca_and_verify_peer_in_actual_startup_client() -> Test
     Ok(())
 }
 
+#[tokio::test]
+#[ignore = "secured OpenSearch image witness"]
+async fn should_ping_secured_opensearch_from_witness_environment() -> TestResult {
+    let api = ApiConfig::from_env()?;
+    let config = StartupConfig::from_env(api)?;
+    check_search(&config.opensearch).await?;
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn should_reject_non_unicode_opensearch_ca_from_actual_environment() -> TestResult {
