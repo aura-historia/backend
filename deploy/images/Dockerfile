@@ -18,6 +18,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY .cargo/config.toml .cargo/config.toml
 COPY src/ src/
 COPY src/test-api/postgres/image-ref.txt src/test-api/postgres/image-ref.txt
+COPY docs/swagger.yaml docs/swagger.yaml
 COPY migrations/ migrations/
 COPY opensearch/ opensearch/
 
