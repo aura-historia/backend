@@ -245,7 +245,7 @@
                         "ef_construction": 512,
                         "encoder": {
                             "name": "sq",
-                            "parameters": {"type": "fp16", "clip": false}
+                            "parameters": {"bits": 16, "type": "fp16", "clip": false}
                         }
                     }
                 }

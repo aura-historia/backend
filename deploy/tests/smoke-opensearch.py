@@ -93,7 +93,7 @@ PINS = {
     "opensearch/analysis/spanish_synonyms.txt": "d546b97027be2881f83b5a83af60c9000a1071c654d4ec4209d9b32b5608a9f4",
     "opensearch/hybrid-search-pipeline.json": "a1cda77697797ab4790a56729eca1b7eb29984e327aef407552ec848bcf05b83",
     "opensearch/mappings/product_listings.json": "53e0185379e8379a4edfa81d5acabde31e10e5f6c3939203f10840f0a5d0e4fe",
-    "opensearch/mappings/user_search_filters.json": "b8996a4cf4c50c06965414e3936b13b7b49bb3c59c4633ec4f293113f7bcbdfc",
+    "opensearch/mappings/user_search_filters.json": "b761879945adc3dd7bc092a870f1cc6f2b90cbdedd8babb6d7d961c0b14f0b8c",
 }
 
 
