@@ -1,0 +1,4 @@
+# No custom action groups. Runtime roles use explicit transport actions only.
+_meta:
+  type: actiongroups
+  config_version: 2

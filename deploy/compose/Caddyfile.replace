@@ -1,0 +1,9 @@
+{
+    admin 127.0.0.1:2019
+    auto_https disable_redirects
+}
+https://localhost {
+    tls internal
+    header X-Aura-Release __AURA_RELEASE__
+    reverse_proxy __AURA_UPSTREAM__:8080
+}

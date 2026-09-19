@@ -301,6 +301,8 @@ dependencies = [
  "google-cloud-auth",
  "http 1.5.0",
  "httpdate",
+ "hyper 1.11.1",
+ "hyper-util",
  "indexmap 2.14.2",
  "jsonwebtokens",
  "listing-source-core",
@@ -324,6 +326,7 @@ dependencies = [
  "party-postgres",
  "party-service",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "product-listing-core",
  "product-listing-normalization",
@@ -376,12 +379,17 @@ dependencies = [
  "large-language-model",
  "opensearch",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "product-listing-opensearch",
  "product-listing-postgres",
  "reqwest 0.12.28",
+ "rustls 0.23.43",
  "search-filter-postgres",
  "search-filter-service",
+ "serde_json",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -428,6 +436,7 @@ dependencies = [
  "notification-service",
  "opensearch",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "product-listing-core",
  "product-listing-normalization",
@@ -438,6 +447,7 @@ dependencies = [
  "product-service",
  "reqwest 0.12.28",
  "rstest",
+ "rustls 0.23.43",
  "search-filter-core",
  "search-filter-opensearch",
  "search-filter-postgres",
@@ -5662,10 +5672,15 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "opensearch",
+ "reqwest 0.12.28",
+ "rustls 0.23.43",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -5674,9 +5689,14 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "libc",
+ "percent-encoding",
+ "rstest",
+ "rustls 0.23.43",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",
+ "url",
 ]
 
 [[package]]

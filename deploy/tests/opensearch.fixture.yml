@@ -1,0 +1,34 @@
+# Test only: preserve the platform node; exclude every other platform service.
+services:
+  postgres:
+    profiles: [excluded-from-opensearch-test]
+    volumes: !reset []
+    env_file: !reset []
+  redis:
+    profiles: [excluded-from-opensearch-test]
+    volumes: !reset []
+  sequin:
+    profiles: [excluded-from-opensearch-test]
+    volumes: !reset []
+    env_file: !reset []
+  opensearch:
+    user: "1000:1000"
+    labels:
+      org.aura-historia.opensearch-test: ${FIXTURE_OWNER:?}
+    networks:
+      backend:
+        aliases: ["${FIXTURE_HOST:?}", "${FIXTURE_WRONG_HOST:?}"]
+    logging:
+      driver: local
+      options: {max-size: 1m, max-file: "1", compress: "false"}
+
+networks:
+  backend:
+    internal: !reset null
+    external: true
+    name: ${AURA_NETWORK:?}
+
+volumes: !override
+  opensearch-data:
+    external: true
+    name: ${FIXTURE_VOLUME:?}

@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Breaking (#1412, #1549; deployment not activated):** Native API `/health` and `/ready` move off the business listener to a loopback-only operational listener alongside `/version`; public requests to those paths return `404`. SIGINT/SIGTERM stop readiness and new work, then bound accepted-request draining. Drain rejections retain request/correlation and CORS headers with `Cache-Control: no-store`. API/worker startup verifies SQLx schema history without applying migrations; private check-only startup never schedules or consumes queued work.
 
 - **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
 

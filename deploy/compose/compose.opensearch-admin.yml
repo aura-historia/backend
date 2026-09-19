@@ -1,0 +1,48 @@
+# Separate explicit platform setup, never included in application releases.
+# Default command validates native files offline; it does not upload security state.
+services:
+  opensearch-admin:
+    profiles: [security-setup]
+    image: ${OPENSEARCH_IMAGE:?Set reviewed immutable stock OpenSearch digest}
+    pull_policy: never
+    restart: "no"
+    # Stock tools live below a UID1000-owned0700 directory. Match that UID;
+    # mount separate UID1000-readable0600 admin inputs, never grant DAC bypass.
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 128
+    working_dir: /tmp
+    # Keep broad /tmp noexec; only Java/JNA native extraction gets this bounded,
+    # memory-backed executable scratch area inside the short-lived admin container.
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+      - /securityadmin-native-tmp:rw,nosuid,nodev,exec,size=16m,mode=0700,uid=1000,gid=1000
+    entrypoint:
+      [/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh]
+    command: [-cd, /operator/security, -vc, "7"]
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx256m
+        -XX:ActiveProcessorCount=1
+        -Djava.io.tmpdir=/securityadmin-native-tmp
+        -Djna.tmpdir=/securityadmin-native-tmp
+    volumes:
+      - type: bind
+        source: ${AURA_OPENSEARCH_ADMIN_DIR:?Set separate protected admin directory}
+        target: /operator
+        read_only: true
+        bind: { create_host_path: false }
+    logging:
+      driver: local
+      options: { max-size: 1m, max-file: "1", compress: "false" }
+
+networks:
+  backend:
+    external: true
+    name: ${AURA_NETWORK:?Set existing dev backend network}

@@ -1,0 +1,39 @@
+# Platform overlay: stock Sequin delegates PostgreSQL TLS verification to stunnel.
+# Plaintext remains on shared loopback. Recreate BOTH services when replacing the tunnel.
+services:
+  sequin-postgres-tls:
+    image: ${SEQUIN_POSTGRES_TLS_IMAGE:?Set immutable stunnel image digest}
+    pull_policy: never
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    networks:
+      backend:
+        aliases: [sequin]
+    volumes:
+      - type: bind
+        source: ${AURA_CONFIG_DIR:?}/sequin-postgres-tls
+        target: /run/aura/stunnel
+        read_only: true
+        bind: { create_host_path: false }
+    logging:
+      driver: local
+      options: { max-size: 10m, max-file: "3" }
+  sequin:
+    # Empty PG_URL is still truthy in Sequin's Elixir config; remove it from the process.
+    entrypoint: [/usr/bin/env, -u, PG_URL, /scripts/start_commands.sh]
+    networks: !reset []
+    network_mode: service:sequin-postgres-tls
+    depends_on:
+      sequin-postgres-tls: { condition: service_started }
+    environment:
+      PG_URL: ""
+      PG_HOSTNAME: "127.0.0.1"
+      PG_PORT: "15432"
+      PG_SSL: "false"

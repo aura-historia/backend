@@ -1,0 +1,82 @@
+# Test-only override: platform + compose.sequin-tls.yml + this file.
+# No application/search startup, published ports, persistent data, or provider access.
+x-cloud: &cloud
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  AWS_SESSION_TOKEN: ""
+  AWS_PROFILE: ""
+  AWS_CONFIG_FILE: /dev/null
+  AWS_SHARED_CREDENTIALS_FILE: /dev/null
+  AWS_EC2_METADATA_DISABLED: "true"
+  GOOGLE_APPLICATION_CREDENTIALS: /dev/null
+  GOOGLE_CLOUD_PROJECT: ""
+  GCP_PROJECT: ""
+  GCE_METADATA_HOST: "127.0.0.1:9"
+x-test: &test
+  labels:
+    org.aura-historia.sequin-tls-test: ${TLS_TEST_OWNER:?}
+  logging:
+    driver: local
+    options: { max-size: 1m, max-file: "1", compress: "false" }
+
+services:
+  # Remove unused volume references too: Compose must not allocate base data volumes.
+  opensearch:
+    profiles: [excluded-from-tls-test]
+    volumes: !reset []
+  postgres:
+    <<: *test
+    environment: *cloud
+    volumes: !override
+      - type: bind
+        source: ${AURA_CONFIG_DIR:?}/postgres
+        target: /etc/postgresql
+        read_only: true
+        bind: { create_host_path: false }
+    tmpfs: ["/var/lib/postgresql/data:rw,nosuid,nodev,size=512m,mode=0700"]
+  redis:
+    <<: *test
+    environment: *cloud
+    volumes: !override
+      - type: bind
+        source: ${AURA_CONFIG_DIR:?}/redis.conf
+        target: /usr/local/etc/redis/redis.conf
+        read_only: true
+        bind: { create_host_path: false }
+    tmpfs: ["/data:rw,nosuid,nodev,noexec,size=64m,mode=1777"]
+  sequin-postgres-tls:
+    <<: *test
+    environment: *cloud
+  sequin:
+    <<: *test
+    environment:
+      <<: *cloud
+      LOG_LEVEL: info
+  webhook:
+    <<: *test
+    image: ${HELPER_IMAGE:?}
+    pull_policy: never
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 1
+    pids_limit: 64
+    networks: [backend]
+    environment: *cloud
+    command: [/smoke/smoke-sequin-tls.py, --serve]
+    volumes:
+      - type: bind
+        source: ../tests
+        target: /smoke
+        read_only: true
+        bind: { create_host_path: false }
+
+volumes: !reset {}
+
+networks:
+  backend:
+    labels:
+      org.aura-historia.sequin-tls-test: ${TLS_TEST_OWNER:?}

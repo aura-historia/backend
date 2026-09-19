@@ -1,0 +1,30 @@
+services:
+  literal-env:
+    image: ${HELPER_IMAGE:?}
+    pull_policy: never
+    labels:
+      org.aura-historia.literal-env: ${FIXTURE_TOKEN:?}
+    user: "10001:10001"
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 1
+    pids_limit: 16
+    network_mode: none
+    env_file:
+      - path: ${RAW_ENV_FILE:?}
+        format: raw
+    volumes:
+      - type: bind
+        source: ${WITNESS_FILE:?}
+        target: /witness/literal-env-witness.py
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${EXPECTED_FILE:?}
+        target: /expected/expected.json
+        read_only: true
+        bind: {create_host_path: false}
+    command: [/witness/literal-env-witness.py, /expected/expected.json]

@@ -326,10 +326,11 @@ fn parse_synonym_rules(content: &str) -> Vec<String> {
         .collect()
 }
 
-/// Converts the product-listings mapping from `synonyms_path` to inline `synonyms`
-/// so that LocalStack OpenSearch can create the index without needing
-/// synonym files on the cluster filesystem.
-fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
+/// Builds the explicit test-only LocalStack-compatible copy of a production mapping.
+///
+/// LocalStack lacks production filesystem synonym assets and rejects OpenSearch 3.8's
+/// required SQ bit width. Production mapping bytes are never changed for this emulator.
+fn mapping_for_localstack(mapping: &'static str) -> serde_json::Value {
     let mut mapping: serde_json::Value = serde_json::from_str(mapping)
         .unwrap_or_else(|_| panic!("shouldn't fail parsing {mapping} as serde_json::Value"));
 
@@ -342,21 +343,34 @@ fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
     ];
 
     for (filter_name, content) in synonym_files {
-        let rules = parse_synonym_rules(content);
-        if let Some(filter) =
-            mapping.pointer_mut(&format!("/settings/analysis/filter/{filter_name}"))
-        {
-            let obj = filter.as_object_mut().unwrap();
-            obj.remove("synonyms_path");
-            obj.remove("updateable");
-            obj.insert(
-                "synonyms".to_owned(),
-                serde_json::Value::Array(
-                    rules.into_iter().map(serde_json::Value::String).collect(),
-                ),
-            );
-        }
+        let filter = mapping
+            .pointer_mut(&format!("/settings/analysis/filter/{filter_name}"))
+            .unwrap_or_else(|| panic!("mapping should define '{filter_name}' synonym filter"));
+        let filter = filter
+            .as_object_mut()
+            .unwrap_or_else(|| panic!("'{filter_name}' synonym filter should be an object"));
+        filter.remove("synonyms_path");
+        filter.remove("updateable");
+        filter.insert(
+            "synonyms".to_owned(),
+            serde_json::Value::Array(
+                parse_synonym_rules(content)
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
     }
+
+    let encoder_parameters = mapping
+        .pointer_mut("/mappings/properties/embedding/method/parameters/encoder/parameters")
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap_or_else(|| panic!("mapping should define SQ encoder parameters"));
+    assert_eq!(
+        encoder_parameters.remove("bits"),
+        Some(serde_json::json!(16)),
+        "production mapping should declare the required FP16 SQ bit width"
+    );
 
     mapping
 }
@@ -485,13 +499,13 @@ async fn set_up_indices() -> Result<(), Error> {
     ensure_index_exists(
         client,
         "product-listings",
-        mapping_with_inline_synonyms(PRODUCT_LISTINGS_INDEX_MAPPING_STR),
+        mapping_for_localstack(PRODUCT_LISTINGS_INDEX_MAPPING_STR),
     )
     .await?;
     ensure_index_exists(
         client,
         "user_search_filters",
-        mapping_with_inline_synonyms(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
+        mapping_for_localstack(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
     )
     .await?;
 
@@ -604,8 +618,10 @@ mod tests {
     #[rstest::rstest]
     #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
     #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
-    fn should_build_mapping_with_inline_synonyms_for_all_languages(#[case] mapping: &'static str) {
-        let mapping = mapping_with_inline_synonyms(mapping);
+    fn should_build_localstack_mapping_with_inline_synonyms_for_all_languages(
+        #[case] mapping: &'static str,
+    ) {
+        let mapping = mapping_for_localstack(mapping);
 
         let filter_names = [
             "english_synonyms",
@@ -643,8 +659,99 @@ mod tests {
 
     #[rstest::rstest]
     #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
+    #[case::filter(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_keep_only_explicit_localstack_mapping_differences(#[case] mapping: &'static str) {
+        let production: serde_json::Value = serde_json::from_str(mapping)
+            .unwrap_or_else(|_| panic!("production mapping should parse"));
+        let mut restored = mapping_for_localstack(mapping);
+
+        for filter_name in [
+            "english_synonyms",
+            "german_synonyms",
+            "french_synonyms",
+            "spanish_synonyms",
+            "italian_synonyms",
+        ] {
+            let production_filter = production
+                .pointer(&format!("/settings/analysis/filter/{filter_name}"))
+                .unwrap_or_else(|| panic!("production filter '{filter_name}' should exist"));
+            let restored_filter = restored
+                .pointer_mut(&format!("/settings/analysis/filter/{filter_name}"))
+                .and_then(serde_json::Value::as_object_mut)
+                .unwrap_or_else(|| panic!("LocalStack filter '{filter_name}' should be an object"));
+
+            restored_filter.remove("synonyms");
+            for field in ["synonyms_path", "updateable"] {
+                restored_filter.insert(field.to_owned(), production_filter[field].clone());
+            }
+        }
+
+        let parameters = restored
+            .pointer_mut("/mappings/properties/embedding/method/parameters/encoder/parameters")
+            .and_then(serde_json::Value::as_object_mut)
+            .unwrap_or_else(|| panic!("LocalStack SQ encoder parameters should exist"));
+        assert_eq!(parameters.get("type"), Some(&serde_json::json!("fp16")));
+        assert_eq!(parameters.get("clip"), Some(&serde_json::json!(false)));
+        assert!(parameters.get("bits").is_none());
+        parameters.insert("bits".to_owned(), serde_json::json!(16));
+
+        assert_eq!(
+            restored, production,
+            "LocalStack may differ only in explicit synonym and SQ-bit compatibility transforms"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
+    #[case::filter(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_keep_required_fp16_sq_parameters_in_production_mapping(
+        #[case] mapping: &'static str,
+    ) {
+        let production: serde_json::Value = serde_json::from_str(mapping)
+            .unwrap_or_else(|_| panic!("production mapping should parse"));
+        let parameters = production
+            .pointer("/mappings/properties/embedding/method/parameters/encoder/parameters")
+            .unwrap_or_else(|| panic!("production SQ encoder parameters should exist"));
+
+        assert_eq!(
+            parameters,
+            &serde_json::json!({
+                "bits": 16,
+                "type": "fp16",
+                "clip": false,
+            })
+        );
+    }
+
+    #[test]
+    fn should_leave_production_mapping_bytes_unchanged_when_building_localstack_copy() {
+        let _ = mapping_for_localstack(PRODUCT_LISTINGS_INDEX_MAPPING_STR);
+        let production: serde_json::Value =
+            serde_json::from_str(PRODUCT_LISTINGS_INDEX_MAPPING_STR)
+                .unwrap_or_else(|_| panic!("production mapping should parse"));
+
+        assert_eq!(
+            production.pointer(
+                "/mappings/properties/embedding/method/parameters/encoder/parameters/bits"
+            ),
+            Some(&serde_json::json!(16))
+        );
+        assert!(
+            production
+                .pointer("/settings/analysis/filter/english_synonyms/synonyms_path")
+                .is_some()
+        );
+        assert!(
+            production
+                .pointer("/settings/analysis/filter/english_synonyms/synonyms")
+                .is_none()
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
     fn should_set_search_analyzer_on_product_listing_title_fields(#[case] mapping: &'static str) {
-        let mapping = mapping_with_inline_synonyms(mapping);
+        let mapping = mapping_for_localstack(mapping);
 
         let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs", "titleIt"];
         let expected_search_analyzers = [

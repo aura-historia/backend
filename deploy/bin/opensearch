@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Fixed dev fresh setup. Operator MUST hold the deployment state-directory/lock
+flock and exclusive cluster custody; freeze repo/config inputs and fence writers.
+Securityadmin is a separate explicit operation, never called here. No retries,
+repair, adoption, reset, backfill or cleanup. Verify makes metadata GETs only.
+
+Required env: STAGE=dev, OPENSEARCH_ENDPOINT_URL (HTTPS origin, no trailing slash),
+OPENSEARCH_CLUSTER_NAME, OPENSEARCH_SSL_ROOT_CERT, OPENSEARCH_ADMIN_CERT,
+OPENSEARCH_ADMIN_KEY (unencrypted PEM, protected regular file). Never pass secrets
+as arguments. Run from the checked-out repo; assets resolve relative to this file.
+90s work budget, 10s socket timeout, 1 MiB per input/response. Linux/Python3.
+An outer process/controller watchdog is required for an absolute execution limit:
+error output and interpreter shutdown can block after the alarm fires or is cancelled.
+Exit 0: verified; 1: failure (after PUT, outcome may be partial/unknown); 2: usage.
+An interrupted write is NOT rolled back. Preserve custody and inspect; no blind
+repeat even if all assets appear absent after a lost response.
+"""
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import ssl
+import stat
+import sys
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parents[2]
+ENGINE_PIN_PATH = ROOT / "deploy/compose/opensearch/image.ref"
+LIMIT = 1024 * 1024
+INDICES = (("product-listings", "product_listings.json"),
+           ("user_search_filters", "user_search_filters.json"))
+PIPELINE = "hybrid-search-pipeline"
+PIPELINE_PATH = "/_search/pipeline/" + PIPELINE
+USAGE = "usage: deploy/bin/opensearch initialize-fresh|verify (env inputs; hold deployment flock)"
+
+
+class Failure(Exception):
+    pass
+
+
+def require(condition, code):
+    if not condition:
+        raise Failure(code)
+
+
+def env(name):
+    value = os.environ.get(name, "")
+    require(0 < len(value) <= 4096 and not any(ord(c) < 32 or ord(c) == 127 for c in value), "ENV_INPUT")
+    return value
+
+
+def checked_file(path, secret=False):
+    path = Path(path)
+    info = path.stat()
+    require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= LIMIT, "FILE_INPUT")
+    require(not secret or (info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0), "KEY_PERMISSIONS")
+    with path.open("rb") as stream:
+        require(len(stream.read(LIMIT + 1)) <= LIMIT, "FILE_LIMIT")
+    return path
+
+
+def selected_engine():
+    try:
+        raw = checked_file(ENGINE_PIN_PATH).read_text(encoding="ascii")
+    except (Failure, OSError, UnicodeError):
+        raise Failure("ENGINE_PIN_INVALID") from None
+    require(len(raw) <= 256, "ENGINE_PIN_INVALID")
+    match = re.fullmatch(
+        r"(opensearchproject/opensearch:(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
+        r"@sha256:[0-9a-f]{64})\n?",
+        raw,
+    )
+    require(match is not None, "ENGINE_PIN_INVALID")
+    return match.group(1), match.group("version")
+
+
+def endpoint(value):
+    require(value.startswith("https://") and value.isascii()
+            and not any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value), "HTTPS_ORIGIN")
+    parsed = urlsplit(value)
+    require(parsed.scheme == "https" and parsed.hostname and parsed.username is None
+            and parsed.password is None and not parsed.path and not parsed.query
+            and not parsed.fragment and not any(c in value for c in "?#\\%"), "HTTPS_ORIGIN")
+    require(not parsed.netloc.endswith(":"), "HTTPS_ORIGIN")
+    port = parsed.port if parsed.port is not None else 443
+    require(1 <= port <= 65535, "HTTPS_ORIGIN")
+    host = "[" + parsed.hostname + "]" if ":" in parsed.hostname else parsed.hostname
+    authority = host + (":" + str(port) if parsed.port is not None else "")
+    require(parsed.netloc.lower() == authority, "HTTPS_ORIGIN")
+    return parsed.hostname, port
+
+
+class Client:
+    def __init__(self):
+        require(env("STAGE") == "dev", "STAGE_NOT_DEV")
+        require("SSLKEYLOGFILE" not in os.environ, "TLS_KEYLOG_FORBIDDEN")
+        self.host, self.port = endpoint(env("OPENSEARCH_ENDPOINT_URL"))
+        self.cluster = env("OPENSEARCH_CLUSTER_NAME")
+        ca = checked_file(env("OPENSEARCH_SSL_ROOT_CERT"))
+        cert = checked_file(env("OPENSEARCH_ADMIN_CERT"))
+        key = checked_file(env("OPENSEARCH_ADMIN_KEY"), secret=True)
+        self.context = ssl.create_default_context(cafile=str(ca))
+        # No interactive OpenSSL password prompt for encrypted keys.
+        def no_password():
+            raise Failure("KEY_MUST_BE_UNENCRYPTED")
+        self.context.load_cert_chain(str(cert), str(key), password=no_password)
+
+    def request(self, method, path, body=None, missing=None):
+        payload = None if body is None else json.dumps(body).encode("utf-8")
+        require(payload is None or len(payload) <= LIMIT, "REQUEST_LIMIT")
+        connection = http.client.HTTPSConnection(self.host, self.port, context=self.context, timeout=10)
+        try:
+            # Direct HTTPS: no proxy environment, redirects, cookies or retries.
+            connection.request(method, path, body=payload,
+                               headers={"Content-Type": "application/json", "Accept": "application/json"})
+            response = connection.getresponse()
+            raw = response.read(LIMIT + 1)
+            require(len(raw) <= LIMIT, "RESPONSE_LIMIT")
+            require(response.status == 200 or (response.status == 404 and missing), "HTTP_STATUS")
+            value = json.loads(raw)
+            require(isinstance(value, dict), "RESPONSE_SHAPE")
+            if response.status == 404:
+                # The selected engine returns an empty object for this missing pipeline only.
+                if (method == "GET" and path == PIPELINE_PATH
+                        and missing == "resource_not_found_exception" and value == {}):
+                    return None
+                require(value.get("status") == 404 and isinstance(value.get("error"), dict)
+                        and value["error"].get("type") == missing, "ABSENCE_UNCONFIRMED")
+                return None
+            return value
+        finally:
+            connection.close()
+
+
+def read_asset(path):
+    with checked_file(path).open("rb") as stream:
+        raw = stream.read(LIMIT + 1)
+    require(len(raw) <= LIMIT, "FILE_LIMIT")
+    value = json.loads(raw)
+    require(isinstance(value, dict) and len(json.dumps(value).encode("utf-8")) <= LIMIT, "ASSET_INPUT")
+    return value
+
+
+def assets():
+    result = [(name, read_asset(ROOT / "opensearch/mappings" / filename)) for name, filename in INDICES]
+    return result, read_asset(ROOT / "opensearch" / (PIPELINE + ".json"))
+
+
+def mapping(value):
+    """Only observed stock normalization: redundant object type/enabled=true.
+
+    Visit mapping nodes, NOT arbitrary dicts (KNN parameters and field names must
+    survive unchanged). Everything else compares exactly, including extra fields.
+    """
+    result = dict(value)
+    if isinstance(result.get("properties"), dict):
+        if result.get("type") == "object":
+            del result["type"]
+        if "type" not in result and result.get("enabled") is True:
+            del result["enabled"]
+    for key in ("properties", "fields"):
+        if key in result:
+            result[key] = {name: mapping(node) for name, node in result[key].items()}
+    return result
+
+
+def settings(value, prefix="index."):
+    result = {}
+    for key, item in value.items():
+        name = key if key.startswith("index.") else prefix + key
+        if isinstance(item, dict):
+            result.update(settings(item, name + "."))
+        elif isinstance(item, list):
+            result[name] = [str(v).lower() if isinstance(v, bool) else str(v) for v in item]
+        else:
+            result[name] = str(item).lower() if isinstance(item, bool) else str(item)
+    return result
+
+
+def same(left, right):
+    return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
+
+
+def compatible_index(name, desired, actual):
+    require(isinstance(actual, dict) and set(actual) == {name}, "INDEX_IDENTITY")
+    actual = actual[name]
+    require(not actual.get("aliases"), "INDEX_ALIASES")
+    require(same(mapping(desired["mappings"]), mapping(actual["mappings"])), "MAPPING_MISMATCH")
+    wanted = settings(desired["settings"])
+    observed = actual["settings"]  # GET uses flat_settings=true; values are strings/lists.
+    require(all(key in observed and same(value, observed[key]) for key, value in wanted.items()), "SETTINGS_MISMATCH")
+    # Compare ALL analysis definitions, but only declared KNN settings (no defaults).
+    require({k for k in observed if k.startswith("index.analysis.")}
+            == {k for k in wanted if k.startswith("index.analysis.")}, "ANALYSIS_MISMATCH")
+
+
+class Bootstrap:
+    def __init__(self):
+        self.phase = "inputs"
+        self.write_attempted = False
+
+    def run(self, mode):
+        definitions, pipeline = assets()
+        _engine_ref, expected_version = selected_engine()
+        client = Client()
+        self.phase = "target"
+        target = client.request("GET", "/")
+        require(target.get("cluster_name") == client.cluster, "CLUSTER_MISMATCH")
+        version = target.get("version") if isinstance(target, dict) else None
+        require(isinstance(version, dict) and version.get("distribution") == "opensearch"
+                and version.get("number") == expected_version, "VERSION_MISMATCH")
+        if mode == "initialize-fresh":
+            self.phase = "absence"
+            for name, _ in definitions:
+                require(client.request("GET", "/" + name + "?flat_settings=true",
+                                       missing="index_not_found_exception") is None, "NOT_FRESH")
+            require(client.request("GET", PIPELINE_PATH,
+                                   missing="resource_not_found_exception") is None, "NOT_FRESH")
+            for name, definition in definitions:
+                self.phase = "create-" + name
+                self.write_attempted = True
+                result = client.request("PUT", "/" + name, definition)
+                require(result.get("acknowledged") is True and result.get("index") == name,
+                        "WRITE_UNCONFIRMED")
+            self.phase = "create-pipeline"
+            require(client.request("PUT", PIPELINE_PATH, pipeline).get("acknowledged") is True,
+                    "WRITE_UNCONFIRMED")
+        self.phase = "verify"
+        for name, definition in definitions:
+            compatible_index(name, definition, client.request("GET", "/" + name + "?flat_settings=true"))
+        require(same(client.request("GET", PIPELINE_PATH), {PIPELINE: pipeline}), "PIPELINE_MISMATCH")
+
+
+def interrupted(_signum, _frame):
+    raise Failure("INTERRUPTED_OR_DEADLINE")
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv in (["--help"], ["-h"]):
+        print(USAGE + "\n\n" + __doc__)
+        return 0
+    if argv not in (["initialize-fresh"], ["verify"]):
+        print(USAGE, file=sys.stderr)  # Never echo untrusted arguments.
+        return 2
+    operation = Bootstrap()
+    previous = {s: signal.signal(s, interrupted) for s in (signal.SIGALRM, signal.SIGTERM, signal.SIGINT)}
+    signal.alarm(90)  # Work budget includes DNS, TLS, slow responses and input reads.
+    try:
+        operation.run(argv[0])
+        print("opensearch outcome=verified phase=verify")
+        return 0
+    except (Exception, KeyboardInterrupt):
+        # No exception text, response bodies, endpoints or certificate paths.
+        outcome = "partial-or-unknown-do-not-retry" if operation.write_attempted else "no-writes-attempted"
+        print("opensearch outcome=" + outcome + " phase=" + operation.phase, file=sys.stderr)
+        return 1
+    finally:
+        signal.alarm(0)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

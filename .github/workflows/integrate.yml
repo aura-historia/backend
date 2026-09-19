@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/scripts/**"
+      - ".cargo/**"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -13,12 +15,16 @@ on:
       - "sonar-project.properties"
       - "src/**"
       - "migrations/**"
+      - "deploy/**"
+      - "opensearch/**"
       - "infra/**"
       - "mjml/**"
   pull_request:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/scripts/**"
+      - ".cargo/**"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -26,6 +32,7 @@ on:
       - "sonar-project.properties"
       - "src/**"
       - "migrations/**"
+      - "deploy/**"
       - "infra/**"
       - "opensearch/**"
       - "mjml/**"
@@ -38,7 +45,6 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_API_KEY }}
 
 jobs:
   infra-test:
@@ -103,6 +109,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Bind build identity to checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine canonical checkout SHA"
+            exit 1
+          fi
+          printf 'COMMIT_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'Testing checkout %s\n' "$sha"
+
       - name: Compute common baseline comparison ref
         id: common-baseline-base
         shell: bash
@@ -146,6 +164,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Bind build identity to checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine canonical checkout SHA"
+            exit 1
+          fi
+          printf 'COMMIT_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'Testing checkout %s\n' "$sha"
+
       - name: Install Toolchain
         run: rustup show
 
@@ -180,10 +210,23 @@ jobs:
       packages: read
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         crate: ${{ fromJson(needs.determine-affected-crates.outputs.integration_test_crates) }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Bind build identity to checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine canonical checkout SHA"
+            exit 1
+          fi
+          printf 'COMMIT_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'Testing checkout %s\n' "$sha"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -191,6 +234,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare PostgreSQL fixture image
+        shell: bash
+        run: bash .github/scripts/prepare-postgres-test-image.sh
 
       - name: Install Toolchain
         run: rustup show
@@ -207,9 +254,22 @@ jobs:
         working-directory: ${{ matrix.crate }}
         env:
           CARGO_PROFILE_TEST_DEBUG: 1
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_API_KEY }}
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-profraw/${{ strategy.job-index }}-%p-%m.profraw"
-        run: cargo test --locked --all-features -- --nocapture
+          CI_TEST_CRATE: ${{ matrix.crate }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${CI_TEST_CRATE:?}" == 'src/aura-historia-cron' ]]; then
+            # Only this disposable-runner suite selects the preloaded repo pin
+            # and requires explicit acknowledgement of its test-only exposure.
+            env -u AURA_TEST_POSTGRES_IMAGE \
+              AURA_CRON_ISOLATED_LOCAL_POSTGRES=1 \
+              cargo test --locked --all-features -- --nocapture
+          else
+            cargo test --locked --all-features -- --nocapture
+          fi
 
       - name: Add Cargo bin to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -244,6 +304,178 @@ jobs:
 
       - name: Prune Docker volumes
         run: docker volume prune -f
+
+  deployment-checks:
+    name: Test deployment tooling
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install verified Compose for deployment checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+            echo "::error::This reviewed Compose artifact requires Linux x86_64"
+            exit 1
+          fi
+
+          version='5.4.0'
+          expected_sha256='837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be'
+          scratch="$(mktemp -d "${RUNNER_TEMP:?}/aura-compose-ci.XXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --connect-timeout 15 --max-time 180 \
+            --output "$scratch/docker-compose" \
+            "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-x86_64"
+
+          printf '%s  %s\n' "$expected_sha256" "$scratch/docker-compose" \
+            | sha256sum --check --strict -
+
+          # Installation is limited to this disposable CI runner.
+          sudo -n install -d -m 0755 /usr/local/lib/docker/cli-plugins
+          sudo -n install -m 0755 "$scratch/docker-compose" \
+            /usr/local/lib/docker/cli-plugins/docker-compose
+
+          mkdir -m 0700 "$scratch/docker-config"
+          actual="$(env -i PATH=/usr/bin:/bin /usr/bin/docker \
+            --host unix:///var/run/docker.sock \
+            --config "$scratch/docker-config" \
+            compose version --short)"
+          if [[ "${actual#v}" != "$version" ]]; then
+            echo "::error::Sanitized Docker invocation did not select the reviewed Compose version"
+            exit 1
+          fi
+          printf 'Deployment checks use Docker Compose %s\n' "$version"
+
+      - name: Check local test tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          openssl version
+
+      - name: Run lightweight deployment checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -i PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
+            AURA_TEST_COMPOSE_CONFIG=1 \
+            python3 deploy/tests/run_ci.py
+
+  opensearch-secured:
+    name: Test secured OpenSearch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install verified Compose for deployment checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+            echo "::error::This reviewed Compose artifact requires Linux x86_64"
+            exit 1
+          fi
+
+          version='5.4.0'
+          expected_sha256='837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be'
+          scratch="$(mktemp -d "${RUNNER_TEMP:?}/aura-compose-ci.XXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --connect-timeout 15 --max-time 180 \
+            --output "$scratch/docker-compose" \
+            "https://github.com/docker/compose/releases/download/v${version}/docker-compose-linux-x86_64"
+
+          printf '%s  %s\n' "$expected_sha256" "$scratch/docker-compose" \
+            | sha256sum --check --strict -
+
+          sudo -n install -d -m 0755 /usr/local/lib/docker/cli-plugins
+          sudo -n install -m 0755 "$scratch/docker-compose" \
+            /usr/local/lib/docker/cli-plugins/docker-compose
+
+          mkdir -m 0700 "$scratch/docker-config"
+          actual="$(env -i PATH=/usr/bin:/bin /usr/bin/docker \
+            --host unix:///var/run/docker.sock \
+            --config "$scratch/docker-config" \
+            compose version --short)"
+          if [[ "${actual#v}" != "$version" ]]; then
+            echo "::error::Sanitized Docker invocation did not select the reviewed Compose version"
+            exit 1
+          fi
+          printf 'Secured OpenSearch gate uses Docker Compose %s\n' "$version"
+
+      - name: Bind build identity to checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine canonical checkout SHA"
+            exit 1
+          fi
+          printf 'COMMIT_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'Testing secured OpenSearch checkout %s\n' "$sha"
+
+      - name: Prepare isolated search fixture images
+        shell: bash
+        run: bash .github/scripts/prepare-opensearch-test-images.sh
+
+      - name: Prepare disposable OpenSearch kernel setting
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(cat /proc/sys/vm/max_map_count)"
+          if [[ ! "$current" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read vm.max_map_count"
+            exit 1
+          fi
+          if (( current < 262144 )); then
+            sudo -n sysctl -w vm.max_map_count=262144
+          fi
+          final="$(cat /proc/sys/vm/max_map_count)"
+          if [[ ! "$final" =~ ^[0-9]+$ ]] || (( final < 262144 )); then
+            echo "::error::Selected OpenSearch requirement vm.max_map_count was not met"
+            exit 1
+          fi
+
+      - name: Verify literal raw environment handling
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=15s 240s \
+            env -i PATH=/usr/bin:/bin PYTHONPATH=deploy/tests PYTHONDONTWRITEBYTECODE=1 \
+              AURA_TEST_COMPOSE_CONFIG=1 AURA_TEST_LITERAL_ENV=1 \
+              AURA_TEST_HELPER_IMAGE="$C2_HELPER_IMAGE" \
+              python3 -m unittest -v \
+                test_search_ca_compose.SearchCaComposeTests.test_actual_compose_config_resolves_scoped_raw_credentials
+
+      - name: Rehearse secured selected OpenSearch
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 1380s \
+            env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+              python3 deploy/tests/smoke-opensearch.py --reviewed-run \
+                --helper-image "$C2_HELPER_IMAGE" \
+                --witness-image "$C2_WITNESS_IMAGE" \
+                --opensearch-image "$C2_OPENSEARCH_IMAGE"
 
   sonar:
     name: SonarQube-Cloud Analysis

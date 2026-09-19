@@ -1,0 +1,34 @@
+# Operator copies native *.yml into a protected directory; supply internal_users.yml
+# separately from internal_users.yml.example. Do not use the stock demo directory.
+# Securityadmin is NOT fresh-only: it replaces security state. Explicit separate
+# operation, same deployment flock + exclusive target custody, never release startup.
+# One-shot stock tool entrypoint (NOT node entrypoint):
+# /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh
+# -h opensearch -p 9200 -cn aura-dev-search -cacert /operator/root-ca.pem
+# -cert /operator/admin.pem -key /operator/admin-key.pem -cd /operator/security -ff
+# Paths/DNS/cluster above are examples for integrator wiring. BEFORE applying:
+# validate protected native files offline with securityadmin.sh -cd /operator/security -vc 7;
+# compare authenticated GET / cluster_name + version against the authorized target.
+# Stock 3.1.0 -cn only labels output; neither -cn nor -icl enforces target identity.
+# Never -nhnv. Keep native-tool diagnostics in protected operator logs, not CI logs.
+# Admin key is unencrypted PKCS8, protected; mount ONLY in one-shot service. No retry.
+# -ff is not atomic: any failed upload may already have changed security state.
+_meta:
+  type: config
+  config_version: 2
+config:
+  dynamic:
+    http:
+      anonymous_auth_enabled: false
+    authc:
+      basic_internal_auth_domain:
+        description: "Runtime basic auth against operator-supplied internal users"
+        http_enabled: true
+        transport_enabled: false
+        order: 0
+        http_authenticator:
+          type: basic
+          challenge: true
+        authentication_backend:
+          type: intern
+    authz: {}
