@@ -153,12 +153,23 @@ class SecurityPreflightTests(unittest.TestCase):
         body.update(changes)
         return {"status": 200, "body": body}
 
+    def security_plugin(self, **changes):
+        plugin = {
+            "name": smoke.SECURITY_PLUGIN_NAME,
+            "classname": smoke.SECURITY_PLUGIN_CLASSNAME,
+            "version": "3.8.0.0",
+            "unused": "secret-canary",
+        }
+        plugin.update(changes)
+        return plugin
+
     def nodes(self, **changes):
         node = {
             "version": "3.8.0",
             "plugins": [
-                {"name": smoke.SECURITY_PLUGIN_NAME, "version": "3.8.0.0", "unused": "secret-canary"},
-                {"name": "org.example.OtherPlugin", "version": "secret-canary"},
+                self.security_plugin(),
+                {"name": "some-other-plugin", "classname": "org.example.OtherPlugin", "version": "1.2.3.4",
+                 "unused": "secret-canary"},
             ],
             "unused": "secret-canary",
         }
@@ -225,6 +236,8 @@ class SecurityPreflightTests(unittest.TestCase):
         self.assertEqual(json.loads(output.split(" ", 1)[1]), facts)
         self.assertNotIn(smoke.EXPECTED_ADMIN_DN, output)
         self.assertNotIn("secret-canary", output)
+        self.assertNotIn("some-other-plugin", output)
+        self.assertNotIn("org.example.OtherPlugin", output)
         self.assertEqual(probe.event.call_args.args, ("security-preflight",))
         self.assertEqual(probe.event.call_args.kwargs, facts)
         self.assert_get_only(probe)
@@ -240,6 +253,8 @@ class SecurityPreflightTests(unittest.TestCase):
         self.assertIn('"cluster_health": "yellow"', evidence)
         self.assertNotIn(smoke.EXPECTED_ADMIN_DN, evidence)
         self.assertNotIn("secret-canary", evidence)
+        self.assertNotIn("some-other-plugin", evidence)
+        self.assertNotIn("org.example.OtherPlugin", evidence)
         self.assertEqual(facts["security_plugin_versions"], ["3.8.0.0"])
 
     def test_whoami_rejections_require_real_booleans_and_expected_identity(self):
@@ -268,12 +283,23 @@ class SecurityPreflightTests(unittest.TestCase):
         cases.append((self.nodes(version="3.7.0"), "SECURITY_PREFLIGHT_ENGINE_VERSION"))
         cases.append((self.nodes(plugins=None), "SECURITY_PREFLIGHT_NODE_PLUGINS"))
         cases.append((self.nodes(plugins={}), "SECURITY_PREFLIGHT_NODE_PLUGINS"))
-        cases.append((self.nodes(plugins=[{"name": "other", "version": "3.8.0.0"}]),
+        cases.append((self.nodes(plugins=[{"name": "other", "classname": smoke.SECURITY_PLUGIN_CLASSNAME,
+                                             "version": "3.8.0.0"}]),
             "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
-        cases.append((self.nodes(plugins=[{"name": smoke.SECURITY_PLUGIN_NAME, "version": "3.8.0"}]),
-            "SECURITY_PREFLIGHT_SECURITY_PLUGIN_VERSION"))
+        cases.append((self.nodes(plugins=[{"name": smoke.SECURITY_PLUGIN_NAME, "classname": "org.example.NotSecurity",
+                                             "version": "3.8.0.0"}]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
+        cases.append((self.nodes(plugins=[{"name": smoke.SECURITY_PLUGIN_NAME, "version": "3.8.0.0"}]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
+        cases.append((self.nodes(plugins=[{"classname": smoke.SECURITY_PLUGIN_CLASSNAME, "version": "3.8.0.0"}]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
+        cases.append((self.nodes(plugins=[self.security_plugin(), self.security_plugin()]),
+            "SECURITY_PREFLIGHT_SECURITY_PLUGIN"))
+        for plugin_version in ("3.8.0", "3.8", "latest", "3.8.0.0-SNAPSHOT", None, 3800):
+            cases.append((self.nodes(plugins=[self.security_plugin(version=plugin_version)]),
+                "SECURITY_PREFLIGHT_SECURITY_PLUGIN_VERSION"))
         for nodes, code in cases:
-            with self.subTest(code=code):
+            with self.subTest(code=code, nodes=nodes):
                 self.assert_failure([base, nodes], code)
 
     def test_health_records_all_exact_states_but_rejects_malformed_values(self):

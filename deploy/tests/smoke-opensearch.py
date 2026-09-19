@@ -279,7 +279,8 @@ EXPECTED_ADMIN_DN = "CN=opensearch-admin,OU=Operators,O=Aura Historia"
 SECURITY_WHOAMI = "/_plugins/_security/whoami"
 SECURITY_NODES = "/_nodes"
 SECURITY_PREFLIGHT_HEALTH = "/_cluster/health?level=cluster&timeout=5s"
-SECURITY_PLUGIN_NAME = "org.opensearch.security.OpenSearchSecurityPlugin"
+SECURITY_PLUGIN_NAME = "opensearch-security"
+SECURITY_PLUGIN_CLASSNAME = "org.opensearch.security.OpenSearchSecurityPlugin"
 SECURITY_PLUGIN_VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
 ADMIN_ERROR_CATEGORIES = (
     "parse_failure",
@@ -998,8 +999,9 @@ class Probe:
             plugins = node.get("plugins")
             require(isinstance(plugins, list), "SECURITY_PREFLIGHT_NODE_PLUGINS")
             security_plugins = [plugin for plugin in plugins if isinstance(plugin, dict)
-                and plugin.get("name") == SECURITY_PLUGIN_NAME]
-            require(security_plugins, "SECURITY_PREFLIGHT_SECURITY_PLUGIN")
+                and plugin.get("name") == SECURITY_PLUGIN_NAME
+                and plugin.get("classname") == SECURITY_PLUGIN_CLASSNAME]
+            require(len(security_plugins) == 1, "SECURITY_PREFLIGHT_SECURITY_PLUGIN")
             for plugin in security_plugins:
                 plugin_version = plugin.get("version")
                 require(isinstance(plugin_version, str)
