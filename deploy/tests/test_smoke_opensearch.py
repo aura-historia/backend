@@ -532,6 +532,146 @@ class OwnershipTests(unittest.TestCase):
             validate(item)
 
 
+class SecurityAdminDiagnosticTests(unittest.TestCase):
+    def invoke(self, raw, code=1, identity="admin", offline=False, finish_side_effect=None):
+        with tempfile.TemporaryDirectory() as folder:
+            output = io.StringIO()
+            args = SimpleNamespace(hostname="opensearch", port=9200, cluster_name="owned-cluster")
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                probe = smoke.Probe(Path(folder), args, Mock())
+                probe.target = Mock()
+                probe.compose_create = Mock()
+                probe.finish = (Mock(side_effect=finish_side_effect) if finish_side_effect is not None
+                    else Mock(return_value=(code, raw)))
+                probe.retire = Mock()
+                caught = None
+                try:
+                    probe.admin(identity=identity, offline=offline)
+                except Exception as error:
+                    caught = error
+            case = "offline" if offline else identity
+            private_path = Path(folder) / smoke.ADMIN_OUTPUT_FILES[case]
+            result_lines = [line for line in output.getvalue().splitlines()
+                if line.startswith("SECURITYADMIN_RESULT ")]
+            facts = json.loads(result_lines[-1].split(" ", 1)[1]) if result_lines else None
+            return {
+                "error": caught,
+                "stdout": output.getvalue(),
+                "facts": facts,
+                "private": private_path.read_text() if private_path.is_file() else None,
+                "private_mode": private_path.stat().st_mode & 0o777 if private_path.is_file() else None,
+                "evidence": (Path(folder) / "evidence.json").read_text(),
+                "target_calls": probe.target.call_count,
+                "compose_calls": probe.compose_create.call_count,
+                "finish_calls": probe.finish.call_count,
+                "retire_calls": probe.retire.call_count,
+                "retire_args": [call.args for call in probe.retire.call_args_list],
+            }
+
+    def test_nonzero_native_result_is_retained_with_safe_facts(self):
+        observed = self.invoke("native failure without a classified marker\n", code=7)
+        self.assertTrue(isinstance(observed["error"], smoke.Failure))
+        self.assertEqual(str(observed["error"]), "SECURITYADMIN_FAILED_RETAINED")
+        self.assertTrue(observed["private"] == "native failure without a classified marker\n")
+        self.assertTrue(observed["private_mode"] == 0o600)
+        self.assertEqual(observed["facts"]["case"], "admin")
+        self.assertEqual(observed["facts"]["exit_code"], 7)
+        self.assertTrue(observed["facts"]["unclassified_failure"])
+        self.assertEqual(observed["compose_calls"], 1)
+        self.assertEqual(observed["finish_calls"], 1)
+        self.assertEqual(observed["retire_calls"], 0)
+
+    def test_zero_exit_with_each_original_marker_still_fails_and_is_distinguished(self):
+        for marker in smoke.ADMIN_MARKERS:
+            with self.subTest(marker=marker):
+                observed = self.invoke("native output " + marker + "\n", code=0)
+                self.assertEqual(str(observed["error"]), "SECURITYADMIN_FAILED_RETAINED")
+                self.assertEqual(observed["facts"]["exit_code"], 0)
+                self.assertTrue(observed["facts"]["markers"][marker])
+                self.assertEqual(observed["retire_calls"], 0)
+
+    def test_clean_native_result_retires_owned_admin_once(self):
+        observed = self.invoke("Security Admin v7\nDone with success\n", code=0)
+        self.assertIsNone(observed["error"])
+        self.assertTrue(observed["facts"]["done_with_success"])
+        self.assertEqual(observed["retire_calls"], 1)
+        self.assertEqual(observed["retire_args"], [("opensearch-admin",)])
+
+    def test_offline_validation_has_its_own_case_without_online_success_marker(self):
+        observed = self.invoke("config.yml OK\n", code=0, offline=True)
+        self.assertIsNone(observed["error"])
+        self.assertEqual(observed["facts"]["case"], "offline")
+        self.assertFalse(observed["facts"]["done_with_success"])
+        self.assertEqual(observed["target_calls"], 0)
+        self.assertEqual(observed["retire_calls"], 1)
+        self.assertEqual(observed["retire_args"], [("opensearch-admin",)])
+
+    def test_certificate_rejections_keep_specific_predicate_and_generic_failure_does_not_pass(self):
+        cases = {
+            "node": "ERR: certificate is not an admin user\nSeems you use a node certificate.\n",
+            "unregistered": "ERR: CN=unregistered is not an admin user\n",
+        }
+        for identity, raw in cases.items():
+            with self.subTest(identity=identity):
+                observed = self.invoke(raw, code=1, identity=identity)
+                self.assertIsNone(observed["error"])
+                self.assertEqual(observed["facts"]["case"], identity)
+                self.assertEqual(observed["retire_calls"], 1)
+        observed = self.invoke("connection timed out\n", code=1, identity="node")
+        self.assertEqual(str(observed["error"]), "ADMIN_REJECTION_UNATTRIBUTED")
+        self.assertEqual(observed["retire_calls"], 0)
+
+    def test_secret_bearing_native_output_is_private_and_absent_from_public_facts(self):
+        raw = ("ERR: secret-canary\npassword=secret-canary\n"
+            "$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            "-----BEGIN PRIVATE KEY-----\nsecret-canary\n-----END PRIVATE KEY-----\n"
+            "\x1b[31mERROR\x1b[0m\n"
+            '{"password":"secret-canary","type":"arbitrary-type"}\n')
+        observed = self.invoke(raw, code=1)
+        self.assertTrue(observed["private"] == raw)
+        self.assertTrue(observed["private_mode"] == 0o600)
+        public_values = (observed["stdout"], json.dumps(observed["facts"]), observed["evidence"])
+        for value in public_values:
+            self.assertFalse("secret-canary" in value)
+            self.assertFalse("BEGIN PRIVATE KEY" in value)
+
+    def test_diagnostic_matching_returns_only_fixed_types_and_exception_labels(self):
+        raw = ("SUCC: Configuration for 'config' created or updated\n"
+            "FAIL: Configuration for 'roles' failed for unknown reasons\n"
+            "SUCC: Configuration for 'arbitrary-type' created or updated\n"
+            "FAIL: Configuration for 'arbitrary-type' failed because of suffix-canary\n"
+            "java.lang.UnlistedException: exception-suffix-canary\n"
+            "OpenSearch Security Version: \"3.8.0.0\"\n"
+            "OpenSearchStatusException\nDone with failures\n")
+        observed = self.invoke(raw, code=1)
+        facts = observed["facts"]
+        self.assertEqual(facts["uploaded_types"], ["config"])
+        self.assertEqual(facts["failed_types"], ["roles"])
+        self.assertEqual(facts["exception_labels"], ["OpenSearchStatusException"])
+        self.assertEqual(facts["security_plugin_versions"], ["3.8.0.0"])
+        self.assertTrue(facts["done_with_failures"])
+        public = observed["stdout"] + json.dumps(facts) + observed["evidence"]
+        self.assertFalse("arbitrary-type" in public)
+        self.assertFalse("suffix-canary" in public)
+        self.assertFalse("exception-suffix-canary" in public)
+
+    def test_unknown_native_command_outcome_has_no_fabricated_result_or_retirement(self):
+        observed = self.invoke("transport details must stay private\n", finish_side_effect=smoke.Failure("COMMAND_UNCONFIRMED"))
+        self.assertEqual(str(observed["error"]), "COMMAND_UNCONFIRMED")
+        self.assertIsNone(observed["facts"])
+        self.assertIsNone(observed["private"])
+        self.assertFalse("SECURITYADMIN_RESULT" in observed["stdout"])
+        self.assertEqual(observed["retire_calls"], 0)
+
+    def test_admin_cases_and_diagnostic_inputs_are_fixed(self):
+        for case in ("offline", "admin", "node", "unregistered"):
+            self.assertTrue(case in smoke.ADMIN_OUTPUT_FILES)
+        with self.assertRaisesRegex(smoke.Failure, "ADMIN_DIAGNOSTIC_CASE"):
+            smoke.admin_diagnostic("arbitrary", 1, "failure")
+        with self.assertRaisesRegex(smoke.Failure, "ADMIN_DIAGNOSTIC_INPUT"):
+            smoke.admin_diagnostic("admin", True, "failure")
+
+
 class EvidenceTests(unittest.TestCase):
     def test_bulk_denials_require_every_exact_item_not_just_http200(self):
         targets = [("delete", "product-listings", "product-0"), ("index", "user_search_filters", "filter-0"),

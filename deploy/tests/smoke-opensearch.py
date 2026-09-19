@@ -251,12 +251,78 @@ def plaintext_rejection(raw, peer, port):
         for event in events)
 
 
+ADMIN_CONFIG_TYPES = (
+    "config", "roles", "rolesmapping", "internalusers", "actiongroups",
+    "tenants", "nodesdn", "audit", "allowlist",
+)
+ADMIN_EXCEPTION_LABELS = (
+    "SSLHandshakeException",
+    "SSLPeerUnverifiedException",
+    "ConnectException",
+    "SocketTimeoutException",
+    "AccessDeniedException",
+    "FileNotFoundException",
+    "OpenSearchStatusException",
+    "ResponseException",
+    "UnrecognizedPropertyException",
+    "InvalidConfigurationException",
+)
+ADMIN_MARKERS = ("ERR:", "FAIL:", "ERROR")
+ADMIN_OUTPUT_FILES = {
+    "offline": "securityadmin-offline-output.txt",
+    "admin": "securityadmin-admin-output.txt",
+    "node": "securityadmin-node-output.txt",
+    "unregistered": "securityadmin-unregistered-output.txt",
+}
+ADMIN_CASES = frozenset(ADMIN_OUTPUT_FILES)
+
+
 def securityadmin_rejection(raw, identity):
     text = raw.lower()
     if identity == "node":
         return ("seems to be a node certificate" in text or "is not an admin user" in text
             or ("seems you use a node certificate" in text and "not an admin certificate" in text))
     return identity == "unregistered" and "is not an admin user" in text
+
+
+def admin_diagnostic(case, code, raw):
+    require(case in ADMIN_CASES, "ADMIN_DIAGNOSTIC_CASE")
+    require(type(code) is int and isinstance(raw, str), "ADMIN_DIAGNOSTIC_INPUT")
+    data = raw.encode("utf-8")
+    require(len(data) <= LIMIT, "ADMIN_DIAGNOSTIC_LIMIT")
+    lines = [line.strip() for line in raw.splitlines()]
+    uploaded = [kind for kind in ADMIN_CONFIG_TYPES if any(
+        line == f"SUCC: Configuration for '{kind}' created or updated"
+        for line in lines
+    )]
+    failed = [kind for kind in ADMIN_CONFIG_TYPES if any(
+        line.startswith(f"FAIL: Configuration for '{kind}' failed")
+        for line in lines
+    )]
+    markers = {marker: marker in raw for marker in ADMIN_MARKERS}
+    exceptions = [name for name in ADMIN_EXCEPTION_LABELS if re.search(
+        r"(?<![A-Za-z0-9_$])" + re.escape(name) + r"(?![A-Za-z0-9_$])", raw
+    )]
+    security_versions = []
+    for line in lines:
+        match = re.fullmatch(r'OpenSearch Security Version: "?([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"?', line)
+        if match and match.group(1) not in security_versions:
+            security_versions.append(match.group(1))
+    return {
+        "case": case,
+        "exit_code": code,
+        "output_bytes": len(data),
+        "output_sha256": digest(data),
+        "markers": markers,
+        "done_with_success": "Done with success" in lines,
+        "done_with_failures": "Done with failures" in lines,
+        "uploaded_types": uploaded,
+        "failed_types": failed,
+        "exception_labels": exceptions,
+        "security_plugin_versions": security_versions,
+        "unclassified_failure": (code != 0 or any(markers.values()))
+                                and not failed and not exceptions,
+    }
 
 
 def client_request(case):
@@ -855,6 +921,8 @@ class Probe:
         raise Failure("NODE_START_UNCONFIRMED")
 
     def admin(self, identity="admin", offline=False):
+        require(identity in ("admin", "node", "unregistered"), "ADMIN_IDENTITY")
+        case = "offline" if offline else identity
         command = ["-cd", "/operator/security", "-vc", "7"] if offline else ["-h", self.args.hostname, "-p", str(self.args.port),
             "-cn", self.args.cluster_name, "-cacert", "/operator/root-ca.pem", "-cert", "/operator/" + identity + ".pem",
             "-key", "/operator/" + identity + "-key.pem", "-cd", "/operator/security", "-ff"]
@@ -862,7 +930,10 @@ class Probe:
             self.target()  # -cn labels output; the authenticated root check enforces identity.
         self.compose_create("opensearch-admin", command)
         code, raw = self.finish("opensearch-admin", 120)
-        self.event("securityadmin-" + ("offline" if offline else identity), exit=code, output_sha256=digest(raw.encode()))
+        self.write(ADMIN_OUTPUT_FILES[case], raw)
+        facts = admin_diagnostic(case, code, raw)
+        self.event("securityadmin-" + case, exit=code, output_sha256=facts["output_sha256"], diagnostic=facts)
+        print("SECURITYADMIN_RESULT " + json.dumps(facts, sort_keys=True), flush=True)
         if identity == "admin":
             require(code == 0 and not any(marker in raw for marker in ("ERR:", "FAIL:", "ERROR")), "SECURITYADMIN_FAILED_RETAINED")
         else:
