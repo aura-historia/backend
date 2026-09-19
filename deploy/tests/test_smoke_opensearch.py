@@ -1085,6 +1085,224 @@ class SecurityAdminDiagnosticTests(unittest.TestCase):
             smoke.admin_diagnostic("admin", True, "failure")
 
 
+class OperatorDiagnosticTests(unittest.TestCase):
+    def result(self, code, outcome, phase, trace, output=None):
+        return {
+            "code": code,
+            "trace": [list(entry) for entry in trace],
+            "output": output if output is not None else f"opensearch outcome={outcome} phase={phase}\n",
+        }
+
+    def invoke(self, mode, success, result):
+        probe = object.__new__(smoke.Probe)
+        probe.args = SimpleNamespace(cluster_name="owned-cluster")
+        probe.client = Mock(return_value=result)
+        probe.event = Mock()
+        output = io.StringIO()
+        error = None
+        with contextlib.redirect_stdout(output):
+            try:
+                probe.operator(mode, success)
+            except smoke.Failure as caught:
+                error = caught
+        lines = [line for line in output.getvalue().splitlines()
+            if line.startswith("OPENSEARCH_OPERATOR_RESULT ")]
+        facts = json.loads(lines[-1].split(" ", 1)[1]) if lines else {}
+        return probe, output.getvalue(), facts, error
+
+    @staticmethod
+    def target_trace():
+        return [["GET", "/"]]
+
+    @classmethod
+    def verify_trace(cls):
+        return cls.target_trace() + [
+            ["GET", "/product-listings?flat_settings=true"],
+            ["GET", "/user_search_filters?flat_settings=true"],
+            ["GET", "/_search/pipeline/hybrid-search-pipeline"],
+        ]
+
+    @classmethod
+    def absence_trace(cls):
+        return cls.verify_trace()
+
+    @classmethod
+    def initialize_trace(cls):
+        return cls.absence_trace() + [
+            ["PUT", "/product-listings"],
+            ["PUT", "/user_search_filters"],
+            ["PUT", "/_search/pipeline/hybrid-search-pipeline"],
+        ] + cls.verify_trace()[1:]
+
+    def test_parser_accepts_fixed_status_and_all_phases(self):
+        traces = self.verify_trace()
+        for phase in sorted(smoke.OPERATOR_PHASES):
+            with self.subTest(phase=phase):
+                facts = smoke.operator_diagnostic("verify", False,
+                    self.result(1, "no-writes-attempted", phase, traces))
+                self.assertTrue(facts["status_parsed"])
+                self.assertEqual(facts["phase"], phase)
+                self.assertEqual(facts["outcome"], "no-writes-attempted")
+                self.assertFalse(facts["writes_may_have_occurred"])
+
+    def test_expected_missing_verify_failure_emits_safe_result_and_passes(self):
+        result = self.result(1, "no-writes-attempted", "verify", self.verify_trace()[:2])
+        probe, output, facts, error = self.invoke("verify", False, result)
+        self.assertIsNone(error)
+        self.assertEqual(facts["exit_code"], 1)
+        self.assertEqual(facts["expected_exit_code"], 1)
+        self.assertTrue(facts["matches_expected_exit"])
+        self.assertTrue(facts["status_parsed"])
+        self.assertEqual(facts["outcome"], "no-writes-attempted")
+        self.assertEqual(facts["phase"], "verify")
+        self.assertFalse(facts["writes_may_have_occurred"])
+        self.assertEqual(facts["trace_steps"], ["target", "read-product-listings"])
+        self.assertEqual(facts["write_trace_count"], 0)
+        self.assertTrue(facts["trace_valid"])
+        self.assertEqual(probe.client.call_count, 1)
+        self.assertEqual(probe.event.call_args_list[0].args, ("operator-result",))
+        self.assertEqual(probe.event.call_args_list[0].kwargs, facts)
+        self.assertEqual(output.count("OPENSEARCH_OPERATOR_RESULT "), 1)
+
+    def test_expected_partial_state_initialize_failure_is_get_only(self):
+        result = self.result(1, "no-writes-attempted", "absence", self.absence_trace())
+        probe, output, facts, error = self.invoke("initialize-fresh", False, result)
+        self.assertIsNone(error)
+        self.assertEqual(facts["phase"], "absence")
+        self.assertEqual(facts["trace_count"], 4)
+        self.assertEqual(facts["write_trace_count"], 0)
+        self.assertEqual(facts["last_trace_step"], "read-pipeline")
+        self.assertTrue(facts["trace_valid"])
+        self.assertEqual(probe.client.call_count, 1)
+        self.assertNotIn("secret-canary", output)
+
+    def test_unexpected_target_failure_emits_before_retained_verdict(self):
+        result = self.result(1, "no-writes-attempted", "target", self.target_trace())
+        probe, output, facts, error = self.invoke("initialize-fresh", True, result)
+        self.assertIsInstance(error, smoke.Failure)
+        self.assertEqual(str(error), "OPERATOR_RESULT_RETAINED")
+        self.assertFalse(facts["matches_expected_exit"])
+        self.assertEqual(facts["phase"], "target")
+        self.assertFalse(facts["writes_may_have_occurred"])
+        self.assertEqual(probe.event.call_count, 1)
+        self.assertIn("OPENSEARCH_OPERATOR_RESULT ", output)
+        self.assertIn('"phase": "target"', output)
+
+    def test_unexpected_write_failures_report_partial_risk_and_retain(self):
+        cases = (
+            ("create-product-listings", self.absence_trace() + [["PUT", "/product-listings"]], 1),
+            ("create-user_search_filters", self.absence_trace() + [
+                ["PUT", "/product-listings"], ["PUT", "/user_search_filters"]], 2),
+            ("create-pipeline", self.absence_trace() + [
+                ["PUT", "/product-listings"], ["PUT", "/user_search_filters"],
+                ["PUT", "/_search/pipeline/hybrid-search-pipeline"]], 3),
+        )
+        for phase, trace, write_count in cases:
+            with self.subTest(phase=phase):
+                result = self.result(1, "partial-or-unknown-do-not-retry", phase, trace)
+                probe, output, facts, error = self.invoke("initialize-fresh", True, result)
+                self.assertIsInstance(error, smoke.Failure)
+                self.assertEqual(str(error), "OPERATOR_RESULT_RETAINED")
+                self.assertTrue(facts["writes_may_have_occurred"])
+                self.assertEqual(facts["phase"], phase)
+                self.assertEqual(facts["write_trace_count"], write_count)
+                self.assertEqual(probe.client.call_count, 1)
+                self.assertEqual(probe.event.call_count, 1)
+                self.assertNotIn("secret-canary", output)
+
+    def test_unexpected_verify_failure_after_writes_is_retained(self):
+        trace = self.initialize_trace() + [["GET", "/product-listings?flat_settings=true"]]
+        result = self.result(1, "partial-or-unknown-do-not-retry", "verify", trace)
+        probe, output, facts, error = self.invoke("initialize-fresh", True, result)
+        self.assertIsInstance(error, smoke.Failure)
+        self.assertEqual(str(error), "OPERATOR_RESULT_RETAINED")
+        self.assertTrue(facts["writes_may_have_occurred"])
+        self.assertEqual(facts["phase"], "verify")
+        self.assertEqual(facts["write_trace_count"], 3)
+        self.assertEqual(probe.client.call_count, 1)
+        self.assertEqual(probe.event.call_count, 1)
+        self.assertNotIn("secret-canary", output)
+
+    def test_clean_initialize_success_is_verified(self):
+        result = self.result(0, "verified", "verify", self.initialize_trace())
+        probe, output, facts, error = self.invoke("initialize-fresh", True, result)
+        self.assertIsNone(error)
+        self.assertEqual(facts["exit_code"], 0)
+        self.assertTrue(facts["matches_expected_exit"])
+        self.assertTrue(facts["status_parsed"])
+        self.assertEqual(facts["outcome"], "verified")
+        self.assertEqual(facts["phase"], "verify")
+        self.assertFalse(facts["writes_may_have_occurred"])
+        self.assertEqual(facts["write_trace_count"], 3)
+        self.assertEqual(probe.client.call_count, 1)
+        self.assertEqual(probe.event.call_args_list[0].args, ("operator-result",))
+        self.assertEqual(output.count("OPENSEARCH_OPERATOR_RESULT "), 1)
+
+    def test_malformed_status_is_fixed_and_not_published(self):
+        valid = "opensearch outcome=verified phase=verify\n"
+        cases = (
+            "",
+            valid + valid,
+            "opensearch outcome=secret-canary phase=verify\n",
+            "opensearch outcome=verified phase=secret-canary\n",
+            valid + "request-body-secret-canary\n",
+        )
+        for output in cases:
+            with self.subTest(output=output):
+                result = self.result(0, "verified", "verify", self.verify_trace(), output=output)
+                facts = smoke.operator_diagnostic("verify", True, result)
+                self.assertFalse(facts["status_parsed"])
+                self.assertNotIn("secret-canary", json.dumps(facts))
+
+        result = self.result(0, "verified", "verify", self.verify_trace(), output=valid + "secret-canary\n")
+        _probe, output, facts, error = self.invoke("verify", True, result)
+        self.assertIsInstance(error, smoke.Failure)
+        self.assertEqual(str(error), "OPERATOR_STATUS_UNPARSED")
+        self.assertFalse(facts["status_parsed"])
+        self.assertNotIn("secret-canary", output)
+
+    def test_unknown_trace_is_not_printed_and_fails_closed(self):
+        result = self.result(1, "no-writes-attempted", "target",
+            self.target_trace() + [["DELETE", "/secret-canary"]])
+        probe, output, facts, error = self.invoke("verify", False, result)
+        self.assertIsInstance(error, smoke.Failure)
+        self.assertEqual(str(error), "OPERATOR_TRACE_INVALID")
+        self.assertFalse(facts["trace_valid"])
+        self.assertEqual(facts["trace_steps"], ["target"])
+        self.assertEqual(facts["trace_count"], 2)
+        self.assertEqual(facts["write_trace_count"], 0)
+        self.assertEqual(probe.client.call_count, 1)
+        self.assertNotIn("DELETE", output)
+        self.assertNotIn("secret-canary", output)
+
+    def test_result_shape_and_types_are_strict(self):
+        good = self.result(1, "no-writes-attempted", "target", self.target_trace())
+        bad_results = (
+            None,
+            [],
+            {"code": 1, "trace": [], "output": "", "extra": "secret-canary"},
+            {"code": True, "trace": good["trace"], "output": good["output"]},
+            {"code": 1, "trace": {}, "output": good["output"]},
+            {"code": 1, "trace": good["trace"], "output": None},
+        )
+        for bad in bad_results:
+            with self.subTest(bad=bad), self.assertRaisesRegex(smoke.Failure, "OPERATOR_DIAGNOSTIC_INPUT"):
+                smoke.operator_diagnostic("verify", False, bad)
+        with self.assertRaisesRegex(smoke.Failure, "OPERATOR_DIAGNOSTIC_MODE"):
+            smoke.operator_diagnostic("other", False, good)
+        with self.assertRaisesRegex(smoke.Failure, "OPERATOR_DIAGNOSTIC_EXPECTED_SUCCESS"):
+            smoke.operator_diagnostic("verify", 1, good)
+
+    def test_request_bodies_are_not_in_public_diagnostic(self):
+        result = self.result(1, "partial-or-unknown-do-not-retry", "create-product-listings",
+            self.absence_trace() + [["PUT", "/product-listings"]])
+        _probe, output, facts, error = self.invoke("initialize-fresh", True, result)
+        self.assertEqual(str(error), "OPERATOR_RESULT_RETAINED")
+        self.assertTrue(facts["writes_may_have_occurred"])
+        self.assertNotIn("secret-canary", output)
+        self.assertNotIn("body", json.dumps(facts))
+
+
 class EvidenceTests(unittest.TestCase):
     def test_bulk_denials_require_every_exact_item_not_just_http200(self):
         targets = [("delete", "product-listings", "product-0"), ("index", "user_search_filters", "filter-0"),

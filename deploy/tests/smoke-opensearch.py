@@ -249,6 +249,99 @@ def safe_result(response):
     return value
 
 
+OPERATOR_MODES = frozenset(("verify", "initialize-fresh"))
+OPERATOR_OUTCOMES = frozenset((
+    "verified",
+    "no-writes-attempted",
+    "partial-or-unknown-do-not-retry",
+))
+OPERATOR_PHASES = frozenset((
+    "inputs",
+    "target",
+    "absence",
+    "create-product-listings",
+    "create-user_search_filters",
+    "create-pipeline",
+    "verify",
+))
+OPERATOR_TRACE_LIMIT = 128
+OPERATOR_TRACE_TEXT_LIMIT = 256
+OPERATOR_TRACE_LABELS = {
+    ("GET", "/"): "target",
+    ("GET", "/product-listings?flat_settings=true"): "read-product-listings",
+    ("GET", "/user_search_filters?flat_settings=true"): "read-user-search-filters",
+    ("GET", "/_search/pipeline/hybrid-search-pipeline"): "read-pipeline",
+    ("PUT", "/product-listings"): "create-product-listings",
+    ("PUT", "/user_search_filters"): "create-user_search_filters",
+    ("PUT", "/_search/pipeline/hybrid-search-pipeline"): "create-pipeline",
+}
+OPERATOR_WRITE_TRACE_STEPS = frozenset((
+    "create-product-listings",
+    "create-user_search_filters",
+    "create-pipeline",
+))
+OPERATOR_STATUS_RE = re.compile(r"^opensearch outcome=(?P<outcome>\S+) phase=(?P<phase>\S+)$")
+
+
+def operator_diagnostic(mode, expected_success, result):
+    require(type(mode) is str and mode in OPERATOR_MODES, "OPERATOR_DIAGNOSTIC_MODE")
+    require(type(expected_success) is bool, "OPERATOR_DIAGNOSTIC_EXPECTED_SUCCESS")
+    require(type(result) is dict and set(result) == {"code", "trace", "output"},
+        "OPERATOR_DIAGNOSTIC_INPUT")
+    code, trace, output = result["code"], result["trace"], result["output"]
+    require(type(code) is int and type(trace) is list and type(output) is str,
+        "OPERATOR_DIAGNOSTIC_INPUT")
+    try:
+        output_bytes = output.encode("utf-8")
+    except UnicodeEncodeError:
+        raise Failure("OPERATOR_DIAGNOSTIC_INPUT") from None
+    require(len(output_bytes) <= LIMIT and len(trace) <= OPERATOR_TRACE_LIMIT,
+        "OPERATOR_DIAGNOSTIC_LIMIT")
+
+    status_lines = [line for line in output.splitlines() if line]
+    outcome = phase = None
+    status_parsed = False
+    if len(status_lines) == 1:
+        match = OPERATOR_STATUS_RE.fullmatch(status_lines[0])
+        if match and match.group("outcome") in OPERATOR_OUTCOMES and match.group("phase") in OPERATOR_PHASES:
+            outcome, phase = match.group("outcome"), match.group("phase")
+            status_parsed = True
+
+    trace_steps, trace_valid = [], True
+    for entry in trace:
+        if type(entry) is not list or len(entry) != 2:
+            trace_valid = False
+            continue
+        method, path = entry
+        if (type(method) is not str or type(path) is not str
+                or len(method) > OPERATOR_TRACE_TEXT_LIMIT or len(path) > OPERATOR_TRACE_TEXT_LIMIT):
+            trace_valid = False
+            continue
+        label = OPERATOR_TRACE_LABELS.get((method, path))
+        if label is None:
+            trace_valid = False
+            continue
+        trace_steps.append(label)
+
+    expected_code = 0 if expected_success else 1
+    return {
+        "mode": mode,
+        "expected_success": expected_success,
+        "exit_code": code,
+        "expected_exit_code": expected_code,
+        "matches_expected_exit": code == expected_code,
+        "status_parsed": status_parsed,
+        "outcome": outcome,
+        "phase": phase,
+        "writes_may_have_occurred": outcome == "partial-or-unknown-do-not-retry",
+        "trace_steps": trace_steps,
+        "trace_count": len(trace),
+        "last_trace_step": trace_steps[-1] if trace_steps else None,
+        "write_trace_count": sum(step in OPERATOR_WRITE_TRACE_STEPS for step in trace_steps),
+        "trace_valid": trace_valid,
+    }
+
+
 def plaintext_rejection(raw, peer, port):
     # Netty's channel header and following exception often span separate lines.
     # Never borrow another channel's TLS error or accept a generic disconnect.
@@ -1082,12 +1175,17 @@ class Probe:
 
     def operator(self, mode, success):
         result = self.client({"operator": mode, "cluster": self.args.cluster_name})
+        facts = operator_diagnostic(mode, success, result)
+        self.event("operator-result", **facts)
+        print("OPENSEARCH_OPERATOR_RESULT " + json.dumps(facts, sort_keys=True), flush=True)
         require(result["code"] == (0 if success else 1), "OPERATOR_RESULT_RETAINED")
+        require(facts["status_parsed"], "OPERATOR_STATUS_UNPARSED")
+        require(facts["trace_valid"], "OPERATOR_TRACE_INVALID")
         if not success:
-            require("outcome=no-writes-attempted" in result["output"], "OPERATOR_UNKNOWN_WRITE_RETAINED")
+            require(facts["outcome"] == "no-writes-attempted", "OPERATOR_UNKNOWN_WRITE_RETAINED")
         if mode == "verify" or not success:
-            require(result["trace"] and all(method == "GET" for method, _ in result["trace"]), "OPERATOR_WROTE")
-        self.event("operator-" + mode, success=success, trace=result["trace"])
+            require(facts["trace_count"] > 0 and facts["write_trace_count"] == 0, "OPERATOR_WROTE")
+        self.event("operator-" + mode, success=success, trace_steps=facts["trace_steps"])
 
     def ml_config_ready(self):
         # Native named-index wait, not global ML quiescence or a new snapshot baseline.
