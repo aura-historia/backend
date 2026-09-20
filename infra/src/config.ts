@@ -7,6 +7,7 @@ export type StageName = (typeof STAGES)[number];
 export const ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
 export const MAIL_TEMPLATE_BUCKET_NAME = "aura-historia-mail-templates-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
+export const WORKLOAD_REGION = "eu-central-1";
 
 const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";
@@ -27,10 +28,26 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
+export interface NetworkConfig {
+  readonly cidr: string;
+  readonly region: typeof WORKLOAD_REGION;
+}
+
+export interface RdsConfig {
+  readonly databaseName: string;
+  readonly engineVersion: "16.13";
+  readonly instanceType: string;
+  readonly allocatedStorageGiB: number;
+  readonly maxAllocatedStorageGiB: number;
+  readonly backupRetentionDays: number;
+}
+
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
   readonly isEphemeral: boolean;
+  readonly network: NetworkConfig | undefined;
+  readonly rds: RdsConfig | undefined;
   readonly removalPolicy: cdk.RemovalPolicy;
   readonly workerQueues: WorkerQueueSettings;
   readonly apiEndpointUrl: string | undefined;
@@ -78,6 +95,22 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
     stage,
     isProd,
     isEphemeral,
+    network: isEphemeral
+      ? undefined
+      : {
+          cidr: stage === "prod" ? "10.64.0.0/16" : "10.65.0.0/16",
+          region: WORKLOAD_REGION,
+        },
+    rds: isEphemeral
+      ? undefined
+      : {
+          databaseName: "aura_historia",
+          engineVersion: "16.13",
+          instanceType: isProd ? "t4g.medium" : "t4g.small",
+          allocatedStorageGiB: isProd ? 50 : 30,
+          maxAllocatedStorageGiB: isProd ? 100 : 60,
+          backupRetentionDays: isProd ? 14 : 7,
+        },
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,
     apiEndpointUrl: apiDomainName ? `https://${apiDomainName}` : undefined,

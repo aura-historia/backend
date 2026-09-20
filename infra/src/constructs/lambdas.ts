@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -7,6 +8,7 @@ import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
+import type { Network } from "./network";
 import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
@@ -85,6 +87,7 @@ export interface LambdasProps {
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
   readonly postgres: PostgresConnectionSettings;
+  readonly network?: Network;
 }
 
 export class Lambdas extends Construct {
@@ -104,7 +107,16 @@ export class Lambdas extends Construct {
         continue;
       }
 
+      const networkProps = definition.postgres && props.network
+        ? {
+            vpc: props.network.vpc,
+            vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+            securityGroups: [props.network.applicationSecurityGroup],
+          }
+        : {};
+
       functions[key] = new lambda.Function(this, definition.id, {
+        ...networkProps,
         functionName: `${definition.binaryName}-${props.config.stage}`,
         runtime: lambda.Runtime.PROVIDED_AL2023,
         architecture: lambda.Architecture.X86_64,

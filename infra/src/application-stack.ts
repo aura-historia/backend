@@ -12,6 +12,7 @@ import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { Eventing } from "./constructs/eventing";
+import { Network } from "./constructs/network";
 import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
@@ -31,6 +32,7 @@ export interface ApplicationStageProps extends cdk.StackProps {
 }
 
 export interface ApplicationStageStacks {
+  readonly network?: ApplicationNetworkStack;
   readonly data: ApplicationDataStack;
   readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
@@ -40,13 +42,25 @@ export interface ApplicationStageStacks {
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
   const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
   const baseProps = stackBaseProps(props);
+  const network = props.stage === "ephemeral"
+    ? undefined
+    : new ApplicationNetworkStack(scope, `${stackNamePrefix}-network`, {
+        ...baseProps,
+        stage: props.stage,
+        localStackMappedPort: props.localStackMappedPort,
+        stackName: `${stackNamePrefix}-network`,
+      });
 
   const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
     ...baseProps,
     stage: props.stage,
     localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-data`,
+    network: network?.network,
   });
+  if (network) {
+    data.addDependency(network);
+  }
 
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
     ...baseProps,
@@ -56,8 +70,12 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     storage: data.storage,
     queues: data.queues,
     search: data.search,
+    network: network?.network,
   });
   compute.addDependency(data);
+  if (network) {
+    compute.addDependency(network);
+  }
 
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
     ...baseProps,
@@ -82,11 +100,32 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   observability?.addDependency(compute);
 
   return {
+    network,
     data,
     compute,
     api,
     observability,
   };
+}
+
+export class ApplicationNetworkStack extends cdk.Stack {
+  readonly network: Network;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    this.templateOptions.description = "Aura Historia private workload network stack";
+    this.network = new Network(this, "Network", { config });
+
+    networkOutputs(this, this.network);
+  }
+}
+
+export interface ApplicationDataStackProps extends ApplicationStackProps {
+  readonly network?: Network;
 }
 
 export class ApplicationDataStack extends cdk.Stack {
@@ -95,7 +134,7 @@ export class ApplicationDataStack extends cdk.Stack {
   readonly workerQueues: WorkerQueues;
   readonly search: Search;
 
-  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+  constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
     super(scope, id, stackProps(props));
 
     const config = stageConfig(props.stage, {
@@ -107,6 +146,7 @@ export class ApplicationDataStack extends cdk.Stack {
 
     this.storage = new Storage(this, "Storage", {
       config,
+      network: props.network,
     });
 
     this.queues = new Queues(this, "Queues", {
@@ -132,6 +172,7 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly storage: Storage;
   readonly queues: Queues;
   readonly search: Search;
+  readonly network?: Network;
 }
 
 export class ApplicationComputeStack extends cdk.Stack {
@@ -159,6 +200,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: props.storage.postgres,
+      network: props.network,
     });
 
 
@@ -355,6 +397,16 @@ function stackProps(props: ApplicationStackProps): cdk.StackProps {
       bucketPrefix: `${props.stage}/`,
     }),
   };
+}
+
+function networkOutputs(stack: cdk.Stack, network: Network): void {
+  new cdk.CfnOutput(stack, "VpcId", { value: network.vpc.vpcId });
+  new cdk.CfnOutput(stack, "NatGatewayEipAllocationId", { value: network.natEip.attrAllocationId });
+  new cdk.CfnOutput(stack, "NatGatewayEipPublicIp", { value: network.natEip.attrPublicIp });
+  new cdk.CfnOutput(stack, "ApplicationSecurityGroupId", { value: network.applicationSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DatabaseSecurityGroupId", { value: network.databaseSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DmsSecurityGroupId", { value: network.dmsSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "MigrationSecurityGroupId", { value: network.migrationSecurityGroup.securityGroupId });
 }
 
 function dataOutputs(
