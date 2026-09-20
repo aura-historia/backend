@@ -70,7 +70,7 @@ The network stack is absent for `ephemeral`: LocalStack synthesis does not decla
 npm run cdk -- deploy application-prod-network -c stage=prod -c account=123456789012 -c region=eu-central-1
 ```
 
-The app rejects a non-12-digit account context and a real-stage region other than `eu-central-1`. Deploy network, then data, then compute; data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
+The app rejects a non-12-digit account context and an explicitly selected real-stage region other than `eu-central-1`. Template-only synth without an account ignores an ambient CI runner region and uses `eu-central-1`; a deployment must select the approved account explicitly. Deploy network, then data, then compute; data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
 
 Dev CloudFront owns the wildcard alias `*.dev.aura-historia.com`; the API URL stays
 `api.dev.aura-historia.com`. This avoids stale exact DNS targets blocking distribution

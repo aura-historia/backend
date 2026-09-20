@@ -16,7 +16,9 @@ const defaultStackNamePrefix = `application-${stageContext}`;
 const stackNamePrefix = app.node.tryGetContext("stackNamePrefix") ?? process.env.STACK_NAME_PREFIX ?? app.node.tryGetContext("stackName") ?? process.env.STACK_NAME ?? defaultStackNamePrefix;
 const localStackMappedPort = app.node.tryGetContext("localStackMappedPort") ?? process.env.LOCALSTACK_MAPPED_PORT;
 const deploymentAccount = app.node.tryGetContext("account") ?? process.env.CDK_DEFAULT_ACCOUNT;
-const deploymentRegion = app.node.tryGetContext("region") ?? process.env.CDK_DEFAULT_REGION ?? WORKLOAD_REGION;
+// Template-only synth must not inherit an arbitrary CI runner region.
+const deploymentRegion = app.node.tryGetContext("region")
+  ?? (deploymentAccount === undefined ? WORKLOAD_REGION : process.env.CDK_DEFAULT_REGION ?? WORKLOAD_REGION);
 const singleStack = app.node.tryGetContext("singleStack") === "true" || process.env.SINGLE_STACK === "true";
 
 if (deploymentAccount !== undefined && !/^\d{12}$/.test(deploymentAccount)) {
