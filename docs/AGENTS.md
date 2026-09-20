@@ -9,7 +9,7 @@
 - `swagger.yaml` be public REST contract.
 - `CHANGELOG.md` tell API change by pull request.
 - `storage.md` owns storage migration and repository conventions.
-- `durable-worker-runbook.md` owns SQS runtime limits, external handoff, cutover, DLQ recovery, and projection-fence rollout. Runtime code and CDK remain the source for effective values; docs do not prove deployment.
+- `migration-f1-inventory.md` owns checked-in migration baseline, survivor inventory, owner decisions, and cutover gates; it does not prove live deployment.
 - Child doc can own deeper subsystem docs when folder become durable boundary.
 
 ## Ownership
@@ -38,17 +38,13 @@
 
 ## Child DOX Index
 
-- `admin-overview.md` — administrator overview source and count semantics.
+- `arch.md` — workspace architecture rules.
 - `auction.md` — Auction domain contract and current implementation status.
-- `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
-- `public-listing-source-search.md` — frozen #1634/#1602 public ListingSource collection and slug-read contract.
-- `public-listing-source-search-performance.md` — opt-in public ListingSource PostgreSQL plan and local timing record.
-- `product-listing.md` — canonical ProductListing domain contract.
-- `product-listing-raw-normalization-runbook.md` — raw capture, durable wake-ups, reconstructible reconciliation cursor/FIFO, shutdown, backlog, and crawler checks.
-- `durable-worker-runbook.md` — durable SQS settings, identity/Sequin handoff, safe operations, tombstones, and notification recovery.
-- `product-listing-inventory.md` — ProductListing rewrite scope and final scan checklist.
-- `listing-source-partnership-rewrite-inventory.md` — ListingSource and Partnership rewrite completion checklist.
-- `object-ids.md` — prefixed UUIDv7 object-ID registry and boundary contract.
-- `storage.md` — canonical storage contracts.
 - `events/flow.md` — durable event and scheduled-flow contracts.
-- `swagger.yaml` — public REST contract
+- `migration-f1-inventory.md` — #1775 migration baseline, contracts, surviving resources, owners, and gates.
+- `object-ids.md` — prefixed UUIDv7 object-ID registry and boundary contract.
+- `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
+- `product-listing.md` — canonical ProductListing domain contract.
+- `storage.md` — canonical storage contracts.
+- `swagger.yaml` — public REST contract.
+- `CHANGELOG.md` — API change history.
