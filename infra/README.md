@@ -10,6 +10,10 @@ synthesized for:
 - `dev` — real AWS development resources, production alarms disabled
 - `ephemeral` — LocalStack resources, including a local OpenSearch domain
 
+## Migration baseline
+
+The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) records the approved migration target, current CDK declarations, unverified live resources, ownership, and cutover gates. It is the starting reference for replacement work; this README and CDK synthesis do not prove deployed state.
+
 ## Structure
 
 ```text

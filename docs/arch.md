@@ -1722,7 +1722,7 @@ Authoritative PostgreSQL writes MUST commit according to the transaction rules a
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections.
+CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes current Sequin/native declarations from the agreed DMS/Kinesis/Lambda target.
 
 ```text
 PostgreSQL commit
