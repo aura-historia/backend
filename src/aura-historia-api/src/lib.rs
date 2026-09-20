@@ -173,6 +173,7 @@ use search_filter_service::use_cases::{
 use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -268,8 +269,9 @@ const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
 const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
 const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
 const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const POSTGRES_TLS_ROOT_CERT_ENV: &str = "POSTGRES_TLS_ROOT_CERT";
 const DEFAULT_POSTGRES_PORT: u16 = 5432;
-const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1672,13 +1674,29 @@ async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
         POSTGRES_MAX_CONNECTIONS_ENV,
         DEFAULT_POSTGRES_MAX_CONNECTIONS,
     )?;
-    let config = PostgresPoolConfig::new(host, port, database, username, password, max_connections)
-        .map_err(|_| ApiStateError::InvalidPostgresMaxConnections)?;
+    let root_certificate = PathBuf::from(required_postgres_env(POSTGRES_TLS_ROOT_CERT_ENV)?);
+    let config = PostgresPoolConfig::lambda(
+        host,
+        port,
+        database,
+        username,
+        password,
+        max_connections,
+        root_certificate,
+    )
+    .map_err(|error| match error {
+        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections => {
+            ApiStateError::InvalidPostgresMaxConnections
+        }
+        platform_postgres::PostgresPoolConfigError::EmptyRootCertificate => {
+            ApiStateError::InvalidPostgresTlsRootCertificate
+        }
+    })?;
 
     Ok(config
         .connect()
         .await
-        .map_err(PostgresConnectError::Connect)?)
+        .map_err(|_| PostgresConnectError::Connect)?)
 }
 
 fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
@@ -1774,6 +1792,8 @@ pub enum ApiStateError {
     InvalidPostgresInteger { name: &'static str, value: String },
     #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
     InvalidPostgresMaxConnections,
+    #[error("POSTGRES_TLS_ROOT_CERT must not be empty")]
+    InvalidPostgresTlsRootCertificate,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]

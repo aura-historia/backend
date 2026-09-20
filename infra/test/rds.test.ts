@@ -113,6 +113,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       expect(JSON.stringify(environment.POSTGRES_HOST)).not.toContain(`/postgres/${stage}/host`);
       expect(JSON.stringify(environment.POSTGRES_USERNAME)).toContain("resolve:secretsmanager:");
       expect(JSON.stringify(environment.POSTGRES_PASSWORD)).toContain("resolve:secretsmanager:");
+      expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
+      expect(environment.POSTGRES_TLS_ROOT_CERT).toBe("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem");
     }
   });
 });

@@ -206,7 +206,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual([
-      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_USERNAME",
+      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME",
     ]);
     const policy = compute.toJSON().Resources.LambdasShopifyLambdaServiceRoleDefaultPolicyB8C48B8C;
     expect(policy.Properties.PolicyDocument.Statement).toEqual([{

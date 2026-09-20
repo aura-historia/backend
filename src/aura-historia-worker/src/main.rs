@@ -118,7 +118,7 @@ async fn run() -> Result<(), MainError> {
         .postgres()
         .connect()
         .await
-        .map_err(PostgresConnectError::Connect)?;
+        .map_err(|_| PostgresConnectError::Connect)?;
     let composition = WorkerRuntimeComposition::from_sqs_queue(queue);
 
     match scope {

@@ -117,7 +117,19 @@ Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-s
 
 The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The DMS source task later owns publication and slot creation. Full restore/recovery evidence belongs to #1805.
 
-RDS enforces TLS, but this change does **not** make current SQLx clients perform verified TLS. #1779 owns verified client TLS configuration and rollout. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+RDS enforces TLS. #1779 injects `POSTGRES_TLS_ROOT_CERT=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` into PostgreSQL Lambdas; migrated Rust roots require it and use SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. The configured path is the AL2023 system trust bundle, so CA rotation ships through the runtime image/config release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests need a TLS-enabled PostgreSQL fixture with a separately supplied test CA; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+
+### SQLx pool and TLS validation (F5)
+
+Migrated roots require a TLS-enabled PostgreSQL fixture. Run the code/config gates with:
+
+```bash
+cargo test -p platform-postgres --all-features
+cargo test -p aura-historia-worker --lib --all-features
+npm --prefix infra test
+```
+
+Before an approved isolated-RDS smoke, use an RDS endpoint and DNS name covered by its server certificate, inject the CA bundle path through `POSTGRES_TLS_ROOT_CERT`, and record only acquisition/reconnect durations. Prove one successful trusted connection and failure for wrong CA, wrong hostname, and plaintext; do not log credentials, connection strings, or raw provider data. Restart/credential-rotation tests require separate approval and the #1780 refresh handoff.
 
 ### Credentials and manual first initialization
 

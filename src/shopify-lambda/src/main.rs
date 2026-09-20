@@ -9,13 +9,16 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::CaptureProductListingRawObservationHandler;
 use shopify_lambda::{ShopifyProductListingProcessor, handler};
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, path::PathBuf, str::FromStr};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     init(logging_config_from_env());
 
-    let pool = postgres_config_from_env()?.connect().await?;
+    let pool = postgres_config_from_env()?
+        .connect()
+        .await
+        .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
     let processor = ShopifyProductListingProcessor::new(
         SqlxListingSourceReaders::new(pool.clone()),
         CaptureProductListingRawObservationHandler::new(
@@ -47,10 +50,19 @@ fn postgres_config_from_env() -> Result<PostgresPoolConfig, Error> {
     let username = required_env("POSTGRES_USERNAME")?;
     let password = required_env("POSTGRES_PASSWORD")?;
     let port = optional_env("POSTGRES_PORT", 5432)?;
-    let max_connections = optional_env("POSTGRES_MAX_CONNECTIONS", 2)?;
+    let max_connections = optional_env("POSTGRES_MAX_CONNECTIONS", 1)?;
+    let root_certificate = PathBuf::from(required_env("POSTGRES_TLS_ROOT_CERT")?);
 
-    PostgresPoolConfig::new(host, port, database, username, password, max_connections)
-        .map_err(|error| config_error(error.to_string()))
+    PostgresPoolConfig::lambda(
+        host,
+        port,
+        database,
+        username,
+        password,
+        max_connections,
+        root_certificate,
+    )
+    .map_err(|error| config_error(error.to_string()))
 }
 
 fn required_env(name: &str) -> Result<String, Error> {

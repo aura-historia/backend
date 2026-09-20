@@ -106,7 +106,11 @@ impl WorkerProcess {
                 "POSTGRES_PASSWORD",
                 postgres.password().ok_or("fixture password missing")?,
             )
-            .env("POSTGRES_MAX_CONNECTIONS", "2")
+            .env("POSTGRES_MAX_CONNECTIONS", "1")
+            .env(
+                "POSTGRES_TLS_ROOT_CERT",
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+            )
             .env("TOKIO_WORKER_THREADS", "2")
             .env("LOG_LEVEL", "warn")
             .stdin(Stdio::null())

@@ -17,6 +17,7 @@ export interface PostgresConnectionSettings {
   readonly username: string;
   readonly password: string;
   readonly maxConnections: string;
+  readonly tlsRootCert: string;
 }
 
 export class Storage extends Construct {
@@ -114,7 +115,8 @@ export class Storage extends Construct {
       database: rdsConfig.databaseName,
       username: this.runtimeCredentials.secretValueFromJson("username").unsafeUnwrap(),
       password: this.runtimeCredentials.secretValueFromJson("password").unsafeUnwrap(),
-      maxConnections: "2",
+      maxConnections: "1",
+      tlsRootCert: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
     };
   }
 }
@@ -153,6 +155,7 @@ function localPostgresConnectionSettings(): PostgresConnectionSettings {
     database: "postgres",
     username: "postgres",
     password: "postgres",
-    maxConnections: "2",
+    maxConnections: "1",
+    tlsRootCert: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
   };
 }

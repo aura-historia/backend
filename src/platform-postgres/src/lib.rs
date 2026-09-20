@@ -1,10 +1,58 @@
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{PgConnection, PgPool, Postgres};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
+use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use std::fmt;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tracing::{info, warn};
 
 const DEFAULT_ACQUIRE_TIMEOUT_SECONDS: u64 = 5;
+const LAMBDA_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
+const LAMBDA_STATEMENT_TIMEOUT: Duration = Duration::from_secs(5);
+const LAMBDA_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+const LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
+const LAMBDA_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const LAMBDA_MAX_LIFETIME: Duration = Duration::from_secs(600);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PostgresTlsConfig {
+    VerifyFull { root_certificate: PathBuf },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PostgresPoolTimeouts {
+    acquire: Duration,
+    statement: Duration,
+    lock: Duration,
+    idle_in_transaction: Duration,
+}
+
+impl PostgresPoolTimeouts {
+    pub const fn lambda() -> Self {
+        Self {
+            acquire: LAMBDA_ACQUIRE_TIMEOUT,
+            statement: LAMBDA_STATEMENT_TIMEOUT,
+            lock: LAMBDA_LOCK_TIMEOUT,
+            idle_in_transaction: LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT,
+        }
+    }
+
+    pub const fn acquire(&self) -> Duration {
+        self.acquire
+    }
+
+    pub const fn statement(&self) -> Duration {
+        self.statement
+    }
+
+    pub const fn lock(&self) -> Duration {
+        self.lock
+    }
+
+    pub const fn idle_in_transaction(&self) -> Duration {
+        self.idle_in_transaction
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PostgresPoolConfig {
@@ -14,6 +62,8 @@ pub struct PostgresPoolConfig {
     username: String,
     password: String,
     max_connections: u32,
+    tls: Option<PostgresTlsConfig>,
+    timeouts: Option<PostgresPoolTimeouts>,
 }
 
 impl fmt::Debug for PostgresPoolConfig {
@@ -25,6 +75,8 @@ impl fmt::Debug for PostgresPoolConfig {
             .field("username", &self.username)
             .field("password", &"<redacted>")
             .field("max_connections", &self.max_connections)
+            .field("tls", &self.tls)
+            .field("timeouts", &self.timeouts)
             .finish()
     }
 }
@@ -49,7 +101,28 @@ impl PostgresPoolConfig {
             username,
             password,
             max_connections,
+            tls: None,
+            timeouts: None,
         })
+    }
+
+    pub fn lambda(
+        host: String,
+        port: u16,
+        database: String,
+        username: String,
+        password: String,
+        max_connections: u32,
+        root_certificate: PathBuf,
+    ) -> Result<Self, PostgresPoolConfigError> {
+        if root_certificate.as_os_str().is_empty() {
+            return Err(PostgresPoolConfigError::EmptyRootCertificate);
+        }
+
+        let mut config = Self::new(host, port, database, username, password, max_connections)?;
+        config.tls = Some(PostgresTlsConfig::VerifyFull { root_certificate });
+        config.timeouts = Some(PostgresPoolTimeouts::lambda());
+        Ok(config)
     }
 
     pub fn host(&self) -> &str {
@@ -72,38 +145,117 @@ impl PostgresPoolConfig {
         self.max_connections
     }
 
+    pub const fn min_connections(&self) -> u32 {
+        0
+    }
+
+    pub const fn timeouts(&self) -> Option<PostgresPoolTimeouts> {
+        self.timeouts
+    }
+
+    pub fn tls(&self) -> Option<&PostgresTlsConfig> {
+        self.tls.as_ref()
+    }
+
     pub fn connect_options(&self) -> PgConnectOptions {
-        PgConnectOptions::new()
+        let options = PgConnectOptions::new()
             .host(&self.host)
             .port(self.port)
             .database(&self.database)
             .username(&self.username)
-            .password(&self.password)
+            .password(&self.password);
+
+        match &self.tls {
+            Some(PostgresTlsConfig::VerifyFull { root_certificate }) => options
+                .ssl_mode(PgSslMode::VerifyFull)
+                .ssl_root_cert(root_certificate),
+            None => options,
+        }
     }
 
     pub fn pool_options(&self) -> PgPoolOptions {
-        PgPoolOptions::new()
-            .max_connections(self.max_connections)
-            .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECONDS))
+        let options = PgPoolOptions::new()
+            .min_connections(self.min_connections())
+            .max_connections(self.max_connections);
+
+        let Some(timeouts) = self.timeouts else {
+            return options.acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECONDS));
+        };
+
+        let statement_timeout = duration_setting(timeouts.statement);
+        let lock_timeout = duration_setting(timeouts.lock);
+        let idle_in_transaction_timeout = duration_setting(timeouts.idle_in_transaction);
+        let max_connections = self.max_connections;
+
+        options
+            .acquire_timeout(timeouts.acquire)
+            .idle_timeout(LAMBDA_IDLE_TIMEOUT)
+            .max_lifetime(LAMBDA_MAX_LIFETIME)
+            .test_before_acquire(true)
+            .after_connect(move |connection, _| {
+                let statement_timeout = statement_timeout.clone();
+                let lock_timeout = lock_timeout.clone();
+                let idle_in_transaction_timeout = idle_in_transaction_timeout.clone();
+                Box::pin(async move {
+                    sqlx::query(
+                        "SELECT set_config('statement_timeout', $1, false), set_config('lock_timeout', $2, false), set_config('idle_in_transaction_session_timeout', $3, false)",
+                    )
+                    .bind(statement_timeout)
+                    .bind(lock_timeout)
+                    .bind(idle_in_transaction_timeout)
+                    .execute(connection)
+                    .await?;
+                    info!(
+                        metric = "postgres_pool_connection_opened",
+                        postgres_pool_max_connections = max_connections,
+                        "Postgres pool connection opened or reconnected"
+                    );
+                    Ok(())
+                })
+            })
     }
 
     pub async fn connect(&self) -> Result<PgPool, sqlx::Error> {
-        self.pool_options()
-            .connect_with(self.connect_options())
-            .await
+        Ok(self
+            .pool_options()
+            .connect_lazy_with(self.connect_options()))
     }
+
+    pub async fn connect_connection(&self) -> Result<PgConnection, sqlx::Error> {
+        let mut connection = PgConnection::connect_with(&self.connect_options()).await?;
+        let Some(timeouts) = self.timeouts else {
+            return Ok(connection);
+        };
+
+        sqlx::query(
+            "SELECT set_config('statement_timeout', $1, false), set_config('lock_timeout', $2, false), set_config('idle_in_transaction_session_timeout', $3, false)",
+        )
+        .bind(duration_setting(timeouts.statement))
+        .bind(duration_setting(timeouts.lock))
+        .bind(duration_setting(timeouts.idle_in_transaction))
+        .execute(&mut connection)
+        .await?;
+
+        Ok(connection)
+    }
+}
+
+fn duration_setting(duration: Duration) -> String {
+    format!("{}ms", duration.as_millis())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PostgresPoolConfigError {
     #[error("Postgres max connections must be greater than zero")]
     ZeroMaxConnections,
+    #[error("Postgres TLS root certificate path must not be empty")]
+    EmptyRootCertificate,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum PostgresConnectError {
     #[error("failed to connect to Postgres")]
-    Connect(#[source] sqlx::Error),
+    Connect,
 }
 
 #[derive(Debug, Clone)]
@@ -132,11 +284,27 @@ impl UnitOfWork for SqlxUnitOfWork {
     type Tx = SqlxTransaction;
 
     async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-        self.pool
-            .begin()
-            .await
-            .map(|transaction| SqlxTransaction { transaction })
-            .map_err(|_| TransactionError::BeginFailed)
+        let started_at = Instant::now();
+        match self.pool.begin().await {
+            Ok(transaction) => {
+                info!(
+                    metric = "postgres_pool_acquire",
+                    outcome = "success",
+                    duration_ms = started_at.elapsed().as_millis() as u64,
+                    "Postgres transaction connection acquired"
+                );
+                Ok(SqlxTransaction { transaction })
+            }
+            Err(_) => {
+                warn!(
+                    metric = "postgres_pool_acquire",
+                    outcome = "failure",
+                    duration_ms = started_at.elapsed().as_millis() as u64,
+                    "Postgres transaction connection acquisition failed"
+                );
+                Err(TransactionError::BeginFailed)
+            }
+        }
     }
 }
 
@@ -186,5 +354,73 @@ mod tests {
 
         assert!(!output.contains("very-secret"));
         assert!(output.contains("<redacted>"));
+    }
+
+    #[test]
+    fn should_configure_lambda_pool_with_verified_tls_and_bounded_waits() {
+        let config = PostgresPoolConfig::lambda(
+            "database.example.test".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "postgres".to_owned(),
+            "secret".to_owned(),
+            1,
+            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
+        );
+
+        let config = match config {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
+
+        assert_eq!(config.min_connections(), 0);
+        assert_eq!(config.max_connections(), 1);
+        assert_eq!(config.timeouts(), Some(PostgresPoolTimeouts::lambda()));
+        assert_eq!(
+            config.tls(),
+            Some(&PostgresTlsConfig::VerifyFull {
+                root_certificate: PathBuf::from("/opt/aura-historia/rds-ca.pem"),
+            })
+        );
+        assert!(format!("{:?}", config.connect_options()).contains("VerifyFull"));
+    }
+
+    #[test]
+    fn should_reject_empty_lambda_root_certificate_path() {
+        let config = PostgresPoolConfig::lambda(
+            "localhost".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "postgres".to_owned(),
+            "secret".to_owned(),
+            1,
+            PathBuf::new(),
+        );
+
+        assert_eq!(Err(PostgresPoolConfigError::EmptyRootCertificate), config);
+    }
+
+    #[tokio::test]
+    async fn should_create_lambda_pool_without_opening_a_connection() {
+        let config = PostgresPoolConfig::lambda(
+            "unreachable.example.test".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "postgres".to_owned(),
+            "secret".to_owned(),
+            1,
+            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
+        );
+        let config = match config {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
+        let pool = match config.connect().await {
+            Ok(pool) => pool,
+            Err(error) => panic!("unexpected pool error: {error}"),
+        };
+
+        assert_eq!(pool.size(), 0);
+        assert_eq!(pool.num_idle(), 0);
     }
 }
