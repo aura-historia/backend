@@ -2,7 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationDataStack, ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
@@ -314,10 +314,12 @@ test("example uses the exact source queue, region, stage and scope without crede
 
 test("queue names use stage, never a custom stack prefix, and reject names over SQS's limit", () => {
   const app = new cdk.App({ analyticsReporting: false });
-  const stack = new ApplicationDataStack(app, "custom-task-prefix-data", {
-    stage: "dev", env: { account: "123456789012", region: "eu-central-1" },
+  const stacks = createApplicationStacks(app, {
+    stage: "dev",
+    stackNamePrefix: "custom-task-prefix",
+    env: { account: "123456789012", region: "eu-central-1" },
   });
-  const template = Template.fromStack(stack);
+  const template = Template.fromStack(stacks.data);
   const names = Object.values(template.findResources("AWS::SQS::Queue")).map((resource) => resource.Properties.QueueName);
   expect(names.every((name) => name.endsWith("-dev"))).toBe(true);
   expect(template.toJSON().Outputs.WorkerQueueAwsRegion.Value).toBe("eu-central-1");

@@ -19,7 +19,7 @@ The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) recor
 ```text
 bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
-src/config.ts              # stage configuration, fixed buckets, SSM dynamic refs
+src/config.ts              # stage configuration, fixed buckets, RDS shape, SSM dynamic refs
 src/worker-queue-config.ts # typed native worker scopes, timing, retention, alarms
 src/parameters.ts          # deployment artifact version input
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
@@ -28,11 +28,14 @@ src/constructs/            # focused infrastructure modules
   cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
+  network.ts               # two-AZ VPC, one NAT/EIP, S3 endpoint, workload security groups
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # existing Shopify Lambda queue and DLQ
   worker-queues.ts          # separate native worker queues, scoped IAM, handoff outputs
-  storage.ts               # Postgres connection settings
+  storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
+sql/
+  rds-bootstrap-roles.sql  # manual post-provision database-role bootstrap
 
 ```
 
@@ -55,10 +58,19 @@ These commands build, test, and synthesize only; they do not deploy.
 
 Synth creates these stacks per stage:
 
-- `application-{stage}-data` — Postgres settings, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
+- `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
+- `application-{stage}-data` — private RDS PostgreSQL in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
+
+The network stack is absent for `ephemeral`: LocalStack synthesis does not declare a VPC, NAT, EIP, gateway endpoint, or workload security groups. Real-stage stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
+
+```bash
+npm run cdk -- deploy application-prod-network -c stage=prod -c account=123456789012 -c region=eu-central-1
+```
+
+The app rejects a non-12-digit account context and a real-stage region other than `eu-central-1`. Deploy network, then data, then compute; data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
 
 Dev CloudFront owns the wildcard alias `*.dev.aura-historia.com`; the API URL stays
 `api.dev.aura-historia.com`. This avoids stale exact DNS targets blocking distribution
@@ -79,6 +91,53 @@ matcher ECS image is no longer built or referenced by CDK.
 Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
 points compute resources back to the previously uploaded artifacts.
+
+## Network foundation (F3)
+
+Real stages have separate `/16` address space: `prod` uses `10.64.0.0/16` and `dev` uses `10.65.0.0/16`. Each has two public, two private-application, and two isolated private-database `/24` subnets across two availability zones. Exactly one managed NAT Gateway is placed in the first public subnet with one explicitly declared EIP. Both application subnet default routes use it; database route tables have no internet default route.
+
+The application route tables use one S3 **gateway** endpoint. Its endpoint policy permits only `GetObject` and `ListBucket` on the existing artifact, mail-template, and CloudFormation-staging buckets. It does not grant Lambda IAM permissions. No paid interface endpoint, NAT instance, proxy, mandatory IPv6, public database, crawler network, or crawler database access is declared here.
+
+`ApplicationSecurityGroup`, `DatabaseSecurityGroup`, `DmsSecurityGroup`, and `MigrationSecurityGroup` are exported for later RDS/DMS/migration ownership. PostgreSQL ingress is TCP 5432 only from those three explicit source groups. The database group has no usable outbound rule. Application workloads may egress TCP 5432 only to the database group and TCP 443 to IPv4 destinations via NAT. Security groups cannot express hostname allowlists: external HTTPS provider/AWS API host review stays with the workload and IAM/identity configuration; TLS certificate validation remains an application requirement, not a security-group setting. The DMS task owns any Kinesis or Secrets Manager endpoint decision.
+
+No network stack or network export existed at the F1 baseline, so this change has no obsolete export to remove and makes no stateful-resource replacement. `data` imports the VPC for RDS and `compute` imports the VPC values required by PostgreSQL Lambdas. `NatGatewayEipAllocationId` and `NatGatewayEipPublicIp` are outputs. Give the public IP to the Hetzner OpenSearch owner for allowlisting before a workload uses that path. One NAT is an accepted single-AZ egress dependency: its AZ failure stops application-subnet IPv4 egress, and application subnets in the other AZ can incur cross-AZ transfer charges. It is intentionally not highly available egress. RDS/DMS provisioning, external connection tests, pricing review, live change-set diff, and crawler coordination remain separate gates.
+
+## RDS PostgreSQL foundation (F4)
+
+Real stages create one private, encrypted, **Single-AZ** PostgreSQL RDS instance in the two isolated database subnets. It has no public endpoint, no Aurora cluster, RDS Proxy, read replica, crawler principal/access, DMS resource, publication, or replication slot. The data stack depends on network; compute depends on data. The existing database security group remains the only TCP 5432 boundary.
+
+The selected engine is PostgreSQL `16.13`, the newest PostgreSQL 16 engine constant available in the pinned CDK library. AWS lists supported RDS PostgreSQL releases in its [release notes](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-versions.html). Verify `16.13` remains available in the approved account and region before a change set or deploy; synthesis is not that verification.
+
+| Stage | Instance | Initial / maximum gp3 storage | Automated backup retention | Removal policy |
+| --- | --- | --- | --- | --- |
+| `dev` | `db.t4g.small` | 30 / 60 GiB | 7 days | delete instance and automated backups |
+| `prod` | `db.t4g.medium` | 50 / 100 GiB | 14 days | retain instance and automated backups; deletion protection |
+
+Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-sun:03:30 UTC`, automatic minor upgrades, PostgreSQL log export, encrypted storage, and copy tags to snapshots. These values are a capacity/cost starting point, not live price, restore, or load-test evidence. Production retention also applies on replacement; retained data needs an explicit operator inventory before cleanup.
+
+The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The DMS source task later owns publication and slot creation. Full restore/recovery evidence belongs to #1805.
+
+RDS enforces TLS, but this change does **not** make current SQLx clients perform verified TLS. #1779 owns verified client TLS configuration and rollout. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+
+### Credentials and manual first initialization
+
+The data stack generates private Secrets Manager secrets for `aura_admin`, `aura_runtime`, `aura_migrator`, and `aura_replication`. It emits no secret ARN, value, password, username, or connection string as an output. PostgreSQL Lambdas receive only the runtime username/password through deploy-time Secrets Manager dynamic references; they do not have runtime secret-read IAM. Rotation therefore needs an approved credential handoff and compute redeploy; automatic application-secret rotation is not configured.
+
+After RDS is ready, an approved migration workload in the migration security group must retrieve the generated credentials through approved operator access and run [`sql/rds-bootstrap-roles.sql`](sql/rds-bootstrap-roles.sql) as `aura_admin` against `aura_historia`:
+
+```bash
+psql "host=<private-rds-endpoint> dbname=aura_historia user=aura_admin sslmode=verify-full sslrootcert=<trusted-rds-ca.pem>" \\
+  -v runtime_password='<runtime secret password>' \
+  -v migrator_password='<migrator secret password>' \
+  -v replication_password='<replication secret password>' \
+  -f sql/rds-bootstrap-roles.sql
+```
+
+The script creates or updates scoped login roles without embedding passwords. `aura_migrator` owns `public` and creates schema objects; `aura_runtime` has runtime DML and sequence privileges; `aura_replication` has source-table read privileges plus `rds_replication`, but no DDL. It also revokes `PUBLIC` schema creation and establishes migrator-owned default grants. Run business migrations as `aura_migrator` **after** this bootstrap, then run any separately owned initial capture. Never put secrets on the command line or in a shell history in a real operation; use an approved secret-injection mechanism instead.
+
+The initial business migration needs standard RDS extensions `pg_trgm` and `unaccent`. It also still fails deliberately when `pg_ttl_index` is absent. RDS PostgreSQL does not supply that dependency; #1776 must remove or replace it before clean fresh RDS schema initialization is possible. This foundation does not alter that migration.
+
+For recovery, select the retained snapshot or desired point-in-time restore timestamp within the automated-backup window, restore into an isolated replacement instance/subnet/security-group plan, validate engine/parameter/role/schema state, then plan endpoint and secret handoff before application traffic. Do not assume a restore preserves current role grants, application-password alignment, or logical slots/publications. #1805 owns the tested restore runbook and evidence.
 
 ## Native processes
 
