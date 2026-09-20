@@ -1756,7 +1756,7 @@ PostgreSQL owns business truth for:
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
 
-Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; `pg_ttl_index` is asynchronous physical cleanup only.
+Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 
 OpenSearch contains rebuildable search projections only.
 

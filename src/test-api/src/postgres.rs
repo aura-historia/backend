@@ -18,10 +18,7 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
-const POSTGRES_PG_TTL_IMAGE: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "src/test-api/postgres/image-ref.txt"
-));
+const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
 const HOST_GATEWAY: &str = "host.docker.internal";
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
@@ -130,7 +127,7 @@ async fn ensure_container_started() {
             use testcontainers::runners::AsyncRunner;
 
             let image = std::env::var("AURA_TEST_POSTGRES_IMAGE")
-                .unwrap_or_else(|_| POSTGRES_PG_TTL_IMAGE.trim().to_owned());
+                .unwrap_or_else(|_| POSTGRES_IMAGE.to_owned());
             let (repository, tag) = image.rsplit_once(':').unwrap_or_else(|| {
                 panic!("invalid Postgres test image reference '{image}'; expected repository:tag")
             });
@@ -141,35 +138,20 @@ async fn ensure_container_started() {
                 .with_env_var("POSTGRES_USER", POSTGRES_USER)
                 .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
                 .with_env_var("POSTGRES_DB", POSTGRES_DB)
-                .with_cmd([
-                    "-c",
-                    "fsync=off",
-                    "-c",
-                    "wal_level=logical",
-                    "-c",
-                    "shared_preload_libraries=pg_ttl_index",
-                ])
+                .with_cmd(["-c", "fsync=off", "-c", "wal_level=logical"])
                 .with_container_name(name)
                 .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
                 .start()
                 .await
                 .expect("shouldn't fail starting Postgres test container");
 
-            let mut connection = wait_for_postgres_connection().await;
-            connection
-                .execute(AssertSqlSafe("CREATE EXTENSION pg_ttl_index"))
-                .await
-                .expect("should create pg_ttl_index extension in test database");
-            connection
-                .execute(AssertSqlSafe("SELECT ttl_start_worker()"))
-                .await
-                .expect("should start pg_ttl_index worker in test database");
+            let _connection = wait_for_postgres_connection().await;
 
             debug!(
                 image,
                 elapsed_ms = started.elapsed().as_millis(),
                 pid = std::process::id(),
-                "Postgres container started with pg_ttl_index."
+                "Postgres container started."
             );
 
             // Leak the handle intentionally: the container must stay alive for the whole
@@ -243,8 +225,8 @@ pub async fn get_postgres_client() -> PgPool {
 ///   test process; `setup_script` still runs before each test. [`Postgres::new_per_test`]
 ///   replays migrations before each test when they provide seed data.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates application-owned
-///   tables in the `public` schema so that each test starts with a clean slate. Extension-owned
-///   metadata and table definitions (DDL) are preserved.
+///   tables in the `public` schema so that each test starts with a clean slate. Table definitions
+///   (DDL) are preserved.
 ///
 /// # Connection strategy
 ///
@@ -441,19 +423,12 @@ impl IntegrationTestService for Postgres {
         let started = Instant::now();
         let mut conn = open_connection().await;
 
-        // Exclude relations owned by installed extensions. Extension metadata must survive
-        // per-test cleanup, and this catalog query avoids coupling to extension table names.
         let tables: Vec<String> = sqlx::query_scalar::<_, String>(AssertSqlSafe(
             "SELECT relation.relname \
              FROM pg_class AS relation \
              JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace \
-             LEFT JOIN pg_depend AS extension_dependency \
-               ON extension_dependency.classid = 'pg_class'::regclass \
-              AND extension_dependency.objid = relation.oid \
-              AND extension_dependency.deptype = 'e' \
              WHERE namespace.nspname = 'public' \
-               AND relation.relkind = 'r' \
-               AND extension_dependency.objid IS NULL",
+               AND relation.relkind = 'r'",
         ))
         .fetch_all(&mut conn)
         .await

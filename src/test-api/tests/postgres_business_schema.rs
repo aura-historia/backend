@@ -39,7 +39,7 @@ async fn should_apply_business_schema_migrations() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_clear_business_rows_without_removing_pg_ttl_configuration() {
+async fn should_clear_business_rows_on_plain_postgres() {
     let pool = get_postgres_client().await;
     pool.execute(
         sqlx::query(
@@ -57,41 +57,15 @@ async fn should_clear_business_rows_without_removing_pg_ttl_configuration() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    let ttl_registrations: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT schema_name, table_name, column_name \
-         FROM ttl_summary() \
-         ORDER BY schema_name, table_name, column_name",
+    let pg_ttl_installed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_ttl_index')",
     )
-    .fetch_all(&pool)
+    .fetch_one(&pool)
     .await
     .unwrap();
 
     assert_eq!(0, user_count);
-    assert_eq!(
-        vec![
-            (
-                "public".to_owned(),
-                "access_tokens".to_owned(),
-                "expires_at".to_owned()
-            ),
-            (
-                "public".to_owned(),
-                "oauth_authorization_codes".to_owned(),
-                "expires_at".to_owned(),
-            ),
-            (
-                "public".to_owned(),
-                "oauth_third_party_exchange_codes".to_owned(),
-                "expires_at".to_owned(),
-            ),
-            (
-                "public".to_owned(),
-                "product_listing_raw_provider_observation_receipts".to_owned(),
-                "expires_at".to_owned(),
-            ),
-        ],
-        ttl_registrations
-    );
+    assert!(!pg_ttl_installed);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
