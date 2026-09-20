@@ -1690,6 +1690,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-cloudwatchlogs",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "rstest",
  "serde",
@@ -1721,6 +1722,7 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
  "serde-email",
@@ -3024,6 +3026,7 @@ dependencies = [
  "fxrate-service",
  "lambda_runtime",
  "money",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
  "reqwest 0.12.28",
@@ -5651,6 +5654,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-lambda-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "lambda_runtime",
+ "platform-observability",
+ "platform-postgres",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "platform-observability"
 version = "0.1.0"
 dependencies = [
@@ -7231,6 +7245,7 @@ dependencies = [
  "listing-source-service",
  "localization",
  "money",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
  "product-listing-normalization",
@@ -7731,6 +7746,7 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
  "serde",

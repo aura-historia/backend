@@ -132,6 +132,7 @@
 - `src/product-listing-translation-llm/AGENTS.md` — ProductListing title LLM adapter crate.
 - `src/product-listing-postgres/AGENTS.md` — canonical ProductListing Postgres adapter crate.
 - `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
+- `src/platform-lambda-bootstrap/` — typed Lambda root config, cold-start logging, and no business orchestration.
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-listing-opensearch/AGENTS.md` — canonical ProductListing OpenSearch adapter crate.

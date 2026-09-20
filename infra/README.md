@@ -92,6 +92,39 @@ Rollback is performed by redeploying a previous `CommitSHA` parameter value to t
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
 points compute resources back to the previously uploaded artifacts.
 
+## Rust Lambda artifact contract
+
+The current Lambda catalog uses `provided.al2023`, `x86_64`, and one executable
+`bootstrap` in each ZIP. This matches the deployed CDK architecture; do not change
+the target without changing the CDK definition and package smoke evidence together.
+The Amazon Linux 2023 TLS trust bundle is supplied to PostgreSQL Lambdas through
+`POSTGRES_TLS_ROOT_CERT`; no certificate, database password, provider token, or
+signed event body is packaged or logged.
+
+CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
+binary with:
+
+```bash
+cargo lambda build --locked --release \
+  --target x86_64-unknown-linux-musl \
+  --output-format zip
+```
+
+`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI copies it to
+`<binary>-<stage>-<commit-sha>.zip`, which exactly matches
+`src/constructs/lambdas.ts`. Native processes remain the local development
+entrypoints; no API Lambda HTTP adapter, worker polling loop, cron scheduler, or
+health daemon is included in an artifact invocation.
+
+A Lambda root constructs only its selected dependencies during cold start and
+reuses immutable configuration plus pool/client handles during warm invocations.
+It logs only its component, Lambda request ID, remaining invocation budget, and
+cold-start duration; it never logs event bodies, credentials, or provider errors.
+AWS SDK clients use the execution-role credential chain. PostgreSQL credentials
+remain deploy-time dynamic references and require a redeploy after rotation until
+the separately owned F5 refresh interface is available; the runtime has no
+secret-read IAM or background refresh timer.
+
 ## Network foundation (F3)
 
 Real stages have separate `/16` address space: `prod` uses `10.64.0.0/16` and `dev` uses `10.65.0.0/16`. Each has two public, two private-application, and two isolated private-database `/24` subnets across two availability zones. Exactly one managed NAT Gateway is placed in the first public subnet with one explicitly declared EIP. Both application subnet default routes use it; database route tables have no internet default route.
