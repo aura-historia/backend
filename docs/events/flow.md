@@ -13,7 +13,7 @@ Current checked-in PostgreSQL/Sequin flow with durable Standard SQS custody (#15
 | `notification_deliveries` | Postgres table | Durable email-delivery intent and lease state. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
-| Scoped Standard SQS source/DLQ pairs | Durable transport | One pair per native worker scope; source7d/DLQ14d retention, duplicate/reordered delivery possible. |
+| Scoped Standard SQS source/DLQ pairs | Durable transport | One pair per scope; ProductListing OpenSearch has a dedicated Lambda mapping, others remain native; source7d/DLQ14d retention and duplicate/reordered delivery apply. |
 | OpenSearch | Search projection | Rebuildable ProductListing and search-filter projection. |
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | `aura-historia-cron` | Rust process | UTC scheduled triggers for service-owned use cases. |
@@ -21,7 +21,7 @@ Current checked-in PostgreSQL/Sequin flow with durable Standard SQS custody (#15
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
 | CloudWatch log-retention Lambda | AWS Lambda | Keeps AWS log retention policy. |
 
-## Current native Sequin routing (not target)
+## Current checked-in Sequin/SQS routing (not target)
 
 ```mermaid
 flowchart TD
@@ -51,7 +51,8 @@ flowchart TD
 
     ROUTER --> UFQ
 
-    PQ -->|"ProductListing projections"| OS
+    PQ -->|"ProductListing OpenSearch source job"| PL_LAMBDA["ProductListing OpenSearch Lambda"]
+    PL_LAMBDA -->|"external-versioned projection"| OS
     PQ -->|"listing match/watchlist/enrichment"| PG
     ROUTER -->|"notification_deliveries INSERT"| NQ[notification-delivery SQS]
     NQ -->|"claim, send, finalize"| PG
@@ -126,7 +127,7 @@ No intermediate ProductListing command SQS queue. No `202 accepted because queue
 
 `aura-historia-worker` exposes `POST /cdc/sequin` for CDC delivery.
 
-Each native process subscribes to its own source table/operations and publishes only its scope's queue. Runtime composition supports ten production scopes; there is no user-tier scope or tier dimension, worker inbox, or processed-job table. Actual process/Sequin deployment remains externally owned.
+The native `aura-historia-worker` router uses a scope-specific fanout and publishes only its scope's queue. Its catalog has ten production scopes: `product-listing-opensearch` is consumed by its dedicated Lambda, while the other nine consumers remain native. There is no user-tier scope or tier dimension, worker inbox, or processed-job table. Actual process/Sequin deployment remains externally owned.
 
 1. Bound the request (1 MiB, 100 changes, 500 derived jobs). Prevalidate the **entire** batch, all typed jobs/keys, registered destinations and serialization before publishing anything.
 2. For ProductListing events, require typed event/listing IDs and supported v1 pairs: `DOMAIN`/`PRODUCT_LISTING_DISCOVERED`, `DOMAIN`/`PRODUCT_LISTING_CHANGED`, `ENRICHMENT`/`ENRICHMENT_EMBEDDED`, or `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES`. Validate required discovery fields and exact changed dimensions, canonical values, complete previous/current endpoints, non-empty changes and image replacement semantics. Derive the routing union once.
@@ -161,7 +162,7 @@ Current SQS payloads are `ProductListingEventJob`, `ProductListingRawRevisionJob
 
 | Sub-worker | Replaces | Input | Side effects |
 |---|---|---|---|
-| ProductListing OpenSearch projector | `aura-historia-worker` | ProductListing event job | Writes a full active document or content-free, external-versioned withdrawal tombstone. |
+| ProductListing OpenSearch projector | dedicated Lambda | ProductListing event job | Writes a full active document or content-free, external-versioned withdrawal tombstone. |
 | Watchlist notification generator | retired notification Lambda path | Price/availability ProductListing event job | Locks current ProductListing lifecycle through PostgreSQL notification and delivery-intent commit; inserts one row per semantic reason. |
 | Notification delivery dispatcher | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, dispatches by persisted channel, and finalizes durable delivery state. EMAIL resolves its current target, renders S3 templates, and sends through SES. |
 | Search-filter percolator | `aura-historia-worker` | Domain/enrichment ProductListing event job | Postgres matches only. |
@@ -173,7 +174,7 @@ Current SQS payloads are `ProductListingEventJob`, `ProductListingRawRevisionJob
 | ProductListing normalization | raw-to-canonical service | Raw revision job plus authoritative reconciliation | Atomic canonical state/event and raw progress; local continuation hints are reconstructible. |
 | Periodic matcher | retired ECS periodic matcher | `aura-historia-cron` native UTC cron daemon | Runs `RunPeriodicSearchFilterMatching`; it writes only idempotent `search_filter_matches`. CDC remains the sole notification trigger. |
 
-All ten SQS consumers above are composed in `aura-historia-worker`. Periodic matching stays in `aura-historia-cron`, not another queue scope.
+`product-listing-opensearch-lambda` consumes the ProductListing OpenSearch queue. The other nine consumers remain composed in `aura-historia-worker` for now. Periodic matching stays in `aura-historia-cron`, not another queue scope.
 
 ## Canonical ProductListing OpenSearch projection
 
@@ -183,7 +184,7 @@ Current `Withdrawn` state replaces the full document with content-free `{product
 
 This fence survives physical-delete `index.gc_deletes`; never TTL or physically delete tombstones. Deploy mappings and all readers before writers, fence old physical-DELETE writers including in-flight requests, and use the [fenced rebuild procedure](../durable-worker-runbook.md#projection-fences-and-rebuild), not index reset. Withdrawn source rows support backfill; absent historical deletion facts do not.
 
-The document stores native tagged `sourcePrice` (`MONETARY` or `ON_REQUEST`), immutable HalfUp `salePrices` only when a qualifying observation has a monetary source price, and `saleObservationFxRateId` / `saleObservedAt` independently. A sold no-main-price document has observation metadata but no `sourcePrice` or `salePrices`; an on-request document retains `sourcePrice: ON_REQUEST` with no `salePrices`. Both remain searchable by non-price criteria; on-request maps to an on-request display price. All existing search fields and the authoritative embedding remain. It never stores estimates. ProductListing search cursor chains and similar-listing KNN reads pin one persisted snapshot for active summary conversion; sold summaries use indexed immutable sale amounts when present and preserve the valuation basis. Run the `product-listing-opensearch` scope with `POSTGRES_*`, `OPENSEARCH_ENDPOINT_URL`, and OpenSearch credentials outside local development. Its Sequin subscription must contain only `product_listing_events` inserts.
+The document stores native tagged `sourcePrice` (`MONETARY` or `ON_REQUEST`), immutable HalfUp `salePrices` only when a qualifying observation has a monetary source price, and `saleObservationFxRateId` / `saleObservedAt` independently. A sold no-main-price document has observation metadata but no `sourcePrice` or `salePrices`; an on-request document retains `sourcePrice: ON_REQUEST` with no `salePrices`. Both remain searchable by non-price criteria; on-request maps to an on-request display price. All existing search fields and the authoritative embedding remain. It never stores estimates. ProductListing search cursor chains and similar-listing KNN reads pin one persisted snapshot for active summary conversion; sold summaries use indexed immutable sale amounts when present and preserve the valuation basis. The dedicated Lambda needs `POSTGRES_*`, `STAGE`, `OPENSEARCH_ENDPOINT_URL`, and OpenSearch credentials outside `ephemeral`. It processes one record per invocation; only applied/deleted/stale service outcomes acknowledge. Retry, poison, timeout, panic, cancellation, and acceptance-unknown results are `batchItemFailures` for the source queue's native retry/DLQ. No Lambda receipt loop, visibility adjustment, HTTP CDC ingress, or health server participates in this scope.
 
 ## Canonical ProductListing embedding
 
@@ -287,13 +288,13 @@ External sends remain at-least-once. Notification duplicate protection is at rec
 
 ## Retry and failure handling
 
-Standard SQS owns job custody; there is no worker-owned PostgreSQL inbox, processed-job or dead-letter table. Effective per-process concurrency is deliberately 1 with no prefetch, poll 20s, scope visibility 60/300/360s and execution budgets 45/240s. Heartbeats extend visibility; dependency circuits pause consumption while ingress can still publish. Retry visibility backs off 30–900s with jitter; native max receives 5 sends failures/poison to the paired DLQ. Only `Complete` permits deletion; shutdown alone never confirms work, though completed active work may settle during the bounded drain.
+Standard SQS owns job custody; there is no worker-owned PostgreSQL inbox, processed-job or dead-letter table. ProductListing OpenSearch uses a 45s Lambda with batch size one, `ReportBatchItemFailures`, and 270s source visibility (`6 × timeout + 0s batching`). It does not adjust visibility; failed IDs retry through native SQS and redrive after five receives. The remaining native consumers use capacity one/no prefetch, poll 20s, visibility 60/300/360s, heartbeats, and jittered 30–900s retry visibility. Only `Complete` permits acknowledgment; shutdown alone never confirms work, though completed active work may settle during the bounded drain.
 
 Malformed upstream CDC remains stuck/unacknowledged in Sequin, not the SQS DLQ. Invalid wire jobs and handler failures remain undeleted. Repair before controlled native redrive using separate approved operator authorization; never purge. Source-to-DLQ transfer preserves original enqueue age. See the [safe operations/runbook](../durable-worker-runbook.md) for sandbox gates, retention/archive limits and legacy in-memory cutover. Only the normalizer has the documented authoritative raw-backlog reconciliation path.
 
 ## Operations notes
 
-Postgres remains business truth; monitor replication lag/WAL, Sequin retries, queue age/DLQ and target state. CDK defines prod source-age >=900s and DLQ-visible >=1 alarms; worker outcome/circuit/normalization events are logs, not provisioned custom metrics or dashboards. External owners must configure worker identity/deployment and Sequin timeout >10s (15s recommended), batch <=100; the repo contains Sequin test fixtures only. Cutover must pause Sequin and drain/capture old in-memory queues **and DLQs before stop**; no new transport recovers previously lost jobs.
+Postgres remains business truth; monitor replication lag/WAL, queue age/DLQ, Lambda duration/memory/errors, search lag, and target state. CDK defines prod source-age >=900s, DLQ-visible >=1, and Lambda error alarms; worker outcome/circuit/normalization events remain logs, not provisioned custom metrics or dashboards. The ProductListing mapping pause, queue redrive, and Lambda-versus-async-DLQ distinction are in the [durable worker runbook](../durable-worker-runbook.md). External owners must configure other native worker identity/deployment and Sequin timeout >10s (15s recommended), batch <=100; the repo contains Sequin test fixtures only. No new transport recovers previously lost jobs.
 
 ## Test guidance
 

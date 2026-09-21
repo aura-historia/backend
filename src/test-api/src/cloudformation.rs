@@ -37,6 +37,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "shopify-lambda",
     "stripe-lambda",
     "fxrate-lambda",
+    "product-listing-opensearch-lambda",
 ];
 
 /// Guards the one-time CloudFormation stack setup.

@@ -1722,7 +1722,7 @@ Authoritative PostgreSQL writes MUST commit according to the transaction rules a
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes current Sequin/native declarations from the agreed DMS/Kinesis/Lambda target.
+CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes current Sequin/runtime declarations from the agreed DMS/Kinesis/Lambda target.
 
 ```text
 PostgreSQL commit
@@ -1829,7 +1829,7 @@ Delivery is **durable at-least-once within retention**, not exactly-once or orde
 - Only `Complete` outcomes permit SQS deletion. Nonterminal claims, invalid jobs, handler failure/panic, execution/heartbeat timeout, and unconfirmed effects remain unacknowledged. Delete failure also permits redelivery; do not rerun a side effect merely to retry deletion.
 - Standard SQS can duplicate and reorder. Domain idempotency, authoritative state guards, and target-side version fences remain mandatory. External email acceptance cannot be atomic with PostgreSQL finalization; a crash can still duplicate an accepted email.
 
-The consumer deliberately has one execution slot per process, no prefetch, bounded execution and visibility heartbeats. Dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
+Native consumers deliberately have one execution slot per process, no prefetch, bounded execution, and visibility heartbeats. ProductListing OpenSearch uses a dedicated Lambda mapping with batch size one; non-complete outcomes stay in batch failures for native SQS retry/DLQ. Native dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
 
 ### 12.5 Idempotency and ordering
 

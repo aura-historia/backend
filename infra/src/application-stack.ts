@@ -209,6 +209,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: props.storage.postgres,
+      search: props.search,
       network: props.network,
     });
 
@@ -228,7 +229,9 @@ export class ApplicationComputeStack extends cdk.Stack {
     this.eventing = new Eventing(this, "Eventing", {
       config,
       queues: importQueueCatalog(this, "EventingQueueImports", stageName),
+      workerQueues: importWorkerQueueCatalog(this, "EventingWorkerQueueImports", config),
       functions: this.lambdas.functions,
+      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
     });
 
     computeOutputs(this, {
@@ -317,6 +320,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: this.storage.postgres,
+      search: this.search,
     });
 
 
@@ -335,7 +339,9 @@ export class ApplicationEphemeralStack extends cdk.Stack {
     this.eventing = new Eventing(this, "Eventing", {
       config,
       queues: this.queues.catalog,
+      workerQueues: this.workerQueues.catalog,
       functions: this.lambdas.functions,
+      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
     });
 
     this.api = new BackendHttpApi(this, "HttpApi", {

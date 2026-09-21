@@ -131,15 +131,15 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     const compute = Template.fromStack(stacks.compute);
     const functions = Object.values(compute.findResources("AWS::Lambda::Function"));
     const applicationFunctions = functions.filter((resource) =>
-      ["cognito-post-confirmation", "shopify-lambda", "stripe-lambda", "fxrate-lambda"]
+      ["cognito-post-confirmation", "shopify-lambda", "stripe-lambda", "fxrate-lambda", "product-listing-opensearch-lambda"]
         .some((name) => resource.Properties.FunctionName === `${name}-${stage}`),
     );
     const logRetention = functions.find((resource) => resource.Properties.FunctionName === `cloudwatch-log-retention-lambda-${stage}`);
 
     const vpcAttachedFunctions = functions.filter((resource) => resource.Properties.VpcConfig !== undefined);
-    expect(applicationFunctions).toHaveLength(4);
+    expect(applicationFunctions).toHaveLength(5);
     expect(applicationFunctions.every((resource) => resource.Properties.VpcConfig !== undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(4);
+    expect(vpcAttachedFunctions).toHaveLength(5);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

@@ -228,12 +228,12 @@ Production native processes are:
 - `aura-historia-worker`
 - `aura-historia-cron`
 
-## Native worker queue contract (#1558)
+## Worker queue contract
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
-scopes are enabled in `prod`, `dev`, and `ephemeral`. This catalog is separate from
-the Shopify Lambda catalog: no tier dimension, new Lambda, event-source mapping,
-or change to existing Shopify resources/wiring.
+scopes are enabled in `prod`, `dev`, and `ephemeral`. `product-listing-opensearch`
+is the first dedicated SQS Lambda slice; the other nine stay native polling-worker
+scopes. This catalog remains separate from Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
@@ -256,7 +256,7 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
 | Runtime scope | Output stem after `Worker` | Initial source visibility |
 | --- | --- | ---: |
-| `product-listing-opensearch` | `ProductListingOpensearch` | 60s |
+| `product-listing-opensearch` | `ProductListingOpensearch` | 270s |
 | `search-filter-projection` | `SearchFilterProjection` | 60s |
 | `search-filter-percolator` | `SearchFilterPercolator` | 300s |
 | `search-filter-match-notification` | `SearchFilterMatchNotification` | 60s |
@@ -267,20 +267,24 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-listing-normalization` | `ProductListingNormalization` | 300s |
 | `notification-delivery` | `NotificationDelivery` | 360s |
 
-These are **polling Rust processes**, not Lambda SQS event sources. The infra
-six-times-Lambda-timeout guidance does **not** apply. Values match the worker's
-45s short / 240s slow execution budgets; notification's 360s visibility leaves
-headroom around its five-minute service-owned lease. Workers own bounded
-execution, visibility heartbeats, retry, and deletion after successful handling.
+`product-listing-opensearch` is a 512 MiB, 45s Lambda whose event source targets a
+published function version with batch size one and `ReportBatchItemFailures`.
+Its source visibility is **270s**: six times its 45s timeout plus its zero-second
+batching window. The Lambda uses no custom visibility change or receipt daemon;
+only completed service results are omitted from its failures. The remaining nine
+scopes are polling Rust processes, so the Lambda timing rule does not apply to
+them. Their values match the worker's 45s short / 240s slow budgets; notification's
+360s visibility leaves headroom around its five-minute service-owned lease.
 Standard SQS may duplicate/reorder messages; handlers must remain idempotent.
 
 ### Identity and outputs
 
-The bare-metal runtime's AWS role/trust and process deployment are **not defined
-in this CDK app**. No IAM user, access key, new runtime role, or invented deploy
-binding is created. Reuse the existing AWS credential/assumed-role arrangement.
-The external identity owner attaches only the needed per-scope managed policies;
-do not reuse the CI deploy role or an unrelated Lambda role as the worker role.
+The nine bare-metal runtimes' AWS role/trust and process deployment are **not
+defined in this CDK app**. No IAM user, access key, or invented deploy binding is
+created. The ProductListing Lambda has its own CDK execution role with source-queue
+consume and scoped OpenSearch access only; it has no queue purge, DLQ-message, or
+redrive power. The external identity owner attaches only needed unbound policies
+to native workers; do not reuse the CI deploy role or a Lambda role as a worker role.
 
 | Unbound policy | Exact source actions | Paired DLQ actions |
 | --- | --- | --- |
@@ -337,12 +341,13 @@ operator authorization. Never give runtime roles purge/redrive powers. Standard
 queue retention keeps the original enqueue timestamp when a message moves to the
 DLQ, so operators should not assume a fresh 14-day recovery window on arrival.
 
-This provisions the infra side only. It neither deploys a worker nor changes
-Sequin subscriptions, external IAM trust, credentials, or S3/SES configuration.
-Before runtime cutover, the external owner must attach the exported policies,
-apply the matching environment, verify startup attribute checks/readiness, and
-verify real publish/consume/retry/DLQ behavior. Synthesis alone does not establish
-an end-to-end durable-delivery guarantee or change the documented MVP guarantee.
+This provisions the ProductListing Lambda code target, execution role, queue mapping,
+scoped PostgreSQL/OpenSearch environment, and generic Lambda error alarm. It does
+not change Sequin subscriptions, publish a new production CDC path, grant runtime
+redrive/purge power, or prove live AWS behavior. Native worker deployment remains
+external for the other scopes. Before mapping pause/cutover, follow
+[`durable-worker-runbook.md`](../docs/durable-worker-runbook.md); synthesis alone
+does not establish durable delivery or AWS acceptance evidence.
 
 ## Deployment inputs
 
@@ -391,8 +396,10 @@ and `dev`:
 /secrets/{stage}/zoho-refresh-token
 ```
 
-`fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled
-sync. On first real-stage compute-stack creation, a custom resource synchronously
+`product-listing-opensearch-lambda` resolves the listed OpenSearch endpoint,
+username, and password in real stages. The function has no secret-read IAM; these
+are CloudFormation dynamic references. `fxrate-lambda` currently reads
+`/fxratesapi/prod/api-token` for the scheduled sync. On first real-stage compute-stack creation, a custom resource synchronously
 invokes this same Lambda with stable deployment source ID `deployment:fxrate:initial:{stage}:v1`.
 Deployment fails when this initial capture fails; it must run after PostgreSQL
 business migrations. Updates, deletes, and `ephemeral` do not invoke it. The

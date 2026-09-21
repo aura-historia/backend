@@ -10,7 +10,7 @@ import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerSc
 
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
-  "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 60 },
+  "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 270 },
   "search-filter-projection": { id: "SearchFilterProjection", visibility: 60 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibility: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 60 },
@@ -173,7 +173,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .toEqual([...expectedKeys, "WorkerQueueAwsRegion", "WorkerQueueStage"].sort());
     expect(outputs.WorkerQueueAwsRegion).toEqual({ Value: { Ref: "AWS::Region" } });
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
-    expect(JSON.stringify(compute.toJSON())).not.toContain("aura-worker-");
+    expect(JSON.stringify(compute.toJSON())).toContain("aura-worker-product-listing-opensearch-");
     expect(JSON.stringify(Template.fromStack(stacks.api).toJSON())).not.toContain("aura-worker-");
   });
 
@@ -216,7 +216,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Effect: "Allow", Resource: arn,
     }]);
     expect(policy.Properties.Roles).toEqual([{ Ref: "LambdasShopifyLambdaServiceRoleDDA039B4" }]);
-    compute.resourceCountIs("AWS::Lambda::EventSourceMapping", 1);
+    compute.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
     compute.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
       EventSourceArn: arn, FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
       BatchSize: 10, FunctionResponseTypes: ["ReportBatchItemFailures"], MaximumBatchingWindowInSeconds: 1,
@@ -230,6 +230,45 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Effect: "Allow", Principal: { Service: "events.amazonaws.com" }, Action: "sqs:SendMessage", Resource: arn,
       Condition: { ArnEquals: { "aws:SourceArn": { "Fn::GetAtt": ["EventingShopifyEventRule401F6A4E", "Arn"] } } },
     }]);
+  });
+
+  test("wires only ProductListing OpenSearch to its versioned Lambda target", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mappingsForProjection = mappings.filter((mapping) => mapping.Properties.BatchSize === 1);
+    expect(mappingsForProjection).toHaveLength(1);
+    expect(mappingsForProjection[0].Properties).toMatchObject({
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mappingsForProjection[0].Properties.FunctionName))
+      .toContain("ProductListingOpenSearchVersion");
+    expect(mappingsForProjection[0].Properties.MaximumBatchingWindowInSeconds).toBeUndefined();
+    expect(mappingsForProjection[0].Properties.ScalingConfig).toBeUndefined();
+
+    const projectionFunctions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `product-listing-opensearch-lambda-${stage}`);
+    expect(projectionFunctions).toHaveLength(1);
+    expect(projectionFunctions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(projectionFunctions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
+        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"],
+    );
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(1);
+    expect(Object.values(compute.findResources("AWS::Lambda::Alias"))).toHaveLength(0);
+    const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => statement.Action.includes("es:ESHttpPut"));
+    expect(projectionSearchStatements).toHaveLength(1);
+    expect(projectionSearchStatements[0]).toMatchObject({
+      Action: "es:ESHttpPut",
+      Effect: "Allow",
+    });
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {
@@ -261,7 +300,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
   });
 });
 
-test("single-stack ephemeral has the same complete worker contract, with no worker Lambda wiring", () => {
+test("single-stack ephemeral has the same queue contract and the ProductListing OpenSearch Lambda mapping", () => {
   const app = new cdk.App({ analyticsReporting: false });
   const stack = new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" });
   const template = Template.fromStack(stack);
@@ -273,12 +312,16 @@ test("single-stack ephemeral has the same complete worker contract, with no work
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 1);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
   template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
     EventSourceArn: { "Fn::GetAtt": ["QueuesShopifyLambdaQueue117CAC9C", "Arn"] },
     FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
     BatchSize: 10, FunctionResponseTypes: ["ReportBatchItemFailures"], MaximumBatchingWindowInSeconds: 1,
   });
+  const projectionMappings = Object.values(template.findResources("AWS::Lambda::EventSourceMapping"))
+    .filter((mapping) => mapping.Properties.BatchSize === 1);
+  expect(projectionMappings).toHaveLength(1);
+  expect(projectionMappings[0].Properties.FunctionResponseTypes).toEqual(["ReportBatchItemFailures"]);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 

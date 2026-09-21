@@ -9,11 +9,13 @@ import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
+import type { Search } from "./opensearch";
 import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly postgres: PostgresConnectionSettings;
+  readonly search: Search;
 }
 
 interface LambdaDefinition {
@@ -73,6 +75,23 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
     }),
   },
+  productListingOpenSearch: {
+    id: "ProductListingOpenSearchLambda",
+    binaryName: "product-listing-opensearch-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      STAGE: context.config.stage,
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      ...(context.config.isEphemeral
+        ? {}
+        : {
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+          }),
+    }),
+  },
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
@@ -87,11 +106,13 @@ export interface LambdasProps {
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
   readonly postgres: PostgresConnectionSettings;
+  readonly search: Search;
   readonly network?: Network;
 }
 
 export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
+  readonly productListingOpenSearchVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -100,6 +121,7 @@ export class Lambdas extends Construct {
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       postgres: props.postgres,
+      search: props.search,
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -133,6 +155,10 @@ export class Lambdas extends Construct {
     }
 
     this.functions = functions as LambdaFunctions;
+    this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
+      lambda: this.functions.productListingOpenSearch,
+      description: `product-listing-opensearch-${props.parameters.commitSha}`,
+    });
     grantRuntimeAccess(props, this.functions);
   }
 }
@@ -155,13 +181,14 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
   };
 }
 
-function grantRuntimeAccess(_props: LambdasProps, functions: LambdaFunctions): void {
+function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
   functions.cloudWatchLogRetention.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["logs:DescribeLogGroups", "logs:PutRetentionPolicy"],
       resources: ["*"],
     }),
   );
+  props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
 }
 
 export function addUserPoolEnvironment(

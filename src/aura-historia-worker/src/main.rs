@@ -1,7 +1,7 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
 use aura_historia_worker::product_content_assessment::consume_product_content_assessment_queue;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
-use aura_historia_worker::product_listing_opensearch::consume_product_listing_opensearch_queue;
+
 use aura_historia_worker::product_listing_raw_normalization::consume_product_listing_raw_normalization_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
@@ -46,7 +46,7 @@ use opensearch::{
 };
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
-use product_listing_opensearch::OpenSearchProductListingSearchProjection;
+
 use product_listing_postgres::{
     SqlxPendingProductListingRawStreamReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
@@ -62,7 +62,6 @@ use product_listing_service::use_cases::{
     AssessProductListingContentEventHandler, AssessProductListingContentEventUseCase,
     EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
-    ProjectProductListingHandler, ProjectProductListingUseCase,
     TranslateProductListingEventHandler, TranslateProductListingEventUseCase,
 };
 use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
@@ -112,6 +111,9 @@ async fn run() -> Result<(), MainError> {
     ));
     let startup = WorkerStartupConfig::from_env()?;
     let scope = startup.scope();
+    if scope == WorkerScope::ProductListingOpenSearch {
+        return Err(MainError::ScopeUsesLambda { scope });
+    }
     let worker_config = startup.worker().clone();
     let queue = aura_historia_worker::queue::SqsQueue::from_config(startup.queue().clone()).await?;
     let pool = startup
@@ -153,12 +155,7 @@ async fn run() -> Result<(), MainError> {
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_product_translation(worker_config, pool, composition, vertex_ai).await
         }
-        WorkerScope::ProductListingOpenSearch => {
-            let opensearch = startup
-                .opensearch()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_product_listing_opensearch(worker_config, pool, composition, opensearch).await
-        }
+
         WorkerScope::ProductListingEmbedding => {
             let vertex_ai = startup
                 .vertex_ai()
@@ -174,6 +171,7 @@ async fn run() -> Result<(), MainError> {
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_notification_delivery(worker_config, pool, composition, delivery).await
         }
+        WorkerScope::ProductListingOpenSearch => Err(MainError::ScopeUsesLambda { scope }),
     }
 }
 
@@ -239,24 +237,6 @@ async fn run_search_filter_match_notifications(
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
         receiver, handler,
     ));
-    finish_runtime(config, runtime, task).await
-}
-
-async fn run_product_listing_opensearch(
-    config: aura_historia_worker::WorkerConfig,
-    pool: sqlx::PgPool,
-    composition: WorkerRuntimeComposition,
-    opensearch: &WorkerOpenSearchConfig,
-) -> Result<(), MainError> {
-    let handler: Arc<dyn ProjectProductListingUseCase> =
-        Arc::new(ProjectProductListingHandler::new(
-            SqlxUnitOfWork::new(pool),
-            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductListingSearchProjection::new(opensearch_client(opensearch)?),
-        ));
-    let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_product_listing_opensearch_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 
@@ -700,6 +680,8 @@ enum MainError {
     QueueConfig(#[from] aura_historia_worker::queue::QueueError),
     #[error("missing validated configuration for {scope:?} worker scope")]
     MissingScopeConfig { scope: WorkerScope },
+    #[error("{scope:?} is served by its dedicated Lambda runtime")]
+    ScopeUsesLambda { scope: WorkerScope },
 
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },

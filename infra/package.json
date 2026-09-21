@@ -10,7 +10,8 @@
         "cdk": "cdk",
         "synth": "cdk synth --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices",
         "synth:all": "npm run synth -- --context stage=dev >/dev/null && npm run synth -- --context stage=prod >/dev/null && npm run synth -- --context stage=ephemeral >/dev/null",
-        "test": "jest --runInBand"
+        "test": "jest --runInBand",
+        "prove:product-listing-opensearch-lambda": "./scripts/prove-product-listing-opensearch-lambda.sh"
     },
     "dependencies": {
         "aws-cdk-lib": "2.269.0",
