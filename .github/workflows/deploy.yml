@@ -79,6 +79,7 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/aura-historia-api
           - src/shopify-lambda
           - src/cognito-post-confirmation
           - src/cloudwatch-log-retention-lambda

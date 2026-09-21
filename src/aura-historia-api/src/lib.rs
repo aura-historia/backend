@@ -3,6 +3,7 @@ pub mod auctions;
 pub mod auth;
 pub mod billing;
 pub mod error;
+pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
 pub mod notifications;
@@ -57,7 +58,10 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+    VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
+};
 use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
 use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
@@ -177,6 +181,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
 use user_postgres::{
@@ -645,6 +650,10 @@ pub enum ApiConfigError {
 }
 
 pub fn app(state: AppState) -> Router {
+    app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT)
+}
+
+fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
     let health_routes = Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -927,7 +936,7 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(partnerships::router(partnerships));
     }
 
-    with_transport_middleware(routes)
+    with_transport_middleware(routes, request_timeout)
 }
 
 async fn health() -> &'static str {
@@ -965,6 +974,16 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     app_state_from_config(&config).await
 }
 
+pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
+    let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
+    log_product_listing_search_cache_config(&config);
+    let state = app_state_from_config(&config).await?;
+    Ok(app_with_request_timeout(
+        state,
+        crate::transport::LAMBDA_REQUEST_TIMEOUT,
+    ))
+}
+
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let cognito_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
@@ -979,9 +998,8 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
-    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(VertexAiEmbeddingGenerator::new(
+    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(LazyVertexAiEmbeddingGenerator::new(
         config.vertex_ai_embedding().clone(),
-        google_application_default_credentials()?,
     ));
 
     let get_admin_overview = GetAdminOverviewHandler::new(
@@ -1746,13 +1764,60 @@ fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     Ok(OpenSearch::new(transport))
 }
 
+struct LazyVertexAiEmbeddingGenerator {
+    config: VertexAiEmbeddingConfig,
+    generator: OnceCell<VertexAiEmbeddingGenerator>,
+}
+
+impl LazyVertexAiEmbeddingGenerator {
+    fn new(config: VertexAiEmbeddingConfig) -> Self {
+        Self {
+            config,
+            generator: OnceCell::new(),
+        }
+    }
+
+    async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
+        self.generator
+            .get_or_try_init(|| async {
+                Ok(VertexAiEmbeddingGenerator::new(
+                    self.config.clone(),
+                    google_application_default_credentials()?,
+                ))
+            })
+            .await
+    }
+}
+
+#[async_trait]
+impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.generator()
+            .await?
+            .embed_product(title, additional_text, image_url)
+            .await
+    }
+
+    async fn embed_search_query(
+        &self,
+        query: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.generator().await?.embed_search_query(query).await
+    }
+}
+
 fn google_application_default_credentials()
--> Result<google_cloud_auth::credentials::AccessTokenCredentials, ApiStateError> {
+-> Result<google_cloud_auth::credentials::AccessTokenCredentials, EmbeddingError> {
     GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
         .build_access_token_credentials()
-        .map_err(|error| ApiStateError::VertexAiCredentials {
-            detail: error.to_string(),
+        .map_err(|source| EmbeddingError::AuthenticationFailed {
+            source: Box::new(source),
         })
 }
 
@@ -1798,8 +1863,6 @@ pub enum ApiStateError {
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
-    #[error("failed to initialize Vertex AI credentials: {detail}")]
-    VertexAiCredentials { detail: String },
     #[error("failed to configure Cognito JWT authentication: {0}")]
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
@@ -1833,10 +1896,15 @@ where
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
-    serve(listener, app(state), shutdown).await
+    serve(
+        app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT),
+        listener,
+        shutdown,
+    )
+    .await
 }
 
-pub async fn serve<S>(listener: TcpListener, app: Router, shutdown: S) -> Result<(), ApiRunError>
+pub async fn serve<S>(app: Router, listener: TcpListener, shutdown: S) -> Result<(), ApiRunError>
 where
     S: Future<Output = ()> + Send + 'static,
 {

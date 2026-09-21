@@ -32,6 +32,7 @@ const STAGE: &str = "ephemeral";
 ///
 /// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
 const LAMBDA_BINARIES: &[&str] = &[
+    "aura-historia-api",
     "cognito-post-confirmation",
     "cloudwatch-log-retention-lambda",
     "shopify-lambda",

@@ -1,11 +1,26 @@
-use aura_historia_api::{ApiConfig, ApiConfigError, ApiRunError, run_until_shutdown};
+use aura_historia_api::{
+    ApiConfig, ApiConfigError, ApiRunError, ApiStateError, lambda_app_from_env, run_until_shutdown,
+};
+use platform_lambda_bootstrap::log_cold_start;
 use platform_observability::{LogLevel, LoggingConfig, init};
+use std::time::Instant;
+
+const LAMBDA_COMPONENT: &str = "aura-historia-api";
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
+    let initialization_started_at = Instant::now();
     init(logging_config_from_env());
-    let config = ApiConfig::from_env()?;
-    run_until_shutdown(config, shutdown_signal()).await?;
+
+    if std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some() {
+        let app = lambda_app_from_env().await?;
+        log_cold_start(LAMBDA_COMPONENT, initialization_started_at);
+        aura_historia_api::lambda::run(app).await?;
+    } else {
+        let config = ApiConfig::from_env()?;
+        run_until_shutdown(config, shutdown_signal()).await?;
+    }
+
     Ok(())
 }
 
@@ -30,4 +45,8 @@ enum MainError {
     Config(#[from] ApiConfigError),
     #[error(transparent)]
     Run(#[from] ApiRunError),
+    #[error(transparent)]
+    State(#[from] ApiStateError),
+    #[error(transparent)]
+    Lambda(#[from] lambda_http::Error),
 }
