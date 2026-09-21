@@ -70,16 +70,8 @@ export class Search extends Construct {
     this.addPolicy(grantee, ["es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost"]);
   }
 
-  grantReadWrite(grantee: iam.IGrantable): void {
-    this.addPolicy(grantee, [
-      "es:Describe*",
-      "es:List*",
-      "es:ESHttpGet",
-      "es:ESHttpHead",
-      "es:ESHttpPost",
-      "es:ESHttpPut",
-      "es:ESHttpDelete",
-    ]);
+  grantIndexDocumentWrite(grantee: iam.IGrantable): void {
+    this.addPolicy(grantee, ["es:ESHttpPut"]);
   }
 
   private addPolicy(grantee: iam.IGrantable, actions: string[]): void {

@@ -107,7 +107,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
       .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-    expect(functions).toHaveLength(4);
+    expect(functions).toHaveLength(5);
     for (const functionResource of functions) {
       const environment = functionResource.Properties.Environment.Variables;
       expect(JSON.stringify(environment.POSTGRES_HOST)).not.toContain(`/postgres/${stage}/host`);

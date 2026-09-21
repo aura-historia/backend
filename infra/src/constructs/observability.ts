@@ -147,7 +147,7 @@ function apiAlarm(
 
 const apiLambdaKeys = new Set<LambdaKey>();
 
-const queueWorkerKeys = new Set<LambdaKey>(["shopify"]);
+const queueWorkerKeys = new Set<LambdaKey>(["shopify", "productListingOpenSearch"]);
 
 function toKebabCase(value: string): string {
   return value

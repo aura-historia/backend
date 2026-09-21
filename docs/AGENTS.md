@@ -40,7 +40,8 @@
 ## Child DOX Index
 
 - `arch.md` — workspace architecture rules.
-- `auction.md` — Auction domain contract and current implementation status.
+- `durable-worker-runbook.md` — queue/Lambda worker recovery and projection-fence operations.
+- `auction.md — Auction domain contract and current implementation status.
 - `events/flow.md` — durable event and scheduled-flow contracts.
 - `migration-f1-inventory.md` — #1775 migration baseline, contracts, surviving resources, owners, and gates.
 - `migration-f7-dms.md` — #1781 DMS-to-Kinesis CDC configuration, bounds, test protocol, and evidence gates.

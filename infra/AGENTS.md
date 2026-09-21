@@ -10,7 +10,7 @@
 - CDK app composes focused stacks: data, compute, API, and prod observability.
 - `src/application-stack.ts` wire stack set and public outputs. Keep it orchestration-only.
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
-- `src/worker-queue-config.ts` own ten native worker scopes and queue settings. `src/constructs/worker-queues.ts` own separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
+- `src/worker-queue-config.ts` owns ten worker scopes and queue settings; ProductListing OpenSearch is Lambda-backed and the other nine remain native. `src/constructs/worker-queues.ts` owns separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
 - CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
 - Postgres is self-hosted. Infra passes explicit `POSTGRES_*` env vars from SSM/test settings; no RDS Proxy.

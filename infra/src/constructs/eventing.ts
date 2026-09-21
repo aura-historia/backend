@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as events from "aws-cdk-lib/aws-events";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
@@ -10,11 +11,14 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { LambdaFunctions } from "./lambdas";
 import type { QueueCatalog } from "./queues";
+import type { WorkerQueueCatalog } from "./worker-queues";
 
 export interface EventingProps {
   readonly config: StageConfig;
   readonly queues: QueueCatalog;
+  readonly workerQueues: WorkerQueueCatalog;
   readonly functions: LambdaFunctions;
+  readonly productListingOpenSearchVersion: lambda.IVersion;
 }
 
 export class Eventing extends Construct {
@@ -40,7 +44,13 @@ export class Eventing extends Construct {
 
     createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createCloudWatchLogRetentionRule(this, props.functions);
-    createSqsEventSources(props.functions, props.queues);
+    createSqsEventSources(
+      this,
+      props.functions,
+      props.queues,
+      props.workerQueues,
+      props.productListingOpenSearchVersion,
+    );
 
     if (!props.config.isEphemeral && props.functions.fxRateSync) {
       createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
@@ -157,8 +167,35 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
   });
 }
 
-function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
+function createSqsEventSources(
+  scope: Construct,
+  functions: LambdaFunctions,
+  queues: QueueCatalog,
+  workerQueues: WorkerQueueCatalog,
+  productListingOpenSearchVersion: lambda.IVersion,
+): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
+
+  const productListingOpenSearch = workerQueues["product-listing-opensearch"];
+  if (!productListingOpenSearch) {
+    throw new Error("ProductListing OpenSearch worker queue is required for its Lambda event source.");
+  }
+  functions.productListingOpenSearch.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueUrl",
+    ],
+    resources: [productListingOpenSearch.queue.queueArn],
+  }));
+  new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
+    batchSize: 1,
+    eventSourceArn: productListingOpenSearch.queue.queueArn,
+    functionName: productListingOpenSearchVersion.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+  });
 }
 
 function addSqsEventSource(

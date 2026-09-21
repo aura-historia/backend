@@ -13,7 +13,7 @@
 
 ## Shape
 
-- `main.rs`: scoped adapter composition, AWS credential chain, logging, SIGINT/SIGTERM, consumer supervision, bounded drain.
+- `main.rs`: native-scope adapter composition, AWS credential chain, logging, SIGINT/SIGTERM, consumer supervision, bounded drain. ProductListing OpenSearch is Lambda-only here; direct consumer helpers remain for native/local fixtures.
 - `lib.rs`: typed startup config, explicit runtime composition, Axum server entry points.
 - `cdc.rs`: existing strict ProductListing v1 event validation and scoped routing. Whole batch and destinations prevalidated before first publication.
 - `jobs.rs`: compact worker jobs, canonical IDs, positive versions, logical-key validation. Existing `cdc::*` job exports remain compatible.
@@ -83,7 +83,7 @@
 | `product-content-assessment` | discovery inserts | Guarded applied/cleared/duplicate/stale/ignored complete; absent source retries. |
 | `product-embedding` | discovery or changed images | Guarded applied/duplicate/stale/ignored and authoritative missing-title no-op complete; absent source retries. |
 | `product-translation` | discovery inserts | Guarded applied/duplicate/stale/ignored and authoritative missing/empty title/language no-op complete; absent source retries. |
-| `product-listing-opensearch` | supported ProductListing events | Applied/version-stale/deleted complete; missing source or missing required sale snapshot retries. Projection race protection remains target adapter responsibility. |
+| `product-listing-opensearch` | supported ProductListing events | Dedicated Lambda consumes schema-2 jobs. Applied/version-stale/deleted complete; missing source or required sale snapshot retries; malformed jobs redrive to paired DLQ. Native/local direct consumers remain fixture-only. Projection race protection remains target adapter responsibility. |
 
 ## Service dependencies
 
@@ -96,6 +96,8 @@
 
 - `cargo check --locked -p aura-historia-worker`
 - `cargo test --locked -p aura-historia-worker --all-features`
+- `cargo check --locked -p product-listing-opensearch-lambda`
+- `cargo test --locked -p product-listing-opensearch-lambda --all-features`
 - Private tests cover wire snapshots/negative matrices, lifecycle failures, publication prevalidation/partial/ambiguous failure, safe timing logs, real SDK requests against loopback HTTP stubs, config policy drift, HTTP fragmentation/socket/header/body limits/timeouts/cancellation/drain, sustained outage recovery, maximum fanout, and normalizer fairness/owned polling/held heartbeat/handoff/shutdown.
 - Every scope's acceptance uses real TLS-enabled PostgreSQL, Sequin, LocalStack SQS and written target stores with independent competing consumers. The fixture must prove trusted TLS success and fail wrong-CA, wrong-hostname, and plaintext attempts; raw normalization keeps a four-second direct CDC deadline; timer reconciliation cannot replace prompt receipt handling.
 - `tests/process_durability.rs` runs actual worker children against persistent fixtures. Deterministic database/HTTP barriers cover death before completion/deletion, overlapping consumers, native DLQ persistence, lost send/delete responses, and SIGTERM drain. Instrumented children keep unique profiles beside CI's `LLVM_PROFILE_FILE`; clean exits must flush a nonempty child profile. SIGKILL cannot flush exit-time coverage. Unit fakes do not prove process durability. Real AWS smoke remains opt-in.
