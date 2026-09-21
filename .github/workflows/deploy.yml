@@ -85,6 +85,7 @@ jobs:
           - src/cloudwatch-log-retention-lambda
           - src/fxrate-lambda
           - src/stripe-lambda
+          - src/product-listing-opensearch-lambda
     steps:
       - uses: actions/checkout@v7
 

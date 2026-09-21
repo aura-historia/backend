@@ -136,7 +136,8 @@
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-listing-opensearch/AGENTS.md` — canonical ProductListing OpenSearch adapter crate.
-- `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
+- `src/product-listing-opensearch-lambda/AGENTS.md` — ProductListing OpenSearch SQS Lambda adapter.
+- `src/watchlist-core/AGENTS.md — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
 - `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.
 
