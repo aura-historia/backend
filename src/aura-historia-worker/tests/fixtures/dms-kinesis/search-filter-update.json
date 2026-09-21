@@ -1,0 +1,16 @@
+{
+  "data": {
+    "user_search_filter_id": "01900000-0000-7000-8000-000000000006",
+    "user_id": "01900000-0000-7000-8000-000000000001",
+    "version": "2"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "update",
+    "schema-name": "public",
+    "table-name": "search_filters",
+    "timestamp": "2026-09-21T12:00:03Z",
+    "transaction-id": "1004",
+    "transaction-record-id": "1"
+  }
+}

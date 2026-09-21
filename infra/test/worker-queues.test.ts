@@ -153,7 +153,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     data.resourceCountIs("AWS::IAM::ManagedPolicy", 20);
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
-    data.resourceCountIs("AWS::IAM::Role", 0);
+    const workerRoles = Object.values(data.findResources("AWS::IAM::Role"))
+      .filter((role) => String(role.Properties.RoleName).startsWith("aura-worker-"));
+    expect(workerRoles).toHaveLength(0);
     data.resourceCountIs("AWS::KMS::Key", 0);
     data.resourceCountIs("AWS::Lambda::Function", 0);
   });

@@ -42,12 +42,21 @@ export interface RdsConfig {
   readonly backupRetentionDays: number;
 }
 
+export interface DmsConfig {
+  readonly engineVersion: "3.6.1";
+  readonly replicationInstanceClass: "dms.t3.small";
+  readonly cdcStartPosition: "now";
+  readonly lobMaxSizeKiB: 512;
+  readonly kinesisRetentionDays: 7;
+}
+
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
   readonly isEphemeral: boolean;
   readonly network: NetworkConfig | undefined;
   readonly rds: RdsConfig | undefined;
+  readonly dms: DmsConfig | undefined;
   readonly removalPolicy: cdk.RemovalPolicy;
   readonly workerQueues: WorkerQueueSettings;
   readonly apiEndpointUrl: string | undefined;
@@ -110,6 +119,15 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
           allocatedStorageGiB: isProd ? 50 : 30,
           maxAllocatedStorageGiB: isProd ? 100 : 60,
           backupRetentionDays: isProd ? 14 : 7,
+        },
+    dms: isEphemeral
+      ? undefined
+      : {
+          engineVersion: "3.6.1",
+          replicationInstanceClass: "dms.t3.small",
+          cdcStartPosition: "now",
+          lobMaxSizeKiB: 512,
+          kinesisRetentionDays: 7,
         },
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,

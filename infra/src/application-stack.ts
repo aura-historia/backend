@@ -11,6 +11,7 @@ import { stageConfig } from "./config";
 import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
+import { DmsCdc } from "./constructs/dms-cdc";
 import { Eventing } from "./constructs/eventing";
 import { Network } from "./constructs/network";
 import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
@@ -133,6 +134,7 @@ export class ApplicationDataStack extends cdk.Stack {
   readonly queues: Queues;
   readonly workerQueues: WorkerQueues;
   readonly search: Search;
+  readonly dmsCdc?: DmsCdc;
 
   constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
     super(scope, id, stackProps(props));
@@ -158,6 +160,13 @@ export class ApplicationDataStack extends cdk.Stack {
     this.search = new Search(this, "Search", {
       config,
     });
+    this.dmsCdc = config.isEphemeral
+      ? undefined
+      : new DmsCdc(this, "DmsCdc", {
+          config,
+          network: props.network,
+          storage: this.storage,
+        });
 
     dataOutputs(this, {
       storage: this.storage,
@@ -406,6 +415,7 @@ function networkOutputs(stack: cdk.Stack, network: Network): void {
   new cdk.CfnOutput(stack, "ApplicationSecurityGroupId", { value: network.applicationSecurityGroup.securityGroupId });
   new cdk.CfnOutput(stack, "DatabaseSecurityGroupId", { value: network.databaseSecurityGroup.securityGroupId });
   new cdk.CfnOutput(stack, "DmsSecurityGroupId", { value: network.dmsSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DmsEndpointSecurityGroupId", { value: network.dmsEndpointSecurityGroup.securityGroupId });
   new cdk.CfnOutput(stack, "MigrationSecurityGroupId", { value: network.migrationSecurityGroup.securityGroupId });
 }
 

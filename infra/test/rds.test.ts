@@ -66,7 +66,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     }
   });
 
-  test("sets TLS and logical replication policy without provisioning DMS", () => {
+  test("sets TLS and logical replication policy for the private DMS CDC task", () => {
     const stacks = createStacks(stage);
     const template = Template.fromStack(stacks.data);
     const parameterGroups = Object.values(template.findResources("AWS::RDS::DBParameterGroup"));
@@ -82,9 +82,9 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     });
     template.resourceCountIs("AWS::RDS::DBProxy", 0);
     template.resourceCountIs("AWS::RDS::DBCluster", 0);
-    expect(Object.keys(template.findResources("AWS::DMS::ReplicationInstance"))).toHaveLength(0);
-    expect(Object.keys(template.findResources("AWS::DMS::Endpoint"))).toHaveLength(0);
-    expect(Object.keys(template.findResources("AWS::DMS::ReplicationTask"))).toHaveLength(0);
+    expect(Object.keys(template.findResources("AWS::DMS::ReplicationInstance"))).toHaveLength(1);
+    expect(Object.keys(template.findResources("AWS::DMS::Endpoint"))).toHaveLength(2);
+    expect(Object.keys(template.findResources("AWS::DMS::ReplicationTask"))).toHaveLength(1);
   });
 
   test("creates generated role credentials and keeps credential values out of outputs", () => {

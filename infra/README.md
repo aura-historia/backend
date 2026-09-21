@@ -12,7 +12,7 @@ synthesized for:
 
 ## Migration baseline
 
-The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) records the approved migration target, current CDK declarations, unverified live resources, ownership, and cutover gates. It is the starting reference for replacement work; this README and CDK synthesis do not prove deployed state.
+The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) records the approved migration target, current CDK declarations, unverified live resources, ownership, and cutover gates. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Both documents, this README, and CDK synthesis do not prove deployed state.
 
 ## Structure
 
@@ -26,6 +26,7 @@ src/resources/             # synth-time resources, e.g. Cognito email HTML and i
 src/constructs/            # focused infrastructure modules
   api.ts                   # HTTP API Gateway routes, domain, CloudFront, WAF, CORS, JWT authorizer
   cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
+  dms-cdc.ts               # private CDC-only PostgreSQL-to-Kinesis DMS resources
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
   network.ts               # two-AZ VPC, one NAT/EIP, S3 endpoint, workload security groups
@@ -38,6 +39,23 @@ sql/
   rds-bootstrap-roles.sql  # manual post-provision database-role bootstrap
 
 ```
+
+### `dms-cdc` construct (#1781)
+
+`DmsCdc` is declared for real stages. Its checked-in shape is configuration, not a deployment or live-AWS claim:
+
+```text
+DmsCdc (real stages only)
+├── replication subnet group in private application subnets
+├── single-AZ dms.t3.small replication instance
+├── PostgreSQL source endpoint using the exact replication secret
+├── Kinesis target endpoint and one provisioned, seven-day stream
+├── stopped CDC-only replication task
+├── Kinesis interface endpoint with private DNS
+└── Secrets Manager interface endpoint with private DNS
+```
+
+It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. The detailed start, slot, mapping, LOB, test, and cost contract is in [Migration F7](../docs/migration-f7-dms.md).
 
 ## Common commands
 
@@ -59,7 +77,7 @@ These commands build, test, and synthesize only; they do not deploy.
 Synth creates these stacks per stage:
 
 - `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
-- `application-{stage}-data` — private RDS PostgreSQL in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
+- `application-{stage}-data` — private RDS PostgreSQL and DMS/Kinesis CDC in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
@@ -129,15 +147,17 @@ secret-read IAM or background refresh timer.
 
 Real stages have separate `/16` address space: `prod` uses `10.64.0.0/16` and `dev` uses `10.65.0.0/16`. Each has two public, two private-application, and two isolated private-database `/24` subnets across two availability zones. Exactly one managed NAT Gateway is placed in the first public subnet with one explicitly declared EIP. Both application subnet default routes use it; database route tables have no internet default route.
 
-The application route tables use one S3 **gateway** endpoint. Its endpoint policy permits only `GetObject` and `ListBucket` on the existing artifact, mail-template, and CloudFormation-staging buckets. It does not grant Lambda IAM permissions. No paid interface endpoint, NAT instance, proxy, mandatory IPv6, public database, crawler network, or crawler database access is declared here.
+The application route tables use one S3 **gateway** endpoint. Its endpoint policy permits only `GetObject` and `ListBucket` on the existing artifact, mail-template, and CloudFormation-staging buckets. It does not grant Lambda IAM permissions. F7 additionally declares Kinesis and Secrets Manager **interface** endpoints in the data stack for DMS; no public database, crawler network, or crawler database access is declared here.
 
-`ApplicationSecurityGroup`, `DatabaseSecurityGroup`, `DmsSecurityGroup`, and `MigrationSecurityGroup` are exported for later RDS/DMS/migration ownership. PostgreSQL ingress is TCP 5432 only from those three explicit source groups. The database group has no usable outbound rule. Application workloads may egress TCP 5432 only to the database group and TCP 443 to IPv4 destinations via NAT. Security groups cannot express hostname allowlists: external HTTPS provider/AWS API host review stays with the workload and IAM/identity configuration; TLS certificate validation remains an application requirement, not a security-group setting. The DMS task owns any Kinesis or Secrets Manager endpoint decision.
+`ApplicationSecurityGroup`, `DatabaseSecurityGroup`, `DmsSecurityGroup`, `DmsEndpointSecurityGroup`, and `MigrationSecurityGroup` are exported for RDS/DMS/migration ownership. PostgreSQL ingress is TCP 5432 only from the application, DMS, and migration groups. The database group has no usable outbound rule. Application workloads may egress TCP 5432 only to the database group and TCP 443 to IPv4 destinations via NAT. Security groups cannot express hostname allowlists: external HTTPS provider/AWS API host review stays with the workload and IAM/identity configuration; TLS certificate validation remains an application requirement, not a security-group setting.
+
+The F7 DMS endpoint/security-group contract replaces the earlier open-ended endpoint wording: DMS egress is TCP 5432 to `DatabaseSecurityGroup` and TCP 443 to the interface-endpoint security group only. That endpoint group allows TCP 443 only from `DmsSecurityGroup`. The endpoints have private DNS for `kinesis.eu-central-1.amazonaws.com` and `secretsmanager.eu-central-1.amazonaws.com`. DMS has no broad egress and does not use NAT.
 
 No network stack or network export existed at the F1 baseline, so this change has no obsolete export to remove and makes no stateful-resource replacement. `data` imports the VPC for RDS and `compute` imports the VPC values required by PostgreSQL Lambdas. `NatGatewayEipAllocationId` and `NatGatewayEipPublicIp` are outputs. Give the public IP to the Hetzner OpenSearch owner for allowlisting before a workload uses that path. One NAT is an accepted single-AZ egress dependency: its AZ failure stops application-subnet IPv4 egress, and application subnets in the other AZ can incur cross-AZ transfer charges. It is intentionally not highly available egress. RDS/DMS provisioning, external connection tests, pricing review, live change-set diff, and crawler coordination remain separate gates.
 
 ## RDS PostgreSQL foundation (F4)
 
-Real stages create one private, encrypted, **Single-AZ** PostgreSQL RDS instance in the two isolated database subnets. It has no public endpoint, no Aurora cluster, RDS Proxy, read replica, crawler principal/access, DMS resource, publication, or replication slot. The data stack depends on network; compute depends on data. The existing database security group remains the only TCP 5432 boundary.
+Real stages create one private, encrypted, **Single-AZ** PostgreSQL RDS instance in the two isolated database subnets. It has no public endpoint, Aurora cluster, RDS Proxy, read replica, or crawler principal/access. F7 adds a separately owned CDC-only DMS path and never auto-creates a publication or replication slot. The data stack depends on network; compute depends on data. The existing database security group remains the only TCP 5432 boundary.
 
 The selected engine is PostgreSQL `16.13`, the newest PostgreSQL 16 engine constant available in the pinned CDK library. AWS lists supported RDS PostgreSQL releases in its [release notes](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-versions.html). Verify `16.13` remains available in the approved account and region before a change set or deploy; synthesis is not that verification.
 
@@ -148,7 +168,7 @@ The selected engine is PostgreSQL `16.13`, the newest PostgreSQL 16 engine const
 
 Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-sun:03:30 UTC`, automatic minor upgrades, PostgreSQL log export, encrypted storage, and copy tags to snapshots. These values are a capacity/cost starting point, not live price, restore, or load-test evidence. Production retention also applies on replacement; retained data needs an explicit operator inventory before cleanup.
 
-The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The DMS source task later owns publication and slot creation. Full restore/recovery evidence belongs to #1805.
+The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The F7 operator manually provisions and checks the `test_decoding` slot; DMS never auto-creates or replaces it. Full restore/recovery evidence belongs to #1805.
 
 RDS enforces TLS. #1779 injects `POSTGRES_TLS_ROOT_CERT=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` into PostgreSQL Lambdas; migrated Rust roots require it and use SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. The configured path is the AL2023 system trust bundle, so CA rotation ships through the runtime image/config release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests need a TLS-enabled PostgreSQL fixture with a separately supplied test CA; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
 
@@ -183,6 +203,22 @@ The script creates or updates scoped login roles without embedding passwords. `a
 The initial business migration needs standard RDS extensions `pg_trgm` and `unaccent`. It also still fails deliberately when `pg_ttl_index` is absent. RDS PostgreSQL does not supply that dependency; #1776 must remove or replace it before clean fresh RDS schema initialization is possible. This foundation does not alter that migration.
 
 For recovery, select the retained snapshot or desired point-in-time restore timestamp within the automated-backup window, restore into an isolated replacement instance/subnet/security-group plan, validate engine/parameter/role/schema state, then plan endpoint and secret handoff before application traffic. Do not assume a restore preserves current role grants, application-password alignment, or logical slots/publications. #1805 owns the tested restore runbook and evidence.
+
+## DMS CDC declaration and evidence (#1781)
+
+For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis/Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
+
+The task is CDC-only and initially stopped. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. An approved operator manually checks/provisions its `test_decoding` slot, starts it explicitly, and restarts only from its checkpoint. A lost or invalid slot requires a new fenced replay/rebuild plan; no automation recreates it. See [Migration F7](../docs/migration-f7-dms.md) for the exact AWS availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+
+From `infra/`, the existing configuration checks are:
+
+```bash
+npm test
+npm run synth -- --context stage=dev
+npm run synth -- --context stage=prod
+```
+
+They do not deploy or exercise AWS. The AWS fixture procedure is documented/manual; no new test script is implied. Real-stage declarations and synthesis are not live-resource or AWS-test proof. Look up DMS, Kinesis retention, and PrivateLink endpoint/data prices at change-set approval or execution; existing NAT has no DMS incremental charge. See [Migration F7](../docs/migration-f7-dms.md#cost-delta).
 
 ## Native processes
 
