@@ -92,6 +92,39 @@ Rollback is performed by redeploying a previous `CommitSHA` parameter value to t
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
 points compute resources back to the previously uploaded artifacts.
 
+## Rust Lambda artifact contract
+
+The current Lambda catalog uses `provided.al2023`, `x86_64`, and one executable
+`bootstrap` in each ZIP. This matches the deployed CDK architecture; do not change
+the target without changing the CDK definition and package smoke evidence together.
+The Amazon Linux 2023 TLS trust bundle is supplied to PostgreSQL Lambdas through
+`POSTGRES_TLS_ROOT_CERT`; no certificate, database password, provider token, or
+signed event body is packaged or logged.
+
+CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
+binary with:
+
+```bash
+cargo lambda build --locked --release \
+  --target x86_64-unknown-linux-musl \
+  --output-format zip
+```
+
+`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI copies it to
+`<binary>-<stage>-<commit-sha>.zip`, which exactly matches
+`src/constructs/lambdas.ts`. Native processes remain the local development
+entrypoints; no API Lambda HTTP adapter, worker polling loop, cron scheduler, or
+health daemon is included in an artifact invocation.
+
+A Lambda root constructs only its selected dependencies during cold start and
+reuses immutable configuration plus pool/client handles during warm invocations.
+It logs only its component, Lambda request ID, remaining invocation budget, and
+cold-start duration; it never logs event bodies, credentials, or provider errors.
+AWS SDK clients use the execution-role credential chain. PostgreSQL credentials
+remain deploy-time dynamic references and require a redeploy after rotation until
+the separately owned F5 refresh interface is available; the runtime has no
+secret-read IAM or background refresh timer.
+
 ## Network foundation (F3)
 
 Real stages have separate `/16` address space: `prod` uses `10.64.0.0/16` and `dev` uses `10.65.0.0/16`. Each has two public, two private-application, and two isolated private-database `/24` subnets across two availability zones. Exactly one managed NAT Gateway is placed in the first public subnet with one explicitly declared EIP. Both application subnet default routes use it; database route tables have no internet default route.
@@ -117,7 +150,19 @@ Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-s
 
 The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The DMS source task later owns publication and slot creation. Full restore/recovery evidence belongs to #1805.
 
-RDS enforces TLS, but this change does **not** make current SQLx clients perform verified TLS. #1779 owns verified client TLS configuration and rollout. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+RDS enforces TLS. #1779 injects `POSTGRES_TLS_ROOT_CERT=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` into PostgreSQL Lambdas; migrated Rust roots require it and use SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. The configured path is the AL2023 system trust bundle, so CA rotation ships through the runtime image/config release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests need a TLS-enabled PostgreSQL fixture with a separately supplied test CA; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+
+### SQLx pool and TLS validation (F5)
+
+Migrated roots require a TLS-enabled PostgreSQL fixture. Run the code/config gates with:
+
+```bash
+cargo test -p platform-postgres --all-features
+cargo test -p aura-historia-worker --lib --all-features
+npm --prefix infra test
+```
+
+Before an approved isolated-RDS smoke, use an RDS endpoint and DNS name covered by its server certificate, inject the CA bundle path through `POSTGRES_TLS_ROOT_CERT`, and record only acquisition/reconnect durations. Prove one successful trusted connection and failure for wrong CA, wrong hostname, and plaintext; do not log credentials, connection strings, or raw provider data. Restart/credential-rotation tests require separate approval and the #1780 refresh handoff.
 
 ### Credentials and manual first initialization
 

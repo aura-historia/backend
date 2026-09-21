@@ -42,6 +42,7 @@ members = [
     "src/product-listing-translation-llm",
     "src/product-listing-postgres",
     "src/platform-observability",
+    "src/platform-lambda-bootstrap",
     "src/platform-opensearch",
     "src/platform-postgres",
     "src/fxrate-core",
@@ -119,6 +120,7 @@ auction-core = { path = "src/auction-core" }
 auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
+platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
 search-filter-core = { path = "src/search-filter-core" }

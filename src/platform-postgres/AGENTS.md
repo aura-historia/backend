@@ -7,6 +7,7 @@
 ## Core Design
 
 - Own typed pool config, pool construction, and SQLx transaction implementation.
+- Lambda profile uses lazy min-zero pools, verified full TLS with configured CA path, bounded acquire/statement/lock waits, stale-idle checks, and finite idle/lifetime reuse. It emits safe structured acquisition and opened/reconnected-link metrics with no credentials or connection strings. Legacy `new` stays source-compatible for non-Lambda callers such as crawler.
 - Depends on `application` transaction contracts and SQLx only.
 - No entity repository, row, mapping, environment read, or business port.
 

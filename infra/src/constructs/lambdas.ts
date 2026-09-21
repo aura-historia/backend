@@ -150,6 +150,7 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
     POSTGRES_MAX_CONNECTIONS: context.postgres.maxConnections,
     POSTGRES_PASSWORD: context.postgres.password,
     POSTGRES_PORT: context.postgres.port,
+    POSTGRES_TLS_ROOT_CERT: context.postgres.tlsRootCert,
     POSTGRES_USERNAME: context.postgres.username,
   };
 }

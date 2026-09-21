@@ -8,6 +8,7 @@ async-trait = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
 application = { workspace = true }
 platform-observability = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
 
 lambda_runtime = { workspace = true }

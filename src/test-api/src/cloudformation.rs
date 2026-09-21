@@ -143,17 +143,15 @@ impl IntegrationTestService for Cloudformation {
     }
 }
 
-/// Builds all Lambda function binaries using `cargo lambda build --workspace`.
+/// Builds all Lambda function binaries with the same locked target as deployment.
 ///
 /// `cargo-lambda` uses `cargo-zigbuild` under the hood to cross-compile against
-/// a glibc version compatible with the `provided.al2023` Lambda runtime
-/// (Amazon Linux 2023, glibc 2.34). A plain `cargo build` on a modern host
-/// (e.g. Ubuntu 24.04 with glibc 2.39) produces binaries that fail to start
-/// inside the Lambda container with "GLIBC_2.38 not found".
+/// the `provided.al2023` Lambda runtime. A plain host build can use a newer glibc
+/// and fail when Lambda starts it.
 ///
 /// # Prerequisite
 ///
-/// Install with: `cargo install cargo-lambda`
+/// Install with: `cargo install cargo-lambda --version 1.9.0 --locked`
 fn build_lambdas() {
     info!("Building Lambda binaries with cargo-lambda...");
     let workspace_dir = env!("CARGO_WORKSPACE_DIR");
@@ -165,6 +163,8 @@ fn build_lambdas() {
             "--workspace",
             "--release",
             "--locked",
+            "--target",
+            "x86_64-unknown-linux-musl",
             "--exclude",
             "crawler",
             "--exclude",

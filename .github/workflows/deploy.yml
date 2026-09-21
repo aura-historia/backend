@@ -79,8 +79,6 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-embed-text
-          - src/product-pipeline/src/product-pipeline-translate
           - src/shopify-lambda
           - src/cognito-post-confirmation
           - src/cloudwatch-log-retention-lambda
@@ -110,8 +108,8 @@ jobs:
 
       - name: Install cargo-lambda
         run: |
-          if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.9.0
+          if ! cargo lambda --version | grep -Eq '^cargo-lambda 1\.9\.0($| )'; then
+            cargo install cargo-lambda --version 1.9.0 --locked --force
           fi
 
       - name: Build Lambda binary

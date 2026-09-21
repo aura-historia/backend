@@ -87,7 +87,7 @@
 
 ## Service dependencies
 
-- All scopes require `POSTGRES_*`. Projection/percolator require scoped OpenSearch endpoint and production credentials.
+- All scopes require `POSTGRES_*`, including `POSTGRES_TLS_ROOT_CERT`. Workers use the shared strict Lambda pool profile: min zero, default max one, verified hostname/CA TLS, and bounded database waits. Projection/percolator require scoped OpenSearch endpoint and production credentials.
 - Percolator/translation need Vertex project/location/model and Google ADC. Embedding needs Vertex project/location and ADC. Only selected scope initializes adapters.
 - EMAIL delivery needs S3 templates, SES credentials, from/reply-to addresses, `STAGE`, `COMMIT_SHA`; generic dispatcher verifies planner channels.
 - Worker uses workspace `aws-sdk-sqs`, `axum`, `strum`, `strum_macros`, plus pinned `hyper` (`server,http1`) and `hyper-util` (`tokio,service`). Update manifests/lockfile and black-box process/Sequin/SQS/DLQ acceptance together.
@@ -97,7 +97,7 @@
 - `cargo check --locked -p aura-historia-worker`
 - `cargo test --locked -p aura-historia-worker --all-features`
 - Private tests cover wire snapshots/negative matrices, lifecycle failures, publication prevalidation/partial/ambiguous failure, safe timing logs, real SDK requests against loopback HTTP stubs, config policy drift, HTTP fragmentation/socket/header/body limits/timeouts/cancellation/drain, sustained outage recovery, maximum fanout, and normalizer fairness/owned polling/held heartbeat/handoff/shutdown.
-- Every scope's acceptance uses real PostgreSQL, Sequin, LocalStack SQS and written target stores with independent competing consumers. Raw normalization keeps a four-second direct CDC deadline; timer reconciliation cannot replace prompt receipt handling.
+- Every scope's acceptance uses real TLS-enabled PostgreSQL, Sequin, LocalStack SQS and written target stores with independent competing consumers. The fixture must prove trusted TLS success and fail wrong-CA, wrong-hostname, and plaintext attempts; raw normalization keeps a four-second direct CDC deadline; timer reconciliation cannot replace prompt receipt handling.
 - `tests/process_durability.rs` runs actual worker children against persistent fixtures. Deterministic database/HTTP barriers cover death before completion/deletion, overlapping consumers, native DLQ persistence, lost send/delete responses, and SIGTERM drain. Instrumented children keep unique profiles beside CI's `LLVM_PROFILE_FILE`; clean exits must flush a nonempty child profile. SIGKILL cannot flush exit-time coverage. Unit fakes do not prove process durability. Real AWS smoke remains opt-in.
 - Keep architecture/event-flow/runbook, Sequin limits, queue/DLQ IAM, heartbeat cap, receipt scheduling and deployment shutdown grace aligned. Operational rollout remains external; follow `docs/durable-worker-runbook.md`.
 

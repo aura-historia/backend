@@ -13,6 +13,7 @@
 - Observe scheduler termination. SIGINT and SIGTERM start graceful shutdown.
 - Runtime wiring composes adapters. No `aura-historia-worker` or `common` dependency.
 - `SEARCH_FILTER_PERIODIC_MATCH_CRON` is a validated seven-field UTC expression. `PERIODIC_MATCH_MAX_RUN_SECONDS` must be positive.
+- Periodic matching requires `POSTGRES_TLS_ROOT_CERT` and uses the shared strict min-zero, default-max-one pool profile; its advisory-lock connection uses the same TLS and session limits.
 
 ## Ownership
 
