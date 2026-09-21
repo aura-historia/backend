@@ -1,10 +1,14 @@
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { Network } from "./network";
+
+const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
+const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE = "/var/task/aura-historia/test-postgres-ca.pem";
 
 export interface StorageProps {
   readonly config: StageConfig;
@@ -15,10 +19,11 @@ export interface PostgresConnectionSettings {
   readonly host: string;
   readonly port: string;
   readonly database: string;
-  readonly username: string;
-  readonly password: string;
   readonly maxConnections: string;
   readonly tlsRootCert: string;
+  readonly secretArn?: string;
+  readonly username?: string;
+  readonly password?: string;
 }
 
 export class Storage extends Construct {
@@ -113,12 +118,45 @@ export class Storage extends Construct {
       host: this.database.dbInstanceEndpointAddress,
       port: this.database.dbInstanceEndpointPort,
       database: rdsConfig.databaseName,
-      username: this.runtimeCredentials.secretValueFromJson("username").unsafeUnwrap(),
-      password: this.runtimeCredentials.secretValueFromJson("password").unsafeUnwrap(),
       maxConnections: "1",
-      tlsRootCert: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+      secretArn: this.runtimeCredentials.secretArn,
+      tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
     };
+    addRuntimeSecretsManagerEndpoint(this, props.network, this.runtimeCredentials, props.config.stage);
   }
+}
+
+function addRuntimeSecretsManagerEndpoint(
+  scope: Construct,
+  network: Network,
+  runtimeCredentials: rds.DatabaseSecret,
+  stage: string,
+): void {
+  const securityGroup = new ec2.SecurityGroup(scope, "PostgresRuntimeSecretsEndpointSecurityGroup", {
+    vpc: network.vpc,
+    allowAllOutbound: false,
+    description: "Runtime PostgreSQL Secrets Manager endpoint boundary",
+    securityGroupName: `aura-historia-postgres-runtime-secrets-endpoint-${stage}`,
+  });
+  securityGroup.addIngressRule(
+    network.applicationSecurityGroup,
+    ec2.Port.tcp(443),
+    "Application runtime PostgreSQL credential refresh",
+  );
+
+  const endpoint = new ec2.InterfaceVpcEndpoint(scope, "PostgresRuntimeSecretsManagerInterfaceEndpoint", {
+    vpc: network.vpc,
+    service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+    privateDnsEnabled: true,
+    securityGroups: [securityGroup],
+    subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+    open: false,
+  });
+  endpoint.addToPolicy(new iam.PolicyStatement({
+    principals: [new iam.AnyPrincipal()],
+    actions: ["secretsmanager:GetSecretValue"],
+    resources: [runtimeCredentials.secretArn],
+  }));
 }
 
 interface ApplicationCredentialProps {
@@ -184,6 +222,6 @@ function localPostgresConnectionSettings(): PostgresConnectionSettings {
     username: "postgres",
     password: "postgres",
     maxConnections: "1",
-    tlsRootCert: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    tlsRootCert: EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE,
   };
 }

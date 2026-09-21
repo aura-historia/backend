@@ -1,6 +1,6 @@
 use crate::IntegrationTestService;
 use async_trait::async_trait;
-use sqlx::postgres::PgConnectOptions;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, ConnectOptions, Executor, PgConnection, PgPool};
 use std::collections::HashMap;
 use std::net::TcpListener;
@@ -87,19 +87,39 @@ fn postgres_connection_string(host: &str, database: &str) -> String {
 /// Each call establishes a new TCP connection. It is not subject to any pool semaphore and
 /// is fully owned by the current Tokio runtime. The caller is responsible for dropping it
 /// before their runtime shuts down.
+fn postgres_connect_options(root_certificate: &Path) -> PgConnectOptions {
+    PgConnectOptions::from_str(&connection_string())
+        .expect("shouldn't fail parsing Postgres connection string")
+        .ssl_mode(PgSslMode::VerifyFull)
+        .ssl_root_cert(root_certificate)
+}
+
+#[cfg(test)]
+fn postgres_connect_options_for_host(host: &str, root_certificate: &Path) -> PgConnectOptions {
+    PgConnectOptions::from_str(&postgres_connection_string(host, POSTGRES_DB))
+        .expect("shouldn't fail parsing Postgres connection string")
+        .ssl_mode(PgSslMode::VerifyFull)
+        .ssl_root_cert(root_certificate)
+}
+
+fn fixture_postgres_connect_options() -> PgConnectOptions {
+    let root_certificate = POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get().expect(
+        "Postgres TLS root certificate not initialized; call `ensure_container_started()` first",
+    );
+    postgres_connect_options(root_certificate)
+}
+
 async fn open_connection() -> PgConnection {
-    let opts = PgConnectOptions::from_str(&connection_string())
-        .expect("shouldn't fail parsing Postgres connection string");
-    opts.connect()
+    fixture_postgres_connect_options()
+        .connect()
         .await
-        .expect("shouldn't fail connecting to Postgres test container")
+        .expect("shouldn't fail connecting to Postgres test container with verified TLS")
 }
 
 async fn wait_for_postgres_connection() -> PgConnection {
     let deadline = Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let options = PgConnectOptions::from_str(&connection_string())
-            .expect("shouldn't fail parsing Postgres connection string");
+        let options = fixture_postgres_connect_options();
         match options.connect().await {
             Ok(connection) => return connection,
             Err(error) if Instant::now() < deadline => {
@@ -253,9 +273,9 @@ fn install_cleanup() {
 pub async fn get_postgres_client() -> PgPool {
     ensure_container_started().await;
 
-    let pool = PgPool::connect(&connection_string())
+    let pool = PgPool::connect_with(fixture_postgres_connect_options())
         .await
-        .expect("shouldn't fail creating Postgres pool for test container");
+        .expect("shouldn't fail creating Postgres pool for test container with verified TLS");
 
     debug!("Successfully created Postgres PgPool for current test.");
     pool
@@ -505,6 +525,61 @@ impl IntegrationTestService for Postgres {
             tables = ?tables,
             elapsed_ms = started.elapsed().as_millis(),
             "Truncated application-owned public tables for test isolation."
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_connect_to_the_fixture_with_verified_tls() {
+        ensure_container_started().await;
+        let mut connection = open_connection().await;
+        let encrypted: bool =
+            sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+                .fetch_one(&mut connection)
+                .await
+                .expect("should read the fixture connection TLS state");
+
+        assert!(encrypted);
+    }
+
+    #[tokio::test]
+    async fn should_reject_the_production_rds_bundle_for_the_fixture() {
+        ensure_container_started().await;
+        let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
+            .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
+
+        assert!(
+            postgres_connect_options(&production_bundle)
+                .connect()
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_wrong_hostname_and_missing_root_certificate() {
+        ensure_container_started().await;
+        let root_certificate = get_postgres_tls_root_certificate_path();
+        let missing_certificate = std::env::temp_dir().join(format!(
+            "aura-historia-missing-postgres-ca-{}",
+            std::process::id()
+        ));
+
+        assert!(
+            postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
+                .connect()
+                .await
+                .is_err()
+        );
+        assert!(
+            postgres_connect_options(&missing_certificate)
+                .connect()
+                .await
+                .is_err()
         );
     }
 }

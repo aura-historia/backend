@@ -799,6 +799,11 @@ CREATE TABLE search_filter_periodic_match_state (
     updated timestamptz NOT NULL DEFAULT now()
 );
 
+-- Search-filter DELETE CDC needs OLD.user_search_filter_id, OLD.user_id, and
+-- OLD.version after the authoritative row is gone. Keep this table-local FULL
+-- identity: the default primary-key identity omits the owner and deletion-fence
+-- version. A source missing, changing, or lossy-encoding any DELETE value is invalid
+-- and must remain unacknowledged rather than delete a tombstone.
 ALTER TABLE search_filters REPLICA IDENTITY FULL;
 
 CREATE TABLE search_filter_matches (
@@ -1230,9 +1235,12 @@ CREATE INDEX oauth_third_party_exchange_codes_expires_at_idx
 
 -- Expiry remains application correctness. This bounded maintenance operation only
 -- removes rows that are already logically expired. One invocation deletes at most
--- `batch_size` rows per target and uses SKIP LOCKED so concurrent invocations share
--- work without waiting. A scheduler invokes one call per transaction; it must not
--- loop in one transaction.
+-- `batch_size` direct rows per target and uses SKIP LOCKED so concurrent invocations
+-- share work without waiting. Returned counts are direct deletes from each named
+-- target, never inferred foreign-key cascade counts. Access-token candidates have no
+-- remaining exchange-code dependents, so this function cannot turn a bounded child
+-- cleanup into an unbounded cascade. A scheduler invokes one call per transaction; it
+-- must not loop in one transaction.
 CREATE FUNCTION cleanup_expired_credentials_and_provider_receipts(batch_size integer)
 RETURNS TABLE (
     access_tokens_deleted bigint,
@@ -1245,8 +1253,8 @@ AS $$
 DECLARE
     cleanup_now timestamptz := statement_timestamp();
 BEGIN
-    IF batch_size < 1 OR batch_size > 1000 THEN
-        RAISE EXCEPTION 'batch_size must be between 1 and 1000';
+    IF batch_size IS NULL OR batch_size < 1 OR batch_size > 1000 THEN
+        RAISE EXCEPTION 'batch_size must be a non-null integer between 1 and 1000';
     END IF;
 
     WITH candidates AS (
@@ -1272,7 +1280,6 @@ BEGIN
               SELECT 1
               FROM oauth_third_party_exchange_codes AS codes
               WHERE codes.access_token_id = access_tokens.access_token_id
-                AND codes.expires_at >= cleanup_now
           )
         ORDER BY expires_at ASC
         LIMIT batch_size

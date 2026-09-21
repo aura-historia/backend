@@ -135,6 +135,7 @@
 - `src/platform-lambda-bootstrap/` — typed Lambda root config, cold-start logging, and no business orchestration.
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
+- `src/platform-postgres-secretsmanager/AGENTS.md` — narrow AWS PostgreSQL runtime-secret reader.
 - `src/product-listing-opensearch/AGENTS.md` — canonical ProductListing OpenSearch adapter crate.
 - `src/product-listing-opensearch-lambda/AGENTS.md` — ProductListing OpenSearch SQS Lambda adapter.
 - `src/watchlist-core/AGENTS.md — canonical Watchlist domain crate.

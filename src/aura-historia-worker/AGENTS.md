@@ -40,7 +40,7 @@
 - Production URL: regional HTTPS SQS URL with twelve-digit account and exact name. ARN must match region, account, scope, and stage.
 - Explicit `AWS_ENDPOINT_URL_SQS` accepted only in `ephemeral`/`local`/`test`, never production. Queue URL and explicit endpoint must share exact origin; fixtures canonicalize provider-generated URLs, runtime never rewrites them. Generic `AWS_ENDPOINT_URL` is rejected by env config. Typed constructors likewise need explicit local endpoint. SQS-specific region, endpoint resolver, non-FIPS/non-dual-stack settings and operation bounds override supplied client settings; credentials remain supplied.
 - Source retention 7 days; DLQ retention 14 days; native `maxReceiveCount=5`; source long-poll attribute 20 seconds; source/DLQ Standard, encrypted, and covered by unconditional deny-insecure-transport policies. Wildcard and NotPrincipal Allow grants fail startup, even when conditional. AWS's absent `FifoQueue` means Standard; `true` is rejected. Source redrive allow is `denyAll`; DLQ is `byQueue` with exactly the intended source ARN and no onward redrive.
-- Visibility: 300s for normalization, percolator, embedding, translation; 360s for delivery; 60s for other scopes. Execution: 240s slow/delivery, 45s short. Notification stays below its five-minute PostgreSQL lease.
+- Visibility: 300s for normalization, percolator, embedding, translation, ProductListing OpenSearch; 360s for delivery; 60s for other scopes. Execution: 240s slow/delivery, 45s short. Notification stays below its five-minute PostgreSQL lease.
 - Startup reads attributes only. No queue creation, attribute mutation, custom DLQ publication, FIFO group/dedup fields, or local fallback.
 - SDK connect/read/attempt/operation bounds: 3/25/30/55s, at most two SDK attempts. Transport wraps receives at 27s and other operations at 5s. Long poll is 20s.
 
@@ -54,6 +54,7 @@
 - Wire intentionally ignores additive unknown fields. Unknown schema/type/scope, missing fields, noncanonical/nil IDs, nonpositive/overflowing versions, and forged logical keys are poison: no handler execution and no delete.
 - Logical keys preserve existing formats: `product-event:<event>` / `product:<listing>`; `product-listing-raw-revision:<revision>` / `product-listing-raw-stream:<stream>`; `search-filter:<filter>:<version>:<lowercase operation>` / `search-filter:<filter>`; `search-filter-match:<user>:<filter>:<listing>:<event>` / `user:<user>`; `notification-delivery:<delivery>` for both keys.
 - Sequin delivery IDs and LSNs never own idempotency. Raw source payloads never enter SQS jobs.
+- DMS accepts only selected `public` data records. Selected non-trigger DML is a zero-job no-op; selected-table `control/create-table` and `control/insert` table descriptions are informational. Other DMS schema controls fail closed. A `search_filters` DELETE maps DMS `data` to OLD-only filter ID, user ID, and positive canonical decimal version; it never invents an after image or version.
 - Exactly ten production scopes. Legacy `UserTierEnforcement` job types have no wire encoding, registration in `ALL`, or production CDC route.
 
 ## Consumer lifecycle

@@ -8,12 +8,12 @@
 
 - LocalStack and AWS integration test harness.
 - Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
-- CloudFormation test packaging builds every catalog Lambda, including the ordinary `aura-historia-api` HTTP Lambda artifact.
+- CloudFormation test packaging builds every catalog Lambda, including the ordinary `aura-historia-api` HTTP Lambda artifact; PostgreSQL Lambda ZIPs contain only the generated fixture public CA at `/var/task/aura-historia/test-postgres-ca.pem`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `application`, `test-api-macros`.
 - Test crate. Favor stable helpers and black-box assertions.
 - `#[aura_integration_test]` tests run serially inside one compatible suite process against process-local LocalStack and optional service containers like Postgres. It always tears down services in reverse setup order, including after a test panic.
-- Postgres runs the stock `postgres:16-bookworm` image with a fresh process-local TLS CA/server certificate (`127.0.0.1`, `localhost`, and `host.docker.internal` SANs), applies schema-only migrations once per suite process, then truncates application data between tests. `AURA_TEST_POSTGRES_IMAGE` may override it for explicit local image testing. Use `Postgres::new_per_test` only for migrations that seed test data; optional setup scripts always run before each test.
+- Postgres runs the stock `postgres:16-bookworm` image with a fresh process-local TLS CA/server certificate (`127.0.0.1`, `localhost`, and `host.docker.internal` SANs); test-api connections use `VerifyFull`. It applies schema-only migrations once per suite process, then truncates application data between tests. `AURA_TEST_POSTGRES_IMAGE` may override it for explicit local image testing. Use `Postgres::new_per_test` only for migrations that seed test data; optional setup scripts always run before each test.
 - LocalStack and Postgres use process-id-scoped container names and host ports so separate test binaries/processes can run in parallel. LocalStack records its first normalized service/environment topology and rejects incompatible later requests.
 - OpenSearch bootstraps its domain, pipelines, mappings, and indexes once per suite process; teardown clears only canonical documents, including `user_search_filters`.
 - `Sqs { name }` keeps Shopify compatibility. `SqsQueuePair` configures source/DLQ names and attributes; `unique(test_name)` adds PID/random identity. URLs use the actual LocalStack endpoint and `/000000000000/name`, never hardcoded host port 4566. Setup checks returned and canonical queue identities; cleanup purges only that pair, including invisible messages.

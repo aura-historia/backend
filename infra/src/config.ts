@@ -8,6 +8,10 @@ export const ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1
 export const MAIL_TEMPLATE_BUCKET_NAME = "aura-historia-mail-templates-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 export const WORKLOAD_REGION = "eu-central-1";
+export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID = "InitialCdcStartPosition";
+export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID = "DmsCdcInitialCdcStartPosition";
+export const DMS_CDC_INITIAL_START_POSITION_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$";
+export const DMS_CDC_INITIAL_START_POSITION_CONSTRAINT = "must be a UTC timestamp in YYYY-MM-DDTHH:MM:SS format";
 
 const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";
@@ -45,7 +49,7 @@ export interface RdsConfig {
 export interface DmsConfig {
   readonly engineVersion: "3.6.1";
   readonly replicationInstanceClass: "dms.t3.small";
-  readonly cdcStartPosition: "now";
+  readonly initialCdcStartPositionParameterId: typeof DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID;
   readonly lobMaxSizeKiB: 512;
   readonly kinesisRetentionDays: 7;
 }
@@ -125,7 +129,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
       : {
           engineVersion: "3.6.1",
           replicationInstanceClass: "dms.t3.small",
-          cdcStartPosition: "now",
+          initialCdcStartPositionParameterId: DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID,
           lobMaxSizeKiB: 512,
           kinesisRetentionDays: 7,
         },

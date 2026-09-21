@@ -1,4 +1,5 @@
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
+use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use std::fmt;
@@ -13,6 +14,110 @@ const LAMBDA_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 const LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
 const LAMBDA_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const LAMBDA_MAX_LIFETIME: Duration = Duration::from_secs(600);
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct PostgresCredentials {
+    username: String,
+    password: String,
+}
+
+impl PostgresCredentials {
+    pub fn new(username: String, password: String) -> Result<Self, PostgresCredentialsError> {
+        if username.trim().is_empty() {
+            return Err(PostgresCredentialsError::EmptyUsername);
+        }
+        if password.is_empty() {
+            return Err(PostgresCredentialsError::EmptyPassword);
+        }
+        Ok(Self { username, password })
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+}
+
+impl fmt::Debug for PostgresCredentials {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PostgresCredentials")
+            .field("username", &"<redacted>")
+            .field("password", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PostgresCredentialsError {
+    #[error("PostgreSQL credential username must not be empty")]
+    EmptyUsername,
+    #[error("PostgreSQL credential password must not be empty")]
+    EmptyPassword,
+}
+
+#[derive(Clone)]
+pub struct VersionedPostgresCredentials {
+    version_id: String,
+    credentials: PostgresCredentials,
+}
+
+impl VersionedPostgresCredentials {
+    pub fn new(
+        version_id: String,
+        username: String,
+        password: String,
+    ) -> Result<Self, VersionedPostgresCredentialsError> {
+        if version_id.trim().is_empty() {
+            return Err(VersionedPostgresCredentialsError::EmptyVersionId);
+        }
+        let credentials = PostgresCredentials::new(username, password)
+            .map_err(VersionedPostgresCredentialsError::Credentials)?;
+        Ok(Self {
+            version_id,
+            credentials,
+        })
+    }
+
+    pub fn version_id(&self) -> &str {
+        &self.version_id
+    }
+
+    pub fn credentials(&self) -> &PostgresCredentials {
+        &self.credentials
+    }
+}
+
+impl fmt::Debug for VersionedPostgresCredentials {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VersionedPostgresCredentials")
+            .field("version_id", &self.version_id)
+            .field("credentials", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VersionedPostgresCredentialsError {
+    #[error("PostgreSQL secret version must not be empty")]
+    EmptyVersionId,
+    #[error("invalid PostgreSQL credentials")]
+    Credentials(#[source] PostgresCredentialsError),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("PostgreSQL credential refresh unavailable")]
+pub struct PostgresCredentialRefreshError;
+
+#[async_trait]
+pub trait PostgresCredentialsProvider: Send + Sync {
+    async fn current(&self)
+    -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError>;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PostgresTlsConfig {
@@ -222,21 +327,35 @@ impl PostgresPoolConfig {
     }
 
     pub async fn connect_connection(&self) -> Result<PgConnection, sqlx::Error> {
-        let mut connection = PgConnection::connect_with(&self.connect_options()).await?;
+        let options = self.direct_connection_options();
+        let connect = PgConnection::connect_with(&options);
+
+        let connection = match self.direct_connection_timeout() {
+            Some(timeout) => sqlx::__rt::timeout(timeout, connect)
+                .await
+                .map_err(|_| sqlx::Error::PoolTimedOut)??,
+            None => connect.await?,
+        };
+        Ok(connection)
+    }
+
+    fn direct_connection_options(&self) -> PgConnectOptions {
         let Some(timeouts) = self.timeouts else {
-            return Ok(connection);
+            return self.connect_options();
         };
 
-        sqlx::query(
-            "SELECT set_config('statement_timeout', $1, false), set_config('lock_timeout', $2, false), set_config('idle_in_transaction_session_timeout', $3, false)",
-        )
-        .bind(duration_setting(timeouts.statement))
-        .bind(duration_setting(timeouts.lock))
-        .bind(duration_setting(timeouts.idle_in_transaction))
-        .execute(&mut connection)
-        .await?;
+        self.connect_options().options([
+            ("statement_timeout", duration_setting(timeouts.statement)),
+            ("lock_timeout", duration_setting(timeouts.lock)),
+            (
+                "idle_in_transaction_session_timeout",
+                duration_setting(timeouts.idle_in_transaction),
+            ),
+        ])
+    }
 
-        Ok(connection)
+    fn direct_connection_timeout(&self) -> Option<Duration> {
+        self.timeouts.map(|timeouts| timeouts.acquire)
     }
 }
 
@@ -383,6 +502,48 @@ mod tests {
             })
         );
         assert!(format!("{:?}", config.connect_options()).contains("VerifyFull"));
+    }
+
+    #[test]
+    fn should_bound_direct_lambda_connection_with_startup_timeout_configuration() {
+        let lambda = PostgresPoolConfig::lambda(
+            "database.example.test".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "postgres".to_owned(),
+            "secret".to_owned(),
+            1,
+            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
+        );
+        let lambda = match lambda {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
+        let direct_options = lambda.direct_connection_options();
+        let startup_options = direct_options.get_options().unwrap_or_default();
+        let native = PostgresPoolConfig::new(
+            "localhost".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "postgres".to_owned(),
+            "secret".to_owned(),
+            1,
+        );
+        let native = match native {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
+
+        assert_eq!(
+            Some(LAMBDA_ACQUIRE_TIMEOUT),
+            lambda.direct_connection_timeout()
+        );
+        assert!(startup_options.contains("statement_timeout=5000ms"));
+        assert!(startup_options.contains("lock_timeout=1000ms"));
+        assert!(startup_options.contains("idle_in_transaction_session_timeout=10000ms"));
+        assert_eq!(None, lambda.connect_options().get_options());
+        assert_eq!(None, native.direct_connection_timeout());
+        assert_eq!(None, native.direct_connection_options().get_options());
     }
 
     #[test]

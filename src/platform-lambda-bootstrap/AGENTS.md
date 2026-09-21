@@ -8,9 +8,10 @@
 ## Core Design
 
 - Read typed root config only at Lambda composition root.
+- Own a typed invocation budget from Lambda deadline, caller cap, and response headroom; elapsed and exhausted values saturate to zero.
 - Return safe config errors. Never echo config values.
-- Reuse pool/client handles in warm process. No request state, timer, secret store, or provider adapter.
-- PostgreSQL rotation policy stays `platform-postgres` / F5.
+- Own version-keyed warm composition leases: one version builds once, and an old lease keeps its pool alive through an active invocation.
+- It has no AWS client or credential provider adapter. Real-stage and fixture credential providers belong to `platform-postgres-secretsmanager`.
 
 ## Verification
 

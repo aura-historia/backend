@@ -42,8 +42,8 @@ export class Eventing extends Construct {
         })
       : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
-    createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createCloudWatchLogRetentionRule(this, props.functions);
+    createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createSqsEventSources(
       this,
       props.functions,

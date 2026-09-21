@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as path from "node:path";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
@@ -125,6 +126,13 @@ export class Lambdas extends Construct {
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
 
+    const postgresTlsRootCertificateLayer = props.config.isEphemeral
+      ? undefined
+      : new lambda.LayerVersion(this, "PostgresTlsRootCertificateLayer", {
+          code: lambda.Code.fromAsset(path.join(__dirname, "../../assets/rds-ca-layer")),
+          compatibleRuntimes: [lambda.Runtime.PROVIDED_AL2023],
+          description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
+        });
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
@@ -159,6 +167,9 @@ export class Lambdas extends Construct {
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
+        layers: definition.postgres && postgresTlsRootCertificateLayer
+          ? [postgresTlsRootCertificateLayer]
+          : undefined,
       });
     }
 
@@ -177,16 +188,28 @@ function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironm
 }
 
 function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<string, string>): Record<string, string> {
-  return {
+  const connection = {
     ...env,
     POSTGRES_DATABASE: context.postgres.database,
     POSTGRES_HOST: context.postgres.host,
     POSTGRES_MAX_CONNECTIONS: context.postgres.maxConnections,
-    POSTGRES_PASSWORD: context.postgres.password,
     POSTGRES_PORT: context.postgres.port,
     POSTGRES_TLS_ROOT_CERT: context.postgres.tlsRootCert,
-    POSTGRES_USERNAME: context.postgres.username,
   };
+  if (context.postgres.secretArn) {
+    return {
+      ...connection,
+      POSTGRES_SECRET_ARN: context.postgres.secretArn,
+    };
+  }
+  if (context.postgres.username && context.postgres.password) {
+    return {
+      ...connection,
+      POSTGRES_PASSWORD: context.postgres.password,
+      POSTGRES_USERNAME: context.postgres.username,
+    };
+  }
+  throw new Error("PostgreSQL Lambda environment requires either a runtime secret ARN or fixture credentials.");
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
@@ -197,6 +220,20 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     }),
   );
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
+
+  if (props.postgres.secretArn) {
+    for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
+      if (!definition.postgres) {
+        continue;
+      }
+      functions[key]?.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["secretsmanager:GetSecretValue"],
+          resources: [props.postgres.secretArn],
+        }),
+      );
+    }
+  }
 }
 
 export function addUserPoolEnvironment(
@@ -240,7 +277,10 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
   if (config.isEphemeral) {
     return {
       ...environment,
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}",
       STRIPE_API_KEY: "sk_test_ephemeral",
+      VERTEX_AI_LOCATION: "eu",
+      VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
       ZOHO_ACCOUNTS_URL: "https://accounts.zoho.test",
       ZOHO_CAMPAIGNS_URL: "https://campaigns.zoho.test",
       ZOHO_CLIENT_ID: "ephemeral-client-id",
@@ -254,7 +294,12 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     ...environment,
     OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/password`),
     OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/username`),
+    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(
+      `/secrets/${config.stage}/google-application-credentials`,
+    ),
     STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
+    VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
+    VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
     ZOHO_ACCOUNTS_URL: ssmValue(`/zoho/${config.stage}/accounts-url`),
     ZOHO_CAMPAIGNS_URL: ssmValue(`/zoho/${config.stage}/campaigns-url`),
     ZOHO_CLIENT_ID: ssmValue(`/zoho/${config.stage}/client-id`),

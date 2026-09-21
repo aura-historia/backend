@@ -1,0 +1,22 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/api/v1/listing-sources",
+  "rawQueryString": "size=1",
+  "headers": {
+    "host": "api.example.test",
+    "origin": "https://client.example.test",
+    "x-correlation-id": "lambda-route-test"
+  },
+  "requestContext": {
+    "stage": "$default",
+    "http": {
+      "method": "GET",
+      "path": "/api/v1/listing-sources",
+      "protocol": "HTTP/1.1",
+      "sourceIp": "127.0.0.1",
+      "userAgent": "aura-historia-api-lambda-test"
+    }
+  },
+  "isBase64Encoded": false
+}

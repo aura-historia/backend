@@ -12,13 +12,72 @@ function computeTemplate(stage: StageName): Template {
   return Template.fromStack(createApplicationStacks(app, { stage }).compute);
 }
 
-function apiFunction(template: Template, stage: StageName): CloudFormationResource {
+function lambdaFunction(template: Template, functionName: string): CloudFormationResource {
   const functions = Object.values(template.findResources("AWS::Lambda::Function")) as CloudFormationResource[];
-  const functionResource = functions.find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`);
+  const functionResource = functions.find((resource) => resource.Properties.FunctionName === functionName);
   if (!functionResource) {
-    throw new Error(`Missing aura-historia-api-${stage} Lambda.`);
+    throw new Error(`Missing ${functionName} Lambda.`);
   }
   return functionResource;
+}
+
+function apiFunction(template: Template, stage: StageName): CloudFormationResource {
+  return lambdaFunction(template, `aura-historia-api-${stage}`);
+}
+
+function expectedApiEnvironmentKeys(stage: StageName): string[] {
+  const keys = [
+    "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
+    "AURA_HISTORIA_COGNITO_ISSUER",
+    "AURA_HISTORIA_COGNITO_JWKS_URL",
+    "AURA_HISTORIA_COGNITO_USER_POOL_ID",
+    "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
+    "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
+    "OPENSEARCH_ENDPOINT_URL",
+    "POSTGRES_DATABASE",
+    "POSTGRES_HOST",
+    "POSTGRES_MAX_CONNECTIONS",
+    "POSTGRES_PORT",
+    "POSTGRES_TLS_ROOT_CERT",
+    "STAGE",
+    "STRIPE_API_KEY",
+    "STRIPE_CHECKOUT_CANCEL_URL",
+    "STRIPE_CHECKOUT_SUCCESS_URL",
+    "STRIPE_PORTAL_RETURN_URL",
+    "STRIPE_PRO_MONTHLY_PRICE_ID",
+    "STRIPE_PRO_YEARLY_PRICE_ID",
+    "STRIPE_ULTIMATE_MONTHLY_PRICE_ID",
+    "STRIPE_ULTIMATE_YEARLY_PRICE_ID",
+    "VERTEX_AI_LOCATION",
+    "VERTEX_AI_PROJECT_ID",
+    "ZOHO_ACCOUNTS_URL",
+    "ZOHO_CAMPAIGNS_URL",
+    "ZOHO_CLIENT_ID",
+    "ZOHO_CLIENT_SECRET",
+    "ZOHO_LIST_KEY",
+    "ZOHO_REFRESH_TOKEN",
+  ];
+
+  if (stage === "ephemeral") {
+    keys.push("POSTGRES_PASSWORD", "POSTGRES_USERNAME");
+  } else {
+    keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_SECRET_ARN");
+  }
+  return keys.sort();
+}
+
+function expectedVertexEnvironment(stage: StageName): Record<string, string> {
+  return stage === "ephemeral"
+    ? {
+        AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}",
+        VERTEX_AI_LOCATION: "eu",
+        VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
+      }
+    : {
+        AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
+        VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
+        VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
+      };
 }
 
 describe.each(STAGES)("%s API Lambda", (stage) => {
@@ -43,7 +102,27 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
     expect(environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    expect(environment.Variables.POSTGRES_SECRET_ARN === undefined).toBe(stage === "ephemeral");
+    expect(environment.Variables.POSTGRES_USERNAME === undefined).toBe(stage !== "ephemeral");
+    expect(environment.Variables.POSTGRES_PASSWORD === undefined).toBe(stage !== "ephemeral");
+    expect(Object.keys(environment.Variables).sort()).toEqual(expectedApiEnvironmentKeys(stage));
+    expect(environment.Variables).toMatchObject(expectedVertexEnvironment(stage));
+    expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
+  });
+
+  test("keeps Vertex ADC configuration and permissions out of the projector", () => {
+    const template = computeTemplate(stage);
+    const projector = lambdaFunction(template, `product-listing-opensearch-lambda-${stage}`);
+    const projectorEnvironment = projector.Properties.Environment as { Variables: Record<string, unknown> };
+
+    expect(projectorEnvironment.Variables.AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON).toBeUndefined();
+    expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+    expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
+    expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
+    expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
+    expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
+    expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("ssm:GetParameter");
   });
 
   test("keeps the function private to its execution boundary", () => {
@@ -77,5 +156,4 @@ test("grants only API session-revocation actions against the Cognito user pool",
   expect(apiPolicy).toBeDefined();
   const serialized = JSON.stringify(apiPolicy);
   expect(serialized).not.toContain("cognito-idp:*");
-  expect(serialized).not.toContain("secretsmanager:GetSecretValue");
 });

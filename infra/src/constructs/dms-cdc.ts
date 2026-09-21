@@ -4,7 +4,12 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as kinesis from "aws-cdk-lib/aws-kinesis";
 import { Construct } from "constructs";
-import type { StageConfig } from "../config";
+import {
+  DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
+  DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID,
+  DMS_CDC_INITIAL_START_POSITION_PATTERN,
+  type StageConfig,
+} from "../config";
 import type { Network } from "./network";
 import type { Storage } from "./storage";
 
@@ -26,12 +31,15 @@ export class DmsCdc extends Construct {
     super(scope, id);
 
     const { config, network, storage } = props;
-    if (!config.dms || !config.rds || !network || !storage.database || !storage.replicationCredentials) {
+    if (!config.dms || !config.rds || !config.network || !network || !storage.database || !storage.replicationCredentials) {
       throw new Error("DMS CDC resources are only available in real AWS stages with PostgreSQL and private networking.");
     }
 
     const stage = config.stage;
     const dmsConfig = config.dms;
+    const rdsConfig = config.rds;
+    const sourceSecretsServicePrincipal = `dms.${config.network.region}.amazonaws.com`;
+    const kinesisTargetServicePrincipal = "dms.amazonaws.com";
     const streamName = `aura-historia-cdc-${stage}`;
 
     this.stream = new kinesis.Stream(this, "CdcStream", {
@@ -53,7 +61,7 @@ export class DmsCdc extends Construct {
     });
     kinesisEndpoint.addToPolicy(new iam.PolicyStatement({
       principals: [new iam.AnyPrincipal()],
-      actions: ["kinesis:DescribeStreamSummary", "kinesis:PutRecord", "kinesis:PutRecords"],
+      actions: ["kinesis:DescribeStream", "kinesis:DescribeStreamSummary", "kinesis:PutRecord", "kinesis:PutRecords"],
       resources: [this.stream.streamArn],
     }));
 
@@ -73,18 +81,18 @@ export class DmsCdc extends Construct {
 
     const sourceSecretsRole = new iam.Role(this, "DmsSourceSecretsRole", {
       roleName: `aura-historia-dms-source-secrets-${stage}`,
-      assumedBy: new iam.ServicePrincipal("dms.amazonaws.com"),
+      assumedBy: new iam.ServicePrincipal(sourceSecretsServicePrincipal),
       description: "AWS DMS reads only the generated PostgreSQL replication secret",
     });
     storage.replicationCredentials.grantRead(sourceSecretsRole);
 
     const kinesisTargetRole = new iam.Role(this, "DmsKinesisTargetRole", {
       roleName: `aura-historia-dms-kinesis-target-${stage}`,
-      assumedBy: new iam.ServicePrincipal("dms.amazonaws.com"),
+      assumedBy: new iam.ServicePrincipal(kinesisTargetServicePrincipal),
       description: "AWS DMS writes only the Aura Historia CDC Kinesis stream",
     });
     kinesisTargetRole.addToPolicy(new iam.PolicyStatement({
-      actions: ["kinesis:DescribeStreamSummary", "kinesis:PutRecord", "kinesis:PutRecords"],
+      actions: ["kinesis:DescribeStream", "kinesis:DescribeStreamSummary", "kinesis:PutRecord", "kinesis:PutRecords"],
       resources: [this.stream.streamArn],
     }));
 
@@ -110,6 +118,7 @@ export class DmsCdc extends Construct {
     this.replicationInstance.applyRemovalPolicy(config.removalPolicy);
 
     this.sourceEndpoint = new dms.CfnEndpoint(this, "PostgresSourceEndpoint", {
+      databaseName: rdsConfig.databaseName,
       endpointIdentifier: `aura-historia-postgres-cdc-${stage}`,
       endpointType: "source",
       engineName: "postgres",
@@ -117,8 +126,7 @@ export class DmsCdc extends Construct {
       postgreSqlSettings: {
         captureDdls: false,
         failTasksOnLobTruncation: true,
-        maxFileSize: dmsConfig.lobMaxSizeKiB,
-        pluginName: "test_decoding",
+        pluginName: "test-decoding",
         secretsManagerAccessRoleArn: sourceSecretsRole.roleArn,
         secretsManagerSecretId: storage.replicationCredentials.secretArn,
         slotName: `aura_historia_dms_cdc_${stage}`,
@@ -142,16 +150,19 @@ export class DmsCdc extends Construct {
     });
     this.targetEndpoint.applyRemovalPolicy(config.removalPolicy);
 
+    const initialCdcStartPosition = new cdk.CfnParameter(this, dmsConfig.initialCdcStartPositionParameterId, {
+      type: "String",
+      allowedPattern: DMS_CDC_INITIAL_START_POSITION_PATTERN,
+      constraintDescription: DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
+      description: "Required stable UTC timestamp for the first DMS CDC start; retain after task creation.",
+    });
+    initialCdcStartPosition.overrideLogicalId(DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID);
+
     this.task = new dms.CfnReplicationTask(this, "CdcTask", {
       replicationTaskIdentifier: `aura-historia-cdc-${stage}`,
       migrationType: "cdc",
-      cdcStartPosition: dmsConfig.cdcStartPosition,
-      replicationInstanceArn: cdk.Stack.of(this).formatArn({
-        service: "dms",
-        resource: "rep",
-        resourceName: this.replicationInstance.ref,
-        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
-      }),
+      cdcStartPosition: initialCdcStartPosition.valueAsString,
+      replicationInstanceArn: this.replicationInstance.ref,
       sourceEndpointArn: this.sourceEndpoint.attrEndpointArn,
       targetEndpointArn: this.targetEndpoint.attrEndpointArn,
       replicationTaskSettings: JSON.stringify(replicationTaskSettings(dmsConfig.lobMaxSizeKiB)),

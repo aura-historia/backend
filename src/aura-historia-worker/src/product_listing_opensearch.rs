@@ -12,19 +12,23 @@ use std::sync::Arc;
 
 /// Lambda- and polling-transport result for a fully handled ProductListing projection job.
 ///
-/// Only `Complete` may be acknowledged. `Retry` and `Poison` deliberately remain
-/// on the source queue so native SQS retry/redrive owns recovery.
+/// Only `Complete` may be acknowledged. Retry, dependency, and poison outcomes deliberately
+/// remain on the source queue so native SQS retry/redrive owns recovery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingOpenSearchJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
+    DependencyUnavailable(&'static str),
     Poison(&'static str),
 }
 
 impl ProductListingOpenSearchJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
         }
     }
 }
@@ -77,7 +81,9 @@ async fn execute_job(
         Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. }) => {
             ProductListingOpenSearchJobDisposition::Poison("sale_snapshot_invalid")
         }
-        Err(_) => ProductListingOpenSearchJobDisposition::Retry("projection_unavailable"),
+        Err(_) => {
+            ProductListingOpenSearchJobDisposition::DependencyUnavailable("projection_unavailable")
+        }
     }
 }
 
@@ -107,6 +113,9 @@ fn polling_outcome(disposition: ProductListingOpenSearchJobDisposition) -> JobOu
             JobOutcome::Complete(category)
         }
         ProductListingOpenSearchJobDisposition::Retry(category) => JobOutcome::Retry(category),
+        ProductListingOpenSearchJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
         ProductListingOpenSearchJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
 }
@@ -120,6 +129,12 @@ mod tests {
             ProductListingOpenSearchJobDisposition::Retry("missing_source"),
             projection_disposition(ProjectProductListingOutcome::MissingSource)
         );
+        assert_eq!(
+            JobOutcome::Retry("missing_source"),
+            polling_outcome(projection_disposition(
+                ProjectProductListingOutcome::MissingSource
+            ))
+        );
         for outcome in [
             ProjectProductListingOutcome::Applied,
             ProjectProductListingOutcome::Deleted,
@@ -130,5 +145,17 @@ mod tests {
                 ProductListingOpenSearchJobDisposition::Complete(_)
             ));
         }
+    }
+
+    #[test]
+    fn should_preserve_projection_dependency_failures_for_native_consumer_circuit_breaking() {
+        assert_eq!(
+            JobOutcome::DependencyUnavailable("projection_unavailable"),
+            polling_outcome(
+                ProductListingOpenSearchJobDisposition::DependencyUnavailable(
+                    "projection_unavailable"
+                )
+            )
+        );
     }
 }

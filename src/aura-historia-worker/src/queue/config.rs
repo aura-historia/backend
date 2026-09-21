@@ -205,12 +205,12 @@ pub(super) fn visibility(scope: WorkerScope) -> Duration {
         WorkerScope::SearchFilterPercolator
         | WorkerScope::ProductListingTranslation
         | WorkerScope::ProductListingEmbedding
+        | WorkerScope::ProductListingOpenSearch
         | WorkerScope::ProductListingRawNormalization => 300,
         WorkerScope::SearchFilterProjection
         | WorkerScope::SearchFilterMatchNotification
         | WorkerScope::WatchlistNotification
-        | WorkerScope::ProductListingContentAssessment
-        | WorkerScope::ProductListingOpenSearch => 60,
+        | WorkerScope::ProductListingContentAssessment => 60,
     })
 }
 pub(super) fn execution_budget(scope: WorkerScope) -> Duration {

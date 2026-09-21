@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use application::transaction::{Transaction, UnitOfWork};

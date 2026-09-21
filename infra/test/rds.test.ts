@@ -1,9 +1,19 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import type { StageName } from "../src/config";
 
 const REAL_STAGES = ["dev", "prod"] as const;
+const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
+const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE = "/var/task/aura-historia/test-postgres-ca.pem";
+const PUBLIC_RDS_CA_ASSET = path.join(
+  __dirname,
+  "../assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem",
+);
+const PUBLIC_RDS_CA_ASSET_SHA256 = "e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3";
 
 interface RdsStageExpectation {
   readonly instanceClass: string;
@@ -101,22 +111,122 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(JSON.stringify(outputs)).not.toContain("aura_replication");
   });
 
-  test("passes the RDS endpoint and runtime generated-secret references to PostgreSQL Lambdas", () => {
+  test("passes only the exact runtime secret ARN to PostgreSQL Lambdas", () => {
     const stacks = createStacks(stage);
     const compute = Template.fromStack(stacks.compute);
     const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
       .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-    expect(functions).toHaveLength(5);
+    expect(functions).toHaveLength(6);
+    const runtimeSecretArn = functions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
+    expect(runtimeSecretArn).toBeDefined();
     for (const functionResource of functions) {
       const environment = functionResource.Properties.Environment.Variables;
       expect(JSON.stringify(environment.POSTGRES_HOST)).not.toContain(`/postgres/${stage}/host`);
-      expect(JSON.stringify(environment.POSTGRES_USERNAME)).toContain("resolve:secretsmanager:");
-      expect(JSON.stringify(environment.POSTGRES_PASSWORD)).toContain("resolve:secretsmanager:");
+      expect(environment.POSTGRES_SECRET_ARN).toEqual(runtimeSecretArn);
+      expect(environment.POSTGRES_USERNAME).toBeUndefined();
+      expect(environment.POSTGRES_PASSWORD).toBeUndefined();
+      expect(JSON.stringify(environment)).not.toContain("resolve:secretsmanager:");
       expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
-      expect(environment.POSTGRES_TLS_ROOT_CERT).toBe("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem");
+      expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
+      expect(functionResource.Properties.Layers).toHaveLength(1);
+      expect(JSON.stringify(functionResource.Properties.Layers)).toContain("PostgresTlsRootCertificateLayer");
     }
+
+    const runtimeSecretReadStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
+    expect(runtimeSecretReadStatements).toHaveLength(6);
+    for (const statement of runtimeSecretReadStatements) {
+      expect(statement).toEqual({
+        Action: "secretsmanager:GetSecretValue",
+        Effect: "Allow",
+        Resource: runtimeSecretArn,
+      });
+    }
+
+    const layers = Object.values(compute.findResources("AWS::Lambda::LayerVersion"));
+    expect(layers).toHaveLength(1);
+    expect(layers[0].Properties).toMatchObject({
+      CompatibleRuntimes: ["provided.al2023"],
+      Description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
+    });
   });
+
+  test("keeps runtime credential retrieval on a distinct application-only Secrets Manager endpoint", () => {
+    const stacks = createStacks(stage);
+    const data = Template.fromStack(stacks.data);
+    const compute = Template.fromStack(stacks.compute);
+    const runtimeSecret = Object.entries(data.findResources("AWS::SecretsManager::Secret"))
+      .find(([, secret]) => secret.Properties.Name === `/aura-historia/${stage}/postgres/runtime`);
+    const runtimeEndpoint = Object.values(data.findResources("AWS::EC2::VPCEndpoint"))
+      .find((endpoint) => JSON.stringify(endpoint.Properties.PolicyDocument).includes("secretsmanager:GetSecretValue")
+        && !JSON.stringify(endpoint.Properties.PolicyDocument).includes("secretsmanager:DescribeSecret"));
+
+    expect(runtimeSecret).toBeDefined();
+    expect(runtimeEndpoint).toBeDefined();
+    expect(runtimeEndpoint?.Properties).toMatchObject({
+      PrivateDnsEnabled: true,
+      VpcEndpointType: "Interface",
+    });
+    expect(JSON.stringify(runtimeEndpoint?.Properties.ServiceName)).toContain("secretsmanager");
+    const [runtimeSecretId] = runtimeSecret!;
+    expect(runtimeEndpoint?.Properties.PolicyDocument).toEqual({
+      Statement: [{
+        Action: "secretsmanager:GetSecretValue",
+        Effect: "Allow",
+        Principal: { AWS: "*" },
+        Resource: { Ref: runtimeSecretId },
+      }],
+      Version: "2012-10-17",
+    });
+
+    const applicationSecurityGroup = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)
+      ?.Properties.VpcConfig.SecurityGroupIds[0];
+    const endpointSecurityGroup = runtimeEndpoint?.Properties.SecurityGroupIds[0];
+    const ingress = Object.values(data.findResources("AWS::EC2::SecurityGroupIngress"))
+      .filter((rule) => JSON.stringify(rule.Properties.GroupId) === JSON.stringify(endpointSecurityGroup));
+
+    expect(ingress).toHaveLength(1);
+    expect(ingress[0]).toMatchObject({
+      Type: "AWS::EC2::SecurityGroupIngress",
+      Properties: {
+        GroupId: endpointSecurityGroup,
+        IpProtocol: "tcp",
+        FromPort: 443,
+        ToPort: 443,
+        SourceSecurityGroupId: applicationSecurityGroup,
+      },
+    });
+  });
+
+  test("uses a pinned public RDS CA asset without private material", () => {
+    const publicBundle = readFileSync(PUBLIC_RDS_CA_ASSET);
+
+    expect(publicBundle.toString("utf8")).toContain("-----BEGIN CERTIFICATE-----");
+    expect(publicBundle.toString("utf8")).not.toMatch(/PRIVATE KEY|ENCRYPTED/);
+    expect(createHash("sha256").update(publicBundle).digest("hex")).toBe(PUBLIC_RDS_CA_ASSET_SHA256);
+  });
+});
+
+test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a production layer", () => {
+  const stacks = createStacks("ephemeral");
+  const compute = Template.fromStack(stacks.compute);
+  const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+    .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
+
+  expect(functions).toHaveLength(5);
+  for (const functionResource of functions) {
+    const environment = functionResource.Properties.Environment.Variables;
+    expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE);
+    expect(environment.POSTGRES_SECRET_ARN).toBeUndefined();
+    expect(environment.POSTGRES_USERNAME).toBe("postgres");
+    expect(environment.POSTGRES_PASSWORD).toBe("postgres");
+    expect(functionResource.Properties.Layers).toBeUndefined();
+  }
+  expect(Object.values(compute.findResources("AWS::Lambda::LayerVersion"))).toHaveLength(0);
+  expect(JSON.stringify(compute.toJSON())).not.toContain(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
 });
 
 test("ephemeral creates no RDS or generated database credentials", () => {

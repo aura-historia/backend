@@ -115,9 +115,15 @@ points compute resources back to the previously uploaded artifacts.
 The current Lambda catalog uses `provided.al2023`, `x86_64`, and one executable
 `bootstrap` in each ZIP. This matches the deployed CDK architecture; do not change
 the target without changing the CDK definition and package smoke evidence together.
-The Amazon Linux 2023 TLS trust bundle is supplied to PostgreSQL Lambdas through
-`POSTGRES_TLS_ROOT_CERT`; no certificate, database password, provider token, or
-signed event body is packaged or logged.
+Real PostgreSQL Lambdas receive the committed public AWS RDS bundle from the
+`infra/assets/rds-ca-layer/` Lambda layer at
+`POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`. The asset is
+sourced from `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`
+and pinned in git (SHA-256 `e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3`);
+refresh it deliberately when AWS changes its trust set. Ephemeral test ZIPs instead
+contain their process-generated fixture **public** CA at
+`/var/task/aura-historia/test-postgres-ca.pem`. No private CA, database password,
+provider token, or signed event body is packaged or logged.
 
 CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
 binary with:
@@ -139,32 +145,38 @@ reserved/provisioned concurrency.
 
 A Lambda root constructs only its selected dependencies during cold start and
 reuses immutable configuration plus pool/client handles during warm invocations.
-The API's Google/Vertex client initializes only on an embedding request; an
-OpenSearch reachability check remains confined to `/ready`. It logs only its
-component, Lambda request ID, remaining invocation budget, and cold-start
-duration; it never logs event bodies, credentials, or provider errors.
+The API Lambda validates its staged Google ADC JSON without logging it, writes a
+private `/tmp/aura-historia-google-adc/application_default_credentials.json` file,
+sets `GOOGLE_APPLICATION_CREDENTIALS`, and clears the JSON environment value. The
+Google/Vertex adapter and ADC provider still initialize only on an embedding request;
+an OpenSearch reachability check remains confined to `/ready`. It logs only its
+component, Lambda request ID, remaining invocation budget, and cold-start duration;
+it never logs event bodies, credentials, or provider errors.
 
 The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
-PostgreSQL settings, OpenSearch endpoint/credentials, Stripe billing settings,
-Zoho settings, and generated Cognito issuer/JWKS/client/pool settings. Real-stage
-nonsecret and secret configuration uses the existing SSM dynamic-reference paths:
-`/opensearch/<stage>/{username,password}`, `/stripe/<stage>/api-key`, and
+PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
+Stripe billing settings, Zoho settings, generated Cognito issuer/JWKS/client/pool settings,
+Vertex project and location, and staged ADC credential JSON. Real-stage nonsecret and secret
+configuration uses the existing SSM dynamic-reference paths:
+`/opensearch/<stage>/{username,password}`, `/stripe/<stage>/api-key`,
+`/vertex-ai/<stage>/{project-id,location}`, `/secrets/<stage>/google-application-credentials`, and
 `/zoho/<stage>/{accounts-url,campaigns-url,client-id,client-secret,list-key,refresh-token}`.
 The Lambda role has only `cognito-idp:ListUsers` and
-`cognito-idp:AdminUserGlobalSignOut` on its own user pool; it has no runtime
-secret-read permission.
-AWS SDK clients use the execution-role credential chain. PostgreSQL credentials
-remain deploy-time dynamic references and require a redeploy after rotation until
-the separately owned F5 refresh interface is available; the runtime has no
-secret-read IAM or background refresh timer.
+`cognito-idp:AdminUserGlobalSignOut` on its own user pool, plus
+`secretsmanager:GetSecretValue` on its exact runtime PostgreSQL secret. AWS SDK clients
+use the execution-role credential chain. Every PostgreSQL Lambda reads that exact ARN at
+`AWSCURRENT` before an invocation; same-version composed handlers reuse their warm pool,
+and a changed version builds one new full composition while an active invocation keeps its
+old pool lease. Real-stage templates never inject PostgreSQL username or password. Ephemeral
+uses only fixture username/password and has no Secrets Manager dependency.
 
 ## Network foundation (F3)
 
 Real stages have separate `/16` address space: `prod` uses `10.64.0.0/16` and `dev` uses `10.65.0.0/16`. Each has two public, two private-application, and two isolated private-database `/24` subnets across two availability zones. Exactly one managed NAT Gateway is placed in the first public subnet with one explicitly declared EIP. Both application subnet default routes use it; database route tables have no internet default route.
 
-The application route tables use one S3 **gateway** endpoint. Its endpoint policy permits only `GetObject` and `ListBucket` on the existing artifact, mail-template, and CloudFormation-staging buckets. It does not grant Lambda IAM permissions. F7 additionally declares Kinesis and Secrets Manager **interface** endpoints in the data stack for DMS; no public database, crawler network, or crawler database access is declared here.
+The application route tables use one S3 **gateway** endpoint. Its endpoint policy permits only `GetObject` and `ListBucket` on the existing artifact, mail-template, and CloudFormation-staging buckets. It does not grant Lambda IAM permissions. The data stack also declares a dedicated application Secrets Manager **interface** endpoint: private DNS, HTTPS ingress only from `ApplicationSecurityGroup`, and a policy allowing only `GetSecretValue` for the runtime PostgreSQL secret. F7 separately declares Kinesis and a DMS-only Secrets Manager interface endpoint for replication; no public database, crawler network, or crawler database access is declared here.
 
-`ApplicationSecurityGroup`, `DatabaseSecurityGroup`, `DmsSecurityGroup`, `DmsEndpointSecurityGroup`, and `MigrationSecurityGroup` are exported for RDS/DMS/migration ownership. PostgreSQL ingress is TCP 5432 only from the application, DMS, and migration groups. The database group has no usable outbound rule. Application workloads may egress TCP 5432 only to the database group and TCP 443 to IPv4 destinations via NAT. Security groups cannot express hostname allowlists: external HTTPS provider/AWS API host review stays with the workload and IAM/identity configuration; TLS certificate validation remains an application requirement, not a security-group setting.
+`ApplicationSecurityGroup`, `DatabaseSecurityGroup`, `DmsSecurityGroup`, `DmsEndpointSecurityGroup`, and `MigrationSecurityGroup` are exported for RDS/DMS/migration ownership. The dedicated runtime-secret endpoint security group is not exported. PostgreSQL ingress is TCP 5432 only from the application, DMS, and migration groups. The database group has no usable outbound rule. Application workloads may egress TCP 5432 only to the database group and TCP 443 to IPv4 destinations via NAT. Security groups cannot express hostname allowlists: external HTTPS provider/AWS API host review stays with the workload and IAM/identity configuration; TLS certificate validation remains an application requirement, not a security-group setting.
 
 The F7 DMS endpoint/security-group contract replaces the earlier open-ended endpoint wording: DMS egress is TCP 5432 to `DatabaseSecurityGroup` and TCP 443 to the interface-endpoint security group only. That endpoint group allows TCP 443 only from `DmsSecurityGroup`. The endpoints have private DNS for `kinesis.eu-central-1.amazonaws.com` and `secretsmanager.eu-central-1.amazonaws.com`. DMS has no broad egress and does not use NAT.
 
@@ -185,7 +197,7 @@ Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-s
 
 The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The F7 operator manually provisions and checks the `test_decoding` slot; DMS never auto-creates or replaces it. Full restore/recovery evidence belongs to #1805.
 
-RDS enforces TLS. #1779 injects `POSTGRES_TLS_ROOT_CERT=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` into PostgreSQL Lambdas; migrated Rust roots require it and use SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. The configured path is the AL2023 system trust bundle, so CA rotation ships through the runtime image/config release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests need a TLS-enabled PostgreSQL fixture with a separately supplied test CA; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+RDS enforces TLS. PostgreSQL Lambdas use the committed public RDS bundle layer at `POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`; migrated Rust roots require SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. Bundle rotation is an explicit reviewed asset-and-layer release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests use a TLS-enabled PostgreSQL fixture with a separately packaged, generated public test CA at `/var/task/aura-historia/test-postgres-ca.pem`; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
 
 ### SQLx pool and TLS validation (F5)
 
@@ -201,7 +213,7 @@ Before an approved isolated-RDS smoke, use an RDS endpoint and DNS name covered 
 
 ### Credentials and manual first initialization
 
-The data stack generates private Secrets Manager secrets for `aura_admin`, `aura_runtime`, `aura_migrator`, and `aura_replication`. It emits no secret ARN, value, password, username, or connection string as an output. PostgreSQL Lambdas receive only the runtime username/password through deploy-time Secrets Manager dynamic references; they do not have runtime secret-read IAM. Rotation therefore needs an approved credential handoff and compute redeploy; automatic application-secret rotation is not configured.
+The data stack generates private Secrets Manager secrets for `aura_admin`, `aura_runtime`, `aura_migrator`, and `aura_replication`. It emits no secret ARN, value, password, username, or connection string as an output. Real PostgreSQL Lambdas receive the runtime secret ARN only, with direct `GetSecretValue` permission on that one secret and through the dedicated application endpoint. They request `AWSCURRENT` at invocation start, key a full pool-and-handler/router composition cache by secret version ID, and do not close a leased old pool beneath active work. AWS secret rotation itself remains an operator-owned action; this code does not create or mutate a rotation schedule.
 
 After RDS is ready, an approved migration workload in the migration security group must retrieve the generated credentials through approved operator access and run [`sql/rds-bootstrap-roles.sql`](sql/rds-bootstrap-roles.sql) as `aura_admin` against `aura_historia`:
 
@@ -223,7 +235,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis/Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. An approved operator manually checks/provisions its `test_decoding` slot, starts it explicitly, and restarts only from its checkpoint. A lost or invalid slot requires a new fenced replay/rebuild plan; no automation recreates it. See [Migration F7](../docs/migration-f7-dms.md) for the exact AWS availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. First task creation requires the stable UTC `DmsCdcInitialCdcStartPosition` CloudFormation parameter (`YYYY-MM-DDTHH:MM:SS`); it has no `now` or current-position default. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. An approved operator manually checks/provisions its PostgreSQL `test_decoding` slot, starts it once with `start-replication`, and thereafter uses `resume-processing` to preserve its DMS checkpoint. A lost or invalid slot requires a new fenced replay/rebuild plan; no automation recreates it. See [Migration F7](../docs/migration-f7-dms.md) for the exact AWS availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
 
 From `infra/`, the existing configuration checks are:
 
@@ -246,9 +258,10 @@ Production native processes are:
 ## Worker queue contract
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
-scopes are enabled in `prod`, `dev`, and `ephemeral`. `product-listing-opensearch`
-is the first dedicated SQS Lambda slice; the other nine stay native polling-worker
-scopes. This catalog remains separate from Shopify resources and wiring.
+queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
+`product-listing-opensearch` queue is mapped to its Lambda in every compute stack;
+the other nine are native polling-worker scopes. This catalog remains separate from
+Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
@@ -271,7 +284,7 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
 | Runtime scope | Output stem after `Worker` | Initial source visibility |
 | --- | --- | ---: |
-| `product-listing-opensearch` | `ProductListingOpensearch` | 270s |
+| `product-listing-opensearch` | `ProductListingOpensearch` | 300s |
 | `search-filter-projection` | `SearchFilterProjection` | 60s |
 | `search-filter-percolator` | `SearchFilterPercolator` | 300s |
 | `search-filter-match-notification` | `SearchFilterMatchNotification` | 60s |
@@ -282,15 +295,16 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-listing-normalization` | `ProductListingNormalization` | 300s |
 | `notification-delivery` | `NotificationDelivery` | 360s |
 
-`product-listing-opensearch` is a 512 MiB, 45s Lambda whose event source targets a
-published function version with batch size one and `ReportBatchItemFailures`.
-Its source visibility is **270s**: six times its 45s timeout plus its zero-second
-batching window. The Lambda uses no custom visibility change or receipt daemon;
-only completed service results are omitted from its failures. The remaining nine
-scopes are polling Rust processes, so the Lambda timing rule does not apply to
-them. Their values match the worker's 45s short / 240s slow budgets; notification's
-360s visibility leaves headroom around its five-minute service-owned lease.
-Standard SQS may duplicate/reorder messages; handlers must remain idempotent.
+`product-listing-opensearch` is a 512 MiB, 45s Lambda with an SQS mapping targeting
+a published function version, batch size one, and `ReportBatchItemFailures`. Its
+source visibility is **300s**, exceeding six times its Lambda timeout and matching
+the native slow-work profile. The Lambda uses no custom visibility change or receipt
+daemon; only completed service results are omitted from failures. The deployment owner
+must complete the native-consumer handoff before both consumers read this queue. The
+remaining nine scopes are polling Rust processes, so the Lambda timing rule does not
+apply to them. Their values match the worker's 45s short / 240s slow budgets;
+notification's 360s visibility leaves headroom around its five-minute service-owned
+lease. Standard SQS may duplicate/reorder messages; handlers must remain idempotent.
 
 ### Identity and outputs
 
@@ -356,11 +370,12 @@ operator authorization. Never give runtime roles purge/redrive powers. Standard
 queue retention keeps the original enqueue timestamp when a message moves to the
 DLQ, so operators should not assume a fresh 14-day recovery window on arrival.
 
-This provisions the ProductListing Lambda code target, execution role, queue mapping,
-scoped PostgreSQL/OpenSearch environment, and generic Lambda error alarm. It does
-not change Sequin subscriptions, publish a new production CDC path, grant runtime
-redrive/purge power, or prove live AWS behavior. Native worker deployment remains
-external for the other scopes. Before mapping pause/cutover, follow
+This provisions the ProductListing Lambda code target, execution role, scoped
+PostgreSQL/OpenSearch environment, generic Lambda error alarm, partner EventBridge
+rules, Shopify/ProductListing SQS mappings, FX schedule, and initial FX snapshot.
+It does not change Sequin subscriptions, publish a new production CDC path, grant
+runtime redrive/purge power, or prove live AWS behavior. Native worker deployment
+remains external for the other scopes. Before a mapping pause/cutover, follow
 [`durable-worker-runbook.md`](../docs/durable-worker-runbook.md); synthesis alone
 does not establish durable delivery or AWS acceptance evidence.
 
@@ -369,6 +384,13 @@ does not establish durable delivery or AWS acceptance evidence.
 Only the compute stack exposes a CloudFormation parameter:
 
 - `CommitSHA` — artifact version to deploy or roll back to
+
+Every compute deployment declares partner-event rules, Shopify/ProductListing SQS
+mappings, the FX schedule, and the one-time FX custom resource. There is no compute
+activation context or workflow input. Operators must deploy the foundation, bootstrap
+database roles, apply business migrations, and verify required provider configuration
+before deploying compute into a new stage. This does not start DMS or prove CDC
+readiness.
 
 The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 
@@ -381,9 +403,9 @@ These values are synth-time context, not CloudFormation parameters.
 
 ## Stage-specific SSM parameters
 
-Real AWS stages resolve external integration settings via CloudFormation dynamic
-references to SSM Parameter Store. Required paths are stage-specific for `prod`
-and `dev`:
+Real AWS stages resolve external integration settings via supported CloudFormation
+SSM dynamic references. `google-application-credentials` is materialized only by
+the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 
 ```text
 /opensearch/{stage}/endpoint-url
@@ -399,9 +421,9 @@ and `dev`:
 /stripe/{stage}/ultimate-yearly-price-id
 /certificates/{stage}/api-regional-certificate-arn
 /certificates/{stage}/api-cloudfront-certificate-arn
-/secrets/{stage}/gemini-api-key
+/vertex-ai/{stage}/project-id
+/vertex-ai/{stage}/location
 /secrets/{stage}/google-application-credentials
-/secrets/{stage}/google-geocoding-api-key
 
 /secrets/{stage}/zoho-accounts-url
 /secrets/{stage}/zoho-campaigns-url
@@ -411,11 +433,16 @@ and `dev`:
 /secrets/{stage}/zoho-refresh-token
 ```
 
-`product-listing-opensearch-lambda` resolves the listed OpenSearch endpoint,
-username, and password in real stages. The function has no secret-read IAM; these
-are CloudFormation dynamic references. `fxrate-lambda` currently reads
-`/fxratesapi/prod/api-token` for the scheduled sync. On first real-stage compute-stack creation, a custom resource synchronously
-invokes this same Lambda with stable deployment source ID `deployment:fxrate:initial:{stage}:v1`.
-Deployment fails when this initial capture fails; it must run after PostgreSQL
-business migrations. Updates, deletes, and `ephemeral` do not invoke it. The
-`ephemeral` stage uses local/mock values for third-party integrations where possible.
+The API Lambda alone resolves the Vertex project, location, and Google ADC JSON.
+It writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is
+neither packaged nor logged. The API needs no runtime SSM permission because these
+are CloudFormation dynamic references. `product-listing-opensearch-lambda` receives
+none of the Vertex or Google ADC configuration and has no Google or SSM permission.
+It resolves the listed OpenSearch endpoint, username, and password in real stages.
+`fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled sync.
+The first real-stage compute-stack creation creates a custom resource that
+synchronously invokes it with stable deployment source ID
+`deployment:fxrate:initial:{stage}:v1`. Deployment fails when the initial capture
+fails, so the deployer must run it after PostgreSQL business migrations and FX
+provider verification. Updates, deletes, and `ephemeral` do not invoke it. The
+ephemeral stage uses local/mock values for third-party integrations where possible.

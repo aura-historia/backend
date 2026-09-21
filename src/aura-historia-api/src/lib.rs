@@ -64,7 +64,7 @@ use embedding::{
 };
 use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
 use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
-use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
+use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -976,8 +976,17 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 
 pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
     let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
-    log_product_listing_search_cache_config(&config);
-    let state = app_state_from_config(&config).await?;
+    let pool = postgres_pool_from_env().await?;
+    lambda_app_from_config_and_pool(&config, pool).await
+}
+
+/// Composes a complete Lambda router for one PostgreSQL credential version.
+pub async fn lambda_app_from_config_and_pool(
+    config: &ApiConfig,
+    pool: PgPool,
+) -> Result<Router, ApiStateError> {
+    log_product_listing_search_cache_config(config);
+    let state = app_state_from_config_and_pool(config, pool).await?;
     Ok(app_with_request_timeout(
         state,
         crate::transport::LAMBDA_REQUEST_TIMEOUT,
@@ -985,12 +994,19 @@ pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
+    let pool = postgres_pool_from_env().await?;
+    app_state_from_config_and_pool(config, pool).await
+}
+
+async fn app_state_from_config_and_pool(
+    config: &ApiConfig,
+    pool: PgPool,
+) -> Result<AppState, ApiStateError> {
     let cognito_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&cognito_config),
         config.cognito_user_pool_id(),
     );
-    let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_listing_history = GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
@@ -1764,15 +1780,36 @@ fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     Ok(OpenSearch::new(transport))
 }
 
+trait GoogleAdcProvider: Send + Sync {
+    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError>;
+}
+
+struct DefaultGoogleAdcProvider;
+
+impl GoogleAdcProvider for DefaultGoogleAdcProvider {
+    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
+        google_application_default_credentials()
+    }
+}
+
 struct LazyVertexAiEmbeddingGenerator {
     config: VertexAiEmbeddingConfig,
+    adc_provider: Arc<dyn GoogleAdcProvider>,
     generator: OnceCell<VertexAiEmbeddingGenerator>,
 }
 
 impl LazyVertexAiEmbeddingGenerator {
     fn new(config: VertexAiEmbeddingConfig) -> Self {
+        Self::with_adc_provider(config, Arc::new(DefaultGoogleAdcProvider))
+    }
+
+    fn with_adc_provider(
+        config: VertexAiEmbeddingConfig,
+        adc_provider: Arc<dyn GoogleAdcProvider>,
+    ) -> Self {
         Self {
             config,
+            adc_provider,
             generator: OnceCell::new(),
         }
     }
@@ -1782,7 +1819,7 @@ impl LazyVertexAiEmbeddingGenerator {
             .get_or_try_init(|| async {
                 Ok(VertexAiEmbeddingGenerator::new(
                     self.config.clone(),
-                    google_application_default_credentials()?,
+                    self.adc_provider.credentials()?,
                 ))
             })
             .await
@@ -1811,8 +1848,7 @@ impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
     }
 }
 
-fn google_application_default_credentials()
--> Result<google_cloud_auth::credentials::AccessTokenCredentials, EmbeddingError> {
+fn google_application_default_credentials() -> Result<AccessTokenCredentials, EmbeddingError> {
     GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
         .build_access_token_credentials()
@@ -1919,6 +1955,43 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct UnavailableGoogleAdcProvider {
+        calls: AtomicUsize,
+    }
+
+    impl GoogleAdcProvider for UnavailableGoogleAdcProvider {
+        fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(EmbeddingError::AuthenticationFailed {
+                source: Box::new(std::io::Error::other("test Google ADC is unavailable")),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn should_initialize_vertex_adapter_and_adc_only_when_embedding_needs_it() {
+        let adc_provider = Arc::new(UnavailableGoogleAdcProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let embeddings = LazyVertexAiEmbeddingGenerator::with_adc_provider(
+            VertexAiEmbeddingConfig::new("test-project", "eu"),
+            Arc::clone(&adc_provider) as Arc<dyn GoogleAdcProvider>,
+        );
+
+        assert!(embeddings.generator.get().is_none());
+        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 0);
+
+        let result = embeddings.generator().await;
+
+        assert!(matches!(
+            result,
+            Err(EmbeddingError::AuthenticationFailed { .. })
+        ));
+        assert!(embeddings.generator.get().is_none());
+        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn should_default_and_apply_bounded_public_listing_source_read_configuration() {

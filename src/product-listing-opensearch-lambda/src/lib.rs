@@ -4,11 +4,17 @@ use aura_historia_worker::product_listing_opensearch::{
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use futures_util::FutureExt;
 use lambda_runtime::{Error, LambdaEvent};
+use platform_lambda_bootstrap::LambdaInvocationBudget;
 use product_listing_service::use_cases::ProjectProductListingUseCase;
-use std::{panic::AssertUnwindSafe, time::Duration};
+use std::{
+    panic::AssertUnwindSafe,
+    time::{Duration, Instant},
+};
 use tracing::{info, warn};
 
-const PROCESSING_BUDGET: Duration = Duration::from_secs(40);
+const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
+const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
+const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
 
 /// Adapt native Lambda SQS records without exposing Lambda DTOs to the worker or service layers.
 ///
@@ -18,21 +24,46 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
 ) -> Result<SqsBatchResponse, Error> {
-    handler_with_budget(event, use_case, PROCESSING_BUDGET).await
+    let budget = LambdaInvocationBudget::from_context(
+        &event.context,
+        LAMBDA_INVOCATION_CAP,
+        RESPONSE_HEADROOM,
+    );
+    handler_with_budget(
+        event,
+        use_case,
+        budget.remaining(),
+        MAX_RECORD_PROCESSING_BUDGET,
+    )
+    .await
 }
 
 async fn handler_with_budget(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
-    processing_budget: Duration,
+    invocation_budget: Duration,
+    max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
     let record_count = event.payload.records.len();
+    let invocation_started_at = Instant::now();
     let mut failures = Vec::new();
 
     for record in event.payload.records {
         let message_id = record.message_id.ok_or_else(|| {
             Error::from("SQS event record has no message ID; fail whole invocation")
         })?;
+        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
+        let Some(processing_budget) =
+            record_processing_budget(max_record_processing_budget, remaining)
+        else {
+            warn!(
+                message_id = %message_id,
+                outcome = "insufficient_invocation_budget",
+                "ProductListing projection record retained for SQS retry or redrive"
+            );
+            failures.push(batch_failure(message_id));
+            continue;
+        };
         let disposition = match record.body {
             Some(body) => process_with_budget(&body, use_case, processing_budget).await,
             None => ProductListingOpenSearchJobDisposition::Poison("missing_message_body"),
@@ -60,6 +91,11 @@ async fn handler_with_budget(
     let mut response = SqsBatchResponse::default();
     response.batch_item_failures = failures;
     Ok(response)
+}
+
+fn record_processing_budget(maximum: Duration, remaining: Duration) -> Option<Duration> {
+    let budget = maximum.min(remaining);
+    (!budget.is_zero()).then_some(budget)
 }
 
 async fn process_with_budget(
@@ -103,6 +139,7 @@ mod tests {
             Mutex,
             atomic::{AtomicUsize, Ordering},
         },
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     const EVENT_ID: &str = "evt_01h455vb4pex5vy7enb1p677vn";
@@ -129,6 +166,42 @@ mod tests {
         };
         assert!(response.batch_item_failures.is_empty());
         assert_eq!(processor.calls(), 3);
+    }
+
+    #[tokio::test]
+    async fn should_preserve_worker_retry_poison_and_dependency_dispositions_from_the_lambda_entrypoint()
+     {
+        let processor = FakeUseCase::new([
+            FakeResult::Applied,
+            FakeResult::Stale,
+            FakeResult::MissingSource,
+            FakeResult::SaleObservationFxSnapshotMissing,
+            FakeResult::SaleObservationFxSnapshotInvalid,
+            FakeResult::Unavailable,
+        ]);
+
+        let response = match handler(
+            events([
+                (Some("applied"), valid_body()),
+                (Some("stale"), valid_body()),
+                (Some("missing-source"), valid_body()),
+                (Some("missing-fx"), valid_body()),
+                (Some("invalid-fx"), valid_body()),
+                (Some("unavailable"), valid_body()),
+            ]),
+            &processor,
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+
+        assert_eq!(
+            message_ids(response),
+            ["missing-source", "missing-fx", "invalid-fx", "unavailable"]
+        );
+        assert_eq!(processor.calls(), 6);
     }
 
     #[tokio::test]
@@ -161,6 +234,7 @@ mod tests {
                 events([(Some("retry"), valid_body())]),
                 &processor,
                 Duration::from_millis(1),
+                Duration::from_millis(1),
             )
             .await
             {
@@ -169,6 +243,52 @@ mod tests {
             };
             assert_eq!(message_ids(response), ["retry"]);
         }
+    }
+
+    #[tokio::test]
+    async fn should_use_the_record_cap_without_spending_the_shared_invocation_budget() {
+        let processor = FakeUseCase::new([FakeResult::Pending, FakeResult::Applied]);
+
+        let response = match handler_with_budget(
+            events([
+                (Some("bounded"), valid_body()),
+                (Some("completed"), valid_body()),
+            ]),
+            &processor,
+            Duration::from_millis(100),
+            Duration::from_millis(1),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+
+        assert_eq!(message_ids(response), ["bounded"]);
+        assert_eq!(processor.calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn should_fail_each_later_record_without_starting_it_when_shared_budget_is_spent() {
+        let processor = FakeUseCase::new([FakeResult::Pending, FakeResult::Applied]);
+
+        let response = match handler_with_budget(
+            events([
+                (Some("timed-out"), valid_body()),
+                (Some("unstarted"), valid_body()),
+            ]),
+            &processor,
+            Duration::from_millis(10),
+            Duration::from_millis(10),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+
+        assert_eq!(message_ids(response), ["timed-out", "unstarted"]);
+        assert_eq!(processor.calls(), 1);
     }
 
     #[tokio::test]
@@ -206,7 +326,16 @@ mod tests {
             .collect();
         let mut event = SqsEvent::default();
         event.records = messages;
-        LambdaEvent::new(event, Context::default())
+        let mut context = Context::default();
+        context.deadline = epoch_millis().saturating_add(60_000);
+        LambdaEvent::new(event, context)
+    }
+
+    fn epoch_millis() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or_default()
     }
 
     fn message_ids(response: SqsBatchResponse) -> Vec<String> {
@@ -223,6 +352,9 @@ mod tests {
         Deleted,
         Stale,
         MissingSource,
+        SaleObservationFxSnapshotMissing,
+        SaleObservationFxSnapshotInvalid,
+        Unavailable,
         Pending,
         Panic,
     }
@@ -262,6 +394,19 @@ mod tests {
                 Some(FakeResult::Stale) => Ok(result(ProjectProductListingOutcome::Stale)),
                 Some(FakeResult::MissingSource) => {
                     Ok(result(ProjectProductListingOutcome::MissingSource))
+                }
+                Some(FakeResult::SaleObservationFxSnapshotMissing) => {
+                    Err(ProjectProductListingError::SaleObservationFxSnapshotMissing)
+                }
+                Some(FakeResult::SaleObservationFxSnapshotInvalid) => Err(
+                    ProjectProductListingError::SaleObservationFxSnapshotInvalid {
+                        source: Box::new(std::io::Error::other("invalid FX snapshot")),
+                    },
+                ),
+                Some(FakeResult::Unavailable) => {
+                    Err(ProjectProductListingError::SourceReadFailed {
+                        source: Box::new(std::io::Error::other("projection source unavailable")),
+                    })
                 }
                 Some(FakeResult::Pending) => std::future::pending().await,
                 Some(FakeResult::Panic) => panic!("projection handler panic"),

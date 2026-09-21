@@ -4,8 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+
 lambda_runtime = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+url = { workspace = true }

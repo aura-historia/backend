@@ -94,6 +94,7 @@ fn should_validate_exact_ten_scope_queue_and_dlq_contracts() {
                 scope,
                 WorkerScope::SearchFilterPercolator
                     | WorkerScope::ProductListingEmbedding
+                    | WorkerScope::ProductListingOpenSearch
                     | WorkerScope::ProductListingTranslation
                     | WorkerScope::ProductListingRawNormalization
             ) {

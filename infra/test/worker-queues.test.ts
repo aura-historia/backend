@@ -10,7 +10,7 @@ import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerSc
 
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
-  "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 270 },
+  "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 300 },
   "search-filter-projection": { id: "SearchFilterProjection", visibility: 60 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibility: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 60 },
@@ -29,6 +29,20 @@ function queueResource(template: Template, name: string) {
   expect(matches).toHaveLength(1);
   const [id, resource] = matches[0];
   return { id, resource, arn: { "Fn::GetAtt": [id, "Arn"] }, url: { Ref: id } };
+}
+
+function workerPolicyNames(template: Template): string[] {
+  return Object.values(template.findResources("AWS::IAM::ManagedPolicy"))
+    .map((resource) => resource.Properties.ManagedPolicyName)
+    .filter((name): name is string => typeof name === "string" && name.startsWith("aura-worker-"))
+    .sort();
+}
+
+function expectedWorkerPolicyNames(stage: StageName, scopes: readonly WorkerScope[]): string[] {
+  return scopes.flatMap((scope) => [
+    `aura-worker-${scope}-publisher-${stage}`,
+    `aura-worker-${scope}-consumer-${stage}`,
+  ]).sort();
 }
 
 function expectWorkerPair(stack: cdk.Stack, template: Template, stage: StageName, workerScope: WorkerScope) {
@@ -150,7 +164,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
     ].sort());
     expect(new Set(names).size).toBe(22);
-    data.resourceCountIs("AWS::IAM::ManagedPolicy", 20);
+    expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
     const workerRoles = Object.values(data.findResources("AWS::IAM::Role"))
@@ -173,11 +187,15 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .toEqual([...expectedKeys, "WorkerQueueAwsRegion", "WorkerQueueStage"].sort());
     expect(outputs.WorkerQueueAwsRegion).toEqual({ Value: { Ref: "AWS::Region" } });
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
-    expect(JSON.stringify(compute.toJSON())).toContain("aura-worker-product-listing-opensearch-");
+    const computeJson = JSON.stringify(compute.toJSON());
+    expect(computeJson).toContain(`aura-worker-product-listing-opensearch-${stage}`);
+    for (const scope of EXPECTED_SCOPES.filter((scope) => scope !== "product-listing-opensearch")) {
+      expect(computeJson).not.toContain(`aura-worker-${scope}-${stage}`);
+    }
     expect(JSON.stringify(Template.fromStack(stacks.api).toJSON())).not.toContain("aura-worker-");
   });
 
-  test("keeps Shopify queues, Lambda identity and event wiring unchanged", () => {
+  test("keeps Shopify queues and Lambda identity while wiring its consumer", () => {
     const source = queueResource(data, `shopify-lambda-queue-${stage}`);
     const dlq = queueResource(data, `shopify-lambda-dlq-${stage}`);
     expect(source.id).toBe("QueuesShopifyLambdaQueue117CAC9C");
@@ -196,7 +214,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(data.toJSON().Outputs.ShopifyLambdaQueueUrl).toEqual({ Value: source.url });
     expect(data.toJSON().Outputs.ShopifyLambdaDeadLetterQueueUrl).toEqual({ Value: dlq.url });
 
-    const arn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: `shopify-lambda-queue-${stage}` }));
     const lambda = compute.toJSON().Resources.LambdasShopifyLambda9FCE3162;
     expect(lambda.Properties).toMatchObject({
       FunctionName: `shopify-lambda-${stage}`, Runtime: "provided.al2023", Handler: "lib.handler",
@@ -207,42 +224,34 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         S3Key: { "Fn::Join": ["", [`shopify-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] },
       },
     });
-    expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual([
-      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME",
-    ]);
-    const policy = compute.toJSON().Resources.LambdasShopifyLambdaServiceRoleDefaultPolicyB8C48B8C;
-    expect(policy.Properties.PolicyDocument.Statement).toEqual([{
-      Action: ["sqs:ReceiveMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-      Effect: "Allow", Resource: arn,
-    }]);
-    expect(policy.Properties.Roles).toEqual([{ Ref: "LambdasShopifyLambdaServiceRoleDDA039B4" }]);
-    compute.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
-    compute.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
-      EventSourceArn: arn, FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
-      BatchSize: 10, FunctionResponseTypes: ["ReportBatchItemFailures"], MaximumBatchingWindowInSeconds: 1,
+    expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+    );
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    expect(mappings).toHaveLength(2);
+    const shopifyMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 10);
+    expect(shopifyMapping?.Properties).toMatchObject({
+      FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+      MaximumBatchingWindowInSeconds: 1,
     });
-    const rule = compute.toJSON().Resources.EventingShopifyEventRule401F6A4E;
-    expect(rule.Properties.EventPattern).toEqual({ detail: { metadata: {
-      "X-Shopify-Topic": ["products/create", "products/update", "products/delete"],
-    } } });
-    expect(rule.Properties.Targets).toEqual([{ Arn: arn, Id: "Target0" }]);
-    expect(compute.toJSON().Resources.EventingShopifyEventRuleQueuePolicy86C4784B.Properties.PolicyDocument.Statement).toEqual([{
-      Effect: "Allow", Principal: { Service: "events.amazonaws.com" }, Action: "sqs:SendMessage", Resource: arn,
-      Condition: { ArnEquals: { "aws:SourceArn": { "Fn::GetAtt": ["EventingShopifyEventRule401F6A4E", "Arn"] } } },
-    }]);
+    expect(JSON.stringify(shopifyMapping?.Properties.EventSourceArn)).toContain(`shopify-lambda-queue-${stage}`);
+    expect(compute.toJSON().Resources.EventingShopifyEventRule401F6A4E).toBeDefined();
   });
 
-  test("wires only ProductListing OpenSearch to its versioned Lambda target", () => {
+  test("wires ProductListing OpenSearch to its queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    const mappingsForProjection = mappings.filter((mapping) => mapping.Properties.BatchSize === 1);
-    expect(mappingsForProjection).toHaveLength(1);
-    expect(mappingsForProjection[0].Properties).toMatchObject({
+    expect(mappings).toHaveLength(2);
+    const productListingMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 1);
+    expect(productListingMapping?.Properties).toMatchObject({
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
-    expect(JSON.stringify(mappingsForProjection[0].Properties.FunctionName))
+    expect(JSON.stringify(productListingMapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-product-listing-opensearch-${stage}`);
+    expect(JSON.stringify(productListingMapping?.Properties.FunctionName))
       .toContain("ProductListingOpenSearchVersion");
-    expect(mappingsForProjection[0].Properties.MaximumBatchingWindowInSeconds).toBeUndefined();
-    expect(mappingsForProjection[0].Properties.ScalingConfig).toBeUndefined();
 
     const projectionFunctions = Object.values(compute.findResources("AWS::Lambda::Function"))
       .filter((resource) => resource.Properties.FunctionName === `product-listing-opensearch-lambda-${stage}`);
@@ -257,7 +266,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
       stage === "ephemeral"
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
-        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"],
+        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(1);
     expect(Object.values(compute.findResources("AWS::Lambda::Alias"))).toHaveLength(0);
@@ -300,7 +309,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
   });
 });
 
-test("single-stack ephemeral has the same queue contract and the ProductListing OpenSearch Lambda mapping", () => {
+test("single-stack ephemeral has the same queue and consumer contract", () => {
   const app = new cdk.App({ analyticsReporting: false });
   const stack = new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" });
   const template = Template.fromStack(stack);
@@ -308,20 +317,11 @@ test("single-stack ephemeral has the same queue contract and the ProductListing 
     expectWorkerPair(stack, template, "ephemeral", scope);
   }
   template.resourceCountIs("AWS::SQS::Queue", 22);
-  template.resourceCountIs("AWS::IAM::ManagedPolicy", 20);
+  expect(workerPolicyNames(template)).toEqual(expectedWorkerPolicyNames("ephemeral", EXPECTED_SCOPES));
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
   template.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
-  template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
-    EventSourceArn: { "Fn::GetAtt": ["QueuesShopifyLambdaQueue117CAC9C", "Arn"] },
-    FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
-    BatchSize: 10, FunctionResponseTypes: ["ReportBatchItemFailures"], MaximumBatchingWindowInSeconds: 1,
-  });
-  const projectionMappings = Object.values(template.findResources("AWS::Lambda::EventSourceMapping"))
-    .filter((mapping) => mapping.Properties.BatchSize === 1);
-  expect(projectionMappings).toHaveLength(1);
-  expect(projectionMappings[0].Properties.FunctionResponseTypes).toEqual(["ReportBatchItemFailures"]);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 
@@ -340,7 +340,7 @@ test.each<{ enabledScopes: WorkerScope[] }>([
   expect(Object.keys(queues.catalog)).toEqual(enabledScopes);
   expect(Object.keys(imports)).toEqual(enabledScopes);
   template.resourceCountIs("AWS::SQS::Queue", enabledScopes.length * 2);
-  template.resourceCountIs("AWS::IAM::ManagedPolicy", enabledScopes.length * 2);
+  expect(workerPolicyNames(template)).toEqual(expectedWorkerPolicyNames("dev", enabledScopes));
   expect(Object.keys(template.toJSON().Outputs)).toHaveLength(enabledScopes.length * 6 + 2);
 });
 

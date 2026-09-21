@@ -35,6 +35,7 @@ opensearch = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
 
 jsonwebtokens = { workspace = true }
 listing-source-core = { workspace = true }

@@ -9,7 +9,7 @@
 - Scheduled and deployment-bootstrap Lambda that captures immutable canonical FX snapshots in Postgres.
 - Main neighbors: `application`, `platform-observability`, `platform-postgres`, `fxrate-service`, `fxrate-postgres`, `fxrate-fxratesapi`.
 - Event/runtime edge crate. It maps EventBridge IDs to idempotency keys and wires canonical FX service/Postgres/provider adapters; behavior stays deeper.
-- PostgreSQL needs `POSTGRES_TLS_ROOT_CERT`; bootstrap uses the strict min-zero/default-max-one verified-TLS pool profile.
+- PostgreSQL needs `POSTGRES_TLS_ROOT_CERT`; real stages refresh `POSTGRES_SECRET_ARN` `AWSCURRENT` before each trigger and cache a full versioned handler lease. Ephemeral keeps fixture username/password. Bootstrap uses the strict min-zero/default-max-one verified-TLS pool profile.
 
 ## Ownership
 

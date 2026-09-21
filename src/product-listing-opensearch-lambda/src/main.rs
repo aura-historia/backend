@@ -9,11 +9,12 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, log_cold_start, log_invocation_start, logging_config_from_env,
-    required_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
+    logging_config_from_env, required_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
+use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_opensearch::OpenSearchProductListingSearchProjection;
 use product_listing_opensearch_lambda::handler;
 use product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory;
@@ -28,19 +29,12 @@ async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let pool = LambdaPostgresConfig::from_env()?
-        .into_pool_config()
-        .connect()
+    let postgres = LambdaPostgresConfig::from_env()?;
+    let credentials = postgres_credentials_provider_from_env()
         .await
-        .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
     let open_search = open_search_client(OpenSearchConfig::from_env()?)?;
-    let use_case: Arc<dyn ProjectProductListingUseCase> =
-        Arc::new(ProjectProductListingHandler::new(
-            SqlxUnitOfWork::new(pool),
-            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductListingSearchProjection::new(open_search),
-        ));
+    let use_cases = Arc::new(VersionedCompositionCache::new());
 
     log_cold_start(
         "product-listing-opensearch-lambda",
@@ -48,10 +42,35 @@ async fn main() -> Result<(), Error> {
     );
     run(service_fn(
         move |event: LambdaEvent<aws_lambda_events::sqs::SqsEvent>| {
-            let use_case = Arc::clone(&use_case);
+            let postgres = postgres.clone();
+            let credentials = Arc::clone(&credentials);
+            let open_search = open_search.clone();
+            let use_cases = Arc::clone(&use_cases);
             async move {
                 log_invocation_start("product-listing-opensearch-lambda", &event.context);
-                handler(event, use_case.as_ref()).await
+                let credentials = credentials
+                    .current()
+                    .await
+                    .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                let use_case = use_cases
+                    .get_or_try_build(credentials.version_id(), || async {
+                        let pool = postgres
+                            .pool_config(credentials.credentials())
+                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
+                            .connect()
+                            .await
+                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                        Ok::<_, Error>(Arc::new(ProjectProductListingHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+                            SqlxFxRateSnapshotRepositoryFactory,
+                            OpenSearchProductListingSearchProjection::new(open_search),
+                        ))
+                            as Arc<dyn ProjectProductListingUseCase>)
+                    })
+                    .await?;
+
+                handler(event, use_case.value().as_ref()).await
             }
         },
     ))

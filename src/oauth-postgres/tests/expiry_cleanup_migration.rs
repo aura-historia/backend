@@ -14,6 +14,30 @@ const EXPIRED_AUTHORIZATION_CODE: &str = "01890a5d-ac96-774b-bf1d-d5586c639f80";
 const FUTURE_AUTHORIZATION_CODE: &str = "01890a5d-ac96-774b-bf1d-d5586c639f81";
 const EXPIRED_THIRD_PARTY_EXCHANGE_CODE: &str = "01890a5d-ac96-774b-bf1d-d5586c639f82";
 const FUTURE_THIRD_PARTY_EXCHANGE_CODE: &str = "01890a5d-ac96-774b-bf1d-d5586c639f83";
+const EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID: Uuid =
+    Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f7a);
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_configure_full_replica_identity_for_search_filter_deletes() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let replica_identity_is_full: bool = sqlx::query_scalar(
+            "SELECT relreplident::text = 'f' \
+             FROM pg_class WHERE oid = 'search_filters'::regclass",
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        assert!(replica_identity_is_full);
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter DELETE capture migration integration test failed: {result:?}"
+    );
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_batch() {
@@ -134,6 +158,106 @@ async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_ba
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_null_cleanup_batch_size() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let null_batch_result: Result<(i64, i64, i64, i64), sqlx::Error> =
+            sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+                .bind(Option::<i32>::None)
+                .fetch_one(&pool)
+                .await;
+
+        assert!(null_batch_result.is_err());
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "OAuth expiry cleanup NULL batch-size integration test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_not_cascade_an_expired_access_token_with_more_expired_exchange_codes_than_batch_size()
+ {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let expired_at = OffsetDateTime::now_utc() - Duration::hours(1);
+        seed_user_and_client(&pool).await?;
+        seed_access_token(
+            &pool,
+            EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID,
+            "dummy-access-token-many-expired-codes",
+            Some(expired_at),
+        )
+        .await?;
+        for third_party_exchange_code in [
+            "many-expired-third-party-code-one",
+            "many-expired-third-party-code-two",
+            "many-expired-third-party-code-three",
+        ] {
+            seed_third_party_exchange_code(
+                &pool,
+                third_party_exchange_code,
+                EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID,
+                third_party_exchange_code,
+                expired_at,
+            )
+            .await?;
+        }
+
+        let first_deleted: (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+                .bind(1_i32)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(first_deleted, (0, 0, 1, 0));
+        assert!(access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
+        assert_eq!(
+            third_party_exchange_code_count_for_access_token(
+                &pool,
+                EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID,
+            )
+            .await?,
+            2
+        );
+
+        let second_deleted: (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+                .bind(1_i32)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(second_deleted, (0, 0, 1, 0));
+        assert!(access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
+
+        let third_deleted: (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+                .bind(1_i32)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(third_deleted, (1, 0, 1, 0));
+        assert!(!access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
+        assert_eq!(
+            third_party_exchange_code_count_for_access_token(
+                &pool,
+                EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID,
+            )
+            .await?,
+            0
+        );
+
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "OAuth expiry cleanup bounded dependent integration test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_share_expired_rows_between_concurrent_cleanup_transactions() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -188,6 +312,36 @@ async fn should_share_expired_rows_between_concurrent_cleanup_transactions() {
     assert!(
         result.is_ok(),
         "OAuth concurrent expiry cleanup integration test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_restore_expired_rows_when_cleanup_transaction_rolls_back() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let expired_at = OffsetDateTime::now_utc() - Duration::hours(1);
+        let authorization_code = "01890a5d-ac96-774b-bf1d-d5586c639f86";
+        seed_user_and_client(&pool).await?;
+        seed_authorization_code(&pool, authorization_code, "rollback-code", expired_at).await?;
+
+        let mut transaction = pool.begin().await?;
+        let deleted: (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+                .bind(1_i32)
+                .fetch_one(&mut *transaction)
+                .await?;
+        assert_eq!(deleted, (0, 1, 0, 0));
+
+        transaction.rollback().await?;
+        assert!(authorization_code_exists(&pool, authorization_code).await?);
+
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "OAuth expiry cleanup rollback integration test failed: {result:?}"
     );
 }
 
@@ -316,6 +470,18 @@ async fn third_party_exchange_code_exists(
          SELECT 1 FROM oauth_third_party_exchange_codes WHERE third_party_exchange_code = $1)",
     )
     .bind(third_party_exchange_code)
+    .fetch_one(pool)
+    .await
+}
+
+async fn third_party_exchange_code_count_for_access_token(
+    pool: &PgPool,
+    access_token_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM oauth_third_party_exchange_codes WHERE access_token_id = $1",
+    )
+    .bind(access_token_id)
     .fetch_one(pool)
     .await
 }
