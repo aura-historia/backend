@@ -79,7 +79,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     const groups = Object.entries(template.findResources("AWS::EC2::SecurityGroup"));
     const database = groups.find(([, group]) => group.Properties.GroupDescription === "Private PostgreSQL database boundary");
 
-    expect(groups).toHaveLength(4);
+    expect(groups).toHaveLength(5);
     expect(database).toBeDefined();
     // CDK emits an impossible ICMP rule to represent allowAllOutbound=false.
     expect(database![1].Properties.SecurityGroupEgress).toEqual([{
@@ -98,6 +98,31 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
       expect(rule.Properties.SourceSecurityGroupId).toBeDefined();
       expect(rule.Properties.CidrIp).toBeUndefined();
     }
+  });
+
+  test("allows DMS egress only to PostgreSQL and its private AWS API endpoint boundary", () => {
+    const template = networkTemplate(stage);
+    const groups = Object.entries(template.findResources("AWS::EC2::SecurityGroup"));
+    const dms = groups.find(([, group]) => group.Properties.GroupDescription === "Private DMS replication instances");
+    const endpoint = groups.find(([, group]) => group.Properties.GroupDescription === "DMS interface endpoint boundary");
+
+    expect(dms).toBeDefined();
+    expect(endpoint).toBeDefined();
+    const dmsEgress = Object.values(template.findResources("AWS::EC2::SecurityGroupEgress"))
+      .filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(dms![0]));
+    expect(dmsEgress).toHaveLength(2);
+    expect(dmsEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
+    expect(dmsEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
+
+    const endpointIngress = Object.values(template.findResources("AWS::EC2::SecurityGroupIngress"))
+      .filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(endpoint![0]));
+    expect(endpointIngress).toEqual([expect.objectContaining({
+      Properties: expect.objectContaining({
+        FromPort: 443,
+        ToPort: 443,
+        SourceSecurityGroupId: expect.anything(),
+      }),
+    })]);
   });
 
   test("attaches only PostgreSQL Lambdas to private application subnets", () => {

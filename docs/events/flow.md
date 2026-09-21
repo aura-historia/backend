@@ -1,6 +1,6 @@
 # Event Flow
 
-Current PostgreSQL/Sequin flow with durable Standard SQS custody (#1558). See [architecture §12](../arch.md#12-cdc-and-projection-architecture) and the [durable-worker runbook](../durable-worker-runbook.md) for effective limits, deployment handoffs, and recovery.
+Current checked-in PostgreSQL/Sequin flow with durable Standard SQS custody (#1558). The target after a gated #1781 cutover is DMS → Kinesis → router/Lambda consumption; it is **not rollout complete** and is not current delivery. See [architecture §12](../arch.md#12-cdc-and-projection-architecture), [Migration F7](../migration-f7-dms.md), and the [durable-worker runbook](../durable-worker-runbook.md) for limits, handoffs, and recovery.
 
 ## Components
 
@@ -21,7 +21,7 @@ Current PostgreSQL/Sequin flow with durable Standard SQS custody (#1558). See [a
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
 | CloudWatch log-retention Lambda | AWS Lambda | Keeps AWS log retention policy. |
 
-## Routing diagram
+## Current native Sequin routing (not target)
 
 ```mermaid
 flowchart TD
@@ -65,6 +65,28 @@ flowchart TD
 
 
     FX -->|"immutable FX snapshot transaction"| PG
+```
+
+## Target DMS/Kinesis routing after cutover (not rollout complete)
+
+This is the agreed target only after #1781's explicit CDC start and AWS evidence gates. Sequin/native delivery remains the current contract until that handoff finishes. DMS is CDC-only; this target adds no outbox, custom CDC transport, or downstream target redesign. #1787 owns router/Lambda consumption; #1788 owns production handoff.
+
+```mermaid
+flowchart TD
+    PG[(Private RDS PostgreSQL)]
+    DMS["DMS CDC"]
+    KINESIS["Kinesis stream"]
+    ROUTER["Router Lambda (#1787)"]
+    SQS["Scoped Standard SQS source/DLQ pairs"]
+    LAMBDAS["Worker Lambdas"]
+    TARGETS["Rebuildable projections and services"]
+
+    PG -->|"committed selected changes"| DMS
+    DMS -->|"CDC records"| KINESIS
+    KINESIS --> ROUTER
+    ROUTER --> SQS
+    SQS --> LAMBDAS
+    LAMBDAS --> TARGETS
 ```
 
 ## ProductListing write flow

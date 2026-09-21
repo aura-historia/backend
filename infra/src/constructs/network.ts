@@ -17,6 +17,7 @@ export class Network extends Construct {
   readonly applicationSecurityGroup: ec2.ISecurityGroup;
   readonly databaseSecurityGroup: ec2.ISecurityGroup;
   readonly dmsSecurityGroup: ec2.ISecurityGroup;
+  readonly dmsEndpointSecurityGroup: ec2.ISecurityGroup;
   readonly migrationSecurityGroup: ec2.ISecurityGroup;
   readonly natEip: ec2.CfnEIP;
 
@@ -73,8 +74,14 @@ export class Network extends Construct {
     this.dmsSecurityGroup = new ec2.SecurityGroup(this, "DmsSecurityGroup", {
       vpc: this.vpc,
       allowAllOutbound: false,
-      description: "DMS replication instances; endpoint choices are owned by the DMS task",
+      description: "Private DMS replication instances",
       securityGroupName: `aura-historia-dms-${props.config.stage}`,
+    });
+    this.dmsEndpointSecurityGroup = new ec2.SecurityGroup(this, "DmsEndpointSecurityGroup", {
+      vpc: this.vpc,
+      allowAllOutbound: false,
+      description: "DMS interface endpoint boundary",
+      securityGroupName: `aura-historia-dms-endpoint-${props.config.stage}`,
     });
     this.migrationSecurityGroup = new ec2.SecurityGroup(this, "MigrationSecurityGroup", {
       vpc: this.vpc,
@@ -86,11 +93,13 @@ export class Network extends Construct {
     this.applicationSecurityGroup.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "Required HTTPS provider and AWS API egress through NAT");
     this.applicationSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL");
     this.dmsSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL replication");
+    this.dmsSecurityGroup.addEgressRule(this.dmsEndpointSecurityGroup, ec2.Port.tcp(443), "Private Kinesis and Secrets Manager endpoints");
     this.migrationSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL migrations");
 
     this.databaseSecurityGroup.addIngressRule(this.applicationSecurityGroup, ec2.Port.tcp(5432), "Backend application PostgreSQL");
     this.databaseSecurityGroup.addIngressRule(this.dmsSecurityGroup, ec2.Port.tcp(5432), "DMS PostgreSQL replication");
     this.databaseSecurityGroup.addIngressRule(this.migrationSecurityGroup, ec2.Port.tcp(5432), "Approved migrations PostgreSQL");
+    this.dmsEndpointSecurityGroup.addIngressRule(this.dmsSecurityGroup, ec2.Port.tcp(443), "DMS AWS API calls");
   }
 }
 

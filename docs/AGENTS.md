@@ -10,6 +10,7 @@
 - `CHANGELOG.md` tell API change by pull request.
 - `storage.md` owns storage migration and repository conventions.
 - `migration-f1-inventory.md` owns checked-in migration baseline, survivor inventory, owner decisions, and cutover gates; it does not prove live deployment.
+- `migration-f7-dms.md` owns #1781 DMS-to-Kinesis CDC configuration, bounded operator protocol, and evidence gates; it does not prove live AWS state.
 - Child doc can own deeper subsystem docs when folder become durable boundary.
 
 ## Ownership
@@ -42,6 +43,7 @@
 - `auction.md` — Auction domain contract and current implementation status.
 - `events/flow.md` — durable event and scheduled-flow contracts.
 - `migration-f1-inventory.md` — #1775 migration baseline, contracts, surviving resources, owners, and gates.
+- `migration-f7-dms.md` — #1781 DMS-to-Kinesis CDC configuration, bounds, test protocol, and evidence gates.
 - `object-ids.md` — prefixed UUIDv7 object-ID registry and boundary contract.
 - `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
 - `product-listing.md` — canonical ProductListing domain contract.

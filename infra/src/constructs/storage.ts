@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { Network } from "./network";
@@ -24,7 +25,7 @@ export class Storage extends Construct {
   readonly database?: rds.DatabaseInstance;
   readonly runtimeCredentials?: rds.DatabaseSecret;
   readonly migrationCredentials?: rds.DatabaseSecret;
-  readonly replicationCredentials?: rds.DatabaseSecret;
+  readonly replicationCredentials?: secretsmanager.ISecret;
 
   constructor(scope: Construct, id: string, props: StorageProps) {
     super(scope, id);
@@ -101,11 +102,10 @@ export class Storage extends Construct {
       databaseName: rdsConfig.databaseName,
       adminCredentials,
     });
-    this.replicationCredentials = applicationCredentials(this, "PostgresReplicationCredentials", {
+    this.replicationCredentials = dmsReplicationCredentials(this, "PostgresReplicationCredentials", {
       stage: props.config.stage,
-      username: "aura_replication",
       databaseName: rdsConfig.databaseName,
-      adminCredentials,
+      host: this.database.dbInstanceEndpointAddress,
     });
 
     this.postgres = {
@@ -137,6 +137,34 @@ function applicationCredentials(scope: Construct, id: string, props: Application
 
 function roleSecretName(username: string): string {
   return username.replace("aura_", "");
+}
+
+interface DmsReplicationCredentialProps {
+  readonly stage: string;
+  readonly databaseName: string;
+  readonly host: string;
+}
+
+function dmsReplicationCredentials(
+  scope: Construct,
+  id: string,
+  props: DmsReplicationCredentialProps,
+): secretsmanager.Secret {
+  return new secretsmanager.Secret(scope, id, {
+    description: "Private PostgreSQL DMS replication credentials",
+    secretName: `/aura-historia/${props.stage}/postgres/replication`,
+    generateSecretString: {
+      excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\\\"",
+      generateStringKey: "password",
+      secretStringTemplate: JSON.stringify({
+        engine: "postgres",
+        host: props.host,
+        port: 5432,
+        dbname: props.databaseName,
+        username: "aura_replication",
+      }),
+    },
+  });
 }
 
 function postgresEngine(version: "16.13"): rds.IInstanceEngine {

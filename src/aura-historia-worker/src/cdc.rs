@@ -77,6 +77,7 @@ pub const MAX_CDC_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_CDC_CHANGES: usize = 100;
 pub const MAX_CDC_JOBS: usize = 500;
 pub const PUBLICATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+const DMS_KINESIS_SOURCE: &str = "aws-dms-kinesis";
 
 impl Display for CdcOperation {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -374,6 +375,9 @@ impl CdcFanout {
         if batch.changes.len() > MAX_CDC_CHANGES {
             return Err(CdcIngestError::LimitExceeded);
         }
+        if batch.source.as_deref() == Some(DMS_KINESIS_SOURCE) {
+            validate_dms_contract(batch)?;
+        }
         let mut publications = Vec::new();
         for change in &batch.changes {
             if change
@@ -573,6 +577,10 @@ impl CdcFanout {
 fn parse_cdc_batch(body: &str) -> Result<CdcBatch, serde_json::Error> {
     let value: Value = serde_json::from_str(body)?;
 
+    if value.get("data").is_some_and(Value::is_object) && value.get("metadata").is_some() {
+        return serde_json::from_value::<DmsKinesisRecord>(value)?.try_into();
+    }
+
     if value.get("data").is_some() {
         return serde_json::from_value::<SequinWebhookBatch>(value).map(Into::into);
     }
@@ -582,6 +590,98 @@ fn parse_cdc_batch(body: &str) -> Result<CdcBatch, serde_json::Error> {
     }
 
     serde_json::from_value(value)
+}
+
+#[derive(Debug, Deserialize)]
+struct DmsKinesisRecord {
+    data: Value,
+    metadata: DmsKinesisMetadata,
+}
+
+#[derive(Debug, Deserialize)]
+struct DmsKinesisMetadata {
+    #[serde(rename = "record-type")]
+    record_type: String,
+    operation: String,
+    #[serde(rename = "schema-name")]
+    schema_name: String,
+    #[serde(rename = "table-name")]
+    table_name: String,
+    #[serde(default)]
+    timestamp: Option<Value>,
+    #[serde(default, rename = "transaction-id")]
+    transaction_id: Option<Value>,
+    #[serde(default, rename = "transaction-record-id")]
+    transaction_record_id: Option<Value>,
+}
+
+impl TryFrom<DmsKinesisRecord> for CdcBatch {
+    type Error = serde_json::Error;
+
+    fn try_from(record: DmsKinesisRecord) -> Result<Self, Self::Error> {
+        let DmsKinesisRecord { data, metadata } = record;
+        if metadata.record_type != "data" {
+            return Err(dms_record_error(
+                "DMS Kinesis control records are not data changes",
+            ));
+        }
+        if !data.is_object() {
+            return Err(dms_record_error("DMS Kinesis data must be a JSON object"));
+        }
+        let operation = match metadata.operation.as_str() {
+            "insert" => CdcOperation::Insert,
+            "update" => CdcOperation::Update,
+            "delete" => CdcOperation::Delete,
+            _ => return Err(dms_record_error("DMS Kinesis operation is unsupported")),
+        };
+        let transaction_id = dms_metadata_value(metadata.transaction_id);
+        let transaction_record_id = dms_metadata_value(metadata.transaction_record_id);
+        let delivery_id = match (transaction_id, transaction_record_id) {
+            (Some(transaction_id), Some(transaction_record_id)) => {
+                Some(format!("dms:{transaction_id}:{transaction_record_id}"))
+            }
+            (Some(transaction_id), None) => Some(format!("dms:{transaction_id}")),
+            (None, Some(transaction_record_id)) => {
+                Some(format!("dms:record:{transaction_record_id}"))
+            }
+            (None, None) => None,
+        };
+        let commit_timestamp = dms_metadata_value(metadata.timestamp);
+        let (record, old_record) = match operation {
+            CdcOperation::Insert | CdcOperation::Update => (Some(data), None),
+            CdcOperation::Delete => (None, Some(data)),
+        };
+
+        Ok(Self {
+            delivery_id,
+            source: Some(DMS_KINESIS_SOURCE.to_owned()),
+            changes: vec![CdcChange {
+                schema: Some(metadata.schema_name),
+                table: metadata.table_name,
+                operation,
+                primary_key: BTreeMap::new(),
+                record,
+                old_record,
+                changed_columns: Vec::new(),
+                commit_lsn: None,
+                commit_timestamp,
+            }],
+        })
+    }
+}
+
+fn dms_metadata_value(value: Option<Value>) -> Option<String> {
+    value.map(|value| match value {
+        Value::String(value) => value,
+        other => other.to_string(),
+    })
+}
+
+fn dms_record_error(message: &'static str) -> serde_json::Error {
+    serde_json::Error::io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        message,
+    ))
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -661,6 +761,81 @@ struct SequinWebhookMetadata {
     commit_lsn: Option<Value>,
     #[serde(default)]
     commit_timestamp: Option<String>,
+}
+
+fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
+    for change in &batch.changes {
+        if change.schema.as_deref() != Some("public") {
+            return Err(CdcRouteError::InvalidDmsContract("schema"));
+        }
+
+        let required_columns = match (change.table.as_str(), change.operation) {
+            ("product_listing_events", CdcOperation::Insert) => [
+                "event_id",
+                "product_listing_id",
+                "event_type",
+                "event_group",
+                "event_type_schema_version",
+                "payload",
+            ]
+            .as_slice(),
+            ("product_listing_raw_revisions", CdcOperation::Insert) => [
+                "product_listing_raw_stream_id",
+                "product_listing_raw_revision_id",
+                "revision",
+            ]
+            .as_slice(),
+            (
+                "search_filters",
+                CdcOperation::Insert | CdcOperation::Update | CdcOperation::Delete,
+            ) => ["user_search_filter_id", "user_id", "version"].as_slice(),
+            ("search_filter_matches", CdcOperation::Insert) => [
+                "user_id",
+                "user_search_filter_id",
+                "product_listing_id",
+                "origin_event_id",
+            ]
+            .as_slice(),
+            ("notification_deliveries", CdcOperation::Insert) => {
+                ["notification_delivery_id"].as_slice()
+            }
+            _ => return Err(CdcRouteError::InvalidDmsContract("table or operation")),
+        };
+
+        let row = row_for_operation(change)?;
+        require_dms_columns(row, required_columns)?;
+        match change.table.as_str() {
+            "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
+            "search_filters" => validate_dms_positive_decimal(row, "version")?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn require_dms_columns(row: &Value, fields: &[&'static str]) -> Result<(), CdcRouteError> {
+    let row = row
+        .as_object()
+        .ok_or(CdcRouteError::InvalidDmsContract("data object"))?;
+    for &field in fields {
+        if !row.contains_key(field) {
+            return Err(CdcRouteError::MissingColumn(field));
+        }
+    }
+    Ok(())
+}
+
+fn validate_dms_positive_decimal(row: &Value, field: &'static str) -> Result<(), CdcRouteError> {
+    let value = row
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or(CdcRouteError::InvalidDmsContract("decimal string"))?;
+    let value =
+        canonical_decimal_i64(value).ok_or(CdcRouteError::InvalidDmsContract("decimal value"))?;
+    if value <= 0 {
+        return Err(CdcRouteError::InvalidDmsContract("positive decimal value"));
+    }
+    Ok(())
 }
 
 pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
@@ -1708,7 +1883,23 @@ fn string_field(row: &Value, field: &str) -> Option<String> {
 }
 
 fn integer_field(row: &Value, field: &str) -> Option<i64> {
-    row.get(field)?.as_i64()
+    match row.get(field)? {
+        Value::Number(value) => value.as_i64(),
+        Value::String(value) => canonical_decimal_i64(value),
+        _ => None,
+    }
+}
+
+fn canonical_decimal_i64(value: &str) -> Option<i64> {
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    if digits.is_empty()
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        || (digits.len() > 1 && digits.starts_with('0'))
+        || value == "-0"
+    {
+        return None;
+    }
+    value.parse().ok()
 }
 
 fn required_integer(row: &Value, field: &'static str) -> Result<i64, CdcRouteError> {
@@ -1731,6 +1922,8 @@ pub enum CdcIngestError {
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum CdcRouteError {
+    #[error("DMS Kinesis CDC record violates the supported contract: {0}")]
+    InvalidDmsContract(&'static str),
     #[error("CDC table is not configured for this worker: {0}")]
     UnsupportedTableForWorker(String),
     #[error("CDC change has unsupported product listing event {event_type} in group {event_group}")]
@@ -3555,6 +3748,243 @@ mod tests {
         assert_eq!(1, batch.changes.len());
         assert_eq!("users", batch.changes[0].table);
         assert_eq!(vec!["tier".to_owned()], batch.changes[0].changed_columns);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_validate_and_route_dms_kinesis_fixture_corpus()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_event = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/product-listing-event-insert.json"
+        )))?;
+        let raw_revision = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json"
+        )))?;
+        let search_filter_insert = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"
+        )))?;
+        let search_filter_update = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/search-filter-update.json"
+        )))?;
+        let search_filter_delete = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/search-filter-delete.json"
+        )))?;
+        let search_filter_match = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/search-filter-match-insert.json"
+        )))?;
+        let notification_delivery = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/notification-delivery-insert.json"
+        )))?;
+
+        for batch in [
+            &product_event,
+            &raw_revision,
+            &search_filter_insert,
+            &search_filter_update,
+            &search_filter_delete,
+            &search_filter_match,
+            &notification_delivery,
+        ] {
+            assert_eq!(Some(DMS_KINESIS_SOURCE), batch.source.as_deref());
+            validate_dms_contract(batch)?;
+            assert_eq!(1, batch.changes.len());
+            assert!(!route_change(&batch.changes[0])?.is_empty());
+        }
+
+        let product_jobs = route_change(&product_event.changes[0])?;
+        assert_eq!(5, product_jobs.len());
+        assert!(product_jobs.iter().all(|job| {
+            matches!(
+                &job.payload,
+                DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+                    event_id,
+                    product_listing_id,
+                }) if event_id.to_string() == "evt_01j0000000e008000000000005"
+                    && product_listing_id.to_string() == "pl_01j0000000e008000000000004"
+            ) && job.idempotency_key.as_str() == "product-event:evt_01j0000000e008000000000005"
+                && job.ordering_key.as_str() == "product:pl_01j0000000e008000000000004"
+        }));
+
+        let raw_fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json"
+        ));
+        assert!(!raw_fixture.contains("source_payload"));
+        let raw_jobs = route_change(&raw_revision.changes[0])?;
+        assert!(matches!(
+            raw_jobs.as_slice(),
+            [DomainJob {
+                target_queue: WorkerQueue::ProductListingRawNormalization,
+                idempotency_key,
+                ordering_key,
+                payload: DomainJobPayload::ProductListingRawRevision(ProductListingRawRevisionJob {
+                    revision,
+                    ..
+                }),
+            }] if *revision == i64::MAX as u64
+                && idempotency_key.as_str() == "product-listing-raw-revision:prr_01j0000000e008000000000003"
+                && ordering_key.as_str() == "product-listing-raw-stream:prs_01j0000000e008000000000002"
+        ));
+        assert!(!crate::wire::encode(&raw_jobs[0])?.contains("source_payload"));
+        assert!(!crate::wire::encode(&raw_jobs[0])?.contains("raw_values"));
+
+        let inserted_filter = route_change(&search_filter_insert.changes[0])?;
+        assert!(matches!(
+            inserted_filter.as_slice(),
+            [DomainJob {
+                target_queue: WorkerQueue::SearchFilterOpenSearch,
+                idempotency_key,
+                ordering_key,
+                payload: DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
+                    version,
+                    operation: CdcOperation::Insert,
+                    ..
+                }),
+            }] if *version == i64::MAX
+                && idempotency_key.as_str() == "search-filter:sf_01j0000000e008000000000006:9223372036854775807:insert"
+                && ordering_key.as_str() == "search-filter:sf_01j0000000e008000000000006"
+        ));
+        let updated_filter = route_change(&search_filter_update.changes[0])?;
+        assert!(matches!(
+            updated_filter.as_slice(),
+            [DomainJob {
+                payload: DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
+                    version: 2,
+                    operation: CdcOperation::Update,
+                    ..
+                }),
+                ..
+            }]
+        ));
+        assert!(search_filter_delete.changes[0].record.is_none());
+        assert!(search_filter_delete.changes[0].old_record.is_some());
+        let deleted_filter = route_change(&search_filter_delete.changes[0])?;
+        assert!(matches!(
+            deleted_filter.as_slice(),
+            [DomainJob {
+                payload: DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
+                    version: 3,
+                    operation: CdcOperation::Delete,
+                    ..
+                }),
+                ..
+            }]
+        ));
+
+        let match_jobs = route_change(&search_filter_match.changes[0])?;
+        assert!(matches!(
+            match_jobs.as_slice(),
+            [DomainJob {
+                target_queue: WorkerQueue::SearchFilterMatchNotification,
+                idempotency_key,
+                ordering_key,
+                payload: DomainJobPayload::SearchFilterMatchCreated(_),
+            }] if idempotency_key.as_str() == "search-filter-match:usr_01j0000000e008000000000001:sf_01j0000000e008000000000006:pl_01j0000000e008000000000004:evt_01j0000000e008000000000005"
+                && ordering_key.as_str() == "user:usr_01j0000000e008000000000001"
+        ));
+        let delivery_jobs = route_change(&notification_delivery.changes[0])?;
+        assert!(matches!(
+            delivery_jobs.as_slice(),
+            [DomainJob {
+                target_queue: WorkerQueue::NotificationDelivery,
+                idempotency_key,
+                ordering_key,
+                payload: DomainJobPayload::NotificationDeliveryCreated(_),
+            }] if idempotency_key.as_str() == "notification-delivery:nd_01j0000000e008000000000007"
+                && ordering_key.as_str() == "notification-delivery:nd_01j0000000e008000000000007"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_numeric_scientific_and_noncanonical_dms_versions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let numeric = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/invalid-search-filter-numeric-version.json"
+        )))?;
+        assert!(matches!(
+            validate_dms_contract(&numeric),
+            Err(CdcRouteError::InvalidDmsContract("decimal string"))
+        ));
+
+        for (fixture, field) in [
+            (
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"
+                )),
+                "version",
+            ),
+            (
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json"
+                )),
+                "revision",
+            ),
+        ] {
+            for value in ["1e3", "001", "+1", "0", "-1", "-0"] {
+                let mut batch = parse_cdc_batch(fixture)?;
+                let Some(row) = batch.changes[0].record.as_mut() else {
+                    return Err("fixture has no row".into());
+                };
+                row[field] = serde_json::json!(value);
+                assert!(
+                    validate_dms_contract(&batch).is_err(),
+                    "accepted {field}={value}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_dms_control_records_before_routing() {
+        assert!(
+            parse_cdc_batch(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/dms-kinesis/control-record-schema-change.json"
+            )))
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_dms_input_before_publication()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let batch = parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/invalid-search-filter-numeric-version.json"
+        )))?;
+        let (sender, mut receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let fanout = CdcFanout::search_filter_projection(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterOpenSearch, sender),
+        );
+
+        assert!(matches!(
+            fanout.ingest_batch(&batch).await,
+            Err(CdcIngestError::Route(CdcRouteError::InvalidDmsContract(
+                "decimal string"
+            )))
+        ));
+        assert!(matches!(
+            receiver.receiver.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(matches!(
+            fanout
+                .ingest_json(&" ".repeat(MAX_CDC_BODY_BYTES + 1))
+                .await,
+            Err(CdcIngestError::LimitExceeded)
+        ));
         Ok(())
     }
 }
