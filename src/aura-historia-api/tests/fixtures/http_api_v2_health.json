@@ -1,0 +1,20 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/health",
+  "rawQueryString": "",
+  "headers": {
+    "host": "api.example.test"
+  },
+  "requestContext": {
+    "stage": "$default",
+    "http": {
+      "method": "GET",
+      "path": "/health",
+      "protocol": "HTTP/1.1",
+      "sourceIp": "127.0.0.1",
+      "userAgent": "aura-historia-api-lambda-test"
+    }
+  },
+  "isBase64Encoded": false
+}

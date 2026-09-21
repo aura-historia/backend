@@ -196,13 +196,14 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 ### 3.5 Transport and composition root
 
-REST code lives in the API crate. The current canonical REST runtime is `aura-historia-api`, an axum process without API Gateway adapters:
+REST code lives in the API crate. The canonical REST runtime is `aura-historia-api`: the same axum router runs as a native process or behind a `lambda_http` HTTP API v2 envelope adapter. The adapter is not API Gateway front-door routing or an API Gateway-specific application context:
 
 ```text
 aura-historia-api/
 └── src/
-    ├── main.rs              # logging, config, shutdown
+    ├── main.rs              # logging, native/Lambda runtime selection
     ├── lib.rs               # router, server, composition root
+    ├── lambda.rs            # HTTP API v2 envelope adapter
     ├── state.rs             # axum application state
     ├── error.rs             # problem+json API errors
     ├── auth/                # transport authentication

@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
-openssl = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
 
 [dev-dependencies]
 serial_test = { workspace = true }

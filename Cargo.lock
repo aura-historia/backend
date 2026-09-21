@@ -303,6 +303,7 @@ dependencies = [
  "httpdate",
  "indexmap 2.14.2",
  "jsonwebtokens",
+ "lambda_http",
  "listing-source-core",
  "listing-source-postgres",
  "listing-source-service",
@@ -323,6 +324,7 @@ dependencies = [
  "party-core",
  "party-postgres",
  "party-service",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
  "product-listing-core",
@@ -4164,6 +4166,31 @@ dependencies = [
  "html5ever 0.25.2",
  "matches",
  "selectors 0.22.0",
+]
+
+[[package]]
+name = "lambda_http"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a604844a6087df69f1271ef31b11178d5bf91094cae1a0d26900b2044ef07b"
+dependencies = [
+ "aws_lambda_events",
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "hyper 1.11.1",
+ "lambda_runtime",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio-stream",
+ "url",
 ]
 
 [[package]]

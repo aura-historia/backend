@@ -18,9 +18,10 @@ const WOOCOMMERCE_DELIVERY_ID_HEADER: HeaderName =
     HeaderName::from_static("x-wc-webhook-delivery-id");
 const MAX_CORRELATION_ID_LENGTH: usize = 128;
 const MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const LAMBDA_REQUEST_TIMEOUT: Duration = Duration::from_secs(14);
 
-pub(crate) fn with_transport_middleware(router: Router) -> Router {
+pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duration) -> Router {
     router
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
@@ -41,7 +42,7 @@ pub(crate) fn with_transport_middleware(router: Router) -> Router {
         ]))
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
+            request_timeout,
         ))
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
         .layer(
@@ -121,7 +122,10 @@ mod tests {
     use tower::ServiceExt;
 
     fn app() -> Router {
-        with_transport_middleware(Router::new().route("/", get(|| async { "ok" })))
+        with_transport_middleware(
+            Router::new().route("/", get(|| async { "ok" })),
+            NATIVE_REQUEST_TIMEOUT,
+        )
     }
 
     #[test]

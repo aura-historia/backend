@@ -9,11 +9,13 @@ import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
+import type { Search } from "./opensearch";
 import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly postgres: PostgresConnectionSettings;
+  readonly search: Search;
 }
 
 interface LambdaDefinition {
@@ -31,6 +33,14 @@ function defineLambdaDefinitions<T extends Record<string, LambdaDefinition>>(def
 }
 
 const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
+  auraHistoriaApi: {
+    id: "AuraHistoriaApiLambda",
+    binaryName: "aura-historia-api",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 15,
+    environment: apiEnvironment,
+  },
   cloudWatchLogRetention: {
     id: "CloudWatchLogRetentionLambda",
     binaryName: "cloudwatch-log-retention-lambda",
@@ -87,6 +97,7 @@ export interface LambdasProps {
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
   readonly postgres: PostgresConnectionSettings;
+  readonly search: Search;
   readonly network?: Network;
 }
 
@@ -100,6 +111,7 @@ export class Lambdas extends Construct {
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       postgres: props.postgres,
+      search: props.search,
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -165,12 +177,69 @@ function grantRuntimeAccess(_props: LambdasProps, functions: LambdaFunctions): v
 }
 
 export function addUserPoolEnvironment(
-  _functions: LambdaFunctions,
-  _userPoolId: string,
-  _publicClientId: string,
-): void {}
+  functions: LambdaFunctions,
+  userPoolId: string,
+  publicClientId: string,
+): void {
+  const functionRegion = cdk.Stack.of(functions.auraHistoriaApi).region;
+  const issuer = `https://cognito-idp.${functionRegion}.amazonaws.com/${userPoolId}`;
 
-export function grantCognitoAdminAccess(_functions: LambdaFunctions, _userPoolArn: string): void {}
+  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_ISSUER", issuer);
+  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_JWKS_URL", `${issuer}/.well-known/jwks.json`);
+  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_APP_CLIENT_IDS", publicClientId);
+  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
+}
+
+export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn: string): void {
+  functions.auraHistoriaApi.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["cognito-idp:AdminUserGlobalSignOut", "cognito-idp:ListUsers"],
+      resources: [userPoolArn],
+    }),
+  );
+}
+
+function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  const { config, search } = context;
+  const environment = {
+    AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
+    OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
+    STAGE: config.stage,
+    STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
+    STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,
+    STRIPE_PORTAL_RETURN_URL: config.stripePortalReturnUrl,
+    STRIPE_PRO_MONTHLY_PRICE_ID: config.stripeProMonthlyPriceId,
+    STRIPE_PRO_YEARLY_PRICE_ID: config.stripeProYearlyPriceId,
+    STRIPE_ULTIMATE_MONTHLY_PRICE_ID: config.stripeUltimateMonthlyPriceId,
+    STRIPE_ULTIMATE_YEARLY_PRICE_ID: config.stripeUltimateYearlyPriceId,
+  };
+
+  if (config.isEphemeral) {
+    return {
+      ...environment,
+      STRIPE_API_KEY: "sk_test_ephemeral",
+      ZOHO_ACCOUNTS_URL: "https://accounts.zoho.test",
+      ZOHO_CAMPAIGNS_URL: "https://campaigns.zoho.test",
+      ZOHO_CLIENT_ID: "ephemeral-client-id",
+      ZOHO_CLIENT_SECRET: "ephemeral-client-secret",
+      ZOHO_LIST_KEY: "ephemeral-list-key",
+      ZOHO_REFRESH_TOKEN: "ephemeral-refresh-token",
+    };
+  }
+
+  return {
+    ...environment,
+    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/password`),
+    OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/username`),
+    STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
+    ZOHO_ACCOUNTS_URL: ssmValue(`/zoho/${config.stage}/accounts-url`),
+    ZOHO_CAMPAIGNS_URL: ssmValue(`/zoho/${config.stage}/campaigns-url`),
+    ZOHO_CLIENT_ID: ssmValue(`/zoho/${config.stage}/client-id`),
+    ZOHO_CLIENT_SECRET: ssmValue(`/zoho/${config.stage}/client-secret`),
+    ZOHO_LIST_KEY: ssmValue(`/zoho/${config.stage}/list-key`),
+    ZOHO_REFRESH_TOKEN: ssmValue(`/zoho/${config.stage}/refresh-token`),
+  };
+}
 
 export function importLambdaCatalog(scope: Construct, id: string, config: StageConfig): LambdaCatalog {
   const catalog = {} as Partial<Record<LambdaKey, lambda.IFunction>>;

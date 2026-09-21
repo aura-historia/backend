@@ -130,14 +130,29 @@ cargo lambda build --locked --release \
 
 `cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI copies it to
 `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
-`src/constructs/lambdas.ts`. Native processes remain the local development
-entrypoints; no API Lambda HTTP adapter, worker polling loop, cron scheduler, or
-health daemon is included in an artifact invocation.
+`src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
+Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
+native Axum router, and applies a `14 s` application request deadline. Native
+processes remain the local development entrypoints. The artifact has no worker
+polling loop, cron scheduler, health daemon, API Gateway route, Function URL, or
+reserved/provisioned concurrency.
 
 A Lambda root constructs only its selected dependencies during cold start and
 reuses immutable configuration plus pool/client handles during warm invocations.
-It logs only its component, Lambda request ID, remaining invocation budget, and
-cold-start duration; it never logs event bodies, credentials, or provider errors.
+The API's Google/Vertex client initializes only on an embedding request; an
+OpenSearch reachability check remains confined to `/ready`. It logs only its
+component, Lambda request ID, remaining invocation budget, and cold-start
+duration; it never logs event bodies, credentials, or provider errors.
+
+The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
+PostgreSQL settings, OpenSearch endpoint/credentials, Stripe billing settings,
+Zoho settings, and generated Cognito issuer/JWKS/client/pool settings. Real-stage
+nonsecret and secret configuration uses the existing SSM dynamic-reference paths:
+`/opensearch/<stage>/{username,password}`, `/stripe/<stage>/api-key`, and
+`/zoho/<stage>/{accounts-url,campaigns-url,client-id,client-secret,list-key,refresh-token}`.
+The Lambda role has only `cognito-idp:ListUsers` and
+`cognito-idp:AdminUserGlobalSignOut` on its own user pool; it has no runtime
+secret-read permission.
 AWS SDK clients use the execution-role credential chain. PostgreSQL credentials
 remain deploy-time dynamic references and require a redeploy after rotation until
 the separately owned F5 refresh interface is available; the runtime has no
