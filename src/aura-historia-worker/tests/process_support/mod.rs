@@ -109,7 +109,7 @@ impl WorkerProcess {
             .env("POSTGRES_MAX_CONNECTIONS", "1")
             .env(
                 "POSTGRES_TLS_ROOT_CERT",
-                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+                test_api::get_postgres_tls_root_certificate_path(),
             )
             .env("TOKIO_WORKER_THREADS", "2")
             .env("LOG_LEVEL", "warn")

@@ -40,7 +40,10 @@ pub use futures_util::FutureExt;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "postgres")]
-pub use postgres::{Postgres, get_postgres_client, get_postgres_host_gateway_connection_string};
+pub use postgres::{
+    Postgres, get_postgres_client, get_postgres_host_gateway_connection_string,
+    get_postgres_tls_root_certificate_path,
+};
 pub use s3::S3;
 #[cfg(feature = "sequin")]
 pub use sequin::*;
