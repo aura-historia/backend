@@ -137,7 +137,8 @@ jobs:
           fi
           deploy "${stacks[@]}" \
             --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
-            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=false"
+            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=false" \
+            --parameters "${STACK_NAME_PREFIX}-compute:CdcRouterEnabled=false"
 
           printf '{}' > migration-invocation.json
           cat > fxrate-invocation.json <<EOF
@@ -148,4 +149,5 @@ jobs:
 
           deploy "${STACK_NAME_PREFIX}-compute" \
             --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
-            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=true"
+            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=true" \
+            --parameters "${STACK_NAME_PREFIX}-compute:CdcRouterEnabled=false"

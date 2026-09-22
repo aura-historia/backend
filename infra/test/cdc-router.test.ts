@@ -147,7 +147,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
           Destination: { "Fn::GetAtt": [archiveLogicalId, "Arn"] },
         },
       },
-      Enabled: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] },
+      Enabled: { "Fn::If": ["CdcRouterActivation", true, false] },
       FunctionName: { "Fn::GetAtt": [routerLogicalId, "Arn"] },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
       MaximumBatchingWindowInSeconds: 1,

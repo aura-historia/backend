@@ -2,6 +2,8 @@ import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -99,6 +101,9 @@ export class Observability extends Construct {
       cdcRouterFunctionName,
       1,
     ).addAlarmAction(alarmAction);
+
+    cdcDmsAlarms(this, props.stageName, alarmAction);
+    cdcDmsTaskStateNotifications(this, props.stageName, this.alarmTopic);
   }
 }
 
@@ -125,6 +130,97 @@ function lambdaAlarm(
     evaluationPeriods: 1,
     comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
+}
+
+function cdcDmsAlarms(scope: Construct, stageName: string, alarmAction: actions.SnsAction): void {
+  const replicationInstanceIdentifier = `aura-historia-dms-cdc-${stageName}`;
+  const replicationTaskIdentifier = `aura-historia-cdc-${stageName}`;
+  const databaseInstanceIdentifier = `aura-historia-postgres-${stageName}`;
+  const streamName = `aura-historia-cdc-${stageName}`;
+  const dmsTaskDimensions = { ReplicationInstanceIdentifier: replicationInstanceIdentifier, ReplicationTaskIdentifier: replicationTaskIdentifier };
+
+  cdcMetricAlarm(scope, stageName, "CdcDmsSourceLatencyAlarm", "AWS/DMS", "CDCLatencySource", dmsTaskDimensions, 300)
+    .addAlarmAction(alarmAction);
+  cdcMetricAlarm(scope, stageName, "CdcDmsTargetLatencyAlarm", "AWS/DMS", "CDCLatencyTarget", dmsTaskDimensions, 300)
+    .addAlarmAction(alarmAction);
+  cdcMetricAlarm(
+    scope,
+    stageName,
+    "CdcDmsCapacityAlarm",
+    "AWS/DMS",
+    "CPUUtilization",
+    { ReplicationInstanceIdentifier: replicationInstanceIdentifier },
+    80,
+    "Maximum",
+    3,
+  ).addAlarmAction(alarmAction);
+  cdcMetricAlarm(
+    scope,
+    stageName,
+    "CdcKinesisWriteCapacityAlarm",
+    "AWS/Kinesis",
+    "WriteProvisionedThroughputExceeded",
+    { StreamName: streamName },
+    1,
+  ).addAlarmAction(alarmAction);
+
+  new cloudwatch.Alarm(scope, "CdcSourceWalStorageAlarm", {
+    alarmName: `${stageName}-cdc-source-wal-storage`,
+    alarmDescription: "RDS free storage is at or below 10 GiB; investigate logical-slot WAL retention before source storage is exhausted.",
+    metric: new cloudwatch.Metric({
+      namespace: "AWS/RDS",
+      metricName: "FreeStorageSpace",
+      dimensionsMap: { DBInstanceIdentifier: databaseInstanceIdentifier },
+      statistic: "Minimum",
+      period: cdk.Duration.minutes(5),
+    }),
+    threshold: 10 * 1024 * 1024 * 1024,
+    evaluationPeriods: 1,
+    comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  }).addAlarmAction(alarmAction);
+}
+
+function cdcMetricAlarm(
+  scope: Construct,
+  stageName: string,
+  id: string,
+  namespace: string,
+  metricName: string,
+  dimensionsMap: Record<string, string>,
+  threshold: number,
+  statistic = "Maximum",
+  evaluationPeriods = 1,
+): cloudwatch.Alarm {
+  return new cloudwatch.Alarm(scope, id, {
+    alarmName: `${stageName}-${toKebabCase(id.replace(/Alarm$/, ""))}`,
+    alarmDescription: `CDC ${metricName} requires operator investigation.`,
+    metric: new cloudwatch.Metric({
+      namespace,
+      metricName,
+      dimensionsMap,
+      statistic,
+      period: cdk.Duration.minutes(5),
+    }),
+    threshold,
+    evaluationPeriods,
+    comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
+}
+
+function cdcDmsTaskStateNotifications(scope: Construct, stageName: string, alarmTopic: sns.ITopic): void {
+  new events.Rule(scope, "CdcDmsTaskStateChangeRule", {
+    description: `Notify on stopped or failed DMS replication-task state changes in ${stageName}.`,
+    eventPattern: {
+      source: ["aws.dms"],
+      detailType: ["DMS Replication Task State Change"],
+      detail: {
+        eventType: ["REPLICATION_TASK_FAILED", "REPLICATION_TASK_STOPPED"],
+      },
+    },
+    targets: [new targets.SnsTopic(alarmTopic)],
   });
 }
 

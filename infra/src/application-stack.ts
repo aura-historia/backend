@@ -254,7 +254,7 @@ export class ApplicationComputeStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
-    const parameters = applicationParameters(this);
+    const parameters = applicationParameters(this, !config.isEphemeral);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -294,6 +294,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
+      cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
 
@@ -407,6 +408,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
+      cdcRouterActivation: parameters.cdcRouterActivation,
     });
 
     this.api = new BackendHttpApi(this, "HttpApi", {

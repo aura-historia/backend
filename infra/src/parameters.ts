@@ -5,6 +5,7 @@ export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
 export function artifactCommitShaParameter(scope: Construct): string {
@@ -14,7 +15,7 @@ export function artifactCommitShaParameter(scope: Construct): string {
   }).valueAsString;
 }
 
-export function applicationParameters(scope: Construct): ApplicationParameters {
+export function applicationParameters(scope: Construct, includeCdcRouterActivation = false): ApplicationParameters {
   const commitSha = artifactCommitShaParameter(scope);
   const productListingOpenSearchConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingOpenSearchConsumerEnabled", {
     type: "String",
@@ -34,10 +35,26 @@ export function applicationParameters(scope: Construct): ApplicationParameters {
   const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
   });
+  const cdcRouterActivation = includeCdcRouterActivation
+    ? cdcRouterCondition(scope)
+    : undefined;
 
   return {
     commitSha,
     productListingOpenSearchConsumerActivation,
     productListingNormalizationConsumerActivation,
+    cdcRouterActivation,
   };
+}
+
+function cdcRouterCondition(scope: Construct): cdk.CfnCondition {
+  const cdcRouterEnabled = new cdk.CfnParameter(scope, "CdcRouterEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the DMS/Kinesis CDC router only after separately approved slot, task-start, and delivery evidence gates.",
+  });
+  return new cdk.CfnCondition(scope, "CdcRouterActivation", {
+    expression: cdk.Fn.conditionEquals(cdcRouterEnabled.valueAsString, "true"),
+  });
 }

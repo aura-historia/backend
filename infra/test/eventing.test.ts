@@ -21,13 +21,14 @@ function resources(template: Template, type: string): CloudFormationResource[] {
 }
 
 describe.each(STAGES)("%s compute eventing", (stage) => {
-  test("retains partner consumers while ProductListing consumers are off by default", () => {
+  test("retains partner consumers while ProductListing and CDC consumers are off by default", () => {
     const template = computeTemplate(stage);
     const templateJson = template.toJSON();
     const mappings = resources(template, "AWS::Lambda::EventSourceMapping");
     const rules = resources(template, "AWS::Events::Rule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
+    const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
       Type: "String",
@@ -45,6 +46,20 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
     });
+    if (stage === "ephemeral") {
+      expect(templateJson.Parameters.CdcRouterEnabled).toBeUndefined();
+      expect(templateJson.Conditions.CdcRouterActivation).toBeUndefined();
+    } else {
+      expect(templateJson.Parameters.CdcRouterEnabled).toMatchObject({
+        Type: "String",
+        Default: "false",
+        AllowedValues: ["true", "false"],
+      });
+      expect(templateJson.Conditions.CdcRouterActivation).toEqual({
+        "Fn::Equals": [{ Ref: "CdcRouterEnabled" }, "true"],
+      });
+    }
+
     expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
@@ -76,6 +91,13 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
         ? "WorkerQueuesProductListingNormalizationQueue"
         : `aura-worker-product-listing-normalization-${stage}`,
     );
+    const cdcRouterMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 100);
+    if (stage === "ephemeral") {
+      expect(cdcRouterMapping).toBeUndefined();
+    } else {
+      expect(cdcRouterMapping?.Properties).toMatchObject({ Enabled: cdcRouterActivation });
+    }
+
     const stripeRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("customer.subscription.created"));
     const shopifyRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("X-Shopify-Topic"));
     expect(stripeRule?.Properties?.State).toEqual({ "Fn::If": ["ProductListingOpenSearchConsumerActivation", "ENABLED", "DISABLED"] });

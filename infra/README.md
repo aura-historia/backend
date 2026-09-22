@@ -58,7 +58,7 @@ DmsCdc (real stages only)
 
 It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. The detailed start, slot, mapping, LOB, test, and cost contract is in [Migration F7](../docs/migration-f7-dms.md).
 
-The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. It does not activate the DMS task or consumer mapping; #1788 owns AWS evidence and controlled replay proof.
+The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. The R5 task mapping selects only `product_listing_events`; the router preserves its complete ProductListing routing union and the remaining source tables remain an R6 gate. #1788 owns AWS evidence and controlled replay proof.
 
 ## Common commands
 
@@ -393,6 +393,10 @@ The compute stack exposes only:
 - `ProductListingOpenSearchConsumerEnabled` — `false` by default. It changes retained
   resources between off and on; it does not add, remove, replace, purge, or rename
   the ProductListing queue, mapping, Lambda, or FX resources.
+- `CdcRouterEnabled` — `false` by default. It independently enables only the existing
+  DMS/Kinesis router mapping after the approved slot/task-start and live-delivery gates;
+  it does not start, stop, reset, replace, or recreate DMS, the slot, stream, queues,
+  or checkpoints.
 
 `Deploy (CD)` is the normal protected-environment release: its only inputs are `stage`
 and uploaded-artifact `CommitSHA`. Pushes only test and publish immutable artifacts.
@@ -404,8 +408,9 @@ without starting or resetting DMS. It refuses an uninitialized data foundation.
 are `stage` and `CommitSHA`. It always applies the selected network/data revision before
 it deploys the importing private migration runtime and normal compute with event consumers
 off, invokes the private database migration Lambda, then invokes `fxrate-lambda` with its
-stable deployment source event ID. Only after both succeed does it enable the mapping,
-partner event rules, and FX schedule. Each step stops on failure; no workflow starts DMS.
+stable deployment source event ID. Only after both succeed does it enable the ProductListing
+mapping, partner event rules, and FX schedule; it keeps `CdcRouterEnabled=false`. Each step
+stops on failure; no workflow starts DMS.
 The separately approved first CDC start must use the actual source slot/LSN, and later
 recovery uses DMS `resume-processing`. Before Initialize, pause the native ProductListing
 OpenSearch consumer and allow active work to settle. Do not run native and Lambda consumers

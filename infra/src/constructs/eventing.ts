@@ -23,6 +23,7 @@ export interface EventingProps {
   readonly productListingNormalizationVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
 
@@ -91,8 +92,8 @@ export class Eventing extends Construct {
         "DISABLED",
       ) as unknown as string;
 
-      if (!props.functions.cdcRouter || !props.dmsCdc) {
-        throw new Error("Real eventing requires the DMS CDC router Lambda and stream.");
+      if (!props.functions.cdcRouter || !props.dmsCdc || !props.cdcRouterActivation) {
+        throw new Error("Real eventing requires the DMS CDC router Lambda, stream, and activation condition.");
       }
       createDmsCdcRouterEventSource(
         this,
@@ -100,7 +101,7 @@ export class Eventing extends Construct {
         props.functions.cdcRouter,
         props.dmsCdc,
         props.workerQueues,
-        props.productListingOpenSearchConsumerActivation,
+        props.cdcRouterActivation,
       );
     }
 
