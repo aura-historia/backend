@@ -139,7 +139,9 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(apiFunctionLogicalId).toBeDefined();
     expect(functionResource.Properties.VpcConfig === undefined).toBe(stage === "ephemeral");
     expect(JSON.stringify(eventSourceMappings)).not.toContain(apiFunctionLogicalId);
-    expect(JSON.stringify(aliases)).not.toContain(apiFunctionLogicalId);
+    expect(aliases).toHaveLength(1);
+    expect(JSON.stringify(aliases[0])).toContain(apiFunctionLogicalId);
+    expect(JSON.stringify(aliases[0])).toContain("live");
     expect(Object.values(template.findResources("AWS::Lambda::Url"))).toHaveLength(0);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Integration"))).toHaveLength(0);
   });
