@@ -21,12 +21,13 @@ function resources(template: Template, type: string): CloudFormationResource[] {
 }
 
 describe.each(STAGES)("%s compute eventing", (stage) => {
-  test("retains partner consumers while ProductListing activation is off by default", () => {
+  test("retains partner consumers while ProductListing consumers are off by default", () => {
     const template = computeTemplate(stage);
     const templateJson = template.toJSON();
     const mappings = resources(template, "AWS::Lambda::EventSourceMapping");
     const rules = resources(template, "AWS::Events::Rule");
-    const activation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
+    const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
+    const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
       Type: "String",
@@ -36,18 +37,45 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingOpenSearchConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingOpenSearchConsumerEnabled" }, "true"],
     });
-    expect(mappings).toHaveLength(2);
-    expect(mappings.find((mapping) => mapping.Properties?.BatchSize === 10)?.Properties).toMatchObject({
-      Enabled: activation,
+    expect(templateJson.Parameters.ProductListingNormalizationConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
+    });
+    expect(mappings).toHaveLength(3);
+    const shopifyMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
+    );
+    expect(shopifyMapping?.Properties).toMatchObject({
+      BatchSize: 10,
+      Enabled: openSearchActivation,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
       MaximumBatchingWindowInSeconds: 1,
     });
-    const productListingMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 1);
+    const productListingMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("ProductListingOpenSearchVersion"),
+    );
     expect(productListingMapping?.Properties).toMatchObject({
-      Enabled: activation,
+      BatchSize: 1,
+      Enabled: openSearchActivation,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
-    expect(JSON.stringify(productListingMapping?.Properties?.FunctionName)).toContain("ProductListingOpenSearchVersion");
+    const normalizationMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("ProductListingNormalizationVersion"),
+    );
+    expect(normalizationMapping?.Properties).toMatchObject({
+      BatchSize: 10,
+      Enabled: normalizationActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(normalizationMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesProductListingNormalizationQueue"
+        : `aura-worker-product-listing-normalization-${stage}`,
+    );
     const stripeRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("customer.subscription.created"));
     const shopifyRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("X-Shopify-Topic"));
     expect(stripeRule?.Properties?.State).toEqual({ "Fn::If": ["ProductListingOpenSearchConsumerActivation", "ENABLED", "DISABLED"] });
