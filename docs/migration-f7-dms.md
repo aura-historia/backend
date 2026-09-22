@@ -1,8 +1,8 @@
-# Migration F7/R5 — DMS to Kinesis CDC activation
+# Migration F7/R5/R6 — DMS to Kinesis CDC activation
 
 This is the operational contract for the private PostgreSQL → AWS DMS → Kinesis → router-Lambda path. It is a controlled operational procedure, not a shell verification wrapper and not proof that any environment has been activated.
 
-R5 activates **only** committed `public.product_listing_events` `INSERT` records. The checked-in router retains the complete future table catalog, but no other table is selected by the DMS task until R6 approval and evidence. A discovered ProductListing event still fans out to all five required destinations: ProductListing OpenSearch, search-filter percolation, content assessment, embedding, and translation. Do not suppress destinations because a downstream consumer is not deployed.
+R6 selects committed rows from `public.product_listing_events`, `product_listing_raw_revisions`, `search_filters`, `search_filter_matches`, and `notification_deliveries`. Application jobs remain deliberately narrower: journal/raw/match/delivery tables trigger only on `INSERT`; saved filters trigger on `INSERT`, `UPDATE`, and `DELETE`. DMS may emit valid non-trigger updates or deletes for an INSERT-only table; the router validates their minimum envelope and selected-table identity, acknowledges them with no job, and retains malformed, unknown, or incompatible records for recovery. No selected table is a generic subscription.
 
 ## Stable ownership and boundaries
 
@@ -25,7 +25,7 @@ Before an approved initial start, record the release SHA, stage, account, region
 Confirm all of the following:
 
 1. The data, initialization, and compatible compute/router artifacts are deployed and `CdcRouterEnabled=false`.
-2. The task maps only `public.product_listing_events`; its source endpoint names database `aura_historia`, slot `aura_historia_dms_cdc_<stage>`, plugin `test-decoding`, `sslMode=require`, and fails on LOB truncation. The 512 KiB limited-LOB policy must be accepted for the approved fixture.
+2. The task maps exactly the five R6 tables above; its source endpoint names database `aura_historia`, slot `aura_historia_dms_cdc_<stage>`, plugin `test-decoding`, `sslMode=require`, and fails on LOB truncation. It retains the journal routing fields, keeps only job identifiers for the four R6 tables, strips raw/sensitive source columns, and sends raw `revision` and saved-filter `version` as exact decimal strings. The 512 KiB limited-LOB policy must be accepted for the approved fixture.
 3. The RDS parameter group has effective logical replication settings after any required reboot. Confirm replication slots/senders, retained WAL capacity, current RDS free storage, and the actual `pg_replication_slots` state.
 4. The source role has an explicit approved disposition for its effective SQL privileges. The desired narrowed contract is the selected-table read scope plus `rds_replication`; do not silently broaden it during activation. Record any accepted broader read scope, approver, and expiry/review date.
 5. The DMS source TLS contract is separately verified: DMS uses PostgreSQL `sslMode=require`; it is not equivalent to the application Lambdas' `VerifyFull` RDS-CA path. Record the endpoint/certificate/trust compatibility result without recording certificate or secret material.
@@ -75,7 +75,7 @@ aws dms start-replication-task \
 
 Wait for DMS to report `running` and record the task status/time. A running task is not delivery proof. Do not use `reload-target`, modify table mappings, enable a full load, reset the task, or automatically delete a stalled slot.
 
-## Controlled router handoff and journal fixture
+## Controlled router handoff and R6 capture evidence
 
 Keep `CdcRouterEnabled=false` until the initial DMS start is healthy and the stream has the expected source records. Then deploy the already-built compute artifact through the protected CloudFormation change-set path with only this explicit mapping change:
 
@@ -85,15 +85,20 @@ application-<stage>-compute:CdcRouterEnabled=true
 
 This change enables the existing mapping at `TRIM_HORIZON`; it does not start DMS. Preserve the current ProductListing consumer parameter value independently.
 
-Use an approved, non-sensitive ProductListing write that commits one supported v1 `product_listing_events` row. Record the journal event ID, listing ID, transaction commit time, capture time, stream arrival time, router invocation time, each expected queue receipt time, and projector completion time. Inspect metadata and bounded structural properties only:
+Before changing a running R5 task mapping, record its task checkpoint, slot `restart_lsn`/`confirmed_flush_lsn`, stream retention window, queued source-job age, mapping digest, and safe IDs/timestamps. Stop only under approval, apply the reviewed mapping without full load or target reload, then resume the existing task with `resume-processing`—never supply a new CDC start position, reset the task, recreate the slot, purge queues, or replay historical notifications. Confirm WAL and retained Kinesis/SQS windows cover the stop interval before proceeding.
 
-- native DMS `{ data, metadata }` representation;
-- the expected DMS `insert` operation and `public.product_listing_events` identity;
-- JSON/LOB boundary behavior against the 512 KiB policy;
-- expected DMS control records; and
-- five compact ProductListing jobs with domain IDs, not source payload content.
+The approved live exercise must record safe identifiers, timestamps, counts, deployed resource identities, and bounded structural observations only—never source rows or DMS/Kinesis bodies:
 
-The committed discovery fixture must reach the five destinations listed above. A rolled-back write must produce no successful downstream work. Before final source handoff, explicitly pause/withdraw the old journal subscription, let in-flight work settle, and preserve source queues and old consumers' durable backlog. At-least-once duplicates are expected during a controlled overlap only when consumers are compatible and idempotency is proven; do not manufacture a one-queue success by disabling required fanout.
+| Committed operation | Required completion signal |
+| --- | --- |
+| Journal `INSERT` | The existing five-job routing union; rollback produces no jobs. |
+| Raw revision `INSERT` | One normalization job with stream ID, revision ID, and exact positive revision only; no raw JSON in the job. |
+| Saved-filter `INSERT`/`UPDATE` | One projection invalidation with canonical ID/version; a source-missing upsert races safely to its external-version tombstone. |
+| Saved-filter `DELETE` | A real DMS `delete` record retains OLD `user_search_filter_id`, `user_id`, and an exact positive decimal `version` after the row is absent; delayed old upserts, duplicate deletes, and newer state preserve the projection fence. |
+| Match `INSERT` | One notification job with the exact historical `(user_id, user_search_filter_id, product_listing_id, origin_event_id)` identity. |
+| Delivery `INSERT` | One delivery-intent job; the consumer's authoritative reread validates initial `EMAIL`/`PENDING` state. |
+
+Also prove valid match feedback changes plus delivery claim/finalization updates or deletes are consumable no-ops, expected table-description controls are consumable no-ops, and malformed metadata/required trigger values remain unacknowledged. The renamed synthetic DELETE vector is parser specification evidence only; it is never proof of actual DMS output. Before final source handoff, explicitly pause/withdraw old subscriptions, let in-flight work settle, and preserve durable backlogs. At-least-once duplicates are expected during a controlled overlap only when consumers are compatible and idempotency is proven; do not manufacture a one-queue success by disabling required fanout.
 
 Run the existing checks before any approved AWS fixture:
 
@@ -141,4 +146,4 @@ Review actual DMS instance-hours, provisioned Kinesis shard-hours and PUT payloa
 
 ## Evidence status
 
-This repository supplies declarations, unit tests, and this operator contract. It does not contain credentials or a claim that AWS DMS has connected, captured, resumed, delivered to SQS, written an archive object, or completed a projection. Store approved live evidence separately with the deployment identities and safe timestamps/IDs described above. R6 owns activation and proof for raw revisions, saved filters, matches, and notification deliveries.
+This repository supplies declarations, unit tests, and this operator contract. It does not contain credentials or a claim that AWS DMS has connected, captured, resumed, delivered to SQS, written an archive object, or completed a projection. Store approved live evidence separately with the deployment identities and safe timestamps/IDs described above. R6 code and synthetic specification coverage are complete only after the corresponding approved live capture signals are recorded separately.

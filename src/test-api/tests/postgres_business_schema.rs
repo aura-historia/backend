@@ -128,6 +128,19 @@ async fn should_apply_intentional_secondary_index_definitions() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_retain_full_replica_identity_for_search_filter_deletion_fences() {
+    let pool = get_postgres_client().await;
+    let replica_identity: String = sqlx::query_scalar(
+        "SELECT relreplident::text FROM pg_class WHERE oid = 'public.search_filters'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to inspect search_filters replica identity: {error}"));
+
+    assert_eq!("f", replica_identity);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_support_core_business_relations() {
     let pool = get_postgres_client().await;
     let product_listing_title_slug_id = product_listing_title_slug_id("A vase");
