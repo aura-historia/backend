@@ -272,8 +272,15 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(1);
-    expect(Object.values(compute.findResources("AWS::Lambda::Alias"))).toHaveLength(0);
+    // The API's stable HTTP integration adds one independent version/alias;
+    // the projection continues to use its dedicated immutable version.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(2);
+    const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].Properties).toMatchObject({
+      Description: "Stable HTTP API integration target",
+      Name: "live",
+    });
     const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => statement.Action.includes("es:ESHttpPut"));

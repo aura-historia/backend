@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { API_ROUTE_CATALOG } from "../src/constructs/api";
 import { STAGES, type StageName } from "../src/config";
 
 function createStacks(stage: StageName) {
@@ -18,7 +19,7 @@ describe("Application stacks", () => {
 
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::Cognito::UserPool"))).toHaveLength(1);
     expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(1);
-    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(0);
+    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(API_ROUTE_CATALOG.length);
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::StepFunctions::StateMachine"))).toHaveLength(0);
   });
 

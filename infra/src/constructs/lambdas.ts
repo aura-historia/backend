@@ -113,6 +113,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
+export const API_LAMBDA_ALIAS_NAME = "live";
 type EphemeralOptionalLambdaKey = "cdcRouter" | "fxRateSync";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
@@ -131,6 +132,7 @@ export interface LambdasProps {
 
 export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
+  readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
@@ -184,6 +186,11 @@ export class Lambdas extends Construct {
     }
 
     this.functions = functions as LambdaFunctions;
+    this.apiAlias = new lambda.Alias(this, "AuraHistoriaApiAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.auraHistoriaApi.currentVersion,
+      description: "Stable HTTP API integration target",
+    });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
       description: `product-listing-opensearch-${props.parameters.commitSha}`,
@@ -410,6 +417,22 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
 
   for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
     if (config.isEphemeral && definition.skipEphemeral) {
+      continue;
+    }
+
+    if (key === "auraHistoriaApi") {
+      catalog[key] = lambda.Function.fromFunctionAttributes(
+        importScope,
+        `${definition.id}AliasImport`,
+        {
+          functionArn: cdk.Stack.of(scope).formatArn({
+            service: "lambda",
+            resource: "function",
+            resourceName: `${lambdaFunctionName(key, config.stage)}:${API_LAMBDA_ALIAS_NAME}`,
+          }),
+          sameEnvironment: true,
+        },
+      );
       continue;
     }
 
