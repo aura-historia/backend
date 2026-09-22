@@ -6996,6 +6996,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-projection-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "opensearch",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "search-filter-core",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
 name = "search-filter-service"
 version = "0.1.0"
 dependencies = [

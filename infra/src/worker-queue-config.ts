@@ -24,7 +24,8 @@ interface WorkerQueueDefinition {
 // Only ProductListing OpenSearch is a Lambda SQS target. Other values match the polling Rust worker's budgets.
 export const WORKER_QUEUE_DEFINITIONS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 300 },
-  "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 60 },
+  // Lambda timeout is 45s; six bounded invocation attempts require 300s visibility.
+  "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 300 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 60 },
   "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 60 },
