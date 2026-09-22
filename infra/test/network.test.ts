@@ -160,6 +160,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
         "stripe-lambda",
         "fxrate-lambda",
         "product-listing-opensearch-lambda",
+        "product-listing-normalization-lambda",
       ]
         .some((name) => resource.Properties.FunctionName === `${name}-${stage}`),
     );
@@ -175,7 +176,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
 
     const vpcAttachedFunctions = [...computeFunctions, ...initializationFunctions]
       .filter((resource) => resource.Properties.VpcConfig !== undefined);
-    expect(applicationFunctions).toHaveLength(6);
+    expect(applicationFunctions).toHaveLength(7);
     expect(applicationFunctions.every((resource) => resource.Properties.VpcConfig !== undefined)).toBe(true);
     expect(migrationSecurityGroup).toBeDefined();
     expect(migration?.Properties.VpcConfig).toBeDefined();
@@ -183,7 +184,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(migrationEgress).toHaveLength(2);
     expect(migrationEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
     expect(migrationEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(7);
+    expect(vpcAttachedFunctions).toHaveLength(8);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

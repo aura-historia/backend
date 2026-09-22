@@ -255,7 +255,11 @@ function apiAlarm(
 
 const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter"]);
 
-const queueWorkerKeys = new Set<LambdaKey>(["shopify", "productListingOpenSearch"]);
+const queueWorkerKeys = new Set<LambdaKey>([
+  "shopify",
+  "productListingOpenSearch",
+  "productListingNormalization",
+]);
 
 const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;
 

@@ -110,6 +110,13 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
           }),
     }),
   },
+  productListingNormalization: {
+    id: "ProductListingNormalizationLambda",
+    binaryName: "product-listing-normalization-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
@@ -134,6 +141,7 @@ export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
   readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
+  readonly productListingNormalizationVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -194,6 +202,10 @@ export class Lambdas extends Construct {
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
       description: `product-listing-opensearch-${props.parameters.commitSha}`,
+    });
+    this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
+      lambda: this.functions.productListingNormalization,
+      description: `product-listing-normalization-${props.parameters.commitSha}`,
     });
     grantRuntimeAccess(props, this.functions);
   }

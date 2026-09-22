@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
@@ -25,6 +26,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   const productListingOpenSearchConsumerActivation = new cdk.CfnCondition(scope, "ProductListingOpenSearchConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingOpenSearchConsumerEnabled.valueAsString, "true"),
   });
+  const productListingNormalizationConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingNormalizationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing raw-normalization SQS Lambda after native-consumer and scheduled-reconciliation cutover gates.",
+  });
+  const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
+  });
   const cdcRouterActivation = includeCdcRouterActivation
     ? cdcRouterCondition(scope)
     : undefined;
@@ -32,6 +42,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   return {
     commitSha,
     productListingOpenSearchConsumerActivation,
+    productListingNormalizationConsumerActivation,
     cdcRouterActivation,
   };
 }

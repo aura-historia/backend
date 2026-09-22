@@ -5989,6 +5989,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-listing-normalization-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "product-service",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "product-listing-opensearch"
 version = "0.1.0"
 dependencies = [

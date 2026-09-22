@@ -31,7 +31,8 @@ export const WORKER_QUEUE_DEFINITIONS = {
   "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 60 },
   "product-embedding": { id: "ProductEmbedding", visibilityTimeoutSeconds: 300 },
   "product-translation": { id: "ProductTranslation", visibilityTimeoutSeconds: 300 },
-  "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 300 },
+  // Lambda timeout is 45s; six bounded invocation attempts require 270s visibility.
+  "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 270 },
   "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 360 },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 

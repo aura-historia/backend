@@ -97,6 +97,8 @@ jobs:
             binary: stripe-lambda
           - crate: src/product-listing-opensearch-lambda
             binary: product-listing-opensearch-lambda
+          - crate: src/product-listing-normalization-lambda
+            binary: product-listing-normalization-lambda
           - crate: src/aura-historia-worker
             binary: cdc-router-lambda
     steps:

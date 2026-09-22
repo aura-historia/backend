@@ -287,11 +287,13 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
-      queues: importQueueCatalog(this, "EventingQueueImports", stageName),
-      workerQueues: importWorkerQueueCatalog(this, "EventingWorkerQueueImports", config),
+      queues: importQueueCatalog(this, "Queues", stageName),
+      workerQueues: importWorkerQueueCatalog(this, "WorkerQueues", config),
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
@@ -403,7 +405,9 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       workerQueues: this.workerQueues.catalog,
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
     });
 

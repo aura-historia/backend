@@ -126,9 +126,12 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(7);
-    expect(runtimeFunctions).toHaveLength(6);
+    expect(functions).toHaveLength(8);
+    expect(runtimeFunctions).toHaveLength(7);
     expect(migration).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
+    )).toBeDefined();
     expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(1);
     initialization.resourceCountIs("AWS::Lambda::EventSourceMapping", 0);
     initialization.resourceCountIs("AWS::Events::Rule", 0);
@@ -180,7 +183,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    expect(runtimeSecretReadStatements).toHaveLength(6);
+    expect(runtimeSecretReadStatements).toHaveLength(7);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",
@@ -324,7 +327,10 @@ test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a 
   const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
     .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-  expect(functions).toHaveLength(5);
+  expect(functions).toHaveLength(6);
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-listing-normalization-lambda-ephemeral",
+  )).toBeDefined();
   for (const functionResource of functions) {
     const environment = functionResource.Properties.Environment.Variables;
     expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE);
