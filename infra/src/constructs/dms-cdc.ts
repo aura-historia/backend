@@ -208,12 +208,74 @@ function replicationTaskSettings(lobMaxSizeKiB: number): Record<string, unknown>
 }
 
 function tableMappings(): Record<string, unknown> {
-  // R5 activates only the ProductListing event journal. The strict router retains
-  // the complete future catalog, but R6 owns enabling and proving other tables.
   const selectedTables = [
     {
       table: "product_listing_events",
       removedColumns: ["created"],
+    },
+    {
+      table: "product_listing_raw_revisions",
+      removedColumns: [
+        "generation",
+        "operation",
+        "payload_format",
+        "payload_schema_version",
+        "raw_values_schema_version",
+        "source_payload",
+        "raw_values",
+        "normalization_context",
+        "provenance",
+        "input_sha256",
+        "source_event_id",
+        "source_occurred_at",
+        "captured_at",
+      ],
+    },
+    {
+      table: "search_filters",
+      removedColumns: [
+        "name",
+        "notifications",
+        "state",
+        "search",
+        "enhanced_search_description",
+        "embedding",
+        "language",
+        "currency",
+        "created",
+        "updated",
+      ],
+    },
+    {
+      table: "search_filter_matches",
+      removedColumns: [
+        "price_valuation_basis",
+        "price_fx_rate_id",
+        "user_search_filter_name",
+        "enhanced_match_reason",
+        "feedback",
+        "created",
+        "updated",
+      ],
+    },
+    {
+      table: "notification_deliveries",
+      removedColumns: [
+        "notification_id",
+        "channel",
+        "target_key",
+        "status",
+        "attempt_count",
+        "lease_token",
+        "lease_expires_at",
+        "completed_lease_token",
+        "completed_at",
+        "provider_message_id",
+        "last_error_code",
+        "delivered_at",
+        "created",
+        "updated",
+      ],
     },
   ];
 
@@ -247,14 +309,10 @@ function tableMappings(): Record<string, unknown> {
     }
   }
 
-  const selectedTableNames = new Set(selectedTables.map(({ table }) => table));
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },
     { table: "search_filters", column: "version" },
   ]) {
-    if (!selectedTableNames.has(table)) {
-      continue;
-    }
     rules.push({
       "rule-type": "transformation",
       "rule-id": nextRule(),
