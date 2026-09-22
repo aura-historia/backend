@@ -188,8 +188,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(outputs.WorkerQueueAwsRegion).toEqual({ Value: { Ref: "AWS::Region" } });
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
     const computeJson = JSON.stringify(compute.toJSON());
-    expect(computeJson).toContain(`aura-worker-product-listing-opensearch-${stage}`);
-    for (const scope of EXPECTED_SCOPES.filter((scope) => scope !== "product-listing-opensearch")) {
+    const computeWorkerScopes = stage === "ephemeral" ? ["product-listing-opensearch"] : EXPECTED_SCOPES;
+    for (const scope of computeWorkerScopes) {
+      expect(computeJson).toContain(`aura-worker-${scope}-${stage}`);
+    }
+    for (const scope of EXPECTED_SCOPES.filter((scope) => !computeWorkerScopes.includes(scope))) {
       expect(computeJson).not.toContain(`aura-worker-${scope}-${stage}`);
     }
     expect(JSON.stringify(Template.fromStack(stacks.api).toJSON())).not.toContain("aura-worker-");
@@ -230,7 +233,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(2);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 2 : 3);
     const shopifyMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 10);
     expect(shopifyMapping?.Properties).toMatchObject({
       FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
@@ -243,7 +246,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(2);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 2 : 3);
     const productListingMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 1);
     expect(productListingMapping?.Properties).toMatchObject({
       Enabled: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] },

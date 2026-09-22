@@ -1,6 +1,7 @@
 pub mod cdc;
 mod http;
 pub mod jobs;
+pub mod kinesis;
 pub mod notification_delivery;
 pub mod product_content_assessment;
 pub mod product_embedding;
@@ -83,6 +84,19 @@ pub enum WorkerScope {
 }
 
 impl WorkerScope {
+    pub const ALL: [Self; 10] = [
+        Self::SearchFilterProjection,
+        Self::SearchFilterPercolator,
+        Self::SearchFilterMatchNotification,
+        Self::WatchlistNotification,
+        Self::ProductListingContentAssessment,
+        Self::ProductListingTranslation,
+        Self::ProductListingEmbedding,
+        Self::ProductListingOpenSearch,
+        Self::ProductListingRawNormalization,
+        Self::NotificationDelivery,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SearchFilterProjection => "search-filter-projection",
@@ -119,6 +133,37 @@ impl WorkerScope {
         Self::iter()
             .find(|scope| scope.as_str() == value)
             .ok_or(WorkerStartupConfigError::InvalidScope { value })
+    }
+
+    pub const fn router_queue_url_env(self) -> &'static str {
+        match self {
+            Self::SearchFilterProjection => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PROJECTION"
+            }
+            Self::SearchFilterPercolator => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PERCOLATOR"
+            }
+            Self::SearchFilterMatchNotification => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_MATCH_NOTIFICATION"
+            }
+            Self::WatchlistNotification => "AURA_HISTORIA_ROUTER_QUEUE_URL_WATCHLIST_NOTIFICATION",
+            Self::ProductListingContentAssessment => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_CONTENT_ASSESSMENT"
+            }
+            Self::ProductListingTranslation => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_TRANSLATION"
+            }
+            Self::ProductListingEmbedding => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_EMBEDDING"
+            }
+            Self::ProductListingOpenSearch => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_OPENSEARCH"
+            }
+            Self::ProductListingRawNormalization => {
+                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_RAW_NORMALIZATION"
+            }
+            Self::NotificationDelivery => "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY",
+        }
     }
 
     pub(crate) const fn consumer_queue(self) -> WorkerQueue {

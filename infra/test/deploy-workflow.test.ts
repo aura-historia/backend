@@ -17,6 +17,10 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("stage:");
     expect(deployWorkflow).toContain("commit_sha:");
     expect(deployWorkflow).toContain("database-migration-lambda");
+    expect(deployWorkflow).toContain("crate: src/aura-historia-worker");
+    expect(deployWorkflow).toContain("binary: cdc-router-lambda");
+    expect(deployWorkflow).toContain("--bin \"${{ matrix.binary }}\"");
+    expect(deployWorkflow).toContain("target/lambda/$BIN_NAME/bootstrap.zip");
     expect(deployWorkflow).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
     expect(deployWorkflow).toContain("DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}");
     expect(deployWorkflow).toContain("Data foundation is not initialized; run Initialize (CD) first.");

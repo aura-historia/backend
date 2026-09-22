@@ -76,10 +76,29 @@ export class Observability extends Construct {
       lambdaAlarm(this, props.stageName, `${key}ErrorAlarm`, "Errors", functionName, queueWorkerKeys.has(key) ? 5 : 1)
         .addAlarmAction(alarmAction);
 
-      if (apiLambdaKeys.has(key)) {
+      if (throttleAlarmLambdaKeys.has(key)) {
         lambdaAlarm(this, props.stageName, `${key}ThrottleAlarm`, "Throttles", functionName, 1).addAlarmAction(alarmAction);
       }
     }
+
+    const cdcRouterFunctionName = lambdaFunctionName("cdcRouter", props.config.stage);
+    lambdaAlarm(
+      this,
+      props.stageName,
+      "CdcRouterIteratorAgeAlarm",
+      "IteratorAge",
+      cdcRouterFunctionName,
+      CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS,
+      "Maximum",
+    ).addAlarmAction(alarmAction);
+    lambdaAlarm(
+      this,
+      props.stageName,
+      "CdcRouterDestinationDeliveryFailuresAlarm",
+      "DestinationDeliveryFailures",
+      cdcRouterFunctionName,
+      1,
+    ).addAlarmAction(alarmAction);
   }
 }
 
@@ -90,6 +109,7 @@ function lambdaAlarm(
   metricName: string,
   functionName: string,
   threshold: number,
+  statistic = "Sum",
 ): cloudwatch.Alarm {
   return new cloudwatch.Alarm(scope, id, {
     alarmName: `${stageName}-${toKebabCase(functionName)}-${toKebabCase(metricName)}`,
@@ -98,7 +118,7 @@ function lambdaAlarm(
       namespace: "AWS/Lambda",
       metricName,
       dimensionsMap: { FunctionName: functionName },
-      statistic: "Sum",
+      statistic,
       period: cdk.Duration.minutes(5),
     }),
     threshold,
@@ -137,9 +157,11 @@ function apiAlarm(
   });
 }
 
-const apiLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi"]);
+const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter"]);
 
 const queueWorkerKeys = new Set<LambdaKey>(["shopify", "productListingOpenSearch"]);
+
+const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;
 
 function toKebabCase(value: string): string {
   return value

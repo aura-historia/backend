@@ -93,6 +93,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     storage: data.storage,
     queues: data.queues,
     search: data.search,
+    dmsCdc: data.dmsCdc,
     network: network?.network,
   });
   compute.addDependency(data);
@@ -238,6 +239,7 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly storage: Storage;
   readonly queues: Queues;
   readonly search: Search;
+  readonly dmsCdc?: DmsCdc;
   readonly network?: Network;
 }
 
@@ -290,6 +292,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      dmsCdc: props.dmsCdc,
     });
 
     computeOutputs(this, {

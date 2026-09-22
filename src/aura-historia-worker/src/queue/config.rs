@@ -43,6 +43,65 @@ pub enum QueueError {
     Scope,
 }
 
+/// The router has one configured source queue per scope, unlike a native worker consumer.
+#[derive(Clone, Debug)]
+pub struct CdcRouterQueueConfig {
+    queues: Vec<SqsQueueConfig>,
+}
+
+impl CdcRouterQueueConfig {
+    pub fn from_env() -> Result<Self, QueueError> {
+        Self::from_getter(|name| std::env::var(name).ok())
+    }
+
+    pub(crate) fn from_getter<F>(mut get: F) -> Result<Self, QueueError>
+    where
+        F: FnMut(&'static str) -> Option<String>,
+    {
+        let region = required_config(&mut get, AWS_REGION_ENV)?;
+        let stage = required_config(&mut get, "STAGE")?;
+        // Do not let the AWS global endpoint override bypass the explicit local boundary.
+        if get("AWS_ENDPOINT_URL").is_some() {
+            return Err(QueueError::InvalidConfig(
+                "AWS_ENDPOINT_URL (use AWS_ENDPOINT_URL_SQS)",
+            ));
+        }
+        let endpoint = get(SQS_ENDPOINT_ENV)
+            .map(|value| {
+                value
+                    .parse()
+                    .map_err(|_| QueueError::InvalidConfig(SQS_ENDPOINT_ENV))
+            })
+            .transpose()?;
+        let queues = WorkerScope::ALL
+            .into_iter()
+            .map(|scope| {
+                let env = scope.router_queue_url_env();
+                let queue_url = required_config(&mut get, env)?
+                    .parse()
+                    .map_err(|_| QueueError::InvalidConfig(env))?;
+                SqsQueueConfig::new(
+                    scope,
+                    queue_url,
+                    region.clone(),
+                    stage.clone(),
+                    endpoint.clone(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { queues })
+    }
+
+    pub fn region(&self) -> &str {
+        // Every item was constructed from one region value and the constructor always creates ten.
+        self.queues[0].region()
+    }
+
+    pub fn into_queues(self) -> Vec<SqsQueueConfig> {
+        self.queues
+    }
+}
+
 impl SqsQueueConfig {
     pub fn new(
         scope: WorkerScope,
@@ -105,16 +164,11 @@ impl SqsQueueConfig {
     where
         F: FnMut(&'static str) -> Option<String>,
     {
-        let mut required = |name| {
-            get(name)
-                .filter(|v| !v.is_empty())
-                .ok_or(QueueError::MissingConfig(name))
-        };
-        let queue_url = required(WORKER_QUEUE_URL_ENV)?
+        let queue_url = required_config(&mut get, WORKER_QUEUE_URL_ENV)?
             .parse()
             .map_err(|_| QueueError::InvalidConfig(WORKER_QUEUE_URL_ENV))?;
-        let region = required(AWS_REGION_ENV)?;
-        let stage = required("STAGE")?;
+        let region = required_config(&mut get, AWS_REGION_ENV)?;
+        let stage = required_config(&mut get, "STAGE")?;
         // Do not let the AWS global endpoint override bypass the explicit local boundary.
         if get("AWS_ENDPOINT_URL").is_some() {
             return Err(QueueError::InvalidConfig(
@@ -177,6 +231,15 @@ impl SqsQueueConfig {
             .map(ToString::to_string)
             .unwrap_or_else(|| format!("https://sqs.{}.amazonaws.com", self.region))
     }
+}
+
+fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, QueueError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    get(name)
+        .filter(|value| !value.is_empty())
+        .ok_or(QueueError::MissingConfig(name))
 }
 
 fn valid_label(value: &str) -> bool {
