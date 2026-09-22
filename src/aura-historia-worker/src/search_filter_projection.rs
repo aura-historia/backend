@@ -9,6 +9,27 @@ use search_filter_service::use_cases::{
 };
 use std::sync::Arc;
 
+/// Lambda- and polling-transport result for a fully handled saved-filter projection job.
+///
+/// Only `Complete` may be acknowledged. A missing upsert source is deliberately converted to
+/// the service's external-versioned tombstone, so it is not an unconditional acknowledgment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterProjectionJobDisposition {
+    Complete(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl SearchFilterProjectionJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
+
 pub async fn consume_search_filter_projection_queue(
     receiver: impl Into<WorkerQueueReceiver>,
     handler: Arc<dyn ProjectSearchFilterChangeUseCase>,
@@ -16,32 +37,57 @@ pub async fn consume_search_filter_projection_queue(
     receiver
         .into()
         .run(WorkerScope::SearchFilterProjection, move |job| {
-            project_search_filter_change(handler.clone(), job)
+            let handler = Arc::clone(&handler);
+            async move { polling_outcome(execute_job(handler.as_ref(), job).await) }
         })
         .await;
 }
-async fn project_search_filter_change(
-    handler: Arc<dyn ProjectSearchFilterChangeUseCase>,
+
+/// Decode and execute one compact schema-2 saved-filter projection job.
+///
+/// This is transport-neutral so Lambda and the legacy polling worker preserve the same source
+/// read, deletion-fence, validation, and retry rules.
+pub async fn process_search_filter_projection_job(
+    body: &str,
+    handler: &(dyn ProjectSearchFilterChangeUseCase + Send + Sync),
+) -> SearchFilterProjectionJobDisposition {
+    match crate::wire::decode(body, WorkerScope::SearchFilterProjection) {
+        Ok(job) => execute_job(handler, job).await,
+        Err(_) => SearchFilterProjectionJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+async fn execute_job(
+    handler: &(dyn ProjectSearchFilterChangeUseCase + Send + Sync),
     job: DomainJob,
-) -> JobOutcome {
+) -> SearchFilterProjectionJobDisposition {
     let Ok(command) = command_from_job(job) else {
-        return JobOutcome::Invalid("projection_metadata_invalid");
+        return SearchFilterProjectionJobDisposition::Poison("projection_metadata_invalid");
     };
     match handler.execute(command).await {
         Ok(result) => {
-            // Missing upsert source is handled by a target-side versioned tombstone in the use case.
             tracing::info!(outcome = ?result.outcome, "search filter projection write completed");
-            JobOutcome::Complete("projection_written_or_stale")
+            SearchFilterProjectionJobDisposition::Complete("projection_written_or_stale")
         }
         Err(
             ProjectSearchFilterChangeError::InvalidSourceVersion
             | ProjectSearchFilterChangeError::DeleteVersionOverflow
             | ProjectSearchFilterChangeError::InvalidPersistedState { .. },
-        ) => JobOutcome::Invalid("projection_state_invalid"),
+        ) => SearchFilterProjectionJobDisposition::Poison("projection_state_invalid"),
         Err(
             ProjectSearchFilterChangeError::ReadFailed { .. }
             | ProjectSearchFilterChangeError::WriteFailed { .. },
-        ) => JobOutcome::DependencyUnavailable("projection_unavailable"),
+        ) => SearchFilterProjectionJobDisposition::DependencyUnavailable("projection_unavailable"),
+    }
+}
+
+fn polling_outcome(disposition: SearchFilterProjectionJobDisposition) -> JobOutcome {
+    match disposition {
+        SearchFilterProjectionJobDisposition::Complete(category) => JobOutcome::Complete(category),
+        SearchFilterProjectionJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
+        SearchFilterProjectionJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
 }
 fn command_from_job(

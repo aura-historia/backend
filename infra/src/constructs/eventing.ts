@@ -21,8 +21,10 @@ export interface EventingProps {
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
   readonly productListingNormalizationVersion: lambda.IVersion;
+  readonly searchFilterProjectionVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
@@ -112,8 +114,10 @@ export class Eventing extends Construct {
       props.workerQueues,
       props.productListingOpenSearchVersion,
       props.productListingNormalizationVersion,
+      props.searchFilterProjectionVersion,
       props.productListingOpenSearchConsumerActivation,
       props.productListingNormalizationConsumerActivation,
+      props.searchFilterProjectionConsumerActivation,
     );
   }
 }
@@ -288,8 +292,10 @@ function createSqsEventSources(
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
   productListingNormalizationVersion: lambda.IVersion,
+  searchFilterProjectionVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
+  searchFilterProjectionActivation: cdk.CfnCondition,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
 
@@ -312,6 +318,28 @@ function createSqsEventSources(
     enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+  });
+
+  const searchFilterProjection = workerQueues["search-filter-projection"];
+  if (!searchFilterProjection) {
+    throw new Error("Search-filter projection worker queue is required for its Lambda event source.");
+  }
+  functions.searchFilterProjection.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueUrl",
+    ],
+    resources: [searchFilterProjection.queue.queueArn],
+  }));
+  new lambda.CfnEventSourceMapping(scope, "SearchFilterProjectionQueueEventSource", {
+    batchSize: 1,
+    enabled: cdk.Fn.conditionIf(searchFilterProjectionActivation.logicalId, true, false) as unknown as boolean,
+    eventSourceArn: searchFilterProjection.queue.queueArn,
+    functionName: searchFilterProjectionVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 

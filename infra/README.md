@@ -281,7 +281,7 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | Runtime scope | Output stem after `Worker` | Initial source visibility |
 | --- | --- | ---: |
 | `product-listing-opensearch` | `ProductListingOpensearch` | 300s |
-| `search-filter-projection` | `SearchFilterProjection` | 60s |
+| `search-filter-projection` | `SearchFilterProjection` | 300s |
 | `search-filter-percolator` | `SearchFilterPercolator` | 300s |
 | `search-filter-match-notification` | `SearchFilterMatchNotification` | 60s |
 | `watchlist-notification` | `WatchlistNotification` | 60s |
@@ -291,21 +291,15 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-listing-normalization` | `ProductListingNormalization` | 300s |
 | `notification-delivery` | `NotificationDelivery` | 360s |
 
-`product-listing-opensearch` is a 512 MiB, 45s Lambda with a retained SQS mapping
-targeting a published function version, batch size one, and
-`ReportBatchItemFailures`. Its source visibility is **300s**, exceeding six times its
-Lambda timeout and matching the native slow-work profile. The mapping defaults to
-disabled; its resource, function version, queue pair, and IAM stay present while off.
-The Lambda uses no custom visibility change or receipt daemon; only completed service
-results are omitted from failures.
+`product-listing-opensearch` and `search-filter-projection` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Their source visibility is **300s**, exceeding six times the Lambda timeout. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The saved-filter Lambda rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
-with the mapping disabled, pause the native `product-listing-opensearch` consumer and
+with the mapping disabled, pause the corresponding native consumer and
 let in-flight work settle, then explicitly enable the mapping. Never run both
 consumers. To return control, disable the mapping first, then deliberately resume a
 compatible native consumer. Backlog remains durable in the retained source queue and
-uses its ordinary retry/DLQ rules. The remaining nine scopes are polling Rust
+uses its ordinary retry/DLQ rules. The remaining seven scopes are polling Rust
 processes, so the Lambda timing rule does not apply to them. Their values match the
 worker's 45s short / 240s slow budgets; notification's 360s visibility leaves headroom
 around its five-minute service-owned lease. Standard SQS may duplicate/reorder
@@ -313,9 +307,9 @@ messages; handlers must remain idempotent.
 
 ### Identity and outputs
 
-The nine bare-metal runtimes' AWS role/trust and process deployment are **not
+The seven bare-metal runtimes' AWS role/trust and process deployment are **not
 defined in this CDK app**. No IAM user, access key, or invented deploy binding is
-created. The ProductListing Lambda has its own CDK execution role with source-queue
+created. Each projection Lambda has its own CDK execution role with source-queue
 consume and scoped OpenSearch access only; it has no queue purge, DLQ-message, or
 redrive power. The external identity owner attaches only needed unbound policies
 to native workers; do not reuse the CI deploy role or a Lambda role as a worker role.
