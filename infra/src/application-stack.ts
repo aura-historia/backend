@@ -320,7 +320,6 @@ export class ApplicationApiStack extends cdk.Stack {
       config,
       stageName,
       functions: importLambdaCatalog(this, "LambdaImports", config),
-      identity: props.identity,
     });
 
     new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
@@ -407,7 +406,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       config,
       stageName,
       functions: this.lambdas.functions,
-      identity: this.identity,
     });
 
     dataOutputs(this, {

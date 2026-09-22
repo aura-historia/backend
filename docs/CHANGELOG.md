@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- HTTP API traffic now uses one explicit API Gateway route matrix and the API Lambda `live` alias. The public method/path and authentication contracts are unchanged: optional Aura/Cognito authentication, application authorization, OAuth, and signed WooCommerce intake continue in Axum. API edge caching is disabled to prevent personalized responses from being shared; custom domains, CloudFront, WAF, CORS, and existing request limits remain in place.
 
 - **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
 
