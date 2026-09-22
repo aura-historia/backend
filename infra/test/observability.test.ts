@@ -48,6 +48,87 @@ test("production alarms the CDC router's Kinesis lag, failure-archive delivery, 
   template.resourceCountIs("AWS::CloudFormation::Stack", 0);
 });
 
+test("production alarms DMS source/target lag, DMS and Kinesis capacity, and source WAL storage, with task-state notifications", () => {
+  const template = productionObservabilityTemplate();
+  const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
+
+  for (const [alarmName, namespace, metricName, dimensions, statistic, threshold, evaluationPeriods, comparisonOperator] of [
+    [
+      "prod-cdc-dms-source-latency",
+      "AWS/DMS",
+      "CDCLatencySource",
+      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: "aura-historia-cdc-prod" }],
+      "Maximum",
+      300,
+      1,
+      "GreaterThanOrEqualToThreshold",
+    ],
+    [
+      "prod-cdc-dms-target-latency",
+      "AWS/DMS",
+      "CDCLatencyTarget",
+      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: "aura-historia-cdc-prod" }],
+      "Maximum",
+      300,
+      1,
+      "GreaterThanOrEqualToThreshold",
+    ],
+    [
+      "prod-cdc-dms-capacity",
+      "AWS/DMS",
+      "CPUUtilization",
+      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }],
+      "Maximum",
+      80,
+      3,
+      "GreaterThanOrEqualToThreshold",
+    ],
+    [
+      "prod-cdc-kinesis-write-capacity",
+      "AWS/Kinesis",
+      "WriteProvisionedThroughputExceeded",
+      [{ Name: "StreamName", Value: "aura-historia-cdc-prod" }],
+      "Maximum",
+      1,
+      1,
+      "GreaterThanOrEqualToThreshold",
+    ],
+    [
+      "prod-cdc-source-wal-storage",
+      "AWS/RDS",
+      "FreeStorageSpace",
+      [{ Name: "DBInstanceIdentifier", Value: "aura-historia-postgres-prod" }],
+      "Minimum",
+      10 * 1024 * 1024 * 1024,
+      1,
+      "LessThanOrEqualToThreshold",
+    ],
+  ] as const) {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: alarmName,
+      Namespace: namespace,
+      MetricName: metricName,
+      Dimensions: dimensions,
+      Statistic: statistic,
+      Period: 300,
+      Threshold: threshold,
+      EvaluationPeriods: evaluationPeriods,
+      ComparisonOperator: comparisonOperator,
+      TreatMissingData: "notBreaching",
+      AlarmActions: [{ Ref: topicIds[0] }],
+    });
+  }
+
+  template.hasResourceProperties("AWS::Events::Rule", {
+    EventPattern: {
+      source: ["aws.dms"],
+      "detail-type": ["DMS Replication Task State Change"],
+      detail: { eventType: ["REPLICATION_TASK_FAILED", "REPLICATION_TASK_STOPPED"] },
+    },
+    Targets: [{ Arn: { Ref: topicIds[0] }, Id: "Target0" }],
+  });
+});
+
 test("dev and ephemeral do not create router observability alarms", () => {
   const devApp = new cdk.App({ analyticsReporting: false });
   const dev = createApplicationStacks(devApp, { stage: "dev" });

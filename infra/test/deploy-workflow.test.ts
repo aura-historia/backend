@@ -43,6 +43,8 @@ describe("release workflow boundary", () => {
     expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=false');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=true');
+    expect(initializeWorkflow).toContain('CdcRouterEnabled=false');
+    expect(initializeWorkflow).not.toContain('CdcRouterEnabled=true');
     expect(initializeWorkflow).toContain('invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json');
     expect(initializeWorkflow).toContain('invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json');
     expect(initializeWorkflow).toContain("--cli-read-timeout 900");
