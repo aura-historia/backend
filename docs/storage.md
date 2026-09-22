@@ -20,7 +20,7 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 - `product_listing_watchlist.active_since` is non-null only for `ACTIVE` rows and marks the beginning of the current active interval.
 - `product_listing_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
 - Watchlist notification readers compare both interval starts with immutable `product_listing_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
-- ProductListing withdrawal is reversible and does not mutate retained watch rows: active quota occupancy, watch state, and both current-interval timestamps remain. Create and inactive-to-active reactivation lock the authoritative ProductListing lifecycle in the same PostgreSQL transaction as tier/quota checks and the write; notification-only updates and deactivation remain manageable for withdrawn listings. An explicit physical ProductListing delete cascades watchlist rows.
+- ProductListing withdrawal is reversible and does not mutate retained watch rows: active quota occupancy, watch state, and both current-interval timestamps remain. Create and inactive-to-active reactivation lock the authoritative user tier first, then lock the authoritative ProductListing lifecycle before evaluating quota and writing in the same PostgreSQL transaction. Notification-only updates and deactivation remain manageable for withdrawn listings. An explicit physical ProductListing delete cascades watchlist rows.
 
 ## Partnerships and Party
 

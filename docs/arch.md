@@ -2421,6 +2421,10 @@ pub(crate) struct SearchConfig {
 
 `core` and `service` MUST NOT read environment variables.
 
+### Outbound network destinations
+
+Adapters that fetch untrusted or externally supplied URLs MUST enforce an SSRF policy at the network boundary. The shared public-network policy classifies addresses only: callers remain responsible for URL syntax, DNS resolution, redirect validation, and pinning approved peer addresses immediately before use. Address resolution or classification failures MUST fail closed. IPv6 permits only global-unicast `2000::/3` after special-use exclusions; this is an address-safety policy, not a reachability guarantee.
+
 Secrets MUST NOT be embedded in domain/application types, logs, errors, or committed configuration files.
 
 External clients and pools SHOULD be constructed once and shared through cloneable handles such as `PgPool` or `Arc<Client>`.
