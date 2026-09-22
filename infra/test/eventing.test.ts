@@ -27,6 +27,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const mappings = resources(template, "AWS::Lambda::EventSourceMapping");
     const rules = resources(template, "AWS::Events::Rule");
     const activation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
+    const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
       Type: "String",
@@ -36,12 +37,31 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingOpenSearchConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingOpenSearchConsumerEnabled" }, "true"],
     });
+    if (stage === "ephemeral") {
+      expect(templateJson.Parameters.CdcRouterEnabled).toBeUndefined();
+      expect(templateJson.Conditions.CdcRouterActivation).toBeUndefined();
+    } else {
+      expect(templateJson.Parameters.CdcRouterEnabled).toMatchObject({
+        Type: "String",
+        Default: "false",
+        AllowedValues: ["true", "false"],
+      });
+      expect(templateJson.Conditions.CdcRouterActivation).toEqual({
+        "Fn::Equals": [{ Ref: "CdcRouterEnabled" }, "true"],
+      });
+    }
     expect(mappings).toHaveLength(stage === "ephemeral" ? 2 : 3);
     expect(mappings.find((mapping) => mapping.Properties?.BatchSize === 10)?.Properties).toMatchObject({
       Enabled: activation,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
       MaximumBatchingWindowInSeconds: 1,
     });
+    const cdcRouterMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 100);
+    if (stage === "ephemeral") {
+      expect(cdcRouterMapping).toBeUndefined();
+    } else {
+      expect(cdcRouterMapping?.Properties).toMatchObject({ Enabled: cdcRouterActivation });
+    }
     const productListingMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 1);
     expect(productListingMapping?.Properties).toMatchObject({
       Enabled: activation,

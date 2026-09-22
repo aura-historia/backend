@@ -180,7 +180,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect((source?.PostgreSqlSettings as Record<string, unknown>).MaxFileSize).toBeUndefined();
   });
 
-  test("keeps only the selected routing columns and emits exact decimal strings for bigint wakeups", () => {
+  test("activates only the product-listing event journal while retaining its minimal CDC payload", () => {
     const template = dataTemplate(stage);
     const [task] = resourceProperties(template, "AWS::DMS::ReplicationTask");
     const mappings = JSON.parse(task.TableMappings as string) as { rules: Record<string, unknown>[] };
@@ -192,13 +192,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .filter((rule) => rule["rule-type"] === "selection")
       .map((rule) => (rule["object-locator"] as Record<string, string>)["table-name"])
       .sort();
-    expect(includedTables).toEqual([
-      "notification_deliveries",
-      "product_listing_events",
-      "product_listing_raw_revisions",
-      "search_filter_matches",
-      "search_filters",
-    ]);
+    expect(includedTables).toEqual(["product_listing_events"]);
 
     const removedColumns = mappings.rules
       .filter((rule) => rule["rule-action"] === "remove-column")
@@ -206,26 +200,11 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
         const locator = rule["object-locator"] as Record<string, string>;
         return `${locator["table-name"]}.${locator["column-name"]}`;
       });
-    expect(removedColumns).toEqual(expect.arrayContaining([
-      "product_listing_raw_revisions.source_payload",
-      "product_listing_raw_revisions.raw_values",
-      "product_listing_raw_revisions.normalization_context",
-      "product_listing_raw_revisions.provenance",
-      "search_filters.search",
-      "notification_deliveries.target_key",
-    ]));
+    expect(removedColumns).toEqual(["product_listing_events.created"]);
 
     const decimalStrings = mappings.rules
-      .filter((rule) => rule["rule-action"] === "change-data-type")
-      .map((rule) => {
-        const locator = rule["object-locator"] as Record<string, string>;
-        return `${locator["table-name"]}.${locator["column-name"]}`;
-      })
-      .sort();
-    expect(decimalStrings).toEqual([
-      "product_listing_raw_revisions.revision",
-      "search_filters.version",
-    ]);
+      .filter((rule) => rule["rule-action"] === "change-data-type");
+    expect(decimalStrings).toEqual([]);
     expect(settings.TargetMetadata).toMatchObject({
       BatchApplyEnabled: false,
       FullLobMode: false,
