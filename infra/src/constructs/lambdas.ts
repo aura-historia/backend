@@ -48,6 +48,13 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 128,
     timeoutSeconds: 10,
   },
+  cdcRouter: {
+    id: "CdcRouterLambda",
+    binaryName: "cdc-router-lambda",
+    memorySize: 256,
+    skipEphemeral: true,
+    timeoutSeconds: 30,
+  },
   fxRateSync: {
     id: "FxRateSyncLambda",
     binaryName: "fxrate-lambda",
@@ -114,7 +121,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
-type EphemeralOptionalLambdaKey = "fxRateSync";
+type EphemeralOptionalLambdaKey = "cdcRouter" | "fxRateSync";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &

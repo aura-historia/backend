@@ -4,13 +4,15 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
-
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
+import type { DmsCdc } from "./dms-cdc";
 import type { LambdaFunctions } from "./lambdas";
 import type { QueueCatalog } from "./queues";
 import type { WorkerQueueCatalog } from "./worker-queues";
+import type { WorkerScope } from "../worker-queue-config";
 
 export interface EventingProps {
   readonly config: StageConfig;
@@ -21,7 +23,21 @@ export interface EventingProps {
   readonly productListingNormalizationVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly dmsCdc?: DmsCdc;
 }
+
+const CDC_ROUTER_QUEUE_SCOPES = {
+  SEARCH_FILTER_PROJECTION: "search-filter-projection",
+  SEARCH_FILTER_PERCOLATOR: "search-filter-percolator",
+  SEARCH_FILTER_MATCH_NOTIFICATION: "search-filter-match-notification",
+  WATCHLIST_NOTIFICATION: "watchlist-notification",
+  PRODUCT_LISTING_CONTENT_ASSESSMENT: "product-content-assessment",
+  PRODUCT_LISTING_TRANSLATION: "product-translation",
+  PRODUCT_LISTING_EMBEDDING: "product-embedding",
+  PRODUCT_LISTING_OPENSEARCH: "product-listing-opensearch",
+  PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
+  NOTIFICATION_DELIVERY: "notification-delivery",
+} as const satisfies Record<string, WorkerScope>;
 
 export class Eventing extends Construct {
   readonly stripeEventBus: events.IEventBus;
@@ -75,6 +91,17 @@ export class Eventing extends Construct {
         "DISABLED",
       ) as unknown as string;
 
+      if (!props.functions.cdcRouter || !props.dmsCdc) {
+        throw new Error("Real eventing requires the DMS CDC router Lambda and stream.");
+      }
+      createDmsCdcRouterEventSource(
+        this,
+        props.config,
+        props.functions.cdcRouter,
+        props.dmsCdc,
+        props.workerQueues,
+        props.productListingOpenSearchConsumerActivation,
+      );
     }
 
     createSqsEventSources(
@@ -169,6 +196,87 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
       },
     },
     targets: [new targets.LambdaFunction(functions.cloudWatchLogRetention)],
+  });
+}
+
+function createDmsCdcRouterEventSource(
+  scope: Construct,
+  config: StageConfig,
+  router: lambda.Function,
+  dmsCdc: DmsCdc,
+  workerQueues: WorkerQueueCatalog,
+  activation: cdk.CfnCondition,
+): void {
+  const failureArchive = new s3.Bucket(scope, "CdcRouterFailureArchive", {
+    bucketName: `aura-historia-cdc-router-failures-${config.stage}`,
+    blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+    encryption: s3.BucketEncryption.S3_MANAGED,
+    enforceSSL: true,
+    lifecycleRules: [{
+      enabled: true,
+      expiration: cdk.Duration.days(90),
+    }],
+    removalPolicy: cdk.RemovalPolicy.RETAIN,
+  });
+
+  const sourceQueueArns: string[] = [];
+  const deadLetterQueueArns: string[] = [];
+  for (const [environmentScope, workerScope] of Object.entries(CDC_ROUTER_QUEUE_SCOPES) as [
+    keyof typeof CDC_ROUTER_QUEUE_SCOPES,
+    WorkerScope,
+  ][]) {
+    const workerQueue = workerQueues[workerScope];
+    if (!workerQueue) {
+      throw new Error(`CDC router requires the ${workerScope} worker queue.`);
+    }
+    router.addEnvironment(`AURA_HISTORIA_ROUTER_QUEUE_URL_${environmentScope}`, workerQueue.queue.queueUrl);
+    sourceQueueArns.push(workerQueue.queue.queueArn);
+    deadLetterQueueArns.push(workerQueue.deadLetterQueue.queueArn);
+  }
+
+  router.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "kinesis:DescribeStream",
+      "kinesis:DescribeStreamSummary",
+      "kinesis:GetRecords",
+      "kinesis:GetShardIterator",
+      "kinesis:ListShards",
+    ],
+    resources: [dmsCdc.stream.streamArn],
+  }));
+  router.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["sqs:SendMessage", "sqs:GetQueueAttributes"],
+    resources: sourceQueueArns,
+  }));
+  router.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["sqs:GetQueueAttributes"],
+    resources: deadLetterQueueArns,
+  }));
+  router.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["s3:ListBucket"],
+    resources: [failureArchive.bucketArn],
+  }));
+  router.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["s3:PutObject"],
+    resources: [failureArchive.arnForObjects("*")],
+  }));
+
+  new lambda.CfnEventSourceMapping(scope, "DmsCdcRouterEventSource", {
+    batchSize: 100,
+    bisectBatchOnFunctionError: true,
+    destinationConfig: {
+      onFailure: {
+        destination: failureArchive.bucketArn,
+      },
+    },
+    enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
+    eventSourceArn: dmsCdc.stream.streamArn,
+    functionName: router.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+    maximumBatchingWindowInSeconds: 1,
+    maximumRecordAgeInSeconds: 3600,
+    maximumRetryAttempts: 3,
+    startingPosition: lambda.StartingPosition.TRIM_HORIZON,
   });
 }
 

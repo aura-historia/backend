@@ -45,7 +45,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
     });
-    expect(mappings).toHaveLength(3);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );

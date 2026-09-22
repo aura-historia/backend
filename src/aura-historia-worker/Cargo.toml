@@ -13,12 +13,15 @@ aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 aws-smithy-types = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["kinesis", "streams"] }
 
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
+futures-util = { workspace = true }
 large-language-model = { workspace = true }
+lambda_runtime = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 google-cloud-auth = { workspace = true }
