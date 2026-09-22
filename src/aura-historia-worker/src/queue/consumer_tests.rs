@@ -9,12 +9,20 @@ use crate::{
     WorkerScope,
     jobs::{
         DomainJob, DomainJobPayload, IdempotencyKey, NotificationDeliveryCreatedJob, OrderingKey,
-        ProductListingRawRevisionJob, WorkerQueue,
+        ProductListingEventJob, ProductListingRawRevisionJob, WorkerQueue,
     },
     wire,
 };
+use domain_primitives::event_id::EventId;
 use notification_core::notification_delivery_id::NotificationDeliveryId;
-use product_listing_service::ports::{ProductListingRawRevisionId, ProductListingRawStreamId};
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::{
+    ports::{ProductListingRawRevisionId, ProductListingRawStreamId},
+    use_cases::{
+        ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingOutcome,
+        ProjectProductListingResult, ProjectProductListingUseCase,
+    },
+};
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
     NormalizeProductListingRawRevisionMode, NormalizeProductListingRawRevisionResult,
@@ -331,6 +339,50 @@ fn raw_job() -> DomainJob {
             product_listing_raw_revision_id,
             revision: 1,
         }),
+    }
+}
+
+fn product_listing_job() -> DomainJob {
+    let event_id = EventId::new();
+    let product_listing_id = ProductListingId::new();
+    DomainJob {
+        target_queue: WorkerQueue::ProductListingOpenSearch,
+        idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
+        ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
+        payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+            event_id,
+            product_listing_id,
+        }),
+    }
+}
+
+#[derive(Default)]
+struct RecoveringProductListingProjection {
+    dependency_available: AtomicBool,
+    attempts: AtomicUsize,
+}
+
+impl RecoveringProductListingProjection {
+    fn recover(&self) {
+        self.dependency_available.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait::async_trait]
+impl ProjectProductListingUseCase for RecoveringProductListingProjection {
+    async fn execute(
+        &self,
+        _command: ProjectProductListingCommand,
+    ) -> Result<ProjectProductListingResult, ProjectProductListingError> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        if !self.dependency_available.load(Ordering::SeqCst) {
+            return Err(ProjectProductListingError::WriteFailed {
+                source: application::error::static_error("OpenSearch projection unavailable"),
+            });
+        }
+        Ok(ProjectProductListingResult {
+            outcome: ProjectProductListingOutcome::Applied,
+        })
     }
 }
 
@@ -970,6 +1022,58 @@ async fn should_pause_outage_then_allow_only_one_half_open_recovery_probe() {
     assert!(control.ready());
     assert_eq!(0, receiver.circuit_failures);
 }
+#[tokio::test(start_paused = true)]
+async fn should_retain_product_listing_projection_job_pause_then_recover_after_target_dependency_returns()
+ {
+    let fake = Arc::new(FakeTransport::default());
+    let body = wire::encode(&product_listing_job()).unwrap();
+    fake.push(&body);
+    // Model native SQS redelivery of the same unacknowledged schema-2 job.
+    fake.push(&body);
+    let control = RuntimeControl::new(false);
+    let receiver = WorkerQueueReceiver::sqs(
+        scoped_queue(fake.clone(), WorkerScope::ProductListingOpenSearch),
+        control.clone(),
+    );
+    let projection = Arc::new(RecoveringProductListingProjection::default());
+    let consumer = tokio::spawn(
+        crate::product_listing_opensearch::consume_product_listing_opensearch_queue(
+            receiver,
+            projection.clone(),
+        ),
+    );
+
+    yield_tasks().await;
+    assert_eq!(1, projection.attempts.load(Ordering::SeqCst));
+    assert!(control.live());
+    assert!(!control.ready());
+    assert_eq!(1, fake.count(Call::Receive));
+    assert_eq!(0, fake.count(Call::Delete));
+    assert!(
+        fake.calls()
+            .iter()
+            .any(|call| matches!(call, Call::Visibility(seconds) if (30..=45).contains(seconds)))
+    );
+
+    projection.recover();
+    tokio::time::advance(Duration::from_secs(29)).await;
+    yield_tasks().await;
+    assert_eq!(1, projection.attempts.load(Ordering::SeqCst));
+    assert_eq!(1, fake.count(Call::Receive));
+    assert_eq!(0, fake.count(Call::Probe));
+
+    tokio::time::advance(Duration::from_secs(17)).await;
+    yield_tasks().await;
+    assert_eq!(2, projection.attempts.load(Ordering::SeqCst));
+    assert_eq!(1, fake.count(Call::Probe));
+    assert!(fake.count(Call::Receive) >= 2);
+    assert_eq!(1, fake.count(Call::Delete));
+    assert!(control.ready());
+
+    control.shutdown();
+    consumer.await.unwrap();
+}
+
 #[tokio::test(start_paused = true)]
 async fn should_not_receive_more_messages_while_recovery_probe_fails() {
     let fake = Arc::new(FakeTransport::default());

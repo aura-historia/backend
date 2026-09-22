@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/initialize.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -19,6 +20,7 @@ on:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/initialize.yml"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"

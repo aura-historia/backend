@@ -1,73 +1,60 @@
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use cognito_post_confirmation::handler;
-use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use platform_observability::{LogLevel, LoggingConfig, init};
-use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
-use std::{fmt::Display, str::FromStr};
+use platform_lambda_bootstrap::{
+    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
+    logging_config_from_env,
+};
+use platform_observability::init;
+use platform_postgres::SqlxUnitOfWork;
+use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
+use std::{sync::Arc, time::Instant};
 use user_postgres::{SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory};
 use user_service::use_cases::RegisterCognitoUserHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let pool = postgres_config_from_env()?.connect().await?;
-    let service = RegisterCognitoUserHandler::new(
-        SqlxUnitOfWork::new(pool),
-        SqlxUserRepositoryFactory::new(),
-        SqlxUserCognitoIdentityRegistryFactory::new(),
-    );
+    let postgres = LambdaPostgresConfig::from_env()?;
+    let credentials = postgres_credentials_provider_from_env()
+        .await
+        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+    let services = Arc::new(VersionedCompositionCache::new());
 
-    debug!("Lambda initialized.");
+    log_cold_start("cognito-post-confirmation", initialization_started_at);
 
     run(service_fn(
-        |event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>| async {
-            handler(event, &service).await
+        move |event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>| {
+            let postgres = postgres.clone();
+            let credentials = Arc::clone(&credentials);
+            let services = Arc::clone(&services);
+            async move {
+                log_invocation_start("cognito-post-confirmation", &event.context);
+                let credentials = credentials
+                    .current()
+                    .await
+                    .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                let service = services
+                    .get_or_try_build(credentials.version_id(), || async {
+                        let pool = postgres
+                            .pool_config(credentials.credentials())
+                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
+                            .connect()
+                            .await
+                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                        Ok::<_, Error>(RegisterCognitoUserHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxUserRepositoryFactory::new(),
+                            SqlxUserCognitoIdentityRegistryFactory::new(),
+                        ))
+                    })
+                    .await?;
+
+                handler(event, service.value()).await
+            }
         },
     ))
     .await
-}
-
-fn logging_config_from_env() -> LoggingConfig {
-    let level = std::env::var("LOG_LEVEL")
-        .ok()
-        .as_deref()
-        .and_then(LogLevel::parse)
-        .unwrap_or_default();
-    LoggingConfig::new(level)
-}
-
-fn postgres_config_from_env() -> Result<PostgresPoolConfig, Error> {
-    let host = required_env("POSTGRES_HOST")?;
-    let database = required_env("POSTGRES_DATABASE")?;
-    let username = required_env("POSTGRES_USERNAME")?;
-    let password = required_env("POSTGRES_PASSWORD")?;
-    let port = optional_env("POSTGRES_PORT", 5432)?;
-    let max_connections = optional_env("POSTGRES_MAX_CONNECTIONS", 2)?;
-
-    PostgresPoolConfig::new(host, port, database, username, password, max_connections)
-        .map_err(|error| config_error(error.to_string()))
-}
-
-fn required_env(name: &str) -> Result<String, Error> {
-    std::env::var(name).map_err(|error| config_error(format!("failed to read {name}: {error}")))
-}
-
-fn optional_env<T>(name: &str, default: T) -> Result<T, Error>
-where
-    T: FromStr,
-    T::Err: Display,
-{
-    match std::env::var(name) {
-        Ok(value) => value
-            .parse()
-            .map_err(|error| config_error(format!("invalid {name} value: {error}"))),
-        Err(std::env::VarError::NotPresent) => Ok(default),
-        Err(error) => Err(config_error(format!("failed to read {name}: {error}"))),
-    }
-}
-
-fn config_error(message: String) -> Error {
-    std::io::Error::other(message).into()
 }

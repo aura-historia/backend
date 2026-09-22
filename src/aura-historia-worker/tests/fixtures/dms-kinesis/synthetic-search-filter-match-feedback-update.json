@@ -1,0 +1,18 @@
+{
+  "data": {
+    "user_id": "01900000-0000-7000-8000-000000000001",
+    "user_search_filter_id": "01900000-0000-7000-8000-000000000006",
+    "product_listing_id": "01900000-0000-7000-8000-000000000004",
+    "origin_event_id": "01900000-0000-7000-8000-000000000005",
+    "feedback": true
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "update",
+    "schema-name": "public",
+    "table-name": "search_filter_matches",
+    "timestamp": "2026-09-21T12:00:09Z",
+    "transaction-id": "1010",
+    "transaction-record-id": "1"
+  }
+}

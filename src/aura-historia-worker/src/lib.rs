@@ -19,6 +19,7 @@ use platform_postgres::{PostgresPoolConfig, PostgresPoolConfigError};
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::num::ParseIntError;
+use std::path::PathBuf;
 use std::time::Duration;
 #[cfg(test)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -53,8 +54,9 @@ const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
 const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
 const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
 const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const POSTGRES_TLS_ROOT_CERT_ENV: &str = "POSTGRES_TLS_ROOT_CERT";
 const DEFAULT_POSTGRES_PORT: u16 = 5432;
-const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
 const DEFAULT_WORKER_DRAIN_TIMEOUT_SECONDS: u64 = 270;
@@ -416,13 +418,26 @@ where
         DEFAULT_POSTGRES_MAX_CONNECTIONS,
     )?;
 
-    PostgresPoolConfig::new(host, port, database, username, password, max_connections).map_err(
-        |error| match error {
-            PostgresPoolConfigError::ZeroMaxConnections => {
-                WorkerPostgresConfigError::ZeroMaxConnections
-            }
-        },
+    let root_certificate = PathBuf::from(required_postgres_env(get, POSTGRES_TLS_ROOT_CERT_ENV)?);
+
+    PostgresPoolConfig::lambda(
+        host,
+        port,
+        database,
+        username,
+        password,
+        max_connections,
+        root_certificate,
     )
+    .map_err(|error| match error {
+        PostgresPoolConfigError::ZeroMaxConnections
+        | PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
+            WorkerPostgresConfigError::ZeroMaxConnections
+        }
+        PostgresPoolConfigError::EmptyRootCertificate => {
+            WorkerPostgresConfigError::EmptyTlsRootCertificate
+        }
+    })
 }
 
 fn required_postgres_env<F>(
@@ -507,6 +522,8 @@ pub enum WorkerPostgresConfigError {
     },
     #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
     ZeroMaxConnections,
+    #[error("POSTGRES_TLS_ROOT_CERT must not be empty")]
+    EmptyTlsRootCertificate,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -967,6 +984,7 @@ mod tests {
             (POSTGRES_DATABASE_ENV, "aura_historia"),
             (POSTGRES_USERNAME_ENV, "worker"),
             (POSTGRES_PASSWORD_ENV, "not-a-real-secret"),
+            (POSTGRES_TLS_ROOT_CERT_ENV, "/opt/aura-historia/rds-ca.pem"),
         ])
     }
 
@@ -1083,6 +1101,23 @@ mod tests {
         assert!(matches!(
             config,
             Err(WorkerConfigError::InvalidHealthBindAddr { .. })
+        ));
+    }
+
+    #[test]
+    fn should_require_postgres_tls_root_certificate() {
+        let mut values = production_worker_env("search-filter-projection");
+        values.remove(POSTGRES_TLS_ROOT_CERT_ENV);
+
+        let config = WorkerStartupConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(WorkerStartupConfigError::Postgres(
+                WorkerPostgresConfigError::MissingEnv {
+                    name: POSTGRES_TLS_ROOT_CERT_ENV
+                }
+            ))
         ));
     }
 

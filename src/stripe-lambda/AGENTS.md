@@ -10,6 +10,7 @@
 - Main neighbors: `application`, `platform-observability`, `platform-postgres`, `user-core`, `user-service`, `user-postgres`.
 - Lambda connects to Postgres directly.
 - Event/runtime edge crate. Keep init and handler glue here, behavior deeper when reusable.
+- PostgreSQL needs `POSTGRES_TLS_ROOT_CERT`; real stages refresh `POSTGRES_SECRET_ARN` `AWSCURRENT` before each trigger and cache a full versioned handler lease. Ephemeral keeps fixture username/password. Bootstrap uses the strict min-zero/default-max-one verified-TLS pool profile.
 
 ## Ownership
 

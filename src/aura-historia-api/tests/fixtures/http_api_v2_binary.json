@@ -1,0 +1,26 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/binary",
+  "rawQueryString": "tag=one%20two&tag=three",
+  "cookies": [
+    "session=first",
+    "theme=dark"
+  ],
+  "headers": {
+    "host": "api.example.test",
+    "x-correlation-id": "edge-request"
+  },
+  "requestContext": {
+    "stage": "$default",
+    "http": {
+      "method": "POST",
+      "path": "/binary",
+      "protocol": "HTTP/1.1",
+      "sourceIp": "127.0.0.1",
+      "userAgent": "aura-historia-api-lambda-test"
+    }
+  },
+  "body": "AAH+/w==",
+  "isBase64Encoded": true
+}

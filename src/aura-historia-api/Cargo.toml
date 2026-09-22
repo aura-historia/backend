@@ -32,14 +32,17 @@ oauth-core = { workspace = true }
 oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
 
 jsonwebtokens = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
+lambda_http = { workspace = true }
 partnership-core = { workspace = true }
 partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
@@ -66,6 +69,7 @@ search-filter-service = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
@@ -92,4 +96,3 @@ serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["aura-historia-api", "opensearch", "postgres"] }
 time = { workspace = true }
-tower = { workspace = true, features = ["util"] }

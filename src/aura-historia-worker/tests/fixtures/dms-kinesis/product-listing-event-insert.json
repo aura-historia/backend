@@ -1,0 +1,34 @@
+{
+  "data": {
+    "event_id": "01900000-0000-7000-8000-000000000005",
+    "product_listing_id": "01900000-0000-7000-8000-000000000004",
+    "event_type": "PRODUCT_LISTING_DISCOVERED",
+    "event_group": "DOMAIN",
+    "event_type_schema_version": 1,
+    "payload": {
+      "listingSourceId": "01900000-0000-7000-8000-000000000001",
+      "sourceListingId": "fixture-source-id",
+      "title": null,
+      "description": null,
+      "pricing": {
+        "price": null,
+        "priceEstimateMin": null,
+        "priceEstimateMax": null
+      },
+      "availability": null,
+      "url": "https://example.test/product",
+      "imageCount": 0,
+      "auction": null
+    },
+    "event_time": "2026-09-21T12:00:00Z"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "insert",
+    "schema-name": "public",
+    "table-name": "product_listing_events",
+    "timestamp": "2026-09-21T12:00:00Z",
+    "transaction-id": "1001",
+    "transaction-record-id": "1"
+  }
+}

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 mod api_support;
 
 use test_api::{AuraHistoriaApi, OpenSearch, Postgres};

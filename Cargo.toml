@@ -12,6 +12,7 @@ members = [
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aura-historia-cron",
+    "src/product-listing-opensearch-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
     "src/auction-core",
@@ -21,6 +22,7 @@ members = [
     "src/billing-stripe",
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
+    "src/database-migration-lambda",
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",
@@ -42,8 +44,10 @@ members = [
     "src/product-listing-translation-llm",
     "src/product-listing-postgres",
     "src/platform-observability",
+    "src/platform-lambda-bootstrap",
     "src/platform-opensearch",
     "src/platform-postgres",
+    "src/platform-postgres-secretsmanager",
     "src/fxrate-core",
     "src/fxrate-service",
     "src/fxrate-postgres",
@@ -84,6 +88,7 @@ members = [
 
 [workspace.dependencies]
 aura-historia-worker = { path = "src/aura-historia-worker" }
+product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lambda" }
 base64 = "0.23.0"
 async-trait = "0.1.89"
 axum = "0.8.7"
@@ -95,6 +100,7 @@ aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
+aws-sdk-secretsmanager = "1.117.0"
 aws-smithy-types = "1.6.1"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
@@ -119,8 +125,10 @@ auction-core = { path = "src/auction-core" }
 auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
+platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
+platform-postgres-secretsmanager = { path = "src/platform-postgres-secretsmanager" }
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
@@ -164,6 +172,7 @@ watchlist-core = { path = "src/watchlist-core" }
 watchlist-service = { path = "src/watchlist-service" }
 watchlist-postgres = { path = "src/watchlist-postgres" }
 isocountry = "0.3.2"
+lambda_http = { version = "1.3.1", default-features = false, features = ["apigw_http"] }
 lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }

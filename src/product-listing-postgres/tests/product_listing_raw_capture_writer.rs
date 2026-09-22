@@ -437,7 +437,7 @@ async fn should_reuse_expired_provider_receipt_identity() {
         .await
         .unwrap_or_else(|error| panic!("capture first provider receipt: {error}"));
 
-    // Keep the expired row uncommitted so asynchronous pg_ttl cannot satisfy this test.
+    // Keep the expired row uncommitted so physical cleanup cannot satisfy this test.
     let expired = sqlx::query(
         r#"
         UPDATE product_listing_raw_provider_observation_receipts AS receipts
@@ -476,6 +476,60 @@ async fn should_reuse_expired_provider_receipt_identity() {
     ));
     assert_eq!(2, raw_revision_count(&pool, listing_source_id).await);
     assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_remove_expired_provider_receipt_without_deleting_raw_provenance() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source(&pool, "raw-capture-physical-cleanup-source").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let factory = SqlxProductListingRawCaptureWriterFactory::new();
+
+    let outcome = capture(
+        &unit_of_work,
+        &factory,
+        provider_write(
+            listing_source_id,
+            json!({"state": "expired receipt"}),
+            json!({}),
+            json!({}),
+            "expired-cleanup-receipt",
+            occurred_at(1),
+        ),
+    )
+    .await;
+    assert!(matches!(
+        outcome,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
+    ));
+
+    let expired = sqlx::query(
+        r#"
+        UPDATE product_listing_raw_provider_observation_receipts AS receipts
+        SET expires_at = clock_timestamp() - interval '1 second'
+        FROM product_listing_raw_streams AS streams
+        WHERE receipts.product_listing_raw_stream_id = streams.product_listing_raw_stream_id
+          AND streams.listing_source_id = $1
+          AND receipts.provider_delivery_id = $2
+        "#,
+    )
+    .bind(listing_source_id.into_uuid())
+    .bind("expired-cleanup-receipt")
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("expire provider receipt: {error}"))
+    .rows_affected();
+    assert_eq!(1, expired);
+
+    let deleted: (i64, i64, i64, i64) =
+        sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
+            .bind(1_000_i32)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("clean expired provider receipt: {error}"));
+    assert_eq!((0, 0, 0, 1), deleted);
+    assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
+    assert_eq!(0, provider_receipt_count(&pool, listing_source_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

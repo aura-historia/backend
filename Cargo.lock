@@ -303,6 +303,7 @@ dependencies = [
  "httpdate",
  "indexmap 2.14.2",
  "jsonwebtokens",
+ "lambda_http",
  "listing-source-core",
  "listing-source-postgres",
  "listing-source-service",
@@ -323,8 +324,10 @@ dependencies = [
  "party-core",
  "party-postgres",
  "party-service",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
+ "platform-postgres-secretsmanager",
  "product-listing-core",
  "product-listing-normalization",
  "product-listing-opensearch",
@@ -773,6 +776,32 @@ dependencies = [
  "sha2 0.11.0",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "aws-sdk-secretsmanager"
+version = "1.117.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d32d781b34ab083e0dc54b4c68fc5e89ddf35e97d97bdcb9386d21325c14767"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
 ]
 
 [[package]]
@@ -1690,6 +1719,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-cloudwatchlogs",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "rstest",
  "serde",
@@ -1721,8 +1751,10 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
+ "platform-postgres-secretsmanager",
  "serde-email",
  "serde_json",
  "serial_test",
@@ -2262,6 +2294,24 @@ dependencies = [
  "lock_api",
  "once_cell",
  "parking_lot_core",
+]
+
+[[package]]
+name = "database-migration-lambda"
+version = "0.1.0"
+dependencies = [
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3024,8 +3074,10 @@ dependencies = [
  "fxrate-service",
  "lambda_runtime",
  "money",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
+ "platform-postgres-secretsmanager",
  "reqwest 0.12.28",
  "serde_json",
  "serial_test",
@@ -4172,6 +4224,31 @@ dependencies = [
  "html5ever 0.25.2",
  "matches",
  "selectors 0.22.0",
+]
+
+[[package]]
+name = "lambda_http"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a604844a6087df69f1271ef31b11178d5bf91094cae1a0d26900b2044ef07b"
+dependencies = [
+ "aws_lambda_events",
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "hyper 1.11.1",
+ "lambda_runtime",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio-stream",
+ "url",
 ]
 
 [[package]]
@@ -5683,6 +5760,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-lambda-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "lambda_runtime",
+ "platform-observability",
+ "platform-postgres",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "platform-observability"
 version = "0.1.0"
 dependencies = [
@@ -5707,6 +5800,21 @@ dependencies = [
  "application",
  "async-trait",
  "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "platform-postgres-secretsmanager"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-secretsmanager",
+ "platform-postgres",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
 ]
@@ -5904,6 +6012,37 @@ dependencies = [
  "test-api",
  "thiserror 2.0.20",
  "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-listing-opensearch-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "domain-primitives",
+ "futures-util",
+ "fxrate-postgres",
+ "lambda_runtime",
+ "listing-source-core",
+ "opensearch",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
  "tokio",
  "tracing",
  "url",
@@ -7262,8 +7401,10 @@ dependencies = [
  "listing-source-service",
  "localization",
  "money",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
+ "platform-postgres-secretsmanager",
  "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
@@ -7786,8 +7927,10 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "lambda_runtime",
+ "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",
+ "platform-postgres-secretsmanager",
  "serde",
  "serde-email",
  "serde_json",

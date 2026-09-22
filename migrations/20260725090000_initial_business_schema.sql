@@ -315,6 +315,9 @@ CREATE TABLE product_listing_raw_provider_observation_receipts (
         CHECK (octet_length(observation_sha256) = 32)
 );
 
+CREATE INDEX product_listing_raw_provider_observation_receipts_expires_at_idx
+    ON product_listing_raw_provider_observation_receipts (expires_at);
+
 CREATE TABLE product_listing_raw_revisions (
     product_listing_raw_revision_id uuid PRIMARY KEY,
     generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
@@ -796,6 +799,11 @@ CREATE TABLE search_filter_periodic_match_state (
     updated timestamptz NOT NULL DEFAULT now()
 );
 
+-- Search-filter DELETE CDC needs OLD.user_search_filter_id, OLD.user_id, and
+-- OLD.version after the authoritative row is gone. Keep this table-local FULL
+-- identity: the default primary-key identity omits the owner and deletion-fence
+-- version. A source missing, changing, or lossy-encoding any DELETE value is invalid
+-- and must remain unacknowledged rather than delete a tombstone.
 ALTER TABLE search_filters REPLICA IDENTITY FULL;
 
 CREATE TABLE search_filter_matches (
@@ -1071,22 +1079,6 @@ CREATE INDEX notification_deliveries_status_created_idx
         created,
         notification_delivery_id
     );
--- Credential rows require pg_ttl_index to be installed and preloaded by database
--- provisioning. Do not create the extension here: normal application migration
--- roles need not have that privilege, and silently omitting cleanup is unsafe.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_extension
-        WHERE extname = 'pg_ttl_index'
-    ) THEN
-        RAISE EXCEPTION
-            'pg_ttl_index must be provisioned before business schema migrations run';
-    END IF;
-END;
-$$;
-
 CREATE TABLE access_tokens (
     access_token_id uuid PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -1128,6 +1120,9 @@ CREATE TABLE access_tokens (
 
 CREATE INDEX access_tokens_user_created_idx
     ON access_tokens (user_id, created ASC, access_token_id ASC);
+CREATE INDEX access_tokens_expires_at_idx
+    ON access_tokens (expires_at)
+    WHERE expires_at IS NOT NULL;
 
 CREATE TABLE oauth_clients (
     client_id uuid PRIMARY KEY,
@@ -1203,6 +1198,9 @@ CREATE TABLE oauth_authorization_codes (
     )
 );
 
+CREATE INDEX oauth_authorization_codes_expires_at_idx
+    ON oauth_authorization_codes (expires_at);
+
 CREATE TABLE oauth_third_party_exchange_codes (
     third_party_exchange_code text PRIMARY KEY,
     access_token_id uuid NOT NULL REFERENCES access_tokens(access_token_id) ON DELETE CASCADE,
@@ -1232,14 +1230,98 @@ CREATE TABLE oauth_third_party_exchange_codes (
 
 CREATE INDEX oauth_third_party_exchange_codes_access_token_idx
     ON oauth_third_party_exchange_codes (access_token_id);
+CREATE INDEX oauth_third_party_exchange_codes_expires_at_idx
+    ON oauth_third_party_exchange_codes (expires_at);
 
--- Absolute semantic expiry is stored in each table. pg-ttl cleanup is deliberately
--- asynchronous; service authentication and redemption still validate expiration.
-SELECT ttl_create_index('public.access_tokens', 'expires_at', 0);
-SELECT ttl_create_index('public.oauth_authorization_codes', 'expires_at', 0);
-SELECT ttl_create_index('public.oauth_third_party_exchange_codes', 'expires_at', 0);
-SELECT ttl_create_index(
-    'public.product_listing_raw_provider_observation_receipts',
-    'expires_at',
-    0
-);
+-- Expiry remains application correctness. This bounded maintenance operation only
+-- removes rows that are already logically expired. One invocation deletes at most
+-- `batch_size` direct rows per target and uses SKIP LOCKED so concurrent invocations
+-- share work without waiting. Returned counts are direct deletes from each named
+-- target, never inferred foreign-key cascade counts. Access-token candidates have no
+-- remaining exchange-code dependents, so this function cannot turn a bounded child
+-- cleanup into an unbounded cascade. A scheduler invokes one call per transaction; it
+-- must not loop in one transaction.
+CREATE FUNCTION cleanup_expired_credentials_and_provider_receipts(batch_size integer)
+RETURNS TABLE (
+    access_tokens_deleted bigint,
+    authorization_codes_deleted bigint,
+    third_party_exchange_codes_deleted bigint,
+    provider_receipts_deleted bigint
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    cleanup_now timestamptz := statement_timestamp();
+BEGIN
+    IF batch_size IS NULL OR batch_size < 1 OR batch_size > 1000 THEN
+        RAISE EXCEPTION 'batch_size must be a non-null integer between 1 and 1000';
+    END IF;
+
+    WITH candidates AS (
+        SELECT ctid
+        FROM oauth_third_party_exchange_codes
+        WHERE expires_at < cleanup_now
+        ORDER BY expires_at ASC
+        LIMIT batch_size
+        FOR UPDATE SKIP LOCKED
+    ), deleted AS (
+        DELETE FROM oauth_third_party_exchange_codes AS codes
+        USING candidates
+        WHERE codes.ctid = candidates.ctid
+        RETURNING 1
+    )
+    SELECT count(*) INTO third_party_exchange_codes_deleted FROM deleted;
+
+    WITH candidates AS (
+        SELECT access_tokens.ctid
+        FROM access_tokens
+        WHERE expires_at < cleanup_now
+          AND NOT EXISTS (
+              SELECT 1
+              FROM oauth_third_party_exchange_codes AS codes
+              WHERE codes.access_token_id = access_tokens.access_token_id
+          )
+        ORDER BY expires_at ASC
+        LIMIT batch_size
+        FOR UPDATE SKIP LOCKED
+    ), deleted AS (
+        DELETE FROM access_tokens
+        USING candidates
+        WHERE access_tokens.ctid = candidates.ctid
+        RETURNING 1
+    )
+    SELECT count(*) INTO access_tokens_deleted FROM deleted;
+
+    WITH candidates AS (
+        SELECT ctid
+        FROM oauth_authorization_codes
+        WHERE expires_at < cleanup_now
+        ORDER BY expires_at ASC
+        LIMIT batch_size
+        FOR UPDATE SKIP LOCKED
+    ), deleted AS (
+        DELETE FROM oauth_authorization_codes AS codes
+        USING candidates
+        WHERE codes.ctid = candidates.ctid
+        RETURNING 1
+    )
+    SELECT count(*) INTO authorization_codes_deleted FROM deleted;
+
+    WITH candidates AS (
+        SELECT ctid
+        FROM product_listing_raw_provider_observation_receipts
+        WHERE expires_at <= cleanup_now
+        ORDER BY expires_at ASC
+        LIMIT batch_size
+        FOR UPDATE SKIP LOCKED
+    ), deleted AS (
+        DELETE FROM product_listing_raw_provider_observation_receipts AS receipts
+        USING candidates
+        WHERE receipts.ctid = candidates.ctid
+        RETURNING 1
+    )
+    SELECT count(*) INTO provider_receipts_deleted FROM deleted;
+
+    RETURN NEXT;
+END;
+$$;

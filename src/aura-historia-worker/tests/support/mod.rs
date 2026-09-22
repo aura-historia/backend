@@ -11,6 +11,7 @@ pub const fn queues(scope: WorkerScope) -> WorkerSqs {
     let visibility = match scope {
         WorkerScope::NotificationDelivery => 360,
         WorkerScope::ProductListingRawNormalization
+        | WorkerScope::ProductListingOpenSearch
         | WorkerScope::SearchFilterPercolator
         | WorkerScope::ProductListingEmbedding
         | WorkerScope::ProductListingTranslation => 300,

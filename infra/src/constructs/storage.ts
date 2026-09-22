@@ -1,49 +1,217 @@
-
+import * as cdk from "aws-cdk-lib";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as rds from "aws-cdk-lib/aws-rds";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import { ssmValue } from "../config";
+import type { Network } from "./network";
+
+const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
+const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE = "/var/task/aura-historia/test-postgres-ca.pem";
 
 export interface StorageProps {
   readonly config: StageConfig;
+  readonly network?: Network;
 }
 
 export interface PostgresConnectionSettings {
   readonly host: string;
   readonly port: string;
   readonly database: string;
-  readonly username: string;
-  readonly password: string;
   readonly maxConnections: string;
+  readonly tlsRootCert: string;
+  readonly secretArn?: string;
+  readonly username?: string;
+  readonly password?: string;
+}
+
+export interface PostgresMigrationConnectionSettings {
+  readonly host: string;
+  readonly port: string;
+  readonly database: string;
+  readonly maxConnections: string;
+  readonly tlsRootCert: string;
+  readonly adminSecretArn: string;
+  readonly runtimeSecretArn: string;
+  readonly migrationSecretArn: string;
+  readonly replicationSecretArn: string;
 }
 
 export class Storage extends Construct {
   readonly postgres: PostgresConnectionSettings;
+  readonly migrationPostgres?: PostgresMigrationConnectionSettings;
+  readonly database?: rds.DatabaseInstance;
+  readonly adminCredentials?: rds.DatabaseSecret;
+  readonly runtimeCredentials?: rds.DatabaseSecret;
+  readonly migrationCredentials?: rds.DatabaseSecret;
+  readonly replicationCredentials?: secretsmanager.ISecret;
 
   constructor(scope: Construct, id: string, props: StorageProps) {
     super(scope, id);
 
-    this.postgres = postgresConnectionSettings(props.config);
+    if (props.config.isEphemeral) {
+      this.postgres = localPostgresConnectionSettings();
+      return;
+    }
+
+    if (!props.config.rds || !props.network) {
+      throw new Error("Real AWS stages require RDS and network configuration.");
+    }
+
+    const rdsConfig = props.config.rds;
+    const parameterGroup = new rds.ParameterGroup(this, "PostgresParameterGroup", {
+
+      engine: postgresEngine(rdsConfig.engineVersion),
+      description: `Aura Historia PostgreSQL ${rdsConfig.engineVersion} policy`,
+      parameters: {
+        "rds.force_ssl": "1",
+        "rds.logical_replication": "1",
+        "max_replication_slots": "5",
+        "max_wal_senders": "5",
+        "max_slot_wal_keep_size": "10240",
+      },
+    });
+    const subnetGroup = new rds.SubnetGroup(this, "PostgresSubnetGroup", {
+      description: "Aura Historia isolated PostgreSQL subnets",
+      subnetGroupName: `aura-historia-postgres-${props.config.stage}`,
+      vpc: props.network.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+    });
+    this.adminCredentials = new rds.DatabaseSecret(this, "PostgresAdminCredentials", {
+      username: "aura_admin",
+      secretName: `/aura-historia/${props.config.stage}/postgres/admin`,
+    });
+
+    this.database = new rds.DatabaseInstance(this, "Postgres", {
+      instanceIdentifier: `aura-historia-postgres-${props.config.stage}`,
+      engine: postgresEngine(rdsConfig.engineVersion),
+      credentials: rds.Credentials.fromSecret(this.adminCredentials),
+      databaseName: rdsConfig.databaseName,
+      instanceType: new ec2.InstanceType(rdsConfig.instanceType),
+      vpc: props.network.vpc,
+      subnetGroup,
+      securityGroups: [props.network.databaseSecurityGroup],
+      parameterGroup,
+      multiAz: false,
+      publiclyAccessible: false,
+      storageType: rds.StorageType.GP3,
+      allocatedStorage: rdsConfig.allocatedStorageGiB,
+      maxAllocatedStorage: rdsConfig.maxAllocatedStorageGiB,
+      storageEncrypted: true,
+      backupRetention: cdk.Duration.days(rdsConfig.backupRetentionDays),
+      preferredBackupWindow: "02:00-02:30",
+      preferredMaintenanceWindow: "sun:03:00-sun:03:30",
+      autoMinorVersionUpgrade: true,
+      cloudwatchLogsExports: ["postgresql"],
+      copyTagsToSnapshot: true,
+      deleteAutomatedBackups: !props.config.isProd,
+      deletionProtection: props.config.isProd,
+      removalPolicy: props.config.removalPolicy,
+    });
+
+    this.runtimeCredentials = applicationCredentials(this, "PostgresRuntimeCredentials", {
+      stage: props.config.stage,
+      username: "aura_runtime",
+      databaseName: rdsConfig.databaseName,
+      adminCredentials: this.adminCredentials,
+    });
+    this.migrationCredentials = applicationCredentials(this, "PostgresMigrationCredentials", {
+      stage: props.config.stage,
+      username: "aura_migrator",
+      databaseName: rdsConfig.databaseName,
+      adminCredentials: this.adminCredentials,
+    });
+    this.replicationCredentials = dmsReplicationCredentials(this, "PostgresReplicationCredentials", {
+      stage: props.config.stage,
+      databaseName: rdsConfig.databaseName,
+      host: this.database.dbInstanceEndpointAddress,
+    });
+
+    this.postgres = {
+      host: this.database.dbInstanceEndpointAddress,
+      port: this.database.dbInstanceEndpointPort,
+      database: rdsConfig.databaseName,
+      maxConnections: "1",
+      secretArn: this.runtimeCredentials.secretArn,
+      tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
+    };
+    this.migrationPostgres = {
+      host: this.database.dbInstanceEndpointAddress,
+      port: this.database.dbInstanceEndpointPort,
+      database: rdsConfig.databaseName,
+      maxConnections: "1",
+      tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
+      adminSecretArn: this.adminCredentials.secretArn,
+      runtimeSecretArn: this.runtimeCredentials.secretArn,
+      migrationSecretArn: this.migrationCredentials.secretArn,
+      replicationSecretArn: this.replicationCredentials.secretArn,
+    };
   }
 }
 
-function postgresConnectionSettings(config: StageConfig): PostgresConnectionSettings {
-  if (config.isEphemeral) {
-    return {
-      host: "host.docker.internal",
-      port: "5432",
-      database: "postgres",
-      username: "postgres",
-      password: "postgres",
-      maxConnections: "2",
-    };
-  }
+interface ApplicationCredentialProps {
+  readonly stage: string;
+  readonly username: string;
+  readonly databaseName: string;
+  readonly adminCredentials: rds.DatabaseSecret;
+}
 
+function applicationCredentials(scope: Construct, id: string, props: ApplicationCredentialProps): rds.DatabaseSecret {
+  return new rds.DatabaseSecret(scope, id, {
+    username: props.username,
+    dbname: props.databaseName,
+    secretName: `/aura-historia/${props.stage}/postgres/${roleSecretName(props.username)}`,
+    masterSecret: props.adminCredentials,
+  });
+}
+
+function roleSecretName(username: string): string {
+  return username.replace("aura_", "");
+}
+
+interface DmsReplicationCredentialProps {
+  readonly stage: string;
+  readonly databaseName: string;
+  readonly host: string;
+}
+
+function dmsReplicationCredentials(
+  scope: Construct,
+  id: string,
+  props: DmsReplicationCredentialProps,
+): secretsmanager.Secret {
+  return new secretsmanager.Secret(scope, id, {
+    description: "Private PostgreSQL DMS replication credentials",
+    secretName: `/aura-historia/${props.stage}/postgres/replication`,
+    generateSecretString: {
+      excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\\\"",
+      generateStringKey: "password",
+      secretStringTemplate: JSON.stringify({
+        engine: "postgres",
+        host: props.host,
+        port: 5432,
+        dbname: props.databaseName,
+        username: "aura_replication",
+      }),
+    },
+  });
+}
+
+function postgresEngine(version: "16.13"): rds.IInstanceEngine {
+  switch (version) {
+    case "16.13":
+      return rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_13 });
+  }
+}
+
+function localPostgresConnectionSettings(): PostgresConnectionSettings {
   return {
-    host: ssmValue(`/postgres/${config.stage}/host`),
-    port: ssmValue(`/postgres/${config.stage}/port`),
-    database: ssmValue(`/postgres/${config.stage}/database`),
-    username: ssmValue(`/postgres/${config.stage}/username`),
-    password: ssmValue(`/secrets/${config.stage}/postgres-password`),
-    maxConnections: "2",
+    host: "host.docker.internal",
+    port: "5432",
+    database: "postgres",
+    username: "postgres",
+    password: "postgres",
+    maxConnections: "1",
+    tlsRootCert: EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE,
   };
 }

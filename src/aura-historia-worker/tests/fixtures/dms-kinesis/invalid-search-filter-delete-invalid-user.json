@@ -1,0 +1,16 @@
+{
+  "data": {
+    "user_search_filter_id": "01900000-0000-7000-8000-000000000006",
+    "user_id": "not-a-user-id",
+    "version": "3"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "delete",
+    "schema-name": "public",
+    "table-name": "search_filters",
+    "timestamp": "2026-09-21T12:00:13Z",
+    "transaction-id": "1014",
+    "transaction-record-id": "1"
+  }
+}

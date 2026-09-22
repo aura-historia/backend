@@ -10,6 +10,7 @@
 - Main neighbors: `application`, `platform-observability`, `platform-postgres`, `user-service`, `user-postgres`.
 - Event/runtime edge crate. Build the canonical issuer from event region and user-pool ID, preserve opaque Cognito `sub`, and call `RegisterCognitoUserUseCase` under `Principal::System`; Postgres is canonical user truth.
 - Cognito may redeliver or overlap. Same issuer/subject/email is idempotent; mismatched replay, email conflict, and unresolved service failures stay retry-visible.
+- PostgreSQL needs `POSTGRES_TLS_ROOT_CERT`; real stages refresh `POSTGRES_SECRET_ARN` `AWSCURRENT` before each trigger and cache a full versioned handler lease. Ephemeral keeps fixture username/password. Bootstrap uses the strict min-zero/default-max-one verified-TLS pool profile.
 
 ## Ownership
 

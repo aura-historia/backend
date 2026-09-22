@@ -3,6 +3,7 @@ pub mod auctions;
 pub mod auth;
 pub mod billing;
 pub mod error;
+pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
 pub mod notifications;
@@ -57,10 +58,13 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+    VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
+};
 use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
 use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
-use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
+use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -173,9 +177,11 @@ use search_filter_service::use_cases::{
 use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
 use user_postgres::{
@@ -268,8 +274,9 @@ const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
 const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
 const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
 const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const POSTGRES_TLS_ROOT_CERT_ENV: &str = "POSTGRES_TLS_ROOT_CERT";
 const DEFAULT_POSTGRES_PORT: u16 = 5432;
-const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -643,6 +650,10 @@ pub enum ApiConfigError {
 }
 
 pub fn app(state: AppState) -> Router {
+    app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT)
+}
+
+fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
     let health_routes = Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -925,7 +936,7 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(partnerships::router(partnerships));
     }
 
-    with_transport_middleware(routes)
+    with_transport_middleware(routes, request_timeout)
 }
 
 async fn health() -> &'static str {
@@ -963,13 +974,39 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     app_state_from_config(&config).await
 }
 
+pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
+    let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
+    let pool = postgres_pool_from_env().await?;
+    lambda_app_from_config_and_pool(&config, pool).await
+}
+
+/// Composes a complete Lambda router for one PostgreSQL credential version.
+pub async fn lambda_app_from_config_and_pool(
+    config: &ApiConfig,
+    pool: PgPool,
+) -> Result<Router, ApiStateError> {
+    log_product_listing_search_cache_config(config);
+    let state = app_state_from_config_and_pool(config, pool).await?;
+    Ok(app_with_request_timeout(
+        state,
+        crate::transport::LAMBDA_REQUEST_TIMEOUT,
+    ))
+}
+
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
+    let pool = postgres_pool_from_env().await?;
+    app_state_from_config_and_pool(config, pool).await
+}
+
+async fn app_state_from_config_and_pool(
+    config: &ApiConfig,
+    pool: PgPool,
+) -> Result<AppState, ApiStateError> {
     let cognito_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&cognito_config),
         config.cognito_user_pool_id(),
     );
-    let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_listing_history = GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
@@ -977,9 +1014,8 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
-    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(VertexAiEmbeddingGenerator::new(
+    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(LazyVertexAiEmbeddingGenerator::new(
         config.vertex_ai_embedding().clone(),
-        google_application_default_credentials()?,
     ));
 
     let get_admin_overview = GetAdminOverviewHandler::new(
@@ -1672,13 +1708,30 @@ async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
         POSTGRES_MAX_CONNECTIONS_ENV,
         DEFAULT_POSTGRES_MAX_CONNECTIONS,
     )?;
-    let config = PostgresPoolConfig::new(host, port, database, username, password, max_connections)
-        .map_err(|_| ApiStateError::InvalidPostgresMaxConnections)?;
+    let root_certificate = PathBuf::from(required_postgres_env(POSTGRES_TLS_ROOT_CERT_ENV)?);
+    let config = PostgresPoolConfig::lambda(
+        host,
+        port,
+        database,
+        username,
+        password,
+        max_connections,
+        root_certificate,
+    )
+    .map_err(|error| match error {
+        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections
+        | platform_postgres::PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
+            ApiStateError::InvalidPostgresMaxConnections
+        }
+        platform_postgres::PostgresPoolConfigError::EmptyRootCertificate => {
+            ApiStateError::InvalidPostgresTlsRootCertificate
+        }
+    })?;
 
     Ok(config
         .connect()
         .await
-        .map_err(PostgresConnectError::Connect)?)
+        .map_err(|_| PostgresConnectError::Connect)?)
 }
 
 fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
@@ -1728,13 +1781,80 @@ fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     Ok(OpenSearch::new(transport))
 }
 
-fn google_application_default_credentials()
--> Result<google_cloud_auth::credentials::AccessTokenCredentials, ApiStateError> {
+trait GoogleAdcProvider: Send + Sync {
+    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError>;
+}
+
+struct DefaultGoogleAdcProvider;
+
+impl GoogleAdcProvider for DefaultGoogleAdcProvider {
+    fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
+        google_application_default_credentials()
+    }
+}
+
+struct LazyVertexAiEmbeddingGenerator {
+    config: VertexAiEmbeddingConfig,
+    adc_provider: Arc<dyn GoogleAdcProvider>,
+    generator: OnceCell<VertexAiEmbeddingGenerator>,
+}
+
+impl LazyVertexAiEmbeddingGenerator {
+    fn new(config: VertexAiEmbeddingConfig) -> Self {
+        Self::with_adc_provider(config, Arc::new(DefaultGoogleAdcProvider))
+    }
+
+    fn with_adc_provider(
+        config: VertexAiEmbeddingConfig,
+        adc_provider: Arc<dyn GoogleAdcProvider>,
+    ) -> Self {
+        Self {
+            config,
+            adc_provider,
+            generator: OnceCell::new(),
+        }
+    }
+
+    async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
+        self.generator
+            .get_or_try_init(|| async {
+                Ok(VertexAiEmbeddingGenerator::new(
+                    self.config.clone(),
+                    self.adc_provider.credentials()?,
+                ))
+            })
+            .await
+    }
+}
+
+#[async_trait]
+impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.generator()
+            .await?
+            .embed_product(title, additional_text, image_url)
+            .await
+    }
+
+    async fn embed_search_query(
+        &self,
+        query: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.generator().await?.embed_search_query(query).await
+    }
+}
+
+fn google_application_default_credentials() -> Result<AccessTokenCredentials, EmbeddingError> {
     GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
         .build_access_token_credentials()
-        .map_err(|error| ApiStateError::VertexAiCredentials {
-            detail: error.to_string(),
+        .map_err(|source| EmbeddingError::AuthenticationFailed {
+            source: Box::new(source),
         })
 }
 
@@ -1774,12 +1894,12 @@ pub enum ApiStateError {
     InvalidPostgresInteger { name: &'static str, value: String },
     #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
     InvalidPostgresMaxConnections,
+    #[error("POSTGRES_TLS_ROOT_CERT must not be empty")]
+    InvalidPostgresTlsRootCertificate,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
-    #[error("failed to initialize Vertex AI credentials: {detail}")]
-    VertexAiCredentials { detail: String },
     #[error("failed to configure Cognito JWT authentication: {0}")]
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
@@ -1813,10 +1933,15 @@ where
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
-    serve(listener, app(state), shutdown).await
+    serve(
+        app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT),
+        listener,
+        shutdown,
+    )
+    .await
 }
 
-pub async fn serve<S>(listener: TcpListener, app: Router, shutdown: S) -> Result<(), ApiRunError>
+pub async fn serve<S>(app: Router, listener: TcpListener, shutdown: S) -> Result<(), ApiRunError>
 where
     S: Future<Output = ()> + Send + 'static,
 {
@@ -1831,6 +1956,43 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct UnavailableGoogleAdcProvider {
+        calls: AtomicUsize,
+    }
+
+    impl GoogleAdcProvider for UnavailableGoogleAdcProvider {
+        fn credentials(&self) -> Result<AccessTokenCredentials, EmbeddingError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(EmbeddingError::AuthenticationFailed {
+                source: Box::new(std::io::Error::other("test Google ADC is unavailable")),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn should_initialize_vertex_adapter_and_adc_only_when_embedding_needs_it() {
+        let adc_provider = Arc::new(UnavailableGoogleAdcProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let embeddings = LazyVertexAiEmbeddingGenerator::with_adc_provider(
+            VertexAiEmbeddingConfig::new("test-project", "eu"),
+            Arc::clone(&adc_provider) as Arc<dyn GoogleAdcProvider>,
+        );
+
+        assert!(embeddings.generator.get().is_none());
+        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 0);
+
+        let result = embeddings.generator().await;
+
+        assert!(matches!(
+            result,
+            Err(EmbeddingError::AuthenticationFailed { .. })
+        ));
+        assert!(embeddings.generator.get().is_none());
+        assert_eq!(adc_provider.calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn should_default_and_apply_bounded_public_listing_source_read_configuration() {

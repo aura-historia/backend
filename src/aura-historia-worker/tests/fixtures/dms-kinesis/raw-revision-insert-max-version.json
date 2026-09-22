@@ -1,0 +1,16 @@
+{
+  "data": {
+    "product_listing_raw_stream_id": "01900000-0000-7000-8000-000000000002",
+    "product_listing_raw_revision_id": "01900000-0000-7000-8000-000000000003",
+    "revision": "9223372036854775807"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "insert",
+    "schema-name": "public",
+    "table-name": "product_listing_raw_revisions",
+    "timestamp": "2026-09-21T12:00:01Z",
+    "transaction-id": "1002",
+    "transaction-record-id": "1"
+  }
+}

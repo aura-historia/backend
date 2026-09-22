@@ -22,13 +22,13 @@ on:
           - dev
           - prod
       commit_sha:
-        description: "Previously uploaded artifact commit SHA to deploy (useful for rollbacks)"
+        description: "Full 40-character lowercase SHA for previously uploaded artifacts"
         required: true
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/prod' && (github.event_name != 'workflow_dispatch' || inputs.stage != 'prod') }}
+  group: aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,7 +41,7 @@ env:
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
   STACK_NAME_PREFIX: application-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
-  DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.sha }}
+  DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}
 
 jobs:
   infra-test:
@@ -51,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_COMMIT_SHA }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -79,13 +81,14 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-embed-text
-          - src/product-pipeline/src/product-pipeline-translate
+          - src/aura-historia-api
           - src/shopify-lambda
           - src/cognito-post-confirmation
           - src/cloudwatch-log-retention-lambda
+          - src/database-migration-lambda
           - src/fxrate-lambda
           - src/stripe-lambda
+          - src/product-listing-opensearch-lambda
     steps:
       - uses: actions/checkout@v7
 
@@ -110,8 +113,8 @@ jobs:
 
       - name: Install cargo-lambda
         run: |
-          if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.9.0
+          if ! cargo lambda --version | grep -Eq '^cargo-lambda 1\.9\.0($| )'; then
+            cargo install cargo-lambda --version 1.9.0 --locked --force
           fi
 
       - name: Build Lambda binary
@@ -215,15 +218,14 @@ jobs:
             --tagging "stage=${{ env.STAGE }}"
 
   aws-cdk-deploy:
-    name: Deploy CDK stacks
+    name: Deploy normal CDK stacks
     if: >-
       ${{
         always()
         && needs.infra-test.result == 'success'
         && (needs.aws-push-lambda.result == 'success' || needs.aws-push-lambda.result == 'skipped')
         && (needs.aws-push-mail-templates.result == 'success' || needs.aws-push-mail-templates.result == 'skipped')
-        && (github.event_name == 'workflow_dispatch'
-          || (github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')))
+        && github.event_name == 'workflow_dispatch'
       }}
     needs: [infra-test, aws-push-lambda, aws-push-mail-templates]
     environment:
@@ -233,7 +235,19 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Validate commit SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${DEPLOY_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "commit_sha must be a full 40-character lowercase Git commit SHA" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -249,12 +263,28 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Deploy CDK stacks via CloudFormation change sets
+      - name: Deploy normal CDK stacks via CloudFormation change sets
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "${DEPLOY_COMMIT_SHA}" ]; then
+            echo "checked-out release source does not match commit_sha" >&2
+            exit 1
+          fi
+
+          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-data" >/dev/null 2>&1; then
+            echo "Data foundation is not initialized; run Initialize (CD) first." >&2
+            exit 1
+          fi
+          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-initialize" >/dev/null 2>&1; then
+            echo "Initialization runtime is not deployed; run Initialize (CD) first." >&2
+            exit 1
+          fi
+
           stacks=(
+            "${STACK_NAME_PREFIX}-network"
             "${STACK_NAME_PREFIX}-data"
+            "${STACK_NAME_PREFIX}-initialize"
             "${STACK_NAME_PREFIX}-compute"
             "${STACK_NAME_PREFIX}-api"
           )
@@ -267,8 +297,10 @@ jobs:
             --context stackNamePrefix="${STACK_NAME_PREFIX}" \
             --require-approval never \
             --method change-set \
+            --exclusively \
             --no-path-metadata \
             --no-asset-metadata \
             --no-version-reporting \
             --no-notices \
+            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}" \
             --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"

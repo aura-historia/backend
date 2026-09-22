@@ -2,12 +2,36 @@ use crate::{
     WorkerScope,
     cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
+    wire,
 };
 use product_listing_service::use_cases::{
     ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingOutcome,
     ProjectProductListingUseCase,
 };
 use std::sync::Arc;
+
+/// Lambda- and polling-transport result for a fully handled ProductListing projection job.
+///
+/// Only `Complete` may be acknowledged. Retry, dependency, and poison outcomes deliberately
+/// remain on the source queue so native SQS retry/redrive owns recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingOpenSearchJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl ProductListingOpenSearchJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
 
 pub async fn consume_product_listing_opensearch_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -16,17 +40,32 @@ pub async fn consume_product_listing_opensearch_queue(
     receiver
         .into()
         .run(WorkerScope::ProductListingOpenSearch, move |job| {
-            execute_job(use_case.clone(), job)
+            let use_case = Arc::clone(&use_case);
+            async move { polling_outcome(execute_job(use_case.as_ref(), job).await) }
         })
         .await;
 }
 
+/// Decode and execute one compact schema-2 ProductListing OpenSearch job.
+///
+/// This is deliberately free of Lambda/SQS DTOs so each transport can retain its
+/// own acknowledgment lifecycle while sharing the same strict wire and service rules.
+pub async fn process_product_listing_opensearch_job(
+    body: &str,
+    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
+) -> ProductListingOpenSearchJobDisposition {
+    match wire::decode(body, WorkerScope::ProductListingOpenSearch) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => ProductListingOpenSearchJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
 async fn execute_job(
-    use_case: Arc<dyn ProjectProductListingUseCase>,
+    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
     job: DomainJob,
-) -> JobOutcome {
+) -> ProductListingOpenSearchJobDisposition {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
-        return JobOutcome::Invalid("unexpected_payload");
+        return ProductListingOpenSearchJobDisposition::Poison("unexpected_payload");
     };
     match use_case
         .execute(ProjectProductListingCommand {
@@ -35,23 +74,49 @@ async fn execute_job(
         })
         .await
     {
-        Ok(result) => projection_outcome(result.outcome),
+        Ok(result) => projection_disposition(result.outcome),
         Err(ProjectProductListingError::SaleObservationFxSnapshotMissing) => {
-            JobOutcome::Retry("sale_snapshot_missing")
+            ProductListingOpenSearchJobDisposition::Retry("sale_snapshot_missing")
         }
         Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. }) => {
-            JobOutcome::Invalid("sale_snapshot_invalid")
+            ProductListingOpenSearchJobDisposition::Poison("sale_snapshot_invalid")
         }
-        Err(_) => JobOutcome::DependencyUnavailable("projection_unavailable"),
+        Err(_) => {
+            ProductListingOpenSearchJobDisposition::DependencyUnavailable("projection_unavailable")
+        }
     }
 }
-fn projection_outcome(outcome: ProjectProductListingOutcome) -> JobOutcome {
+
+fn projection_disposition(
+    outcome: ProjectProductListingOutcome,
+) -> ProductListingOpenSearchJobDisposition {
     match outcome {
-        ProjectProductListingOutcome::Applied => JobOutcome::Complete("applied"),
-        ProjectProductListingOutcome::Deleted => JobOutcome::Complete("deleted"),
-        ProjectProductListingOutcome::Stale => JobOutcome::Complete("stale"),
+        ProjectProductListingOutcome::Applied => {
+            ProductListingOpenSearchJobDisposition::Complete("applied")
+        }
+        ProjectProductListingOutcome::Deleted => {
+            ProductListingOpenSearchJobDisposition::Complete("deleted")
+        }
+        ProjectProductListingOutcome::Stale => {
+            ProductListingOpenSearchJobDisposition::Complete("stale")
+        }
         // Absence of the committed event/source is not evidence that its projection was removed.
-        ProjectProductListingOutcome::MissingSource => JobOutcome::Retry("missing_source"),
+        ProjectProductListingOutcome::MissingSource => {
+            ProductListingOpenSearchJobDisposition::Retry("missing_source")
+        }
+    }
+}
+
+fn polling_outcome(disposition: ProductListingOpenSearchJobDisposition) -> JobOutcome {
+    match disposition {
+        ProductListingOpenSearchJobDisposition::Complete(category) => {
+            JobOutcome::Complete(category)
+        }
+        ProductListingOpenSearchJobDisposition::Retry(category) => JobOutcome::Retry(category),
+        ProductListingOpenSearchJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
+        ProductListingOpenSearchJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
 }
 
@@ -61,8 +126,14 @@ mod tests {
     #[test]
     fn should_retain_missing_source_but_complete_guarded_projection_outcomes() {
         assert_eq!(
+            ProductListingOpenSearchJobDisposition::Retry("missing_source"),
+            projection_disposition(ProjectProductListingOutcome::MissingSource)
+        );
+        assert_eq!(
             JobOutcome::Retry("missing_source"),
-            projection_outcome(ProjectProductListingOutcome::MissingSource)
+            polling_outcome(projection_disposition(
+                ProjectProductListingOutcome::MissingSource
+            ))
         );
         for outcome in [
             ProjectProductListingOutcome::Applied,
@@ -70,9 +141,21 @@ mod tests {
             ProjectProductListingOutcome::Stale,
         ] {
             assert!(matches!(
-                projection_outcome(outcome),
-                JobOutcome::Complete(_)
+                projection_disposition(outcome),
+                ProductListingOpenSearchJobDisposition::Complete(_)
             ));
         }
+    }
+
+    #[test]
+    fn should_preserve_projection_dependency_failures_for_native_consumer_circuit_breaking() {
+        assert_eq!(
+            JobOutcome::DependencyUnavailable("projection_unavailable"),
+            polling_outcome(
+                ProductListingOpenSearchJobDisposition::DependencyUnavailable(
+                    "projection_unavailable"
+                )
+            )
+        );
     }
 }

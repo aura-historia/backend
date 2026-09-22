@@ -15,14 +15,15 @@ export const WORKER_SCOPES = [
 
 export type WorkerScope = (typeof WORKER_SCOPES)[number];
 
+
 interface WorkerQueueDefinition {
   readonly id: string;
-  readonly visibilityTimeoutSeconds: 60 | 300 | 360;
+  readonly visibilityTimeoutSeconds: number;
 }
 
-// Match the polling Rust worker's execution budgets, not Lambda's 6x timeout rule.
+// Only ProductListing OpenSearch is a Lambda SQS target. Other values match the polling Rust worker's budgets.
 export const WORKER_QUEUE_DEFINITIONS = {
-  "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 60 },
+  "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 300 },
   "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 60 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 60 },

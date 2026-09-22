@@ -1,0 +1,14 @@
+{
+  "data": {
+    "notification_delivery_id": "01900000-0000-7000-8000-000000000007"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "delete",
+    "schema-name": "public",
+    "table-name": "notification_deliveries",
+    "timestamp": "2026-09-21T12:00:10Z",
+    "transaction-id": "1011",
+    "transaction-record-id": "1"
+  }
+}

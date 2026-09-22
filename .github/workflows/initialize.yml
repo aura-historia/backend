@@ -1,0 +1,151 @@
+name: Initialize (CD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage to initialize"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      commit_sha:
+        description: "Full 40-character lowercase SHA for previously uploaded artifacts"
+        required: true
+        type: string
+
+concurrency:
+  group: aws-deploy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+env:
+  STAGE: ${{ inputs.stage }}
+  STACK_NAME_PREFIX: application-${{ inputs.stage }}
+  DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+
+jobs:
+  initialize:
+    name: Initialize ${{ inputs.stage }}
+    environment:
+      name: ${{ inputs.stage == 'prod' && 'aws-prod' || 'aws-dev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate initialization inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${DEPLOY_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "commit_sha must be a full 40-character lowercase Git commit SHA" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Verify checked-out source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "${DEPLOY_COMMIT_SHA}" ]; then
+            echo "checked-out release source does not match commit_sha" >&2
+            exit 1
+          fi
+
+      - name: State required Lambda invoke access
+        run: |
+          echo "The CI deploy role must allow lambda:InvokeFunction on exactly database-migration-lambda-${STAGE} and fxrate-lambda-${STAGE}."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install CDK dependencies
+        run: npm --prefix infra ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Initialize foundation, schema, FX, and normal compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy() {
+            npm --prefix infra run cdk -- deploy "$@" \
+              --context stage="${STAGE}" \
+              --context stackNamePrefix="${STACK_NAME_PREFIX}" \
+              --require-approval never \
+              --method change-set \
+              --exclusively \
+              --no-path-metadata \
+              --no-asset-metadata \
+              --no-version-reporting \
+              --no-notices
+          }
+          invoke_function() {
+            local function_name="$1"
+            local payload="$2"
+            local response
+            local status_code
+            local function_error
+
+            if ! response="$(aws lambda invoke \
+              --function-name "${function_name}" \
+              --invocation-type RequestResponse \
+              --payload "fileb://${payload}" \
+              --cli-binary-format raw-in-base64-out \
+              --cli-connect-timeout 10 \
+              --cli-read-timeout 900 \
+              /dev/null \
+              --query '{StatusCode: StatusCode, FunctionError: FunctionError}' \
+              --output json 2>&1)"; then
+              echo "Synchronous invocation failed for ${function_name}. The CI deploy role must allow lambda:InvokeFunction exactly on ${function_name}." >&2
+              echo "${response}" >&2
+              return 1
+            fi
+
+            status_code="$(jq -r '.StatusCode // empty' <<< "${response}")"
+            function_error="$(jq -r '.FunctionError // empty' <<< "${response}")"
+            if [ "${status_code}" != "200" ] || [ -n "${function_error}" ]; then
+              echo "Synchronous invocation failed for ${function_name}: StatusCode=${status_code:-missing}, FunctionError=${function_error:-none}." >&2
+              echo "The CI deploy role must allow lambda:InvokeFunction exactly on ${function_name}." >&2
+              return 1
+            fi
+          }
+
+          deploy "${STACK_NAME_PREFIX}-network"
+          deploy "${STACK_NAME_PREFIX}-data"
+
+          deploy "${STACK_NAME_PREFIX}-initialize" \
+            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
+
+          stacks=(
+            "${STACK_NAME_PREFIX}-compute"
+            "${STACK_NAME_PREFIX}-api"
+          )
+          if [ "${STAGE}" = "prod" ]; then
+            stacks+=("${STACK_NAME_PREFIX}-observability")
+          fi
+          deploy "${stacks[@]}" \
+            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
+            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=false"
+
+          printf '{}' > migration-invocation.json
+          cat > fxrate-invocation.json <<EOF
+          {"version":"0","id":"deployment:fxrate:initial:${STAGE}:v1","detail-type":"Scheduled Event","source":"aura-historia.deployment","account":"000000000000","time":"1970-01-01T00:00:00Z","region":"eu-central-1","resources":[],"detail":{}}
+          EOF
+          invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json
+          invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json
+
+          deploy "${STACK_NAME_PREFIX}-compute" \
+            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
+            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=true"

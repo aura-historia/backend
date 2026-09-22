@@ -28,6 +28,7 @@ use search_filter_service::use_cases::{
 };
 use std::{
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -42,7 +43,7 @@ pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), Wi
         .postgres
         .connect()
         .await
-        .map_err(PostgresConnectError::Connect)
+        .map_err(|_| PostgresConnectError::Connect)
         .map_err(WiringError::Postgres)?;
     let client = opensearch_client(&config)?;
     let credentials = GoogleCredentialsBuilder::default()
@@ -122,16 +123,17 @@ impl PeriodicMatchConfig {
             ))
         };
         let postgres_max_connections =
-            NonZeroU32::new(number::<u32>("POSTGRES_MAX_CONNECTIONS", 2)?)
+            NonZeroU32::new(number::<u32>("POSTGRES_MAX_CONNECTIONS", 1)?)
                 .ok_or(WiringError::InvalidPolicy)?
                 .get();
-        let postgres = PostgresPoolConfig::new(
+        let postgres = PostgresPoolConfig::lambda(
             required("POSTGRES_HOST")?,
             number::<u16>("POSTGRES_PORT", 5432)?,
             required("POSTGRES_DATABASE")?,
             required("POSTGRES_USERNAME")?,
             required("POSTGRES_PASSWORD")?,
             postgres_max_connections,
+            PathBuf::from(required("POSTGRES_TLS_ROOT_CERT")?),
         )
         .map_err(WiringError::PostgresConfig)?;
         let schedule = optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *");

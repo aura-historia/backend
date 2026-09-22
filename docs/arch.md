@@ -196,13 +196,14 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 ### 3.5 Transport and composition root
 
-REST code lives in the API crate. The current canonical REST runtime is `aura-historia-api`, an axum process without API Gateway adapters:
+REST code lives in the API crate. The canonical REST runtime is `aura-historia-api`: the same axum router runs as a native process or behind a `lambda_http` HTTP API v2 envelope adapter. The adapter is not API Gateway front-door routing or an API Gateway-specific application context:
 
 ```text
 aura-historia-api/
 └── src/
-    ├── main.rs              # logging, config, shutdown
+    ├── main.rs              # logging, native/Lambda runtime selection
     ├── lib.rs               # router, server, composition root
+    ├── lambda.rs            # HTTP API v2 envelope adapter
     ├── state.rs             # axum application state
     ├── error.rs             # problem+json API errors
     ├── auth/                # transport authentication
@@ -229,6 +230,8 @@ The composition root MAY depend on every crate required to assemble the process.
 In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
 `aura-historia-cron` is the canonical scheduled runtime. It registers UTC timer triggers and invokes service-owned use cases; scheduler libraries never own idempotency, transactions, checkpoints, or business retries. The runtime owns local overlap prevention, execution timeout/panic containment, shutdown draining, and health/readiness only.
+
+`database-migration-lambda` is an explicit operational exception, not an application runtime or service use case. Protected manual initialization invokes it to bootstrap PostgreSQL roles and run embedded schema migrations over private verified-TLS access. It has no API route, schedule, event source, or CloudFormation custom-resource invocation; ordinary deployment and application startup never run migrations. It may use direct operational SQL, but no domain/service crate may depend on it.
 
 ### 3.6 Dependency direction
 
@@ -1722,7 +1725,7 @@ Authoritative PostgreSQL writes MUST commit according to the transaction rules a
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections.
+CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes current Sequin/runtime declarations from the agreed DMS/Kinesis/Lambda target.
 
 ```text
 PostgreSQL commit
@@ -1756,7 +1759,7 @@ PostgreSQL owns business truth for:
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
 
-Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; `pg_ttl_index` is asynchronous physical cleanup only.
+Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 
 OpenSearch contains rebuildable search projections only.
 
@@ -1829,7 +1832,7 @@ Delivery is **durable at-least-once within retention**, not exactly-once or orde
 - Only `Complete` outcomes permit SQS deletion. Nonterminal claims, invalid jobs, handler failure/panic, execution/heartbeat timeout, and unconfirmed effects remain unacknowledged. Delete failure also permits redelivery; do not rerun a side effect merely to retry deletion.
 - Standard SQS can duplicate and reorder. Domain idempotency, authoritative state guards, and target-side version fences remain mandatory. External email acceptance cannot be atomic with PostgreSQL finalization; a crash can still duplicate an accepted email.
 
-The consumer deliberately has one execution slot per process, no prefetch, bounded execution and visibility heartbeats. Dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
+Native consumers deliberately have one execution slot per process, no prefetch, bounded execution, and visibility heartbeats. ProductListing OpenSearch uses a dedicated Lambda mapping with batch size one; non-complete outcomes stay in batch failures for native SQS retry/DLQ. Native dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
 
 ### 12.5 Idempotency and ordering
 

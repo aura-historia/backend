@@ -1,12 +1,11 @@
 use crate::IntegrationTestService;
 use async_trait::async_trait;
-use sqlx::postgres::PgConnectOptions;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::{AssertSqlSafe, ConnectOptions, Executor, PgConnection, PgPool};
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::path::Path;
-use std::process::Command;
-use std::process::Stdio;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -18,11 +17,10 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
-const POSTGRES_PG_TTL_IMAGE: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "src/test-api/postgres/image-ref.txt"
-));
+const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
 const HOST_GATEWAY: &str = "host.docker.internal";
+const POSTGRES_TLS_ROOT_CERTIFICATE: &str = "/tmp/aura-historia-postgres-tls/ca.crt";
+const POSTGRES_TLS_ENTRYPOINT: &str = "set -eu\nmkdir -p /tmp/aura-historia-postgres-tls\nopenssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj /CN=AuraHistoriaTestCA -keyout /tmp/aura-historia-postgres-tls/ca.key -out /tmp/aura-historia-postgres-tls/ca.crt\nopenssl req -newkey rsa:2048 -nodes -sha256 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal -keyout /tmp/aura-historia-postgres-tls/server.key -out /tmp/aura-historia-postgres-tls/server.csr\nprintf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal\\nextendedKeyUsage=serverAuth\\n' > /tmp/aura-historia-postgres-tls/server.ext\nopenssl x509 -req -in /tmp/aura-historia-postgres-tls/server.csr -CA /tmp/aura-historia-postgres-tls/ca.crt -CAkey /tmp/aura-historia-postgres-tls/ca.key -CAcreateserial -out /tmp/aura-historia-postgres-tls/server.crt -days 1 -sha256 -extfile /tmp/aura-historia-postgres-tls/server.ext\nchown postgres:postgres /tmp/aura-historia-postgres-tls/server.crt /tmp/aura-historia-postgres-tls/server.key\nchmod 0600 /tmp/aura-historia-postgres-tls/server.key\nexec /usr/local/bin/docker-entrypoint.sh postgres -c fsync=off -c wal_level=logical -c ssl=on -c ssl_cert_file=/tmp/aura-historia-postgres-tls/server.crt -c ssl_key_file=/tmp/aura-historia-postgres-tls/server.key";
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
 
@@ -32,6 +30,7 @@ type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
 /// initialisation future instead of racing to start duplicate containers.
 static POSTGRES_CONTAINER_STARTED: OnceCell<()> = OnceCell::const_new();
 static POSTGRES_HOST_PORT: OnceLock<u16> = OnceLock::new();
+static POSTGRES_TLS_ROOT_CERTIFICATE_PATH: OnceLock<PathBuf> = OnceLock::new();
 static MIGRATIONS_APPLIED: OnceLock<MigrationInitializers> = OnceLock::new();
 
 fn postgres_container_name() -> String {
@@ -60,6 +59,13 @@ pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
     postgres_connection_string(HOST_GATEWAY, database)
 }
 
+pub fn get_postgres_tls_root_certificate_path() -> PathBuf {
+    POSTGRES_TLS_ROOT_CERTIFICATE_PATH
+        .get()
+        .expect("Postgres TLS root certificate not initialized; call `get_postgres_client()` first")
+        .clone()
+}
+
 #[cfg(feature = "sequin")]
 pub(crate) fn get_postgres_host_port() -> u16 {
     postgres_host_port()
@@ -81,19 +87,39 @@ fn postgres_connection_string(host: &str, database: &str) -> String {
 /// Each call establishes a new TCP connection. It is not subject to any pool semaphore and
 /// is fully owned by the current Tokio runtime. The caller is responsible for dropping it
 /// before their runtime shuts down.
+fn postgres_connect_options(root_certificate: &Path) -> PgConnectOptions {
+    PgConnectOptions::from_str(&connection_string())
+        .expect("shouldn't fail parsing Postgres connection string")
+        .ssl_mode(PgSslMode::VerifyFull)
+        .ssl_root_cert(root_certificate)
+}
+
+#[cfg(test)]
+fn postgres_connect_options_for_host(host: &str, root_certificate: &Path) -> PgConnectOptions {
+    PgConnectOptions::from_str(&postgres_connection_string(host, POSTGRES_DB))
+        .expect("shouldn't fail parsing Postgres connection string")
+        .ssl_mode(PgSslMode::VerifyFull)
+        .ssl_root_cert(root_certificate)
+}
+
+fn fixture_postgres_connect_options() -> PgConnectOptions {
+    let root_certificate = POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get().expect(
+        "Postgres TLS root certificate not initialized; call `ensure_container_started()` first",
+    );
+    postgres_connect_options(root_certificate)
+}
+
 async fn open_connection() -> PgConnection {
-    let opts = PgConnectOptions::from_str(&connection_string())
-        .expect("shouldn't fail parsing Postgres connection string");
-    opts.connect()
+    fixture_postgres_connect_options()
+        .connect()
         .await
-        .expect("shouldn't fail connecting to Postgres test container")
+        .expect("shouldn't fail connecting to Postgres test container with verified TLS")
 }
 
 async fn wait_for_postgres_connection() -> PgConnection {
     let deadline = Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let options = PgConnectOptions::from_str(&connection_string())
-            .expect("shouldn't fail parsing Postgres connection string");
+        let options = fixture_postgres_connect_options();
         match options.connect().await {
             Ok(connection) => return connection,
             Err(error) if Instant::now() < deadline => {
@@ -130,46 +156,39 @@ async fn ensure_container_started() {
             use testcontainers::runners::AsyncRunner;
 
             let image = std::env::var("AURA_TEST_POSTGRES_IMAGE")
-                .unwrap_or_else(|_| POSTGRES_PG_TTL_IMAGE.trim().to_owned());
+                .unwrap_or_else(|_| POSTGRES_IMAGE.to_owned());
             let (repository, tag) = image.rsplit_once(':').unwrap_or_else(|| {
                 panic!("invalid Postgres test image reference '{image}'; expected repository:tag")
             });
             let container = GenericImage::new(repository, tag)
+                .with_entrypoint("/bin/sh")
                 .with_wait_for(WaitFor::message_on_stdout(
                     "database system is ready to accept connections",
                 ))
                 .with_env_var("POSTGRES_USER", POSTGRES_USER)
                 .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
                 .with_env_var("POSTGRES_DB", POSTGRES_DB)
-                .with_cmd([
-                    "-c",
-                    "fsync=off",
-                    "-c",
-                    "wal_level=logical",
-                    "-c",
-                    "shared_preload_libraries=pg_ttl_index",
-                ])
-                .with_container_name(name)
+                .with_cmd(["-ec", POSTGRES_TLS_ENTRYPOINT])
+                .with_container_name(name.clone())
                 .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
                 .start()
                 .await
                 .expect("shouldn't fail starting Postgres test container");
 
-            let mut connection = wait_for_postgres_connection().await;
-            connection
-                .execute(AssertSqlSafe("CREATE EXTENSION pg_ttl_index"))
-                .await
-                .expect("should create pg_ttl_index extension in test database");
-            connection
-                .execute(AssertSqlSafe("SELECT ttl_start_worker()"))
-                .await
-                .expect("should start pg_ttl_index worker in test database");
+            let certificate_path = postgres_tls_root_certificate_path_for_process();
+            copy_from_container(&name, POSTGRES_TLS_ROOT_CERTIFICATE, &certificate_path)
+                .expect("shouldn't fail copying Postgres test CA from container");
+            POSTGRES_TLS_ROOT_CERTIFICATE_PATH
+                .set(certificate_path)
+                .expect("shouldn't fail setting Postgres TLS root certificate path");
+
+            let _connection = wait_for_postgres_connection().await;
 
             debug!(
                 image,
                 elapsed_ms = started.elapsed().as_millis(),
                 pid = std::process::id(),
-                "Postgres container started with pg_ttl_index."
+                "Postgres container started."
             );
 
             // Leak the handle intentionally: the container must stay alive for the whole
@@ -177,6 +196,36 @@ async fn ensure_container_started() {
             std::mem::forget(container);
         })
         .await;
+}
+
+fn postgres_tls_root_certificate_path_for_process() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "aura-historia-postgres-test-ca-{}.crt",
+        std::process::id()
+    ))
+}
+
+fn copy_from_container(
+    container_name: &str,
+    source: &str,
+    destination: &Path,
+) -> std::io::Result<()> {
+    let status = Command::new("docker")
+        .args([
+            "cp",
+            &format!("{container_name}:{source}"),
+            destination
+                .to_str()
+                .ok_or_else(|| std::io::Error::other("non-UTF-8 CA path"))?,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("failed copying Postgres test CA"))
+    }
 }
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
@@ -190,6 +239,7 @@ fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
 extern "C" fn cleanup() {
     let name = postgres_container_name();
     let _ = docker_remove(&name);
+    let _ = std::fs::remove_file(postgres_tls_root_certificate_path_for_process());
 }
 
 /// Installs cleanup hooks so that the Postgres container is removed both on normal
@@ -223,9 +273,9 @@ fn install_cleanup() {
 pub async fn get_postgres_client() -> PgPool {
     ensure_container_started().await;
 
-    let pool = PgPool::connect(&connection_string())
+    let pool = PgPool::connect_with(fixture_postgres_connect_options())
         .await
-        .expect("shouldn't fail creating Postgres pool for test container");
+        .expect("shouldn't fail creating Postgres pool for test container with verified TLS");
 
     debug!("Successfully created Postgres PgPool for current test.");
     pool
@@ -243,8 +293,8 @@ pub async fn get_postgres_client() -> PgPool {
 ///   test process; `setup_script` still runs before each test. [`Postgres::new_per_test`]
 ///   replays migrations before each test when they provide seed data.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates application-owned
-///   tables in the `public` schema so that each test starts with a clean slate. Extension-owned
-///   metadata and table definitions (DDL) are preserved.
+///   tables in the `public` schema so that each test starts with a clean slate. Table definitions
+///   (DDL) are preserved.
 ///
 /// # Connection strategy
 ///
@@ -441,19 +491,12 @@ impl IntegrationTestService for Postgres {
         let started = Instant::now();
         let mut conn = open_connection().await;
 
-        // Exclude relations owned by installed extensions. Extension metadata must survive
-        // per-test cleanup, and this catalog query avoids coupling to extension table names.
         let tables: Vec<String> = sqlx::query_scalar::<_, String>(AssertSqlSafe(
             "SELECT relation.relname \
              FROM pg_class AS relation \
              JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace \
-             LEFT JOIN pg_depend AS extension_dependency \
-               ON extension_dependency.classid = 'pg_class'::regclass \
-              AND extension_dependency.objid = relation.oid \
-              AND extension_dependency.deptype = 'e' \
              WHERE namespace.nspname = 'public' \
-               AND relation.relkind = 'r' \
-               AND extension_dependency.objid IS NULL",
+               AND relation.relkind = 'r'",
         ))
         .fetch_all(&mut conn)
         .await
@@ -482,6 +525,61 @@ impl IntegrationTestService for Postgres {
             tables = ?tables,
             elapsed_ms = started.elapsed().as_millis(),
             "Truncated application-owned public tables for test isolation."
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_connect_to_the_fixture_with_verified_tls() {
+        ensure_container_started().await;
+        let mut connection = open_connection().await;
+        let encrypted: bool =
+            sqlx::query_scalar("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+                .fetch_one(&mut connection)
+                .await
+                .expect("should read the fixture connection TLS state");
+
+        assert!(encrypted);
+    }
+
+    #[tokio::test]
+    async fn should_reject_the_production_rds_bundle_for_the_fixture() {
+        ensure_container_started().await;
+        let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
+            .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
+
+        assert!(
+            postgres_connect_options(&production_bundle)
+                .connect()
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_wrong_hostname_and_missing_root_certificate() {
+        ensure_container_started().await;
+        let root_certificate = get_postgres_tls_root_certificate_path();
+        let missing_certificate = std::env::temp_dir().join(format!(
+            "aura-historia-missing-postgres-ca-{}",
+            std::process::id()
+        ));
+
+        assert!(
+            postgres_connect_options_for_host("localhost.localdomain", &root_certificate)
+                .connect()
+                .await
+                .is_err()
+        );
+        assert!(
+            postgres_connect_options(&missing_certificate)
+                .connect()
+                .await
+                .is_err()
         );
     }
 }

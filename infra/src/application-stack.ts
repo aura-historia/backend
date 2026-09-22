@@ -8,11 +8,19 @@ import {
   type StageName,
 } from "./config";
 import { stageConfig } from "./config";
-import { applicationParameters } from "./parameters";
+import { applicationParameters, artifactCommitShaParameter } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
+import { DmsCdc } from "./constructs/dms-cdc";
 import { Eventing } from "./constructs/eventing";
-import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
+import { Network } from "./constructs/network";
+import {
+  addUserPoolEnvironment,
+  grantCognitoAdminAccess,
+  importLambdaCatalog,
+  InitializationLambdas,
+  Lambdas,
+} from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
@@ -31,7 +39,9 @@ export interface ApplicationStageProps extends cdk.StackProps {
 }
 
 export interface ApplicationStageStacks {
+  readonly network?: ApplicationNetworkStack;
   readonly data: ApplicationDataStack;
+  readonly initialization?: ApplicationInitializationStack;
   readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
   readonly observability?: ApplicationObservabilityStack;
@@ -40,13 +50,40 @@ export interface ApplicationStageStacks {
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
   const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
   const baseProps = stackBaseProps(props);
+  const network = props.stage === "ephemeral"
+    ? undefined
+    : new ApplicationNetworkStack(scope, `${stackNamePrefix}-network`, {
+        ...baseProps,
+        stage: props.stage,
+        localStackMappedPort: props.localStackMappedPort,
+        stackName: `${stackNamePrefix}-network`,
+      });
 
   const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
     ...baseProps,
     stage: props.stage,
     localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-data`,
+    network: network?.network,
   });
+  if (network) {
+    data.addDependency(network);
+  }
+
+  const initialization = props.stage === "ephemeral"
+    ? undefined
+    : new ApplicationInitializationStack(scope, `${stackNamePrefix}-initialize`, {
+        ...baseProps,
+        stage: props.stage,
+        localStackMappedPort: props.localStackMappedPort,
+        stackName: `${stackNamePrefix}-initialize`,
+        storage: data.storage,
+        network: network?.network,
+      });
+  initialization?.addDependency(data);
+  if (network) {
+    initialization?.addDependency(network);
+  }
 
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
     ...baseProps,
@@ -56,8 +93,15 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     storage: data.storage,
     queues: data.queues,
     search: data.search,
+    network: network?.network,
   });
   compute.addDependency(data);
+  if (network) {
+    compute.addDependency(network);
+  }
+  if (initialization) {
+    compute.addDependency(initialization);
+  }
 
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
     ...baseProps,
@@ -82,11 +126,33 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   observability?.addDependency(compute);
 
   return {
+    network,
     data,
+    initialization,
     compute,
     api,
     observability,
   };
+}
+
+export class ApplicationNetworkStack extends cdk.Stack {
+  readonly network: Network;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    this.templateOptions.description = "Aura Historia private workload network stack";
+    this.network = new Network(this, "Network", { config });
+
+    networkOutputs(this, this.network);
+  }
+}
+
+export interface ApplicationDataStackProps extends ApplicationStackProps {
+  readonly network?: Network;
 }
 
 export class ApplicationDataStack extends cdk.Stack {
@@ -94,8 +160,9 @@ export class ApplicationDataStack extends cdk.Stack {
   readonly queues: Queues;
   readonly workerQueues: WorkerQueues;
   readonly search: Search;
+  readonly dmsCdc?: DmsCdc;
 
-  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+  constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
     super(scope, id, stackProps(props));
 
     const config = stageConfig(props.stage, {
@@ -107,6 +174,7 @@ export class ApplicationDataStack extends cdk.Stack {
 
     this.storage = new Storage(this, "Storage", {
       config,
+      network: props.network,
     });
 
     this.queues = new Queues(this, "Queues", {
@@ -118,6 +186,13 @@ export class ApplicationDataStack extends cdk.Stack {
     this.search = new Search(this, "Search", {
       config,
     });
+    this.dmsCdc = config.isEphemeral
+      ? undefined
+      : new DmsCdc(this, "DmsCdc", {
+          config,
+          network: props.network,
+          storage: this.storage,
+        });
 
     dataOutputs(this, {
       storage: this.storage,
@@ -128,10 +203,42 @@ export class ApplicationDataStack extends cdk.Stack {
   }
 }
 
+export interface ApplicationInitializationStackProps extends ApplicationStackProps {
+  readonly storage: Storage;
+  readonly network?: Network;
+}
+
+export class ApplicationInitializationStack extends cdk.Stack {
+  readonly initialization: InitializationLambdas;
+
+  constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    if (config.isEphemeral || !props.network || !props.storage.migrationPostgres) {
+      throw new Error("Initialization stack requires real PostgreSQL storage and private networking.");
+    }
+
+    this.templateOptions.description = "Aura Historia private database initialization stack";
+    const commitSha = artifactCommitShaParameter(this);
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    this.initialization = new InitializationLambdas(this, "InitializationLambdas", {
+      config,
+      commitSha,
+      artifactBucket,
+      migrationPostgres: props.storage.migrationPostgres,
+      network: props.network,
+    });
+  }
+}
+
 export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly storage: Storage;
   readonly queues: Queues;
   readonly search: Search;
+  readonly network?: Network;
 }
 
 export class ApplicationComputeStack extends cdk.Stack {
@@ -159,6 +266,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: props.storage.postgres,
+      search: props.search,
+      network: props.network,
     });
 
 
@@ -177,7 +286,10 @@ export class ApplicationComputeStack extends cdk.Stack {
     this.eventing = new Eventing(this, "Eventing", {
       config,
       queues: importQueueCatalog(this, "EventingQueueImports", stageName),
+      workerQueues: importWorkerQueueCatalog(this, "EventingWorkerQueueImports", config),
       functions: this.lambdas.functions,
+      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
     });
 
     computeOutputs(this, {
@@ -266,6 +378,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       postgres: this.storage.postgres,
+      search: this.search,
     });
 
 
@@ -284,7 +397,10 @@ export class ApplicationEphemeralStack extends cdk.Stack {
     this.eventing = new Eventing(this, "Eventing", {
       config,
       queues: this.queues.catalog,
+      workerQueues: this.workerQueues.catalog,
       functions: this.lambdas.functions,
+      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
     });
 
     this.api = new BackendHttpApi(this, "HttpApi", {
@@ -355,6 +471,17 @@ function stackProps(props: ApplicationStackProps): cdk.StackProps {
       bucketPrefix: `${props.stage}/`,
     }),
   };
+}
+
+function networkOutputs(stack: cdk.Stack, network: Network): void {
+  new cdk.CfnOutput(stack, "VpcId", { value: network.vpc.vpcId });
+  new cdk.CfnOutput(stack, "NatGatewayEipAllocationId", { value: network.natEip.attrAllocationId });
+  new cdk.CfnOutput(stack, "NatGatewayEipPublicIp", { value: network.natEip.attrPublicIp });
+  new cdk.CfnOutput(stack, "ApplicationSecurityGroupId", { value: network.applicationSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DatabaseSecurityGroupId", { value: network.databaseSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DmsSecurityGroupId", { value: network.dmsSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "DmsEndpointSecurityGroupId", { value: network.dmsEndpointSecurityGroup.securityGroupId });
+  new cdk.CfnOutput(stack, "MigrationSecurityGroupId", { value: network.migrationSecurityGroup.securityGroupId });
 }
 
 function dataOutputs(

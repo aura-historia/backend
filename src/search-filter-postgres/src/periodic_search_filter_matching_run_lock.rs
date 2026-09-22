@@ -31,13 +31,11 @@ impl PeriodicSearchFilterMatchingRunLock for SqlxPeriodicSearchFilterMatchingRun
         Option<Box<dyn PeriodicSearchFilterMatchingRunLease>>,
         PeriodicSearchFilterMatchingRunLockError,
     > {
-        let mut connection = PgConnection::connect_with(&self.config.connect_options())
-            .await
-            .map_err(
-                |source| PeriodicSearchFilterMatchingRunLockError::LockFailed {
-                    source: box_error(source),
-                },
-            )?;
+        let mut connection = self.config.connect_connection().await.map_err(|_| {
+            PeriodicSearchFilterMatchingRunLockError::LockFailed {
+                source: box_error(platform_postgres::PostgresConnectError::Connect),
+            }
+        })?;
         let acquired = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1, $2)")
             .bind(AURA_SCHEDULER_LOCK_NAMESPACE)
             .bind(SEARCH_FILTER_PERIODIC_MATCH_LOCK_ID)

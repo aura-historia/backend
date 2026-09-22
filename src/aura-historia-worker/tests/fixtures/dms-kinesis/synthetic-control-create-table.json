@@ -1,0 +1,12 @@
+{
+  "data": {},
+  "metadata": {
+    "record-type": "control",
+    "operation": "create-table",
+    "schema-name": "public",
+    "table-name": "search_filters",
+    "timestamp": "2026-09-21T12:00:08Z",
+    "transaction-id": "1009",
+    "transaction-record-id": "1"
+  }
+}

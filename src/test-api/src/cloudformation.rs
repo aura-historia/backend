@@ -32,12 +32,25 @@ const STAGE: &str = "ephemeral";
 ///
 /// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
 const LAMBDA_BINARIES: &[&str] = &[
+    "aura-historia-api",
     "cognito-post-confirmation",
     "cloudwatch-log-retention-lambda",
     "shopify-lambda",
     "stripe-lambda",
     "fxrate-lambda",
+    "product-listing-opensearch-lambda",
 ];
+
+const POSTGRES_LAMBDA_BINARIES: &[&str] = &[
+    "aura-historia-api",
+    "cognito-post-confirmation",
+    "shopify-lambda",
+    "stripe-lambda",
+    "fxrate-lambda",
+    "product-listing-opensearch-lambda",
+];
+const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE_ARCHIVE_PATH: &str =
+    "aura-historia/test-postgres-ca.pem";
 
 /// Guards the one-time CloudFormation stack setup.
 ///
@@ -143,17 +156,15 @@ impl IntegrationTestService for Cloudformation {
     }
 }
 
-/// Builds all Lambda function binaries using `cargo lambda build --workspace`.
+/// Builds all Lambda function binaries with the same locked target as deployment.
 ///
 /// `cargo-lambda` uses `cargo-zigbuild` under the hood to cross-compile against
-/// a glibc version compatible with the `provided.al2023` Lambda runtime
-/// (Amazon Linux 2023, glibc 2.34). A plain `cargo build` on a modern host
-/// (e.g. Ubuntu 24.04 with glibc 2.39) produces binaries that fail to start
-/// inside the Lambda container with "GLIBC_2.38 not found".
+/// the `provided.al2023` Lambda runtime. A plain host build can use a newer glibc
+/// and fail when Lambda starts it.
 ///
 /// # Prerequisite
 ///
-/// Install with: `cargo install cargo-lambda`
+/// Install with: `cargo install cargo-lambda --version 1.9.0 --locked`
 fn build_lambdas() {
     info!("Building Lambda binaries with cargo-lambda...");
     let workspace_dir = env!("CARGO_WORKSPACE_DIR");
@@ -165,6 +176,8 @@ fn build_lambdas() {
             "--workspace",
             "--release",
             "--locked",
+            "--target",
+            "x86_64-unknown-linux-musl",
             "--exclude",
             "crawler",
             "--exclude",
@@ -222,13 +235,17 @@ const MAX_CONCURRENT_UPLOADS: usize = 3;
 
 /// Packages each Lambda binary into a ZIP and uploads it to S3 with bounded concurrency.
 ///
-/// The ZIP contains a single file named `bootstrap` (required by the `provided.al2023` runtime).
-/// The S3 key follows the pattern: `{binary_name}-{STAGE}-{COMMIT_SHA}.zip`
+/// PostgreSQL Lambda ZIPs also contain the generated fixture public CA at the
+/// test-only `/var/task/aura-historia/test-postgres-ca.pem` path. The S3 key
+/// follows the pattern: `{binary_name}-{STAGE}-{COMMIT_SHA}.zip`
 ///
 /// ZIP creation is deferred into each async task (via `spawn_blocking`) so that only
 /// `MAX_CONCURRENT_UPLOADS` binaries are read and compressed at any given time, avoiding
 /// excessive memory pressure from loading all binaries simultaneously.
 async fn package_and_upload_lambdas() {
+    let fixture_pool = crate::get_postgres_client().await;
+    drop(fixture_pool);
+    let fixture_root_certificate = crate::get_postgres_tls_root_certificate_path();
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
     // cargo-lambda places each binary at target/lambda/{name}/bootstrap,
     // already named "bootstrap" as required by the provided.al2023 runtime.
@@ -245,26 +262,33 @@ async fn package_and_upload_lambdas() {
                 binary_path.display()
             );
             let s3_key = format!("{binary_name}-{STAGE}-{COMMIT_SHA}.zip");
-            (binary_path, s3_key)
+            let test_tls_root_certificate = POSTGRES_LAMBDA_BINARIES
+                .contains(binary_name)
+                .then(|| fixture_root_certificate.clone());
+            (binary_path, s3_key, test_tls_root_certificate)
         })
         .collect();
 
-    stream::iter(tasks.into_iter().map(|(binary_path, s3_key)| async move {
-        let zip_bytes = tokio::task::spawn_blocking(move || create_lambda_zip(&binary_path))
+    stream::iter(tasks.into_iter().map(
+        |(binary_path, s3_key, test_tls_root_certificate)| async move {
+            let zip_bytes = tokio::task::spawn_blocking(move || {
+                create_lambda_zip(&binary_path, test_tls_root_certificate.as_deref())
+            })
             .await
             .expect("shouldn't fail spawning blocking ZIP task");
 
-        get_s3_client()
-            .await
-            .put_object()
-            .bucket(ARTIFACT_BUCKET)
-            .key(&s3_key)
-            .body(zip_bytes.into())
-            .send()
-            .await
-            .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
-        debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
-    }))
+            get_s3_client()
+                .await
+                .put_object()
+                .bucket(ARTIFACT_BUCKET)
+                .key(&s3_key)
+                .body(zip_bytes.into())
+                .send()
+                .await
+                .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
+            debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
+        },
+    ))
     .buffer_unordered(MAX_CONCURRENT_UPLOADS)
     .collect::<Vec<()>>()
     .await;
@@ -273,20 +297,38 @@ async fn package_and_upload_lambdas() {
 }
 
 /// Creates a ZIP archive containing the given binary renamed to `bootstrap`.
-fn create_lambda_zip(binary_path: &Path) -> Vec<u8> {
+///
+/// `test_tls_root_certificate` is only used by the ephemeral LocalStack package.
+fn create_lambda_zip(binary_path: &Path, test_tls_root_certificate: Option<&Path>) -> Vec<u8> {
     let binary_data =
         std::fs::read(binary_path).expect("shouldn't fail reading Lambda binary file");
 
     let mut buf = Vec::new();
     {
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-        let options = zip::write::SimpleFileOptions::default()
+        let executable_options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o755);
-        zip.start_file("bootstrap", options)
+        zip.start_file("bootstrap", executable_options)
             .expect("shouldn't fail starting ZIP entry");
         zip.write_all(&binary_data)
             .expect("shouldn't fail writing binary to ZIP");
+
+        if let Some(certificate_path) = test_tls_root_certificate {
+            let certificate_data = std::fs::read(certificate_path)
+                .expect("shouldn't fail reading Postgres test root certificate");
+            let certificate_options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(0o644);
+            zip.start_file(
+                EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE_ARCHIVE_PATH,
+                certificate_options,
+            )
+            .expect("shouldn't fail starting Postgres test root certificate ZIP entry");
+            zip.write_all(&certificate_data)
+                .expect("shouldn't fail writing Postgres test root certificate to ZIP");
+        }
+
         zip.finish().expect("shouldn't fail finishing ZIP archive");
     }
     buf
@@ -622,4 +664,56 @@ fn localize_apigw_url(cfn_url: &str) -> String {
     let api_id = host.split('.').next().unwrap_or(host);
 
     format!("http://{api_id}.execute-api.localhost.localstack.cloud:{mapped_port}/{path}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn should_package_only_the_public_ephemeral_postgres_ca_for_postgres_lambdas() {
+        let fixture_dir = std::env::temp_dir().join(format!(
+            "aura-historia-cloudformation-zip-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&fixture_dir).expect("should create ZIP test fixture directory");
+        let bootstrap_path = fixture_dir.join("bootstrap");
+        let certificate_path = fixture_dir.join("test-ca.pem");
+        std::fs::write(&bootstrap_path, b"test bootstrap").expect("should write test bootstrap");
+        std::fs::write(
+            &certificate_path,
+            b"-----BEGIN CERTIFICATE-----\npublic test CA\n-----END CERTIFICATE-----\n",
+        )
+        .expect("should write test public CA");
+
+        let postgres_zip = create_lambda_zip(&bootstrap_path, Some(&certificate_path));
+        let non_postgres_zip = create_lambda_zip(&bootstrap_path, None);
+        std::fs::remove_dir_all(&fixture_dir).expect("should remove ZIP test fixture directory");
+
+        let mut postgres_archive = zip::ZipArchive::new(std::io::Cursor::new(postgres_zip))
+            .expect("should read PostgreSQL Lambda ZIP");
+        let mut packaged_certificate = String::new();
+        postgres_archive
+            .by_name(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE_ARCHIVE_PATH)
+            .expect("should package the public test CA at its test-only path")
+            .read_to_string(&mut packaged_certificate)
+            .expect("should read packaged public test CA");
+        assert_eq!(
+            "-----BEGIN CERTIFICATE-----\npublic test CA\n-----END CERTIFICATE-----\n",
+            packaged_certificate
+        );
+        assert_eq!(2, postgres_archive.len());
+        assert!(postgres_archive.by_name("bootstrap").is_ok());
+
+        let mut non_postgres_archive = zip::ZipArchive::new(std::io::Cursor::new(non_postgres_zip))
+            .expect("should read non-PostgreSQL Lambda ZIP");
+        assert_eq!(1, non_postgres_archive.len());
+        assert!(non_postgres_archive.by_name("bootstrap").is_ok());
+        assert!(
+            non_postgres_archive
+                .by_name(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE_ARCHIVE_PATH)
+                .is_err()
+        );
+    }
 }

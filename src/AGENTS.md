@@ -97,8 +97,8 @@
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
 
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
-
-- `src/credential-core/AGENTS.md` — credential identifiers and scope vocabulary.
+- `src/database-migration-lambda/AGENTS.md` — private manual PostgreSQL bootstrap and schema migration Lambda.
+- `src/credential-core/AGENTS.md — credential identifiers and scope vocabulary.
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
@@ -132,10 +132,13 @@
 - `src/product-listing-translation-llm/AGENTS.md` — ProductListing title LLM adapter crate.
 - `src/product-listing-postgres/AGENTS.md` — canonical ProductListing Postgres adapter crate.
 - `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
+- `src/platform-lambda-bootstrap/` — typed Lambda root config, cold-start logging, and no business orchestration.
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
+- `src/platform-postgres-secretsmanager/AGENTS.md` — narrow AWS PostgreSQL runtime-secret reader.
 - `src/product-listing-opensearch/AGENTS.md` — canonical ProductListing OpenSearch adapter crate.
-- `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
+- `src/product-listing-opensearch-lambda/AGENTS.md` — ProductListing OpenSearch SQS Lambda adapter.
+- `src/watchlist-core/AGENTS.md — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
 - `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.
 

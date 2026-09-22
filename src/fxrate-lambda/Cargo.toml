@@ -7,7 +7,9 @@ edition = "2024"
 aws_lambda_events = { workspace = true, features = ["eventbridge"] }
 application = { workspace = true }
 platform-observability = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
 lambda_runtime = { workspace = true }
 fxrate-fxratesapi = { workspace = true }
 fxrate-postgres = { workspace = true }
