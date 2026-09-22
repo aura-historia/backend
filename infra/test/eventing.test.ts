@@ -28,6 +28,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const rules = resources(template, "AWS::Events::Rule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
+    const projectionActivation = { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] };
     const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
     const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
@@ -46,6 +47,14 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     });
     expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
+    });
+    expect(templateJson.Parameters.SearchFilterProjectionConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.SearchFilterProjectionConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "SearchFilterProjectionConsumerEnabled" }, "true"],
     });
     expect(templateJson.Parameters.SearchFilterPercolatorConsumerEnabled).toMatchObject({
       Type: "String",
@@ -69,7 +78,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -99,6 +108,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       stage === "ephemeral"
         ? "WorkerQueuesProductListingNormalizationQueue"
         : `aura-worker-product-listing-normalization-${stage}`,
+    );
+    const projectionMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterProjectionVersion"),
+    );
+    expect(projectionMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: projectionActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(projectionMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesSearchFilterProjectionQueue"
+        : `aura-worker-search-filter-projection-${stage}`,
     );
     const percolatorMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterPercolatorVersion"),

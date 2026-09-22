@@ -117,6 +117,23 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
   },
+  searchFilterProjection: {
+    id: "SearchFilterProjectionLambda",
+    binaryName: "search-filter-projection-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      STAGE: context.config.stage,
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      ...(context.config.isEphemeral
+        ? {}
+        : {
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+          }),
+    }),
+  },
   searchFilterPercolator: {
     id: "SearchFilterPercolatorLambda",
     binaryName: "search-filter-percolator-lambda",
@@ -171,6 +188,7 @@ export class Lambdas extends Construct {
   readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
+  readonly searchFilterProjectionVersion: lambda.Version;
   readonly searchFilterPercolatorVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
@@ -236,6 +254,10 @@ export class Lambdas extends Construct {
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
       description: `product-listing-normalization-${props.parameters.commitSha}`,
+    });
+    this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
+      lambda: this.functions.searchFilterProjection,
+      description: `search-filter-projection-${props.parameters.commitSha}`,
     });
     this.searchFilterPercolatorVersion = new lambda.Version(this, "SearchFilterPercolatorVersion", {
       lambda: this.functions.searchFilterPercolator,
@@ -368,6 +390,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     }),
   );
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
+  props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
 
   if (props.postgres.secretArn) {

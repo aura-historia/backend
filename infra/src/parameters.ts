@@ -5,6 +5,7 @@ export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
 }
@@ -36,6 +37,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
   });
+  const searchFilterProjectionConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterProjectionConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter projection SQS Lambda after the native-consumer handoff and deletion-fence gates.",
+  });
+  const searchFilterProjectionConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterProjectionConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterProjectionConsumerEnabled.valueAsString, "true"),
+  });
   const searchFilterPercolatorConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterPercolatorConsumerEnabled", {
     type: "String",
     default: "false",
@@ -53,6 +63,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     commitSha,
     productListingOpenSearchConsumerActivation,
     productListingNormalizationConsumerActivation,
+    searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
     cdcRouterActivation,
   };

@@ -11,7 +11,7 @@ import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerSc
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 300 },
-  "search-filter-projection": { id: "SearchFilterProjection", visibility: 60 },
+  "search-filter-projection": { id: "SearchFilterProjection", visibility: 300 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibility: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 60 },
   "watchlist-notification": { id: "WatchlistNotification", visibility: 60 },
@@ -189,7 +189,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
     const computeJson = JSON.stringify(compute.toJSON());
     const computeWorkerScopes = stage === "ephemeral"
-      ? ["product-listing-opensearch", "product-listing-normalization", "search-filter-percolator"]
+      ? ["product-listing-opensearch", "search-filter-projection", "search-filter-percolator", "product-listing-normalization"]
       : EXPECTED_SCOPES;
     for (const scope of computeWorkerScopes) {
       expect(computeJson).toContain(`aura-worker-${scope}-${stage}`);
@@ -235,7 +235,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -250,7 +250,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -279,8 +279,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration adds one independent version/alias;
-    // each queue worker continues to use a dedicated immutable version.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(4);
+    // all four queue workers continue to use dedicated immutable versions.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(5);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -290,16 +290,46 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => statement.Action.includes("es:ESHttpPut"));
-    expect(projectionSearchStatements).toHaveLength(1);
+    expect(projectionSearchStatements).toHaveLength(2);
     expect(projectionSearchStatements[0]).toMatchObject({
       Action: "es:ESHttpPut",
       Effect: "Allow",
     });
   });
 
+  test("retains the saved-filter projection handoff with only PostgreSQL, OpenSearch, and its source queue", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("SearchFilterProjectionVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-search-filter-projection-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
+        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
+    );
+  });
+
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -410,7 +440,7 @@ test("single-stack ephemeral has the same queue and consumer contract", () => {
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 4);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 5);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 
