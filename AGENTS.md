@@ -1,108 +1,51 @@
-**Think caveman. Talk caveman. Few word.**
+# Repository guidance
 
----
+## Layout
 
-# DOX
+- This is a Rust workspace for an AWS serverless backend.
+- `src/` contains workspace crates; `infra/` contains CDK infrastructure; `migrations/` contains business PostgreSQL migrations; `docs/` contains durable architecture and public-contract documentation.
+- `mjml/` and `opensearch/` contain shared email and OpenSearch assets.
 
-## Purpose
+## Work safely
 
-- Own repo DOX rail.
-- Own root files: `Cargo.toml`, `Cargo.lock`, `README.md`, `LICENSE`, `.cargo/`, `depgraph-rules.toml`, repo config.
+- Read the relevant code, tests, configuration, and canonical documentation before editing.
+- Keep changes focused. Do not change runtime behavior unless the task requires it.
+- Treat `docs/arch.md` as the architecture source of truth. Explain and document intentional general deviations.
+- Prefer existing types, patterns, and dependencies over introducing new abstractions or packages.
+- Keep persisted formats and public identifiers stable. Persist enum values in `SCREAMING_SNAKE_CASE`; retain canonical standardized identifiers such as ISO language codes.
 
-## Core Design
+## Architecture
 
-- Repo be Rust workspace for AWS serverless backend.
-- `src/` hold crates. `migrations/` hold Postgres business schema. `infra/` shape cloud. `docs/` hold public contract. `mjml/` and `opensearch/` hold shared assets.
-- Domain crates keep rules. API and Lambda crates stay thin around transport and runtime glue.
+- Preserve dependency direction: domain code does not depend on infrastructure.
+- Keep API, Lambda, worker, and other runtime code thin. Business use cases belong in service crates; domain behavior belongs in core crates.
+- Service code owns use-case orchestration and transaction boundaries.
+- Repositories persist aggregates; readers build read models. Do not use repositories for presentation reads.
+- Keep storage rows, provider payloads, search documents, and transport DTOs within their adapter boundaries. Map them explicitly.
+- PostgreSQL is authoritative business state unless a bounded context explicitly documents otherwise. OpenSearch and other projections are rebuildable read state.
+- Do not introduce hidden distributed transactions, controller orchestration, or N+1 hydration.
 
-## Ownership
+## Security and contracts
 
-- This file rule whole repo.
-- Child doc rule deeper path.
-- Near doc win detail. Child no break parent.
+- Fail closed on invalid persisted state and untrusted external input.
+- Do not log credentials, tokens, raw provider payloads, or other sensitive content.
+- Update `docs/swagger.yaml` and `docs/CHANGELOG.md` when a public API contract changes.
+- Update the relevant event or storage documentation when a durable event, persistence, or operational contract changes.
 
-## Local Contracts
+## Documentation
 
-- Read root, then each `AGENTS.md` on path, before edit.
-- Re-read in same session. No trust memory.
-- After meaningful change, do DOX pass.
-- Update nearest doc when purpose, shape, workflow, contract, input, output, limit, side effect, or user pref change.
-- Refresh child index. Kill stale words.
-- Put durable user prefs here or nearest child doc.
-- Persist enum values in `SCREAMING_SNAKE_CASE`; keep standardized identifier formats such as ISO language codes canonical.
+- Document durable architectural, operational, security, and public-contract knowledge; leave code-level detail to code and tests.
+- Amend the existing canonical document when one covers the contract instead of creating overlapping documentation.
+- Keep documentation concise and identify stable ownership boundaries, failure behavior, and operator requirements.
 
-## Work Guidance
+## Validation
 
-- Think caveman. Talk caveman. Few word.
-- Less is more.
-- Keep docs short, clear, current.
-- In `src`, make doc by crate. No module doc unless module become crate boundary.
+Start with focused checks and tests for changed crates. Run broader validation when the change warrants it:
 
-## Architecture Law
-
-- `docs/arch.md` be design source.
-- Before architecture or code edit, read matching `docs/arch.md` sections. No memory.
-- If task touches Rust backend shape, load matching project skill from `.agents/skills/`.
-- If task bends `docs/arch.md`, say why. Update doc when new general rule.
-
-## Skill Routing
-
-- Enum creation/change, canonical string identity, persisted enum mapping → `aura-rust-enum`.
-- Use case, service flow, command, query, port, service error → `aura-rust-use-case`.
-- Aggregate persistence, repository, PostgreSQL rows/mapping/version → `aura-rust-repository`.
-- Reader, read model, joined read, hydration, search/user-state read → `aura-rust-reader`.
-- API route, axum controller, DTO, auth extractor, `OperationContext`, `ApiError` → `aura-rust-api-endpoint`.
-- Transaction, `UnitOfWork`, multi-repo write, idempotency, cross-datasource boundary → `aura-rust-transactional-flow`.
-- CDC, Sequin, projection job, OpenSearch/key-value projection, replay/rebuild → `aura-rust-projection`.
-- Test placement, fakes, real infra tests, validation commands → `aura-rust-test`.
-- Before final answer on meaningful backend code change or review → `aura-rust-review-architecture`.
-
-## Backend Hard Rules
-
-- Domain no depend on infra.
-- API and Lambda stay thin.
-- Service owns use cases.
-- Service owns transactions.
-- Repositories persist aggregates.
-- Readers build read models.
-- No generic cross-store repository.
-- No repository for presentation reads.
-- No storage row, document, item, or DTO escape adapter.
-- No controller orchestration.
-- No N+1 hydration.
-- No hidden distributed transaction.
-- No sensitive payload logging.
-- No silent persisted-state corruption.
-
-## Arch Map
-
-- Layout and dependency direction: `docs/arch.md` §3.
-- DDD and type ownership: §4-5.
-- Use cases and ports: §6-7.
-- Repositories and readers: §8-9.
-- Mapping and serialization: §10.
-- Transactions: §11.
-- CDC and projections: §12.
-- Errors, logging, auth, config: §13-16.
-- Concurrency and idempotency: §17.
-- Controllers: §18.
-- Testing: §20.
-- Naming, forbidden patterns, checklists: §21-24.
-
-## Verification
-
-- Rust all: `cargo check --workspace`
-- Rust dep graph: `cargo depgraph-check check`
-- Rust tests: `cargo test --workspace --lib --all-features`
-- Infra test: `npm --prefix infra test`
-- Infra synth: `npm --prefix infra run synth:all`
-
-## Child DOX Index
-
-- `.agents/AGENTS.md` — project-local agent skills.
-- `.github/AGENTS.md` — GitHub flow.
-- `docs/AGENTS.md` — public docs.
-- `infra/AGENTS.md` — CDK infra.
-- `mjml/AGENTS.md` — email templates.
-- `opensearch/AGENTS.md` — shared OpenSearch assets.
-- `src/AGENTS.md` — Rust crates and `src/opensearch/`.
+```sh
+cargo fmt --all -- --check
+cargo check --workspace
+cargo depgraph-check check
+cargo test --workspace --lib --all-features
+npm --prefix infra test
+npm --prefix infra run synth:all
+```
