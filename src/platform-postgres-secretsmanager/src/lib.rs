@@ -32,6 +32,20 @@ pub async fn postgres_credentials_provider_from_env()
     }
 }
 
+/// Loads AWSCURRENT PostgreSQL credentials from an explicit exact Secrets Manager ARN.
+pub async fn load_versioned_postgres_credentials_from_secret_arn(
+    secret_arn: &str,
+) -> Result<VersionedPostgresCredentials, VersionedPostgresCredentialsLoadError> {
+    let secret_arn = PostgresSecretArn::parse(secret_arn.to_owned())
+        .map_err(|_| VersionedPostgresCredentialsLoadError::InvalidSecretArn)?;
+    let provider = AwsSecretsManagerPostgresCredentialsProvider::from_secret_arn(secret_arn).await;
+
+    provider
+        .current()
+        .await
+        .map_err(|_| VersionedPostgresCredentialsLoadError::RefreshUnavailable)
+}
+
 /// Fixture-only provider. Real Lambda stages always use the AWS adapter above.
 struct StaticPostgresCredentialsProvider {
     credentials: VersionedPostgresCredentials,
@@ -82,12 +96,16 @@ pub enum StaticPostgresCredentialsProviderConfigError {
 impl AwsSecretsManagerPostgresCredentialsProvider {
     async fn from_env() -> Result<Self, SecretsManagerPostgresProviderInitError> {
         let secret_arn = PostgresSecretArn::from_env()?;
+        Ok(Self::from_secret_arn(secret_arn).await)
+    }
+
+    async fn from_secret_arn(secret_arn: PostgresSecretArn) -> Self {
         let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
 
-        Ok(Self {
+        Self {
             client: Client::new(&config),
             secret_arn,
-        })
+        }
     }
 }
 
@@ -197,6 +215,14 @@ pub enum PostgresCredentialsProviderConfigError {
     SecretsManager(#[source] SecretsManagerPostgresProviderInitError),
     #[error("invalid fixture PostgreSQL credential provider configuration")]
     Static(#[source] StaticPostgresCredentialsProviderConfigError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum VersionedPostgresCredentialsLoadError {
+    #[error("invalid PostgreSQL Secrets Manager secret ARN")]
+    InvalidSecretArn,
+    #[error("PostgreSQL credential refresh unavailable")]
+    RefreshUnavailable,
 }
 
 #[derive(Deserialize)]
@@ -312,6 +338,22 @@ mod tests {
             assert!(!message.contains(invalid_arn));
         }
         assert!(!format!("{:?}", valid).contains(SECRET_ARN));
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_explicit_secret_arn_without_echoing_it() {
+        let invalid_arn = "migration-postgres-secret";
+        let error = match load_versioned_postgres_credentials_from_secret_arn(invalid_arn).await {
+            Ok(_) => panic!("expected invalid ARN"),
+            Err(error) => error,
+        };
+        let message = error.to_string();
+
+        assert_eq!(
+            error,
+            VersionedPostgresCredentialsLoadError::InvalidSecretArn
+        );
+        assert!(!message.contains(invalid_arn));
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { ApplicationEphemeralStack, createApplicationStacks } from "../src/appli
 import { STAGES, type StageName } from "../src/config";
 
 type CloudFormationResource = {
+  readonly DependsOn?: unknown;
   readonly Properties?: Record<string, unknown>;
 };
 
@@ -20,30 +21,48 @@ function resources(template: Template, type: string): CloudFormationResource[] {
 }
 
 describe.each(STAGES)("%s compute eventing", (stage) => {
-  test("always creates partner consumers and mappings", () => {
+  test("retains partner consumers while ProductListing activation is off by default", () => {
     const template = computeTemplate(stage);
+    const templateJson = template.toJSON();
     const mappings = resources(template, "AWS::Lambda::EventSourceMapping");
     const rules = resources(template, "AWS::Events::Rule");
+    const activation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
 
+    expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.ProductListingOpenSearchConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "ProductListingOpenSearchConsumerEnabled" }, "true"],
+    });
     expect(mappings).toHaveLength(2);
     expect(mappings.find((mapping) => mapping.Properties?.BatchSize === 10)?.Properties).toMatchObject({
+      Enabled: activation,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
       MaximumBatchingWindowInSeconds: 1,
     });
-    const productListingMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 1)?.Properties;
-    expect(productListingMapping).toMatchObject({ FunctionResponseTypes: ["ReportBatchItemFailures"] });
-    expect(JSON.stringify(productListingMapping?.FunctionName)).toContain("ProductListingOpenSearchVersion");
-    expect(rules.some((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("customer.subscription.created"))).toBe(true);
-    expect(rules.some((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("X-Shopify-Topic"))).toBe(true);
+    const productListingMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 1);
+    expect(productListingMapping?.Properties).toMatchObject({
+      Enabled: activation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(productListingMapping?.Properties?.FunctionName)).toContain("ProductListingOpenSearchVersion");
+    const stripeRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("customer.subscription.created"));
+    const shopifyRule = rules.find((rule) => JSON.stringify(rule.Properties?.EventPattern).includes("X-Shopify-Topic"));
+    expect(stripeRule?.Properties?.State).toEqual({ "Fn::If": ["ProductListingOpenSearchConsumerActivation", "ENABLED", "DISABLED"] });
+    expect(shopifyRule?.Properties?.State).toEqual({ "Fn::If": ["ProductListingOpenSearchConsumerActivation", "ENABLED", "DISABLED"] });
 
-    const initialFxSnapshot = resources(template, "AWS::CloudFormation::CustomResource")
-      .find((resource) => resource.Properties?.SourceEventId === `deployment:fxrate:initial:${stage}:v1`);
+    const fxRateSchedule = rules.find((rule) => rule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)");
+    expect(resources(template, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
+    expect(productListingMapping?.DependsOn).toBeUndefined();
     if (stage === "ephemeral") {
-      expect(initialFxSnapshot).toBeUndefined();
-      expect(rules.some((rule) => rule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)")).toBe(false);
+      expect(fxRateSchedule).toBeUndefined();
     } else {
-      expect(initialFxSnapshot).toBeDefined();
-      expect(rules.some((rule) => rule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)")).toBe(true);
+      expect(fxRateSchedule?.Properties).toMatchObject({
+        State: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", "ENABLED", "DISABLED"] },
+      });
+      expect(JSON.stringify(template.toJSON())).not.toContain("fxrate-initial-snapshot-provider");
     }
   });
 });

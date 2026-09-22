@@ -10,8 +10,8 @@ export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-e
 export const WORKLOAD_REGION = "eu-central-1";
 export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID = "InitialCdcStartPosition";
 export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID = "DmsCdcInitialCdcStartPosition";
-export const DMS_CDC_INITIAL_START_POSITION_PATTERN = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$";
-export const DMS_CDC_INITIAL_START_POSITION_CONSTRAINT = "must be a UTC timestamp in YYYY-MM-DDTHH:MM:SS format";
+export const DMS_CDC_INITIAL_START_POSITION_PATTERN = "^[0-9A-F]{1,8}/[0-9A-F]{1,8}$";
+export const DMS_CDC_INITIAL_START_POSITION_CONSTRAINT = "must be an uppercase PostgreSQL LSN in X/Y hexadecimal format";
 
 const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";

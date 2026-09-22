@@ -22,6 +22,7 @@ members = [
     "src/billing-stripe",
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
+    "src/database-migration-lambda",
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",

@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Read typed root config only at Lambda composition root.
+- Read typed root config only at Lambda composition root. Ordinary Lambda and private migration PostgreSQL profiles stay distinct; migration uses verified TLS plus its bounded one-connection profile.
 - Own a typed invocation budget from Lambda deadline, caller cap, and response headroom; elapsed and exhausted values saturate to zero.
 - Return safe config errors. Never echo config values.
 - Own version-keyed warm composition leases: one version builds once, and an old lease keeps its pool alive through an active invocation.

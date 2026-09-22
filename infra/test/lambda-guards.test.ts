@@ -16,7 +16,7 @@ function templatesFor(stage: StageName): Template[] {
   const app = new cdk.App({ analyticsReporting: false });
   const stacks = createApplicationStacks(app, { stage });
   const stackList: cdk.Stack[] = [];
-  for (const stack of [stacks.network, stacks.data, stacks.compute, stacks.api, stacks.observability]) {
+  for (const stack of [stacks.network, stacks.data, stacks.initialization, stacks.compute, stacks.api, stacks.observability]) {
     if (stack !== undefined) {
       stackList.push(stack);
     }

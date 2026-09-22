@@ -11,7 +11,7 @@ import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
 import type { Search } from "./opensearch";
-import type { PostgresConnectionSettings } from "./storage";
+import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
@@ -48,6 +48,18 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 128,
     timeoutSeconds: 10,
   },
+  fxRateSync: {
+    id: "FxRateSyncLambda",
+    binaryName: "fxrate-lambda",
+    memorySize: 128,
+    postgres: true,
+    skipEphemeral: true,
+    timeoutSeconds: 10,
+    environment: () => ({
+      FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
+    }),
+  },
+
   postConfirmation: {
     id: "PrimaryUserPoolPostConfirmationLambda",
     binaryName: "cognito-post-confirmation",
@@ -73,17 +85,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
     }),
   },
-  fxRateSync: {
-    id: "FxRateSyncLambda",
-    binaryName: "fxrate-lambda",
-    memorySize: 128,
-    postgres: true,
-    timeoutSeconds: 10,
-    skipEphemeral: true,
-    environment: () => ({
-      FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
-    }),
-  },
+
   productListingOpenSearch: {
     id: "ProductListingOpenSearchLambda",
     binaryName: "product-listing-opensearch-lambda",
@@ -104,10 +106,11 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
+type EphemeralOptionalLambdaKey = "fxRateSync";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
-  Record<Exclude<LambdaKey, "fxRateSync">, lambda.IFunction>;
+  Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
-  Record<Exclude<LambdaKey, "fxRateSync">, lambda.Function>;
+  Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.Function>;
 
 export interface LambdasProps {
   readonly config: StageConfig;
@@ -182,12 +185,75 @@ export class Lambdas extends Construct {
   }
 }
 
-function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironmentContext): Record<string, string> {
-  const env = definition.environment?.(context) ?? {};
-  return definition.postgres ? withPostgresEnvironment(context, env) : env;
+export interface InitializationLambdasProps {
+  readonly config: StageConfig;
+  readonly commitSha: string;
+  readonly artifactBucket: s3.IBucket;
+  readonly migrationPostgres: PostgresMigrationConnectionSettings;
+  readonly network: Network;
 }
 
-function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<string, string>): Record<string, string> {
+/** Private migration runtime. It exists before normal compute and has no event source. */
+export class InitializationLambdas extends Construct {
+  readonly databaseMigration: lambda.Function;
+
+  constructor(scope: Construct, id: string, props: InitializationLambdasProps) {
+    super(scope, id);
+
+    if (props.config.isEphemeral) {
+      throw new Error("Initialization Lambdas are only available in real AWS stages.");
+    }
+
+    const postgresTlsRootCertificateLayer = new lambda.LayerVersion(this, "PostgresTlsRootCertificateLayer", {
+      code: lambda.Code.fromAsset(path.join(__dirname, "../../assets/rds-ca-layer")),
+      compatibleRuntimes: [lambda.Runtime.PROVIDED_AL2023],
+      description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
+    });
+    this.databaseMigration = new lambda.Function(this, "DatabaseMigrationLambda", {
+      vpc: props.network.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [props.network.migrationSecurityGroup],
+      functionName: `database-migration-lambda-${props.config.stage}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.X86_64,
+      handler: "lib.handler",
+      code: lambda.Code.fromBucket(
+        props.artifactBucket,
+        `database-migration-lambda-${props.config.stage}-${props.commitSha}.zip`,
+      ),
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(840),
+      ephemeralStorageSize: cdk.Size.mebibytes(512),
+      environment: withMigrationPostgresEnvironment({ migrationPostgres: props.migrationPostgres }, {}),
+      layers: [postgresTlsRootCertificateLayer],
+    });
+    this.databaseMigration.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue"],
+        resources: [
+          props.migrationPostgres.adminSecretArn,
+          props.migrationPostgres.runtimeSecretArn,
+          props.migrationPostgres.migrationSecretArn,
+          props.migrationPostgres.replicationSecretArn,
+        ],
+      }),
+    );
+
+  }
+}
+
+function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironmentContext): Record<string, string> {
+  const env = definition.environment?.(context) ?? {};
+  if (!definition.postgres) {
+    return env;
+  }
+  return withPostgresEnvironment(context, env);
+}
+
+function withPostgresEnvironment(
+  context: Pick<LambdaEnvironmentContext, "postgres">,
+  env: Record<string, string>,
+): Record<string, string> {
   const connection = {
     ...env,
     POSTGRES_DATABASE: context.postgres.database,
@@ -210,6 +276,28 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
     };
   }
   throw new Error("PostgreSQL Lambda environment requires either a runtime secret ARN or fixture credentials.");
+}
+
+function withMigrationPostgresEnvironment(
+  context: { readonly migrationPostgres: PostgresMigrationConnectionSettings },
+  env: Record<string, string>,
+): Record<string, string> {
+  const postgres = context.migrationPostgres;
+  if (!postgres) {
+    throw new Error("Migration Lambda requires real PostgreSQL migration connection settings.");
+  }
+  return {
+    ...env,
+    POSTGRES_ADMIN_SECRET_ARN: postgres.adminSecretArn,
+    POSTGRES_DATABASE: postgres.database,
+    POSTGRES_HOST: postgres.host,
+    POSTGRES_MAX_CONNECTIONS: postgres.maxConnections,
+    POSTGRES_MIGRATION_SECRET_ARN: postgres.migrationSecretArn,
+    POSTGRES_PORT: postgres.port,
+    POSTGRES_REPLICATION_SECRET_ARN: postgres.replicationSecretArn,
+    POSTGRES_RUNTIME_SECRET_ARN: postgres.runtimeSecretArn,
+    POSTGRES_TLS_ROOT_CERT: postgres.tlsRootCert,
+  };
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {

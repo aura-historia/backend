@@ -10,9 +10,9 @@
 - PostgreSQL owns ProductListing truth. OpenSearch holds the rebuildable external-versioned projection.
 - Lambda/SQS DTOs stay here. `aura-historia-worker` owns strict compact-job validation and job disposition.
 - Only completed projection results leave a message out of `batchItemFailures`. Retry, poison, timeout, panic, cancellation, unknown effects, and records skipped for exhausted invocation budget remain for source retry/DLQ.
-- The deployed mapping uses one source record per invocation. Handler batches share one runtime-deadline budget: each started record gets at most 40 seconds and later records with no remaining budget fail by message ID. It has no receipt daemon, health server, signal loop, custom visibility update, purge, or redrive permission.
-- Lambda bootstrap owns config, pool, client, logs, and dependency composition. The service owns projection behavior.
-- Source tests drive Lambda SQS records through the worker's real wire decoder and disposition mapping; unit fakes select service outcomes, not transport behavior.
+- The deployed mapping uses one source record per invocation. One runtime-deadline budget covers credential refresh, version-cache/composition waits, pool creation, and record work; each started record gets at most 40 seconds and later records with no remaining budget fail by message ID. Setup timeout returns every valid unstarted record as a batch failure. It has no receipt daemon, health server, signal loop, custom visibility update, purge, or redrive permission.
+- Lambda bootstrap owns config, pool, client, logs, and dependency composition. `compose_projection_use_case` is the production PostgreSQL/OpenSearch composition shared with the black-box Lambda test. The service owns projection behavior.
+- Source tests drive Lambda SQS records through the worker's real wire decoder and disposition mapping; unit fakes select service outcomes, not transport behavior. `tests/real_composition.rs` uses real local PostgreSQL/OpenSearch and the production composition for replay, required-sale-FX retry, tombstone race, response-loss retry, and deadline retry proof. Its local relay only delays or drops a response after forwarding the actual target write.
 
 ## Ownership
 

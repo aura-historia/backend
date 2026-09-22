@@ -31,7 +31,7 @@ export class DmsCdc extends Construct {
     super(scope, id);
 
     const { config, network, storage } = props;
-    if (!config.dms || !config.rds || !config.network || !network || !storage.database || !storage.replicationCredentials) {
+    if (!config.dms || !config.rds || !config.network || !network || !storage.database || !storage.adminCredentials || !storage.runtimeCredentials || !storage.migrationCredentials || !storage.replicationCredentials) {
       throw new Error("DMS CDC resources are only available in real AWS stages with PostgreSQL and private networking.");
     }
 
@@ -75,7 +75,17 @@ export class DmsCdc extends Construct {
     });
     secretsManagerEndpoint.addToPolicy(new iam.PolicyStatement({
       principals: [new iam.AnyPrincipal()],
-      actions: ["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"],
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [
+        storage.adminCredentials.secretArn,
+        storage.runtimeCredentials.secretArn,
+        storage.migrationCredentials.secretArn,
+        storage.replicationCredentials.secretArn,
+      ],
+    }));
+    secretsManagerEndpoint.addToPolicy(new iam.PolicyStatement({
+      principals: [new iam.AnyPrincipal()],
+      actions: ["secretsmanager:DescribeSecret"],
       resources: [storage.replicationCredentials.secretArn],
     }));
 
@@ -154,7 +164,7 @@ export class DmsCdc extends Construct {
       type: "String",
       allowedPattern: DMS_CDC_INITIAL_START_POSITION_PATTERN,
       constraintDescription: DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
-      description: "Required stable UTC timestamp for the first DMS CDC start; retain after task creation.",
+      description: "Required approved PostgreSQL LSN for the first DMS CDC start on the named slot. No default; later starts use resume-processing.",
     });
     initialCdcStartPosition.overrideLogicalId(DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID);
 

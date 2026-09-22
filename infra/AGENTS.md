@@ -7,13 +7,13 @@
 
 ## Core Design
 
-- CDK app composes focused stacks: data, compute, API, and prod observability.
+- CDK app composes focused stacks: data, private initialization, compute, API, and prod observability.
 - `src/application-stack.ts` wire stack set and public outputs. Keep it orchestration-only.
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
-- `src/worker-queue-config.ts` owns ten worker scopes and queue settings; ProductListing OpenSearch is Lambda-backed and the other nine remain native. `src/constructs/worker-queues.ts` owns separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
+- `src/worker-queue-config.ts` owns ten worker scopes and queue settings; ProductListing OpenSearch has a retained Lambda mapping, disabled until explicit activation, and the other nine remain native. `src/constructs/worker-queues.ts` owns separate Standard source/DLQ pairs, exact unbound IAM, and handoff outputs. Keep Shopify catalog/wiring separate.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
-- CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
-- Postgres is self-hosted. Real PostgreSQL Lambdas receive connection metadata plus exact `POSTGRES_SECRET_ARN`; ephemeral receives fixture username/password. No RDS Proxy.
+- CloudFormation input surface stay tiny. Data first-start requires an approved PostgreSQL LSN; compute deploy version comes from `CommitSHA`; `ProductListingOpenSearchConsumerEnabled` is false by default and is flipped only by protected manual initialization after schema and FX success. The private initialization stack owns only the migration runtime; compute retains its FX Lambda identity and is first deployed with event consumers off. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
+- Postgres is self-hosted. Real application PostgreSQL Lambdas receive connection metadata plus exact `POSTGRES_SECRET_ARN`; the private manual migration Lambda receives only four role-secret ARNs for bootstrap/schema work. Ephemeral receives fixture username/password and no initialization stack. No RDS Proxy.
 - Infra own runtime glue: env vars, triggers, schedules, IAM, queue wiring, outputs, retention, alarms. Rust crates own business rules.
 
 ## Ownership

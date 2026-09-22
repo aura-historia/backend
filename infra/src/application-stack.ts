@@ -8,13 +8,19 @@ import {
   type StageName,
 } from "./config";
 import { stageConfig } from "./config";
-import { applicationParameters } from "./parameters";
+import { applicationParameters, artifactCommitShaParameter } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { DmsCdc } from "./constructs/dms-cdc";
 import { Eventing } from "./constructs/eventing";
 import { Network } from "./constructs/network";
-import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
+import {
+  addUserPoolEnvironment,
+  grantCognitoAdminAccess,
+  importLambdaCatalog,
+  InitializationLambdas,
+  Lambdas,
+} from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
@@ -35,6 +41,7 @@ export interface ApplicationStageProps extends cdk.StackProps {
 export interface ApplicationStageStacks {
   readonly network?: ApplicationNetworkStack;
   readonly data: ApplicationDataStack;
+  readonly initialization?: ApplicationInitializationStack;
   readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
   readonly observability?: ApplicationObservabilityStack;
@@ -63,6 +70,21 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     data.addDependency(network);
   }
 
+  const initialization = props.stage === "ephemeral"
+    ? undefined
+    : new ApplicationInitializationStack(scope, `${stackNamePrefix}-initialize`, {
+        ...baseProps,
+        stage: props.stage,
+        localStackMappedPort: props.localStackMappedPort,
+        stackName: `${stackNamePrefix}-initialize`,
+        storage: data.storage,
+        network: network?.network,
+      });
+  initialization?.addDependency(data);
+  if (network) {
+    initialization?.addDependency(network);
+  }
+
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
     ...baseProps,
     stage: props.stage,
@@ -76,6 +98,9 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   compute.addDependency(data);
   if (network) {
     compute.addDependency(network);
+  }
+  if (initialization) {
+    compute.addDependency(initialization);
   }
 
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
@@ -103,6 +128,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   return {
     network,
     data,
+    initialization,
     compute,
     api,
     observability,
@@ -177,6 +203,37 @@ export class ApplicationDataStack extends cdk.Stack {
   }
 }
 
+export interface ApplicationInitializationStackProps extends ApplicationStackProps {
+  readonly storage: Storage;
+  readonly network?: Network;
+}
+
+export class ApplicationInitializationStack extends cdk.Stack {
+  readonly initialization: InitializationLambdas;
+
+  constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    if (config.isEphemeral || !props.network || !props.storage.migrationPostgres) {
+      throw new Error("Initialization stack requires real PostgreSQL storage and private networking.");
+    }
+
+    this.templateOptions.description = "Aura Historia private database initialization stack";
+    const commitSha = artifactCommitShaParameter(this);
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    this.initialization = new InitializationLambdas(this, "InitializationLambdas", {
+      config,
+      commitSha,
+      artifactBucket,
+      migrationPostgres: props.storage.migrationPostgres,
+      network: props.network,
+    });
+  }
+}
+
 export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly storage: Storage;
   readonly queues: Queues;
@@ -232,6 +289,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       workerQueues: importWorkerQueueCatalog(this, "EventingWorkerQueueImports", config),
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
     });
 
     computeOutputs(this, {
@@ -342,6 +400,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       workerQueues: this.workerQueues.catalog,
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
     });
 
     this.api = new BackendHttpApi(this, "HttpApi", {

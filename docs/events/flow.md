@@ -13,7 +13,7 @@ Current checked-in PostgreSQL/Sequin flow with durable Standard SQS custody (#15
 | `notification_deliveries` | Postgres table | Durable email-delivery intent and lease state. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
-| Scoped Standard SQS source/DLQ pairs | Durable transport | One pair per scope; ProductListing OpenSearch has a dedicated Lambda mapping, others remain native; source7d/DLQ14d retention and duplicate/reordered delivery apply. |
+| Scoped Standard SQS source/DLQ pairs | Durable transport | One pair per scope; ProductListing OpenSearch has a retained Lambda mapping disabled until explicit activation, others remain native; source7d/DLQ14d retention and duplicate/reordered delivery apply. |
 | OpenSearch | Search projection | Rebuildable ProductListing and search-filter projection. |
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | `aura-historia-cron` | Rust process | UTC scheduled triggers for service-owned use cases. |
@@ -127,7 +127,7 @@ No intermediate ProductListing command SQS queue. No `202 accepted because queue
 
 `aura-historia-worker` exposes `POST /cdc/sequin` for CDC delivery.
 
-The native `aura-historia-worker` router uses a scope-specific fanout and publishes only its scope's queue. Its catalog has ten production scopes: `product-listing-opensearch` is consumed by its dedicated Lambda, while the other nine consumers remain native. There is no user-tier scope or tier dimension, worker inbox, or processed-job table. Actual process/Sequin deployment remains externally owned.
+The native `aura-historia-worker` router uses a scope-specific fanout and publishes only its scope's queue. Its catalog has ten production scopes: `product-listing-opensearch` has a retained dedicated Lambda mapping, disabled until explicit activation, while the other nine consumers remain native. There is no user-tier scope or tier dimension, worker inbox, or processed-job table. Actual process/Sequin deployment remains externally owned.
 
 1. Bound the request (1 MiB, 100 changes, 500 derived jobs). Prevalidate the **entire** batch, all typed jobs/keys, registered destinations and serialization before publishing anything.
 2. For ProductListing events, require typed event/listing IDs and supported v1 pairs: `DOMAIN`/`PRODUCT_LISTING_DISCOVERED`, `DOMAIN`/`PRODUCT_LISTING_CHANGED`, `ENRICHMENT`/`ENRICHMENT_EMBEDDED`, or `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES`. Validate required discovery fields and exact changed dimensions, canonical values, complete previous/current endpoints, non-empty changes and image replacement semantics. Derive the routing union once.
@@ -174,7 +174,22 @@ Current SQS payloads are `ProductListingEventJob`, `ProductListingRawRevisionJob
 | ProductListing normalization | raw-to-canonical service | Raw revision job plus authoritative reconciliation | Atomic canonical state/event and raw progress; local continuation hints are reconstructible. |
 | Periodic matcher | retired ECS periodic matcher | `aura-historia-cron` native UTC cron daemon | Runs `RunPeriodicSearchFilterMatching`; it writes only idempotent `search_filter_matches`. CDC remains the sole notification trigger. |
 
-`product-listing-opensearch-lambda` consumes the ProductListing OpenSearch queue. The other nine consumers remain composed in `aura-historia-worker` for now. Periodic matching stays in `aura-historia-cron`, not another queue scope.
+`product-listing-opensearch-lambda` consumes the ProductListing OpenSearch queue only after explicit activation. The other nine consumers remain composed in `aura-historia-worker` for now. Periodic matching stays in `aura-historia-cron`, not another queue scope.
+
+### ProductListing native-to-Lambda handoff
+
+The source/DLQ pair, Lambda mapping, and function version are retained while the
+mapping is off. The native and Lambda consumers must accept the same schema-2
+ProductListing OpenSearch job contract. Protected `Initialize (CD)` is the one manual
+first-run operation: it supplies the approved named-slot PostgreSQL LSN only when it
+creates data, deploys the private migration runtime and normal compute with event
+consumers off, runs role/bootstrap/schema initialization, captures the idempotent initial
+FX snapshot, then enables polling and partner event rules. Before starting it, pause the
+native consumer and allow active work to settle. Do not run both consumers.
+Ordinary `Deploy (CD)` keeps the selected mapping state and needs only stage plus
+artifact SHA. To return to native work, use an approved protected CloudFormation change
+to disable the mapping first and only then resume a compatible native consumer. Do not
+rename, replace, or purge the queue; retained backlog uses normal SQS retry/DLQ handling.
 
 ## Canonical ProductListing OpenSearch projection
 
@@ -254,7 +269,7 @@ These AWS event flows stay:
 
 | Source | Route | Target |
 |---|---|---|
-| Compute-stack creation or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID |
+| Protected Initialize workflow or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID after role/schema readiness |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
 | CloudWatch log group events | EventBridge | CloudWatch log-retention Lambda |
@@ -288,7 +303,7 @@ External sends remain at-least-once. Notification duplicate protection is at rec
 
 ## Retry and failure handling
 
-Standard SQS owns job custody; there is no worker-owned PostgreSQL inbox, processed-job or dead-letter table. ProductListing OpenSearch uses a 45s Lambda with batch size one, `ReportBatchItemFailures`, and 270s source visibility (`6 × timeout + 0s batching`). It does not adjust visibility; failed IDs retry through native SQS and redrive after five receives. The remaining native consumers use capacity one/no prefetch, poll 20s, visibility 60/300/360s, heartbeats, and jittered 30–900s retry visibility. Only `Complete` permits acknowledgment; shutdown alone never confirms work, though completed active work may settle during the bounded drain.
+Standard SQS owns job custody; there is no worker-owned PostgreSQL inbox, processed-job or dead-letter table. ProductListing OpenSearch uses a retained, default-disabled 45s Lambda mapping with batch size one, `ReportBatchItemFailures`, and 300s source visibility (above `6 × timeout + 0s batching`). Activation happens only after the native consumer is paused and initial FX capture succeeds. It does not adjust visibility; failed IDs retry through native SQS and redrive after five receives. The remaining native consumers use capacity one/no prefetch, poll 20s, visibility 60/300/360s, heartbeats, and jittered 30–900s retry visibility. Only `Complete` permits acknowledgment; shutdown alone never confirms work, though completed active work may settle during the bounded drain.
 
 Malformed upstream CDC remains stuck/unacknowledged in Sequin, not the SQS DLQ. Invalid wire jobs and handler failures remain undeleted. Repair before controlled native redrive using separate approved operator authorization; never purge. Source-to-DLQ transfer preserves original enqueue age. See the [safe operations/runbook](../durable-worker-runbook.md) for sandbox gates, retention/archive limits and legacy in-memory cutover. Only the normalizer has the documented authoritative raw-backlog reconciliation path.
 

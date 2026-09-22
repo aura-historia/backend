@@ -430,7 +430,8 @@ where
         root_certificate,
     )
     .map_err(|error| match error {
-        PostgresPoolConfigError::ZeroMaxConnections => {
+        PostgresPoolConfigError::ZeroMaxConnections
+        | PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
             WorkerPostgresConfigError::ZeroMaxConnections
         }
         PostgresPoolConfigError::EmptyRootCertificate => {

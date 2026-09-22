@@ -1,6 +1,5 @@
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as iam from "aws-cdk-lib/aws-iam";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
@@ -26,9 +25,23 @@ export interface PostgresConnectionSettings {
   readonly password?: string;
 }
 
+export interface PostgresMigrationConnectionSettings {
+  readonly host: string;
+  readonly port: string;
+  readonly database: string;
+  readonly maxConnections: string;
+  readonly tlsRootCert: string;
+  readonly adminSecretArn: string;
+  readonly runtimeSecretArn: string;
+  readonly migrationSecretArn: string;
+  readonly replicationSecretArn: string;
+}
+
 export class Storage extends Construct {
   readonly postgres: PostgresConnectionSettings;
+  readonly migrationPostgres?: PostgresMigrationConnectionSettings;
   readonly database?: rds.DatabaseInstance;
+  readonly adminCredentials?: rds.DatabaseSecret;
   readonly runtimeCredentials?: rds.DatabaseSecret;
   readonly migrationCredentials?: rds.DatabaseSecret;
   readonly replicationCredentials?: secretsmanager.ISecret;
@@ -64,7 +77,7 @@ export class Storage extends Construct {
       vpc: props.network.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
     });
-    const adminCredentials = new rds.DatabaseSecret(this, "PostgresAdminCredentials", {
+    this.adminCredentials = new rds.DatabaseSecret(this, "PostgresAdminCredentials", {
       username: "aura_admin",
       secretName: `/aura-historia/${props.config.stage}/postgres/admin`,
     });
@@ -72,7 +85,7 @@ export class Storage extends Construct {
     this.database = new rds.DatabaseInstance(this, "Postgres", {
       instanceIdentifier: `aura-historia-postgres-${props.config.stage}`,
       engine: postgresEngine(rdsConfig.engineVersion),
-      credentials: rds.Credentials.fromSecret(adminCredentials),
+      credentials: rds.Credentials.fromSecret(this.adminCredentials),
       databaseName: rdsConfig.databaseName,
       instanceType: new ec2.InstanceType(rdsConfig.instanceType),
       vpc: props.network.vpc,
@@ -100,13 +113,13 @@ export class Storage extends Construct {
       stage: props.config.stage,
       username: "aura_runtime",
       databaseName: rdsConfig.databaseName,
-      adminCredentials,
+      adminCredentials: this.adminCredentials,
     });
     this.migrationCredentials = applicationCredentials(this, "PostgresMigrationCredentials", {
       stage: props.config.stage,
       username: "aura_migrator",
       databaseName: rdsConfig.databaseName,
-      adminCredentials,
+      adminCredentials: this.adminCredentials,
     });
     this.replicationCredentials = dmsReplicationCredentials(this, "PostgresReplicationCredentials", {
       stage: props.config.stage,
@@ -122,41 +135,18 @@ export class Storage extends Construct {
       secretArn: this.runtimeCredentials.secretArn,
       tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
     };
-    addRuntimeSecretsManagerEndpoint(this, props.network, this.runtimeCredentials, props.config.stage);
+    this.migrationPostgres = {
+      host: this.database.dbInstanceEndpointAddress,
+      port: this.database.dbInstanceEndpointPort,
+      database: rdsConfig.databaseName,
+      maxConnections: "1",
+      tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
+      adminSecretArn: this.adminCredentials.secretArn,
+      runtimeSecretArn: this.runtimeCredentials.secretArn,
+      migrationSecretArn: this.migrationCredentials.secretArn,
+      replicationSecretArn: this.replicationCredentials.secretArn,
+    };
   }
-}
-
-function addRuntimeSecretsManagerEndpoint(
-  scope: Construct,
-  network: Network,
-  runtimeCredentials: rds.DatabaseSecret,
-  stage: string,
-): void {
-  const securityGroup = new ec2.SecurityGroup(scope, "PostgresRuntimeSecretsEndpointSecurityGroup", {
-    vpc: network.vpc,
-    allowAllOutbound: false,
-    description: "Runtime PostgreSQL Secrets Manager endpoint boundary",
-    securityGroupName: `aura-historia-postgres-runtime-secrets-endpoint-${stage}`,
-  });
-  securityGroup.addIngressRule(
-    network.applicationSecurityGroup,
-    ec2.Port.tcp(443),
-    "Application runtime PostgreSQL credential refresh",
-  );
-
-  const endpoint = new ec2.InterfaceVpcEndpoint(scope, "PostgresRuntimeSecretsManagerInterfaceEndpoint", {
-    vpc: network.vpc,
-    service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-    privateDnsEnabled: true,
-    securityGroups: [securityGroup],
-    subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-    open: false,
-  });
-  endpoint.addToPolicy(new iam.PolicyStatement({
-    principals: [new iam.AnyPrincipal()],
-    actions: ["secretsmanager:GetSecretValue"],
-    resources: [runtimeCredentials.secretArn],
-  }));
 }
 
 interface ApplicationCredentialProps {

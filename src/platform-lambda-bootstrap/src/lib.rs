@@ -56,6 +56,22 @@ impl LambdaPostgresConfig {
         )
         .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
     }
+
+    pub fn migration_pool_config(
+        &self,
+        credentials: &PostgresCredentials,
+    ) -> Result<PostgresPoolConfig, LambdaBootstrapConfigError> {
+        PostgresPoolConfig::migration(
+            self.host.clone(),
+            self.port,
+            self.database.clone(),
+            credentials.username().to_owned(),
+            credentials.password().to_owned(),
+            self.max_connections,
+            self.root_certificate.clone(),
+        )
+        .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
+    }
 }
 
 /// A cloned lease keeps its composed pool and handlers alive until its invocation completes.

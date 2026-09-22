@@ -1719,7 +1719,8 @@ async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
         root_certificate,
     )
     .map_err(|error| match error {
-        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections => {
+        platform_postgres::PostgresPoolConfigError::ZeroMaxConnections
+        | platform_postgres::PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne => {
             ApiStateError::InvalidPostgresMaxConnections
         }
         platform_postgres::PostgresPoolConfigError::EmptyRootCertificate => {

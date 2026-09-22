@@ -91,15 +91,19 @@ export class Network extends Construct {
     });
 
     this.applicationSecurityGroup.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "Required HTTPS provider and AWS API egress through NAT");
+    this.applicationSecurityGroup.addEgressRule(this.dmsEndpointSecurityGroup, ec2.Port.tcp(443), "Private shared Secrets Manager endpoint");
     this.applicationSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL");
     this.dmsSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL replication");
     this.dmsSecurityGroup.addEgressRule(this.dmsEndpointSecurityGroup, ec2.Port.tcp(443), "Private Kinesis and Secrets Manager endpoints");
     this.migrationSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL migrations");
+    this.migrationSecurityGroup.addEgressRule(this.dmsEndpointSecurityGroup, ec2.Port.tcp(443), "Private migration Secrets Manager reads");
 
     this.databaseSecurityGroup.addIngressRule(this.applicationSecurityGroup, ec2.Port.tcp(5432), "Backend application PostgreSQL");
     this.databaseSecurityGroup.addIngressRule(this.dmsSecurityGroup, ec2.Port.tcp(5432), "DMS PostgreSQL replication");
     this.databaseSecurityGroup.addIngressRule(this.migrationSecurityGroup, ec2.Port.tcp(5432), "Approved migrations PostgreSQL");
     this.dmsEndpointSecurityGroup.addIngressRule(this.dmsSecurityGroup, ec2.Port.tcp(443), "DMS AWS API calls");
+    this.dmsEndpointSecurityGroup.addIngressRule(this.applicationSecurityGroup, ec2.Port.tcp(443), "Application runtime Secrets Manager calls");
+    this.dmsEndpointSecurityGroup.addIngressRule(this.migrationSecurityGroup, ec2.Port.tcp(443), "Migration runtime Secrets Manager calls");
   }
 }
 

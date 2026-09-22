@@ -97,8 +97,8 @@
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
 
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
-
-- `src/credential-core/AGENTS.md` — credential identifiers and scope vocabulary.
+- `src/database-migration-lambda/AGENTS.md` — private manual PostgreSQL bootstrap and schema migration Lambda.
+- `src/credential-core/AGENTS.md — credential identifiers and scope vocabulary.
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.

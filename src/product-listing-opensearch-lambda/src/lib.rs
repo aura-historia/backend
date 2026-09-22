@@ -3,11 +3,19 @@ use aura_historia_worker::product_listing_opensearch::{
 };
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use futures_util::FutureExt;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
+use opensearch::OpenSearch;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use product_listing_service::use_cases::ProjectProductListingUseCase;
+use platform_postgres::SqlxUnitOfWork;
+use product_listing_opensearch::OpenSearchProductListingSearchProjection;
+use product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory;
+use product_listing_service::use_cases::{
+    ProjectProductListingHandler, ProjectProductListingUseCase,
+};
 use std::{
     panic::AssertUnwindSafe,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tracing::{info, warn};
@@ -20,15 +28,38 @@ const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
 ///
 /// A missing message ID fails the whole invocation. Lambda then returns no partial-success
 /// response, so records already handled in the same batch are retried rather than acknowledged.
+pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationBudget {
+    LambdaInvocationBudget::from_context(context, LAMBDA_INVOCATION_CAP, RESPONSE_HEADROOM)
+}
+
+/// Production composition for the Lambda's one PostgreSQL-to-OpenSearch projection use case.
+/// Integration tests call this same root; no test-only handler may diverge from production wiring.
+pub fn compose_projection_use_case(
+    pool: sqlx::PgPool,
+    open_search: OpenSearch,
+) -> Arc<dyn ProjectProductListingUseCase> {
+    Arc::new(ProjectProductListingHandler::new(
+        SqlxUnitOfWork::new(pool),
+        SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
+        OpenSearchProductListingSearchProjection::new(open_search),
+    ))
+}
+
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
 ) -> Result<SqsBatchResponse, Error> {
-    let budget = LambdaInvocationBudget::from_context(
-        &event.context,
-        LAMBDA_INVOCATION_CAP,
-        RESPONSE_HEADROOM,
-    );
+    let budget = invocation_budget(&event.context);
+    handler_with_invocation_budget(event, use_case, &budget).await
+}
+
+/// Uses the budget created at the invocation edge so composition and record work share one deadline.
+pub async fn handler_with_invocation_budget(
+    event: LambdaEvent<SqsEvent>,
+    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
+    budget: &LambdaInvocationBudget,
+) -> Result<SqsBatchResponse, Error> {
     handler_with_budget(
         event,
         use_case,
@@ -36,6 +67,27 @@ pub async fn handler(
         MAX_RECORD_PROCESSING_BUDGET,
     )
     .await
+}
+
+/// Returns every valid record as unfinished when setup has consumed the invocation budget.
+/// A missing message ID still fails the whole invocation because Lambda cannot form a truthful
+/// partial batch response for it.
+pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
+    let mut response = SqsBatchResponse::default();
+    response.batch_item_failures = event
+        .payload
+        .records
+        .iter()
+        .map(|record| {
+            record.message_id.clone().ok_or_else(|| {
+                Error::from("SQS event record has no message ID; fail whole invocation")
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(batch_failure)
+        .collect();
+    Ok(response)
 }
 
 async fn handler_with_budget(
@@ -227,6 +279,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_retain_all_records_without_executing_when_composition_spent_the_budget() {
+        let processor = FakeUseCase::new([FakeResult::Applied]);
+        let mut event = events([
+            (Some("unfinished-first"), valid_body()),
+            (Some("unfinished-second"), valid_body()),
+        ]);
+        event.context.deadline = epoch_millis();
+        let budget = invocation_budget(&event.context);
+
+        let response = match handler_with_invocation_budget(event, &processor, &budget).await {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+
+        assert_eq!(
+            message_ids(response),
+            ["unfinished-first", "unfinished-second"]
+        );
+        assert_eq!(processor.calls(), 0);
+    }
+
+    #[test]
+    fn should_retain_each_valid_record_when_setup_cannot_complete() {
+        let event = events([
+            (Some("unfinished-first"), valid_body()),
+            (Some("unfinished-second"), valid_body()),
+        ]);
+
+        let response = match retain_all_records(&event) {
+            Ok(response) => response,
+            Err(error) => panic!("failed to preserve batch: {error}"),
+        };
+
+        assert_eq!(
+            message_ids(response),
+            ["unfinished-first", "unfinished-second"]
+        );
+    }
+
+    #[tokio::test]
     async fn should_fail_timeout_and_panic_without_acknowledging_the_record() {
         for result in [FakeResult::Pending, FakeResult::Panic] {
             let processor = FakeUseCase::new([result]);
@@ -289,6 +381,29 @@ mod tests {
 
         assert_eq!(message_ids(response), ["timed-out", "unstarted"]);
         assert_eq!(processor.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_acknowledge_an_earlier_completed_record_and_retain_a_later_unfinished_record() {
+        let processor = FakeUseCase::new([FakeResult::Applied, FakeResult::Pending]);
+
+        let response = match handler_with_budget(
+            events([
+                (Some("completed"), valid_body()),
+                (Some("unfinished"), valid_body()),
+            ]),
+            &processor,
+            Duration::from_secs(1),
+            Duration::from_millis(1),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+
+        assert_eq!(message_ids(response), ["unfinished"]);
+        assert_eq!(processor.calls(), 2);
     }
 
     #[tokio::test]

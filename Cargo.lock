@@ -2297,6 +2297,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "database-migration-lambda"
+version = "0.1.0"
+dependencies = [
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "deadpool"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5979,6 +5997,7 @@ dependencies = [
  "futures-util",
  "fxrate-postgres",
  "lambda_runtime",
+ "listing-source-core",
  "opensearch",
  "platform-lambda-bootstrap",
  "platform-observability",
@@ -5989,9 +6008,13 @@ dependencies = [
  "product-listing-postgres",
  "product-listing-service",
  "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

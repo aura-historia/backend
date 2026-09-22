@@ -17,7 +17,7 @@
 - Global axum transport middleware creates UUID request IDs; it accepts only bounded safe `X-Correlation-Id` values (max 128 ASCII alphanumeric, `.`, `_`, `-`) and returns both IDs on every response. It also owns safe request tracing, sensitive-header redaction, CORS including WooCommerce topic, signature, and delivery-ID headers, and a 1 MiB body cap. Native requests time out after 30 seconds. Lambda applies one outer runtime-deadline budget capped at its 14-second application limit and reserves one second to return a timeout response before hard termination.
 - `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool ingestion and OpenSearch ping succeed; it returns `503` otherwise. pg-ttl worker health is monitored as PostgreSQL platform health, not a request-path readiness dependency.
 - PostgreSQL runtime needs `POSTGRES_TLS_ROOT_CERT`; real Lambda uses `POSTGRES_SECRET_ARN` and refreshes `AWSCURRENT` before each invocation, while ephemeral uses fixture `POSTGRES_USERNAME`/`POSTGRES_PASSWORD`. A changed secret version builds one full new router; active requests retain their old router/pool lease. API uses the shared strict Lambda pool profile (min zero, default max one, verified hostname/CA TLS, bounded waits).
-- `lambda_http` adapts HTTP API v2 request/response envelopes only. It passes raw HTTP semantics to Axum and does not create API Gateway-specific operation context, authorizer, or front-door route.
+- `lambda_http` adapts HTTP API v2 request/response envelopes only. `lambda::handle_http_api_v2_request` is the deliberate Lambda transport boundary used by the runtime and black-box Lambda tests; it passes raw HTTP semantics to Axum and does not create API Gateway-specific operation context, authorizer, or front-door route.
 
 - `admin_overview/` owns the admin-only `GET /api/v1/admin/overview` controller. It maps the bounded, authoritative PostgreSQL overview result to a versioned REST response and always sends `Cache-Control: no-store`; it exposes no PII or secrets and persists no audit event.
 - `auctions/` owns administrator-only Auction create/detail/update at `POST /api/v1/admin/auctions` and `GET`/`PATCH /api/v1/admin/auctions/{auctionId}`. It also owns public `GET /api/v1/auctions`, `GET /api/v1/auctions/{auctionId}`, and `GET /api/v1/auctions/{auctionId}/product-listings`. Public directory and catalogue cursors are strict and scoped; every response sends `Cache-Control: no-store`.
@@ -63,7 +63,7 @@
 ## Test Lifecycle
 
 - Keep API acceptance source modules by route/unit under `tests/api_cases/`, but run compatible modules through the single `tests/api.rs` suite binary. Shared Postgres, LocalStack/OpenSearch, and normal API server fixtures are process-lived; mutable DB/OpenSearch data resets after each test.
-- Keep private Lambda adapter tests beside `lambda.rs`; HTTP API v2 fixtures traverse the real test-composed router and assert transport semantics without widening the adapter API.
+- Keep Lambda adapter unit tests beside `lambda.rs`. Put real HTTP API v2/router composition cases in `tests/lambda_http_api_v2.rs`; they invoke the deliberate public Lambda transport boundary and share `tests/api_support/` fixtures.
 
 ## Verification
 

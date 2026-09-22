@@ -66,14 +66,6 @@ export class Observability extends Construct {
     apiAlarm(this, props.stageName, "Api5XXErrorAlarm", "5XXError", props.api, 5, 1, "Sum").addAlarmAction(alarmAction);
     apiAlarm(this, props.stageName, "ApiLatencyAlarm", "IntegrationLatency", props.api, 3000, 2, "Average").addAlarmAction(alarmAction);
 
-    lambdaAlarm(
-      this,
-      props.stageName,
-      "InitialFxRateSnapshotProviderErrorAlarm",
-      "Errors",
-      `fxrate-initial-snapshot-provider-${props.stageName}`,
-      1,
-    ).addAlarmAction(alarmAction);
 
     for (const [key, fn] of Object.entries(props.functions) as [LambdaKey, unknown][]) {
       if (!fn) {

@@ -111,16 +111,32 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(JSON.stringify(outputs)).not.toContain("aura_replication");
   });
 
-  test("passes only the exact runtime secret ARN to PostgreSQL Lambdas", () => {
+  test("keeps runtime and private migration PostgreSQL secrets separately scoped", () => {
     const stacks = createStacks(stage);
     const compute = Template.fromStack(stacks.compute);
-    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
-      .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
+    const initialization = Template.fromStack(stacks.initialization!);
+    const functions = [
+      ...Object.values(compute.findResources("AWS::Lambda::Function")),
+      ...Object.values(initialization.findResources("AWS::Lambda::Function")),
+    ].filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
+    const migration = functions.find((resource) =>
+      resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
+    );
+    const runtimeFunctions = functions.filter((resource) =>
+      resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
+    );
 
-    expect(functions).toHaveLength(6);
-    const runtimeSecretArn = functions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
+    expect(functions).toHaveLength(7);
+    expect(runtimeFunctions).toHaveLength(6);
+    expect(migration).toBeDefined();
+    expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(1);
+    initialization.resourceCountIs("AWS::Lambda::EventSourceMapping", 0);
+    initialization.resourceCountIs("AWS::Events::Rule", 0);
+    expect(JSON.stringify(compute.toJSON())).not.toContain(`database-migration-lambda-${stage}`);
+    expect(JSON.stringify(compute.toJSON())).toContain(`fxrate-lambda-${stage}`);
+    const runtimeSecretArn = runtimeFunctions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
     expect(runtimeSecretArn).toBeDefined();
-    for (const functionResource of functions) {
+    for (const functionResource of runtimeFunctions) {
       const environment = functionResource.Properties.Environment.Variables;
       expect(JSON.stringify(environment.POSTGRES_HOST)).not.toContain(`/postgres/${stage}/host`);
       expect(environment.POSTGRES_SECRET_ARN).toEqual(runtimeSecretArn);
@@ -133,72 +149,164 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       expect(JSON.stringify(functionResource.Properties.Layers)).toContain("PostgresTlsRootCertificateLayer");
     }
 
-    const runtimeSecretReadStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
+    const migrationEnvironment = migration!.Properties.Environment.Variables;
+    expect(migration!.Properties).toMatchObject({
+      Runtime: "provided.al2023",
+      Architectures: ["x86_64"],
+      Timeout: 840,
+    });
+    expect(migrationEnvironment.POSTGRES_SECRET_ARN).toBeUndefined();
+    expect(migrationEnvironment.POSTGRES_USERNAME).toBeUndefined();
+    expect(migrationEnvironment.POSTGRES_PASSWORD).toBeUndefined();
+    expect(migrationEnvironment.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    expect(migrationEnvironment.POSTGRES_TLS_ROOT_CERT).toBe(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
+    expect(Object.keys(migrationEnvironment).filter((name) => name.endsWith("_SECRET_ARN"))).toEqual([
+      "POSTGRES_ADMIN_SECRET_ARN",
+      "POSTGRES_MIGRATION_SECRET_ARN",
+      "POSTGRES_REPLICATION_SECRET_ARN",
+      "POSTGRES_RUNTIME_SECRET_ARN",
+    ]);
+    expect(migration!.Properties.Layers).toHaveLength(1);
+
+    const secretReadStatements = [
+      ...Object.values(compute.findResources("AWS::IAM::Policy")),
+      ...Object.values(initialization.findResources("AWS::IAM::Policy")),
+    ]
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
+    const runtimeSecretReadStatements = secretReadStatements.filter((statement) =>
+      JSON.stringify(statement.Resource) === JSON.stringify(runtimeSecretArn),
+    );
+    const migrationSecretReadStatement = secretReadStatements.find((statement) =>
+      Array.isArray(statement.Resource) && statement.Resource.length === 4,
+    );
     expect(runtimeSecretReadStatements).toHaveLength(6);
-    for (const statement of runtimeSecretReadStatements) {
-      expect(statement).toEqual({
-        Action: "secretsmanager:GetSecretValue",
-        Effect: "Allow",
-        Resource: runtimeSecretArn,
+    expect(migrationSecretReadStatement).toMatchObject({
+      Action: "secretsmanager:GetSecretValue",
+      Effect: "Allow",
+    });
+    expect(migrationSecretReadStatement?.Resource).toHaveLength(4);
+    expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresAdminCredentials");
+    expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresRuntimeCredentials");
+    expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresMigrationCredentials");
+    expect(JSON.stringify(migrationSecretReadStatement?.Resource)).toContain("PostgresReplicationCredentials");
+
+    const layers = [
+      ...Object.values(compute.findResources("AWS::Lambda::LayerVersion")),
+      ...Object.values(initialization.findResources("AWS::Lambda::LayerVersion")),
+    ];
+    expect(layers).toHaveLength(2);
+    for (const layer of layers) {
+      expect(layer.Properties).toMatchObject({
+        CompatibleRuntimes: ["provided.al2023"],
+        Description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
       });
     }
-
-    const layers = Object.values(compute.findResources("AWS::Lambda::LayerVersion"));
-    expect(layers).toHaveLength(1);
-    expect(layers[0].Properties).toMatchObject({
-      CompatibleRuntimes: ["provided.al2023"],
-      Description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
-    });
   });
 
-  test("keeps runtime credential retrieval on a distinct application-only Secrets Manager endpoint", () => {
+  test("routes runtime credential retrieval through the shared private DMS Secrets Manager endpoint", () => {
     const stacks = createStacks(stage);
+    const network = Template.fromStack(stacks.network!);
     const data = Template.fromStack(stacks.data);
     const compute = Template.fromStack(stacks.compute);
-    const runtimeSecret = Object.entries(data.findResources("AWS::SecretsManager::Secret"))
+    const secrets = data.findResources("AWS::SecretsManager::Secret");
+    const runtimeSecret = Object.entries(secrets)
       .find(([, secret]) => secret.Properties.Name === `/aura-historia/${stage}/postgres/runtime`);
-    const runtimeEndpoint = Object.values(data.findResources("AWS::EC2::VPCEndpoint"))
-      .find((endpoint) => JSON.stringify(endpoint.Properties.PolicyDocument).includes("secretsmanager:GetSecretValue")
-        && !JSON.stringify(endpoint.Properties.PolicyDocument).includes("secretsmanager:DescribeSecret"));
+    const replicationSecret = Object.entries(secrets)
+      .find(([, secret]) => secret.Properties.Name === `/aura-historia/${stage}/postgres/replication`);
+    const adminSecret = Object.entries(secrets)
+      .find(([, secret]) => secret.Properties.Name === `/aura-historia/${stage}/postgres/admin`);
+    const migrationSecret = Object.entries(secrets)
+      .find(([, secret]) => secret.Properties.Name === `/aura-historia/${stage}/postgres/migrator`);
+    const secretsManagerEndpoints = Object.values(data.findResources("AWS::EC2::VPCEndpoint"))
+      .filter((endpoint) => JSON.stringify(endpoint.Properties.ServiceName).includes("secretsmanager"));
+    const groups = Object.entries(network.findResources("AWS::EC2::SecurityGroup"));
+    const applicationSecurityGroup = groups
+      .find(([, group]) => group.Properties.GroupDescription === "Backend application workloads in private application subnets");
+    const dmsEndpointSecurityGroup = groups
+      .find(([, group]) => group.Properties.GroupDescription === "DMS interface endpoint boundary");
 
     expect(runtimeSecret).toBeDefined();
-    expect(runtimeEndpoint).toBeDefined();
-    expect(runtimeEndpoint?.Properties).toMatchObject({
+    expect(replicationSecret).toBeDefined();
+    expect(adminSecret).toBeDefined();
+    expect(migrationSecret).toBeDefined();
+    expect(secretsManagerEndpoints).toHaveLength(1);
+    expect(applicationSecurityGroup).toBeDefined();
+    expect(dmsEndpointSecurityGroup).toBeDefined();
+
+    const [runtimeSecretId] = runtimeSecret!;
+    const [replicationSecretId] = replicationSecret!;
+    const [adminSecretId] = adminSecret!;
+    const [migrationSecretId] = migrationSecret!;
+    const [applicationSecurityGroupId] = applicationSecurityGroup!;
+    const [dmsEndpointSecurityGroupId] = dmsEndpointSecurityGroup!;
+    const [secretsManagerEndpoint] = secretsManagerEndpoints;
+    const endpointPolicy = secretsManagerEndpoint.Properties.PolicyDocument;
+    const policyStatements = endpointPolicy.Statement as {
+      readonly Action: unknown;
+      readonly Resource: unknown;
+    }[];
+    const getSecretValueStatement = policyStatements
+      .find((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
+    const describeSecretStatement = policyStatements
+      .find((statement) => JSON.stringify(statement.Action).includes("secretsmanager:DescribeSecret"));
+    const policyResources = policyStatements.flatMap((statement) =>
+      Array.isArray(statement.Resource) ? statement.Resource : [statement.Resource],
+    );
+
+    expect(secretsManagerEndpoint.Properties).toMatchObject({
       PrivateDnsEnabled: true,
       VpcEndpointType: "Interface",
     });
-    expect(JSON.stringify(runtimeEndpoint?.Properties.ServiceName)).toContain("secretsmanager");
-    const [runtimeSecretId] = runtimeSecret!;
-    expect(runtimeEndpoint?.Properties.PolicyDocument).toEqual({
-      Statement: [{
-        Action: "secretsmanager:GetSecretValue",
-        Effect: "Allow",
-        Principal: { AWS: "*" },
-        Resource: { Ref: runtimeSecretId },
-      }],
-      Version: "2012-10-17",
+    expect(JSON.stringify(secretsManagerEndpoint.Properties.ServiceName)).toContain("secretsmanager");
+    expect(JSON.stringify(secretsManagerEndpoint.Properties.SecurityGroupIds)).toContain(dmsEndpointSecurityGroupId);
+    expect(getSecretValueStatement).toMatchObject({
+      Action: "secretsmanager:GetSecretValue",
+      Effect: "Allow",
+      Principal: { AWS: "*" },
+      Resource: [
+        { Ref: adminSecretId },
+        { Ref: runtimeSecretId },
+        { Ref: migrationSecretId },
+        { Ref: replicationSecretId },
+      ],
     });
+    expect(describeSecretStatement).toMatchObject({
+      Action: "secretsmanager:DescribeSecret",
+      Effect: "Allow",
+      Principal: { AWS: "*" },
+      Resource: { Ref: replicationSecretId },
+    });
+    expect(policyResources).not.toContain("*");
+    expect(JSON.stringify(policyResources)).toContain(adminSecretId);
+    expect(JSON.stringify(policyResources)).toContain(migrationSecretId);
 
-    const applicationSecurityGroup = Object.values(compute.findResources("AWS::Lambda::Function"))
+    const applicationEndpointEgress = Object.values(network.findResources("AWS::EC2::SecurityGroupEgress"))
+      .find((rule) => JSON.stringify(rule.Properties.GroupId).includes(applicationSecurityGroupId)
+        && JSON.stringify(rule.Properties.DestinationSecurityGroupId).includes(dmsEndpointSecurityGroupId));
+    const endpointApplicationIngress = Object.values(network.findResources("AWS::EC2::SecurityGroupIngress"))
+      .find((rule) => JSON.stringify(rule.Properties.GroupId).includes(dmsEndpointSecurityGroupId)
+        && JSON.stringify(rule.Properties.SourceSecurityGroupId).includes(applicationSecurityGroupId));
+    const endpointIngress = Object.values(network.findResources("AWS::EC2::SecurityGroupIngress"))
+      .filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(dmsEndpointSecurityGroupId));
+    const runtimeLambdaSecurityGroup = Object.values(compute.findResources("AWS::Lambda::Function"))
       .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)
       ?.Properties.VpcConfig.SecurityGroupIds[0];
-    const endpointSecurityGroup = runtimeEndpoint?.Properties.SecurityGroupIds[0];
-    const ingress = Object.values(data.findResources("AWS::EC2::SecurityGroupIngress"))
-      .filter((rule) => JSON.stringify(rule.Properties.GroupId) === JSON.stringify(endpointSecurityGroup));
 
-    expect(ingress).toHaveLength(1);
-    expect(ingress[0]).toMatchObject({
-      Type: "AWS::EC2::SecurityGroupIngress",
-      Properties: {
-        GroupId: endpointSecurityGroup,
-        IpProtocol: "tcp",
-        FromPort: 443,
-        ToPort: 443,
-        SourceSecurityGroupId: applicationSecurityGroup,
-      },
+    expect(applicationEndpointEgress?.Properties).toMatchObject({
+      IpProtocol: "tcp",
+      FromPort: 443,
+      ToPort: 443,
     });
+    expect(endpointApplicationIngress?.Properties).toMatchObject({
+      IpProtocol: "tcp",
+      FromPort: 443,
+      ToPort: 443,
+    });
+    expect(endpointIngress).toHaveLength(3);
+    expect(endpointIngress.every((rule) => rule.Properties.SourceSecurityGroupId !== undefined
+      && rule.Properties.CidrIp === undefined)).toBe(true);
+    expect(JSON.stringify(runtimeLambdaSecurityGroup)).toContain(applicationSecurityGroupId);
   });
 
   test("uses a pinned public RDS CA asset without private material", () => {

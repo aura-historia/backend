@@ -231,6 +231,8 @@ In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicat
 
 `aura-historia-cron` is the canonical scheduled runtime. It registers UTC timer triggers and invokes service-owned use cases; scheduler libraries never own idempotency, transactions, checkpoints, or business retries. The runtime owns local overlap prevention, execution timeout/panic containment, shutdown draining, and health/readiness only.
 
+`database-migration-lambda` is an explicit operational exception, not an application runtime or service use case. Protected manual initialization invokes it to bootstrap PostgreSQL roles and run embedded schema migrations over private verified-TLS access. It has no API route, schedule, event source, or CloudFormation custom-resource invocation; ordinary deployment and application startup never run migrations. It may use direct operational SQL, but no domain/service crate may depend on it.
+
 ### 3.6 Dependency direction
 
 ```text

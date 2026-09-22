@@ -116,21 +116,43 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
 
     const endpointIngress = Object.values(template.findResources("AWS::EC2::SecurityGroupIngress"))
       .filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(endpoint![0]));
-    expect(endpointIngress).toEqual([expect.objectContaining({
-      Properties: expect.objectContaining({
-        FromPort: 443,
-        ToPort: 443,
-        SourceSecurityGroupId: expect.anything(),
+    expect(endpointIngress).toHaveLength(3);
+    expect(endpointIngress).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        Properties: expect.objectContaining({
+          Description: "DMS AWS API calls",
+          FromPort: 443,
+          ToPort: 443,
+          SourceSecurityGroupId: expect.anything(),
+        }),
       }),
-    })]);
+      expect.objectContaining({
+        Properties: expect.objectContaining({
+          Description: "Application runtime Secrets Manager calls",
+          FromPort: 443,
+          ToPort: 443,
+          SourceSecurityGroupId: expect.anything(),
+        }),
+      }),
+      expect.objectContaining({
+        Properties: expect.objectContaining({
+          Description: "Migration runtime Secrets Manager calls",
+          FromPort: 443,
+          ToPort: 443,
+          SourceSecurityGroupId: expect.anything(),
+        }),
+      }),
+    ]));
   });
 
   test("attaches only PostgreSQL Lambdas to private application subnets", () => {
     const app = new cdk.App({ analyticsReporting: false });
     const stacks = createApplicationStacks(app, { stage });
     const compute = Template.fromStack(stacks.compute);
-    const functions = Object.values(compute.findResources("AWS::Lambda::Function"));
-    const applicationFunctions = functions.filter((resource) =>
+    const initialization = Template.fromStack(stacks.initialization!);
+    const computeFunctions = Object.values(compute.findResources("AWS::Lambda::Function"));
+    const initializationFunctions = Object.values(initialization.findResources("AWS::Lambda::Function"));
+    const applicationFunctions = [...computeFunctions, ...initializationFunctions].filter((resource) =>
       [
         "aura-historia-api",
         "cognito-post-confirmation",
@@ -141,12 +163,27 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
       ]
         .some((name) => resource.Properties.FunctionName === `${name}-${stage}`),
     );
-    const logRetention = functions.find((resource) => resource.Properties.FunctionName === `cloudwatch-log-retention-lambda-${stage}`);
+    const migration = initializationFunctions.find((resource) =>
+      resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
+    );
+    const logRetention = computeFunctions.find((resource) => resource.Properties.FunctionName === `cloudwatch-log-retention-lambda-${stage}`);
+    const groups = Object.entries(networkTemplate(stage).findResources("AWS::EC2::SecurityGroup"));
+    const migrationSecurityGroup = groups
+      .find(([, group]) => group.Properties.GroupDescription === "Approved database migration workload boundary");
+    const migrationEgress = Object.values(networkTemplate(stage).findResources("AWS::EC2::SecurityGroupEgress"))
+      .filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(migrationSecurityGroup?.[0] ?? ""));
 
-    const vpcAttachedFunctions = functions.filter((resource) => resource.Properties.VpcConfig !== undefined);
+    const vpcAttachedFunctions = [...computeFunctions, ...initializationFunctions]
+      .filter((resource) => resource.Properties.VpcConfig !== undefined);
     expect(applicationFunctions).toHaveLength(6);
     expect(applicationFunctions.every((resource) => resource.Properties.VpcConfig !== undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(6);
+    expect(migrationSecurityGroup).toBeDefined();
+    expect(migration?.Properties.VpcConfig).toBeDefined();
+    expect(JSON.stringify(migration?.Properties.VpcConfig.SecurityGroupIds)).toContain(migrationSecurityGroup![0]);
+    expect(migrationEgress).toHaveLength(2);
+    expect(migrationEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
+    expect(migrationEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
+    expect(vpcAttachedFunctions).toHaveLength(7);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

@@ -4,8 +4,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
-import * as fs from "node:fs";
-import * as path from "node:path";
+
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -19,6 +18,7 @@ export interface EventingProps {
   readonly workerQueues: WorkerQueueCatalog;
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
+  readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
 }
 
 export class Eventing extends Construct {
@@ -43,18 +43,21 @@ export class Eventing extends Construct {
       : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
     createCloudWatchLogRetentionRule(this, props.functions);
-    createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
-    createSqsEventSources(
+    createPartnerEventRules(
       this,
+      this.stripeEventBus,
+      this.shopifyEventBus,
       props.functions,
       props.queues,
-      props.workerQueues,
-      props.productListingOpenSearchVersion,
+      props.productListingOpenSearchConsumerActivation,
     );
 
-    if (!props.config.isEphemeral && props.functions.fxRateSync) {
-      createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
-      new events.Rule(this, "FxRateSyncStartSchedule", {
+    if (!props.config.isEphemeral) {
+      if (!props.functions.fxRateSync) {
+        throw new Error("Real eventing requires the FX Lambda.");
+      }
+      const fxRateSyncStartSchedule = new events.Rule(this, "FxRateSyncStartSchedule", {
+        enabled: false,
         schedule: events.Schedule.expression("cron(0 6,18 * * ? *)"),
         targets: [
           new targets.LambdaFunction(props.functions.fxRateSync, {
@@ -63,36 +66,26 @@ export class Eventing extends Construct {
           }),
         ],
       });
+      const fxRateSyncStartScheduleResource = fxRateSyncStartSchedule.node.defaultChild as events.CfnRule;
+      fxRateSyncStartScheduleResource.state = cdk.Fn.conditionIf(
+        props.productListingOpenSearchConsumerActivation.logicalId,
+        "ENABLED",
+        "DISABLED",
+      ) as unknown as string;
+
     }
+
+    createSqsEventSources(
+      this,
+      props.functions,
+      props.queues,
+      props.workerQueues,
+      props.productListingOpenSearchVersion,
+      props.productListingOpenSearchConsumerActivation,
+    );
   }
 }
 
-function createInitialFxRateSnapshot(
-  scope: Construct,
-  fxRateSync: lambda.IFunction,
-  stageName: string,
-): void {
-  const provider = new lambda.Function(scope, "InitialFxRateSnapshotProvider", {
-    functionName: `fxrate-initial-snapshot-provider-${stageName}`,
-    runtime: lambda.Runtime.NODEJS_20_X,
-    handler: "index.handler",
-    timeout: cdk.Duration.seconds(30),
-    code: lambda.Code.fromInline(resourceCode("fx-rate-initial-snapshot-custom-resource.js")),
-  });
-  fxRateSync.grantInvoke(provider);
-
-  new cdk.CustomResource(scope, "InitialFxRateSnapshot", {
-    serviceToken: provider.functionArn,
-    properties: {
-      FunctionName: fxRateSync.functionName,
-      SourceEventId: `deployment:fxrate:initial:${stageName}:v1`,
-    },
-  });
-}
-
-function resourceCode(fileName: string): string {
-  return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
-}
 
 function createPartnerEventRules(
   scope: Construct,
@@ -100,6 +93,7 @@ function createPartnerEventRules(
   shopifyEventBus: events.IEventBus,
   functions: LambdaFunctions,
   queues: QueueCatalog,
+  activation: cdk.CfnCondition,
 ): void {
   const shopifyRule = new events.Rule(scope, "ShopifyEventRule", {
     eventBus: shopifyEventBus,
@@ -112,9 +106,10 @@ function createPartnerEventRules(
     },
     targets: [new targets.SqsQueue(queues.shopify.queue)],
   });
+  setRuleState(shopifyRule, activation);
   allowEventRuleToSendToQueue(scope, "ShopifyEventRuleQueuePolicy", shopifyRule, queues.shopify.queue);
 
-  new events.Rule(scope, "StripeEventRule", {
+  const stripeRule = new events.Rule(scope, "StripeEventRule", {
     eventBus: stripeEventBus,
     eventPattern: {
       detail: {
@@ -127,6 +122,12 @@ function createPartnerEventRules(
     },
     targets: [new targets.LambdaFunction(functions.stripe)],
   });
+  setRuleState(stripeRule, activation);
+}
+
+function setRuleState(rule: events.Rule, activation: cdk.CfnCondition): void {
+  const resource = rule.node.defaultChild as events.CfnRule;
+  resource.state = cdk.Fn.conditionIf(activation.logicalId, "ENABLED", "DISABLED") as unknown as string;
 }
 
 function allowEventRuleToSendToQueue(scope: Construct, id: string, rule: events.Rule, queue: sqs.IQueue): void {
@@ -173,8 +174,9 @@ function createSqsEventSources(
   queues: QueueCatalog,
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
+  activation: cdk.CfnCondition,
 ): void {
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
+  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
 
   const productListingOpenSearch = workerQueues["product-listing-opensearch"];
   if (!productListingOpenSearch) {
@@ -190,12 +192,14 @@ function createSqsEventSources(
     ],
     resources: [productListingOpenSearch.queue.queueArn],
   }));
-  new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
+  const productListingOpenSearchMapping = new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
     batchSize: 1,
+    enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
+
 }
 
 function addSqsEventSource(
@@ -204,10 +208,14 @@ function addSqsEventSource(
   batchSize: number,
   reportBatchItemFailures: boolean,
   maxBatchingWindowSeconds?: number,
+  activation?: cdk.CfnCondition,
 ): void {
   fn.addEventSource(
     new lambdaEventSources.SqsEventSource(queue, {
       batchSize,
+      enabled: activation
+        ? cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean
+        : undefined,
       reportBatchItemFailures,
       maxBatchingWindow: maxBatchingWindowSeconds === undefined ? undefined : cdk.Duration.seconds(maxBatchingWindowSeconds),
     }),

@@ -241,11 +241,12 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(compute.toJSON().Resources.EventingShopifyEventRule401F6A4E).toBeDefined();
   });
 
-  test("wires ProductListing OpenSearch to its queue", () => {
+  test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     expect(mappings).toHaveLength(2);
     const productListingMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 1);
     expect(productListingMapping?.Properties).toMatchObject({
+      Enabled: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(productListingMapping?.Properties.EventSourceArn))

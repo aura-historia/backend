@@ -2,11 +2,14 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import {
+  DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
   DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID,
+  DMS_CDC_INITIAL_START_POSITION_PATTERN,
   type StageName,
 } from "../src/config";
 
 const REAL_STAGES = ["dev", "prod"] as const;
+const POSTGRESQL_NATIVE_LSN_EXAMPLE = "4AF/B00000D0";
 
 function dataTemplate(stage: StageName): Template {
   const app = new cdk.App({ analyticsReporting: false });
@@ -17,25 +20,47 @@ function resourceProperties(template: Template, type: string): Record<string, un
   return Object.values(template.findResources(type)).map((resource) => resource.Properties as Record<string, unknown>);
 }
 
+describe("DMS initial native LSN input", () => {
+  test("accepts a PostgreSQL native LSN and rejects timestamps, checkpoints, defaults, and malformed values", () => {
+    const pattern = new RegExp(DMS_CDC_INITIAL_START_POSITION_PATTERN);
+
+    expect(POSTGRESQL_NATIVE_LSN_EXAMPLE).toMatch(pattern);
+    for (const invalidValue of [
+      "2026-09-21T12:00:00",
+      "checkpoint:V1#1#000004AF/B00000D0#0#0#*#0#0",
+      "now",
+      "4AF/B00000D0/1",
+      "4AG/B00000D0",
+      "4af/b00000d0",
+    ]) {
+      expect(invalidValue).not.toMatch(pattern);
+    }
+  });
+});
+
 describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
-  test("declares one private provisioned DMS instance and a stopped CDC task with an operator-supplied stable start timestamp", () => {
+  test("declares one private provisioned DMS instance and a stopped CDC task with an approved native LSN first start", () => {
     const template = dataTemplate(stage);
     const instances = template.findResources("AWS::DMS::ReplicationInstance");
     const [instanceId] = Object.keys(instances);
     const [instance] = resourceProperties(template, "AWS::DMS::ReplicationInstance");
     const [task] = resourceProperties(template, "AWS::DMS::ReplicationTask");
+    const source = resourceProperties(template, "AWS::DMS::Endpoint")
+      .find((endpoint) => endpoint.EndpointType === "source");
     const streams = resourceProperties(template, "AWS::Kinesis::Stream");
-    const startPositionParameter = Object.entries(template.findParameters("*"))
-      .find(([, parameter]) => (parameter as Record<string, unknown>).Description === "Required stable UTC timestamp for the first DMS CDC start; retain after task creation.");
+    const startPositionParameter = template.findParameters("*")[DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID];
 
     expect(startPositionParameter).toBeDefined();
-    const [startPositionParameterId, startPositionParameterProperties] = startPositionParameter!;
+    const startPositionParameterId = DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID;
+    const startPositionParameterProperties = startPositionParameter as Record<string, unknown>;
     expect(startPositionParameterId).toBe(DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID);
     expect(startPositionParameterProperties).toMatchObject({
       Type: "String",
-      AllowedPattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$",
-      ConstraintDescription: "must be a UTC timestamp in YYYY-MM-DDTHH:MM:SS format",
+      Description: "Required approved PostgreSQL LSN for the first DMS CDC start on the named slot. No default; later starts use resume-processing.",
+      AllowedPattern: DMS_CDC_INITIAL_START_POSITION_PATTERN,
+      ConstraintDescription: DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
     });
+    expect(startPositionParameterProperties).not.toHaveProperty("Default");
 
     expect(instanceId).toBeDefined();
     expect(instance).toMatchObject({
@@ -53,6 +78,11 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       CdcStartPosition: { Ref: startPositionParameterId },
       ReplicationInstanceArn: { Ref: instanceId },
     });
+    expect(task).not.toHaveProperty("CdcStartTime");
+    expect(source?.PostgreSqlSettings).toMatchObject({
+      SlotName: `aura_historia_dms_cdc_${stage}`,
+      PluginName: "test-decoding",
+    });
 
     expect(streams).toHaveLength(1);
     expect(streams[0]).toMatchObject({
@@ -64,7 +94,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect(JSON.stringify(streams[0].StreamEncryption)).toContain("KMS");
   });
 
-  test("keeps DMS private-DNS interface endpoints scoped to replication resources", () => {
+  test("keeps DMS private-DNS interface endpoints scoped to Kinesis and the shared application and migration secret contract", () => {
     const template = dataTemplate(stage);
     const endpoints = resourceProperties(template, "AWS::EC2::VPCEndpoint");
     const dmsEndpoints = endpoints.filter((endpoint) => {
@@ -83,7 +113,10 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     }
     expect(JSON.stringify(dmsEndpoints)).toContain("kinesis-streams");
     expect(JSON.stringify(dmsEndpoints)).toContain("secretsmanager");
-    expect(JSON.stringify(dmsEndpoints)).not.toContain("StoragePostgresRuntimeCredentials");
+    expect(JSON.stringify(dmsEndpoints)).toContain("StoragePostgresAdminCredentials");
+    expect(JSON.stringify(dmsEndpoints)).toContain("StoragePostgresRuntimeCredentials");
+    expect(JSON.stringify(dmsEndpoints)).toContain("StoragePostgresMigrationCredentials");
+    expect(JSON.stringify(dmsEndpoints)).toContain("StoragePostgresReplicationCredentials");
 
     const endpointPolicies = dmsEndpoints.map((endpoint) => JSON.stringify(endpoint.PolicyDocument));
     expect(endpointPolicies.some((policy) => policy.includes("kinesis:PutRecord"))).toBe(true);
@@ -101,7 +134,9 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     const streamArn = { "Fn::GetAtt": [streamId, "Arn"] };
 
     const replicationSecret = secrets.find((secret) => secret.Name === `/aura-historia/${stage}/postgres/replication`);
+    const runtimeSecret = secrets.find((secret) => secret.Name === `/aura-historia/${stage}/postgres/runtime`);
     expect(replicationSecret).toBeDefined();
+    expect(runtimeSecret).toBeDefined();
     expect(JSON.stringify(replicationSecret?.GenerateSecretString)).toContain("aura_replication");
     expect(JSON.stringify(replicationSecret?.GenerateSecretString)).toContain("\\\"engine\\\":\\\"postgres\\\"");
     expect(JSON.stringify(template.toJSON().Outputs ?? {})).not.toContain("aura_replication");
@@ -115,6 +150,14 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       AssumeRolePolicyDocument: { Statement: [expect.objectContaining({ Principal: { Service: "dms.amazonaws.com" } })] },
     });
     expect(sourceSecretsRole?.AssumeRolePolicyDocument).not.toEqual(kinesisTargetRole?.AssumeRolePolicyDocument);
+    const sourceSecretsPolicy = policies.find((policy) =>
+      JSON.stringify(policy.Roles).includes("DmsCdcDmsSourceSecretsRole")
+      && JSON.stringify(policy.PolicyDocument).includes("secretsmanager:GetSecretValue"),
+    );
+    expect(sourceSecretsPolicy).toBeDefined();
+    expect(JSON.stringify(sourceSecretsPolicy?.PolicyDocument)).toContain("StoragePostgresReplicationCredentials");
+    expect(JSON.stringify(sourceSecretsPolicy?.PolicyDocument)).not.toContain("StoragePostgresRuntimeCredentials");
+    expect(JSON.stringify(sourceSecretsPolicy?.PolicyDocument)).not.toContain("\"Resource\":\"*\"");
 
     const targetPolicy = policies.find((policy) =>
       JSON.stringify(policy.PolicyDocument).includes("kinesis:PutRecords"),
