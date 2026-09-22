@@ -1,6 +1,6 @@
 use super::{
-    AWS_REGION_ENV, Attributes, QueueError, SQS_ENDPOINT_ENV, SqsQueueConfig, WORKER_QUEUE_URL_ENV,
-    private_policy, tls_denied, validate_attributes,
+    AWS_REGION_ENV, Attributes, CdcRouterQueueConfig, QueueError, SQS_ENDPOINT_ENV, SqsQueueConfig,
+    WORKER_QUEUE_URL_ENV, private_policy, tls_denied, validate_attributes,
 };
 use crate::WorkerScope;
 use aws_sdk_sqs::types::QueueAttributeName;
@@ -63,6 +63,40 @@ fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
         attributes.remove(&A::RedrivePolicy);
     }
     attributes
+}
+
+#[test]
+fn should_require_one_distinct_router_queue_url_for_every_production_scope() {
+    let mut values = HashMap::from([
+        (AWS_REGION_ENV, "eu-central-1".to_owned()),
+        ("STAGE", "prod".to_owned()),
+    ]);
+    for scope in WorkerScope::ALL {
+        values.insert(
+            scope.router_queue_url_env(),
+            format!(
+                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
+                scope.as_str()
+            ),
+        );
+    }
+
+    let config = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
+        .expect("all router queues configured");
+    let queues = config.into_queues();
+    assert_eq!(10, queues.len());
+    assert_eq!(
+        WorkerScope::ALL.to_vec(),
+        queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>()
+    );
+
+    values.remove(WorkerScope::NotificationDelivery.router_queue_url_env());
+    assert_eq!(
+        Err(QueueError::MissingConfig(
+            "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY"
+        )),
+        CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned()).map(|_| ())
+    );
 }
 
 #[test]

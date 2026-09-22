@@ -19,7 +19,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 use url::Url;
 use user_core::user_id::UserId;
 use uuid::Uuid;
@@ -134,6 +134,15 @@ enum PreparedPublication<'a> {
     Sqs(&'a crate::queue::SqsQueue, String),
 }
 
+/// A fully validated, serialized source-record fanout that has not been published yet.
+///
+/// This stays inside the worker transport boundary so a Kinesis invocation can retain a
+/// source record when its complete fanout is not confirmed.
+pub(crate) struct PreparedCdcBatch<'a> {
+    changes: usize,
+    publications: Vec<PreparedPublication<'a>>,
+}
+
 impl PreparedPublication<'_> {
     async fn publish(self) -> Result<(), CdcFanoutError> {
         match self {
@@ -146,9 +155,41 @@ impl PreparedPublication<'_> {
     }
 }
 
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerQueueRegistryError {
+    #[error("router queue registry is missing worker queue {0:?}")]
+    Missing(WorkerQueue),
+    #[error("router queue registry has duplicate worker queue {0:?}")]
+    Duplicate(WorkerQueue),
+}
+
 impl WorkerQueueRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Registers exactly one validated Standard SQS queue for every production scope before the
+    /// router begins consuming Kinesis. A missing or duplicated destination is a startup error,
+    /// not a source record that could be partially fanned out.
+    pub fn with_all_sqs_queues(
+        queues: impl IntoIterator<Item = crate::queue::SqsQueue>,
+    ) -> Result<Self, WorkerQueueRegistryError> {
+        let mut registry = Self::new();
+        for queue in queues {
+            let worker_queue = queue.config().scope().consumer_queue();
+            if registry.queues.contains_key(&worker_queue) {
+                return Err(WorkerQueueRegistryError::Duplicate(worker_queue));
+            }
+            registry
+                .queues
+                .insert(worker_queue, Destination::Sqs(Box::new(queue)));
+        }
+        for worker_queue in WorkerQueue::ALL {
+            if !registry.queues.contains_key(&worker_queue) {
+                return Err(WorkerQueueRegistryError::Missing(worker_queue));
+            }
+        }
+        Ok(registry)
     }
 
     pub fn with_all_queues(
@@ -372,6 +413,24 @@ impl CdcFanout {
     }
 
     pub async fn ingest_batch(&self, batch: &CdcBatch) -> Result<usize, CdcIngestError> {
+        let prepared = self.prepare_batch(batch)?;
+        self.publish_prepared(prepared, PUBLICATION_TIMEOUT).await
+    }
+
+    /// Parses exactly one DMS-to-Kinesis payload. Unlike the native ingress parser, this never
+    /// falls back to a Sequin or handwritten generic CDC shape.
+    pub(crate) fn prepare_dms_kinesis_record(
+        &self,
+        body: &[u8],
+    ) -> Result<PreparedCdcBatch<'_>, CdcIngestError> {
+        if body.len() > MAX_CDC_BODY_BYTES {
+            return Err(CdcIngestError::LimitExceeded);
+        }
+        let batch = parse_dms_kinesis_record(body).map_err(CdcIngestError::InvalidJson)?;
+        self.prepare_batch(&batch)
+    }
+
+    fn prepare_batch(&self, batch: &CdcBatch) -> Result<PreparedCdcBatch<'_>, CdcIngestError> {
         if batch.changes.len() > MAX_CDC_CHANGES {
             return Err(CdcIngestError::LimitExceeded);
         }
@@ -410,8 +469,23 @@ impl CdcFanout {
         }
         // Nothing has been published yet. Invalid later changes or missing destinations cannot
         // create a partial fanout. Network failures still can; redelivery is intentionally safe.
+        Ok(PreparedCdcBatch {
+            changes: batch.changes.len(),
+            publications,
+        })
+    }
+
+    pub(crate) async fn publish_prepared(
+        &self,
+        prepared: PreparedCdcBatch<'_>,
+        publication_timeout: std::time::Duration,
+    ) -> Result<usize, CdcIngestError> {
+        let PreparedCdcBatch {
+            changes,
+            publications,
+        } = prepared;
         let enqueued = publications.len();
-        tokio::time::timeout(PUBLICATION_TIMEOUT, async {
+        tokio::time::timeout(publication_timeout, async {
             for publication in publications {
                 publication.publish().await?;
             }
@@ -419,9 +493,9 @@ impl CdcFanout {
         })
         .await
         .map_err(|_| CdcFanoutError::PublicationDeadline)??;
-        debug!(
-            changes = batch.changes.len(),
-            enqueued, "CDC batch durably published or explicitly test-enqueued"
+        info!(
+            changes,
+            enqueued, "CDC source record fanout publication confirmed"
         );
         Ok(enqueued)
     }
@@ -604,6 +678,10 @@ fn parse_cdc_batch(body: &str) -> Result<CdcBatch, serde_json::Error> {
     }
 
     serde_json::from_value(value)
+}
+
+fn parse_dms_kinesis_record(body: &[u8]) -> Result<CdcBatch, serde_json::Error> {
+    serde_json::from_slice::<DmsKinesisRecord>(body)?.try_into()
 }
 
 #[derive(Debug, Deserialize)]

@@ -58,6 +58,8 @@ DmsCdc (real stages only)
 
 It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. The detailed start, slot, mapping, LOB, test, and cost contract is in [Migration F7](../docs/migration-f7-dms.md).
 
+The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. It does not activate the DMS task or consumer mapping; #1788 owns AWS evidence and controlled replay proof.
+
 ## Common commands
 
 Use Node **26**, matching the workflow pin. `npm ci` uses `package-lock.json`;
@@ -139,10 +141,12 @@ cargo lambda build --locked --release \
 `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
-native Axum router, and applies a `14 s` application request deadline. Native
-processes remain the local development entrypoints. The artifact has no worker
-polling loop, cron scheduler, health daemon, API Gateway route, Function URL, or
-reserved/provisioned concurrency.
+native Axum router, and applies a `14 s` application request deadline. The same
+artifact matrix packages `cdc-router-lambda` from `aura-historia-worker`: it is a
+`256 MiB` / `30 s` Kinesis-to-SQS transport adapter that has no database, native
+worker polling loop, cron scheduler, health daemon, API Gateway route, Function
+URL, or reserved/provisioned concurrency. Native processes remain the local
+development entrypoints.
 
 A Lambda root constructs only its selected dependencies during cold start and
 reuses immutable configuration plus pool/client handles during warm invocations.

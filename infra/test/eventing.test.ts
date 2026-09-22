@@ -36,7 +36,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingOpenSearchConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingOpenSearchConsumerEnabled" }, "true"],
     });
-    expect(mappings).toHaveLength(2);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 2 : 3);
     expect(mappings.find((mapping) => mapping.Properties?.BatchSize === 10)?.Properties).toMatchObject({
       Enabled: activation,
       FunctionResponseTypes: ["ReportBatchItemFailures"],

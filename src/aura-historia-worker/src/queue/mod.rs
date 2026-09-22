@@ -4,7 +4,8 @@ mod consumer;
 mod sqs;
 
 pub use config::{
-    AWS_REGION_ENV, QueueError, SQS_ENDPOINT_ENV, SqsQueueConfig, WORKER_QUEUE_URL_ENV,
+    AWS_REGION_ENV, CdcRouterQueueConfig, QueueError, SQS_ENDPOINT_ENV, SqsQueueConfig,
+    WORKER_QUEUE_URL_ENV,
 };
 pub use consumer::WorkerQueueReceiver;
 pub(crate) use consumer::{JobOutcome, RuntimeControl};

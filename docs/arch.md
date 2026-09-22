@@ -1820,6 +1820,14 @@ Return Sequin `202` only after SQS confirms publication of **every** required jo
 
 Ingress is bounded: 1 MiB body, 100 changes, 500 derived jobs, 8s total publication deadline inside a 10s HTTP request deadline. Sequin's operational delivery timeout MUST exceed 10s (15s recommended), with batches at most 100 and within byte limits. Deployment configuration belongs to the external Sequin owner, not the repository's test fixtures. Socket/header limits and exact configuration are in the [durable-worker runbook](durable-worker-runbook.md).
 
+#### DMS/Kinesis router transport
+
+The target real-stage router is a thin non-VPC Lambda with no PostgreSQL or provider credentials. It accepts only native Kinesis records with an unmodified usable sequence number and a strict DMS `{ data, metadata }` payload; it never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
+
+The handler reserves response headroom from its actual Lambda deadline, processes records in stream order, and returns only the earliest unconfirmed Kinesis sequence number with `ReportBatchItemFailures`; it then stops. Records after that checkpoint are unprocessed, never successful. A missing sequence number fails the whole invocation because Lambda cannot receive a truthful partial failure. Expired budget, malformed/unsupported input, incompatible schema control, failed/lost SQS confirmation, and partial fanout are failures. Valid DMS non-trigger operations and selected informational controls are acknowledged no-ops. SQS IDs, DMS delivery metadata, and Kinesis sequence numbers are transport correlation only, never business identity.
+
+The mapping is disabled by default and uses `TRIM_HORIZON`, at most 100 records/one-second window, batch bisection, three retry attempts, and one-hour maximum record age. Exhausted records go to a private retained S3 on-failure archive containing the native replayable invocation, not a metadata-only pointer or worker DLQ. Runtime has no archive read/replay/purge ability; a tested fail-closed decoder and controlled operator procedure preserve source ARN, sequence, DMS schema identity, and original bytes. This target declaration does not claim AWS checkpoint or destination proof; #1788 owns that gate. The detailed contract is in [Migration F7](migration-f7-dms.md).
+
 ### 12.4 Durable delivery guarantee
 
 Production composition uses ten separate Standard SQS source/DLQ pairs, one per worker scope, with no user-tier scope or tier dimension. There is no worker inbox, processed-job table, or worker-owned PostgreSQL DLQ. In-memory queue helpers are test composition only; the normalizer's bounded cursor/continuation FIFO is reconstructible scheduling state, not acknowledged job custody.
@@ -1940,9 +1948,9 @@ The initial business schema defines `completed_lease_token` and `completed_at`. 
 
 ### 12.9 Failure handling
 
-Transient failures use bounded 30–900s exponential visibility backoff with jitter; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain undeleted for the DLQ. Malformed upstream CDC never reaches SQS: it stays unacknowledged in Sequin and needs source/subscription/schema diagnosis, not DLQ redrive.
+Transient failures use bounded 30–900s exponential visibility backoff with jitter; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain undeleted for the DLQ. Malformed upstream CDC never reaches SQS: Sequin delivery stays unacknowledged; the DMS/Kinesis router instead returns the earliest Kinesis failure and its configured retry/age policy sends the complete invocation to the retained S3 archive. Neither is worker-DLQ redrive.
 
-Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. Runtime roles have no DLQ message, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
+Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the unchanged `requestPayload`, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
 
 Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the four-minute attempt budget includes claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
 
@@ -1956,14 +1964,14 @@ Monitor at least:
 * retained WAL growth;
 * Sequin delivery lag and retries;
 * unacknowledged change age;
-* router failures;
+* router failures, throttles, Kinesis iterator age, and failure-destination delivery failures;
 * source queue depth/oldest age and DLQ depth;
 * handler failures and latency;
 * duplicate and stale-version rejections;
 * projection freshness;
 * projection rebuild status.
 
-CDK currently defines prod-only source oldest-age >= 900s and DLQ visible-count >= 1 alarms (Maximum, one 5-minute period, missing data not breaching). Worker attempt, circuit, settlement, and normalization signals are structured logs, not automatically provisioned custom metrics or dashboards. Deployment and broader monitoring coverage require operator verification.
+CDK defines prod-only source oldest-age >= 900s and DLQ visible-count >= 1 alarms (Maximum, one 5-minute period, missing data not breaching). The DMS router additionally alarms on 15-minute Lambda `IteratorAge`, `Errors`, `Throttles`, and `DestinationDeliveryFailures`; every alarm publishes to the production alarm topic. Worker attempt, circuit, settlement, and normalization signals are structured logs, not automatically provisioned custom metrics or dashboards. Deployment and broader monitoring coverage require operator verification.
 
 Structured logs SHOULD include, where available:
 
