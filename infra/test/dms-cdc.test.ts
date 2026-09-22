@@ -9,7 +9,6 @@ import {
 } from "../src/config";
 
 const REAL_STAGES = ["dev", "prod"] as const;
-const POSTGRESQL_NATIVE_LSN_EXAMPLE = "4AF/B00000D0";
 
 function dataTemplate(stage: StageName): Template {
   const app = new cdk.App({ analyticsReporting: false });
@@ -20,26 +19,9 @@ function resourceProperties(template: Template, type: string): Record<string, un
   return Object.values(template.findResources(type)).map((resource) => resource.Properties as Record<string, unknown>);
 }
 
-describe("DMS initial native LSN input", () => {
-  test("accepts a PostgreSQL native LSN and rejects timestamps, checkpoints, defaults, and malformed values", () => {
-    const pattern = new RegExp(DMS_CDC_INITIAL_START_POSITION_PATTERN);
-
-    expect(POSTGRESQL_NATIVE_LSN_EXAMPLE).toMatch(pattern);
-    for (const invalidValue of [
-      "2026-09-21T12:00:00",
-      "checkpoint:V1#1#000004AF/B00000D0#0#0#*#0#0",
-      "now",
-      "4AF/B00000D0/1",
-      "4AG/B00000D0",
-      "4af/b00000d0",
-    ]) {
-      expect(invalidValue).not.toMatch(pattern);
-    }
-  });
-});
 
 describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
-  test("declares one private provisioned DMS instance and a stopped CDC task with an approved native LSN first start", () => {
+  test("declares one private provisioned DMS instance and a stopped CDC task without a first-start position", () => {
     const template = dataTemplate(stage);
     const instances = template.findResources("AWS::DMS::ReplicationInstance");
     const [instanceId] = Object.keys(instances);
@@ -48,19 +30,15 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     const source = resourceProperties(template, "AWS::DMS::Endpoint")
       .find((endpoint) => endpoint.EndpointType === "source");
     const streams = resourceProperties(template, "AWS::Kinesis::Stream");
-    const startPositionParameter = template.findParameters("*")[DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID];
 
-    expect(startPositionParameter).toBeDefined();
-    const startPositionParameterId = DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID;
-    const startPositionParameterProperties = startPositionParameter as Record<string, unknown>;
-    expect(startPositionParameterId).toBe(DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID);
-    expect(startPositionParameterProperties).toMatchObject({
+    const startPositionParameter = template.findParameters("*")[DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID];
+    expect(startPositionParameter).toMatchObject({
       Type: "String",
-      Description: "Required approved PostgreSQL LSN for the first DMS CDC start on the named slot. No default; later starts use resume-processing.",
+      Default: "",
+      Description: "Optional compatibility LSN. Empty declares an unstarted greenfield task; existing stacks retain their prior approved first-start LSN.",
       AllowedPattern: DMS_CDC_INITIAL_START_POSITION_PATTERN,
       ConstraintDescription: DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
     });
-    expect(startPositionParameterProperties).not.toHaveProperty("Default");
 
     expect(instanceId).toBeDefined();
     expect(instance).toMatchObject({
@@ -75,7 +53,12 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect(task).toMatchObject({
       ReplicationTaskIdentifier: `aura-historia-cdc-${stage}`,
       MigrationType: "cdc",
-      CdcStartPosition: { Ref: startPositionParameterId },
+      CdcStartPosition: expect.objectContaining({
+        "Fn::If": expect.arrayContaining([
+          { Ref: DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID },
+          { Ref: "AWS::NoValue" },
+        ]),
+      }),
       ReplicationInstanceArn: { Ref: instanceId },
     });
     expect(task).not.toHaveProperty("CdcStartTime");

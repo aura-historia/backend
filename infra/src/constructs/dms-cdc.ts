@@ -162,16 +162,24 @@ export class DmsCdc extends Construct {
 
     const initialCdcStartPosition = new cdk.CfnParameter(this, dmsConfig.initialCdcStartPositionParameterId, {
       type: "String",
+      default: "",
       allowedPattern: DMS_CDC_INITIAL_START_POSITION_PATTERN,
       constraintDescription: DMS_CDC_INITIAL_START_POSITION_CONSTRAINT,
-      description: "Required approved PostgreSQL LSN for the first DMS CDC start on the named slot. No default; later starts use resume-processing.",
+      description: "Optional compatibility LSN. Empty declares an unstarted greenfield task; existing stacks retain their prior approved first-start LSN.",
     });
     initialCdcStartPosition.overrideLogicalId(DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID);
+    const hasInitialCdcStartPosition = new cdk.CfnCondition(this, "HasInitialCdcStartPosition", {
+      expression: cdk.Fn.conditionNot(cdk.Fn.conditionEquals(initialCdcStartPosition.valueAsString, "")),
+    });
 
     this.task = new dms.CfnReplicationTask(this, "CdcTask", {
       replicationTaskIdentifier: `aura-historia-cdc-${stage}`,
       migrationType: "cdc",
-      cdcStartPosition: initialCdcStartPosition.valueAsString,
+      cdcStartPosition: cdk.Fn.conditionIf(
+        hasInitialCdcStartPosition.logicalId,
+        initialCdcStartPosition.valueAsString,
+        cdk.Aws.NO_VALUE,
+      ) as unknown as string,
       replicationInstanceArn: this.replicationInstance.ref,
       sourceEndpointArn: this.sourceEndpoint.attrEndpointArn,
       targetEndpointArn: this.targetEndpoint.attrEndpointArn,

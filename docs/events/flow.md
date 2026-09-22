@@ -181,10 +181,11 @@ Current SQS payloads are `ProductListingEventJob`, `ProductListingRawRevisionJob
 The source/DLQ pair, Lambda mapping, and function version are retained while the
 mapping is off. The native and Lambda consumers must accept the same schema-2
 ProductListing OpenSearch job contract. Protected `Initialize (CD)` is the one manual
-first-run operation: it supplies the approved named-slot PostgreSQL LSN only when it
-creates data, deploys the private migration runtime and normal compute with event
-consumers off, runs role/bootstrap/schema initialization, captures the idempotent initial
-FX snapshot, then enables polling and partner event rules. Before starting it, pause the
+first-run operation: it applies the selected foundation revision, deploys the private
+migration runtime and normal compute with event consumers off, runs role/bootstrap/schema
+initialization, captures the idempotent initial FX snapshot, then enables polling and
+partner event rules. It declares but never starts DMS; separately approved first CDC start
+uses the actual source slot/LSN. Before starting it, pause the
 native consumer and allow active work to settle. Do not run both consumers.
 Ordinary `Deploy (CD)` keeps the selected mapping state and needs only stage plus
 artifact SHA. To return to native work, use an approved protected CloudFormation change

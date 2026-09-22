@@ -1,5 +1,5 @@
 -- Run inside one transaction after the caller sets the three aura.bootstrap.* password settings.
--- This script never creates publications or replication slots. DMS uses the separately approved pre-existing named slot.
+-- This script never creates publications or replication slots. DMS first start uses a separately approved existing named slot and LSN.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;
@@ -39,21 +39,23 @@ BEGIN
         'GRANT CONNECT ON DATABASE %I TO aura_runtime, aura_migrator, aura_replication',
         current_database()
     );
+    EXECUTE format('GRANT CREATE ON DATABASE %I TO aura_migrator', current_database());
 END;
 $$;
+GRANT aura_migrator TO aura_admin;
 
 GRANT USAGE, CREATE ON SCHEMA public TO aura_migrator;
 ALTER SCHEMA public OWNER TO aura_migrator;
+GRANT rds_replication TO aura_replication;
 
+SET LOCAL ROLE aura_migrator;
 GRANT USAGE ON SCHEMA public TO aura_runtime, aura_replication;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aura_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO aura_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE aura_migrator IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aura_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE aura_migrator IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO aura_runtime;
-
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO aura_replication;
-ALTER DEFAULT PRIVILEGES FOR ROLE aura_migrator IN SCHEMA public
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aura_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO aura_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT ON TABLES TO aura_replication;
-GRANT rds_replication TO aura_replication;

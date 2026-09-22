@@ -244,13 +244,13 @@ mod tests {
             Ok(connection) => connection,
             Err(error) => panic!("failed to acquire PostgreSQL test connection: {error}"),
         };
-        let create_rds_replication_role = sqlx::raw_sql(
-            "DO $$ BEGIN\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN\n                   CREATE ROLE rds_replication NOLOGIN;\n                 END IF;\n               END $$;",
+        let prepare_rds_administrator = sqlx::raw_sql(
+            "DO $$ BEGIN\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN\n                   CREATE ROLE rds_replication NOLOGIN;\n                 END IF;\n                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_admin') THEN\n                   CREATE ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 ELSE\n                   ALTER ROLE aura_admin LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT;\n                 END IF;\n               END $$;\n               ALTER DATABASE postgres OWNER TO aura_admin;\n               GRANT rds_replication TO aura_admin WITH ADMIN OPTION;",
         )
         .execute(&mut *connection)
         .await;
-        if let Err(error) = create_rds_replication_role {
-            panic!("failed to create RDS replication test role: {error}");
+        if let Err(error) = prepare_rds_administrator {
+            panic!("failed to prepare simulated RDS administrator: {error}");
         }
         let credentials = RoleCredentials {
             admin: credentials("aura_admin", "admin-password"),
@@ -259,9 +259,54 @@ mod tests {
             replication: credentials("aura_replication", "replication-password"),
         };
 
-        if let Err(error) = bootstrap_roles_inner(&mut connection, &credentials).await {
-            panic!("role bootstrap failed: {error}");
+        if let Err(error) = sqlx::query("SET ROLE aura_admin")
+            .execute(&mut *connection)
+            .await
+        {
+            panic!("failed to assume simulated RDS administrator: {error}");
         }
+        let executor_is_superuser: bool =
+            match sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+                .fetch_one(&mut *connection)
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => panic!("failed to read bootstrap executor attributes: {error}"),
+            };
+        let migrator_absent_before_bootstrap: bool =
+            match sqlx::query_scalar("SELECT to_regrole('aura_migrator') IS NULL")
+                .fetch_one(&mut *connection)
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => panic!("failed to read migrator state before bootstrap: {error}"),
+            };
+        assert!(!executor_is_superuser);
+        assert!(migrator_absent_before_bootstrap);
+
+        if let Err(error) = bootstrap_roles_inner(&mut connection, &credentials).await {
+            panic!("role bootstrap failed as simulated RDS administrator: {error}");
+        }
+        let migrator_can_create_database: bool = match sqlx::query_scalar(
+            "SELECT has_database_privilege('aura_migrator', current_database(), 'CREATE')",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => panic!("failed to read migrator database privilege: {error}"),
+        };
+        let administrator_can_set_migrator: bool =
+            match sqlx::query_scalar("SELECT pg_has_role('aura_admin', 'aura_migrator', 'MEMBER')")
+                .fetch_one(&mut *connection)
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => panic!("failed to read administrator membership: {error}"),
+            };
+        assert!(migrator_can_create_database);
+        assert!(administrator_can_set_migrator);
+
         let set_role = sqlx::query("SET ROLE aura_migrator")
             .execute(&mut *connection)
             .await;
@@ -271,9 +316,20 @@ mod tests {
         if let Err(error) = ROOT_MIGRATIONS.run(&mut *connection).await {
             panic!("root migration failed as migrator: {error}");
         }
-        let reset_role = sqlx::query("RESET ROLE").execute(&mut *connection).await;
-        if let Err(error) = reset_role {
-            panic!("failed to reset PostgreSQL role: {error}");
+        if let Err(error) = sqlx::query("RESET ROLE").execute(&mut *connection).await {
+            panic!("failed to reset PostgreSQL role after migration: {error}");
+        }
+        if let Err(error) = sqlx::query("SET ROLE aura_admin")
+            .execute(&mut *connection)
+            .await
+        {
+            panic!("failed to reassume simulated RDS administrator: {error}");
+        }
+        if let Err(error) = bootstrap_roles_inner(&mut connection, &credentials).await {
+            panic!("repeat role bootstrap failed as simulated RDS administrator: {error}");
+        }
+        if let Err(error) = sqlx::query("RESET ROLE").execute(&mut *connection).await {
+            panic!("failed to reset PostgreSQL role after repeat bootstrap: {error}");
         }
 
         let schema_owner: String = match sqlx::query_scalar(
@@ -284,6 +340,15 @@ mod tests {
         {
             Ok(owner) => owner,
             Err(error) => panic!("failed to read public schema owner: {error}"),
+        };
+        let users_owner: String = match sqlx::query_scalar(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.users'::regclass",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        {
+            Ok(owner) => owner,
+            Err(error) => panic!("failed to read users table owner: {error}"),
         };
         let migration_version: i64 = match sqlx::query_scalar(
             "SELECT version FROM _sqlx_migrations WHERE version = 20260725090000",
@@ -314,6 +379,7 @@ mod tests {
         };
 
         assert_eq!(schema_owner, "aura_migrator");
+        assert_eq!(users_owner, "aura_migrator");
         assert_eq!(migration_version, 20260725090000);
         assert!(runtime_can_insert);
         assert!(replication_can_select);

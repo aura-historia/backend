@@ -17,6 +17,8 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("stage:");
     expect(deployWorkflow).toContain("commit_sha:");
     expect(deployWorkflow).toContain("database-migration-lambda");
+    expect(deployWorkflow).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
+    expect(deployWorkflow).toContain("DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}");
     expect(deployWorkflow).toContain("Data foundation is not initialized; run Initialize (CD) first.");
     expect(deployWorkflow).toContain("Initialization runtime is not deployed; run Initialize (CD) first.");
     expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize"');
@@ -27,11 +29,13 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).not.toContain("ProductListingOpenSearchConsumerEnabled=");
   });
 
-  test("runs first-time infrastructure, schema, FX, and consumer activation only from manual initialize", () => {
-    expect(initializeWorkflow).toContain("dms_initial_cdc_start_position:");
-    expect(initializeWorkflow).toContain("dms_initial_cdc_start_position must be an approved uppercase PostgreSQL LSN");
+  test("updates foundation, schema, FX, and consumer activation only from manual initialize", () => {
+    expect(initializeWorkflow).not.toContain("dms_initial_cdc_start_position:");
+    expect(initializeWorkflow).not.toContain("DMS_INITIAL_CDC_START_POSITION");
+    expect(initializeWorkflow).not.toContain("DmsCdcInitialCdcStartPosition=");
     expect(initializeWorkflow).toContain("aws-deploy-${{ inputs.stage }}");
-    expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-data:DmsCdcInitialCdcStartPosition=${DMS_INITIAL_CDC_START_POSITION}"');
+    expect(initializeWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-network"');
+    expect(initializeWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-data"');
     expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=false');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=true');
@@ -39,14 +43,19 @@ describe("release workflow boundary", () => {
     expect(initializeWorkflow).toContain('invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json');
     expect(initializeWorkflow).toContain("--cli-read-timeout 900");
     expect(initializeWorkflow).toContain("FunctionError");
+    expect(initializeWorkflow).not.toContain("aws dms start-replication-task");
     expect(initializeWorkflow).not.toContain("NATIVE_PAUSED_AND_SETTLED");
 
+    const networkDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-network"');
+    const dataDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-data"');
     const initializationDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-initialize"');
     const inactiveCompute = initializeWorkflow.indexOf('ProductListingOpenSearchConsumerEnabled=false');
     const migrationInvoke = initializeWorkflow.indexOf('invoke_function "database-migration-lambda-${STAGE}"');
     const fxInvoke = initializeWorkflow.indexOf('invoke_function "fxrate-lambda-${STAGE}"');
     const activeCompute = initializeWorkflow.lastIndexOf('ProductListingOpenSearchConsumerEnabled=true');
-    expect(initializationDeploy).toBeGreaterThanOrEqual(0);
+    expect(networkDeploy).toBeGreaterThanOrEqual(0);
+    expect(dataDeploy).toBeGreaterThan(networkDeploy);
+    expect(initializationDeploy).toBeGreaterThan(dataDeploy);
     expect(inactiveCompute).toBeGreaterThan(initializationDeploy);
     expect(migrationInvoke).toBeGreaterThan(inactiveCompute);
     expect(fxInvoke).toBeGreaterThan(migrationInvoke);

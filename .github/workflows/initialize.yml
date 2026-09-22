@@ -14,10 +14,6 @@ on:
         description: "Full 40-character lowercase SHA for previously uploaded artifacts"
         required: true
         type: string
-      dms_initial_cdc_start_position:
-        description: "Approved uppercase PostgreSQL LSN for first DMS capture (for example 4AF/B00000D0)"
-        required: true
-        type: string
 
 concurrency:
   group: aws-deploy-${{ inputs.stage }}
@@ -27,7 +23,6 @@ env:
   STAGE: ${{ inputs.stage }}
   STACK_NAME_PREFIX: application-${{ inputs.stage }}
   DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
-  DMS_INITIAL_CDC_START_POSITION: ${{ inputs.dms_initial_cdc_start_position }}
 
 jobs:
   initialize:
@@ -45,10 +40,6 @@ jobs:
           set -euo pipefail
           if ! [[ "${DEPLOY_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "commit_sha must be a full 40-character lowercase Git commit SHA" >&2
-            exit 1
-          fi
-          if ! [[ "${DMS_INITIAL_CDC_START_POSITION}" =~ ^[0-9A-F]{1,8}/[0-9A-F]{1,8}$ ]]; then
-            echo "dms_initial_cdc_start_position must be an approved uppercase PostgreSQL LSN" >&2
             exit 1
           fi
 
@@ -131,22 +122,8 @@ jobs:
             fi
           }
 
-          if data_stack_output="$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME_PREFIX}-data" \
-            --query 'Stacks[0].StackStatus' \
-            --output text 2>&1)"; then
-            echo "Data stack exists (${data_stack_output}); preserving its DMS capture parameter."
-          else
-            if ! grep -Fq "does not exist" <<< "${data_stack_output}"; then
-              echo "Could not determine whether ${STACK_NAME_PREFIX}-data exists; refusing to create foundation." >&2
-              echo "${data_stack_output}" >&2
-              exit 1
-            fi
-            echo "Data stack is absent; creating network and data with the approved DMS capture position."
-            deploy "${STACK_NAME_PREFIX}-network"
-            deploy "${STACK_NAME_PREFIX}-data" \
-              --parameters "${STACK_NAME_PREFIX}-data:DmsCdcInitialCdcStartPosition=${DMS_INITIAL_CDC_START_POSITION}"
-          fi
+          deploy "${STACK_NAME_PREFIX}-network"
+          deploy "${STACK_NAME_PREFIX}-data"
 
           deploy "${STACK_NAME_PREFIX}-initialize" \
             --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"

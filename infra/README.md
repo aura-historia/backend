@@ -218,7 +218,7 @@ The data stack generates private Secrets Manager secrets for `aura_admin`, `aura
 
 Real stages also include `database-migration-lambda-<stage>`. It has no public URL, API route, schedule, or event source. It runs in private application subnets with `MigrationSecurityGroup`, reads exactly the four role-secret ARNs through the private endpoint, uses the committed RDS CA with `VerifyFull`, holds a PostgreSQL advisory lock, bootstraps roles/extensions as `aura_admin`, then applies embedded root SQLx migrations as `aura_migrator`. It returns only safe success/failure categories. It is invoked only by protected `Initialize (CD)`, never by CloudFormation or normal deploy. The CI deploy role needs exact `lambda:InvokeFunction` access to it and `fxrate-lambda-<stage>`; it never reads database secrets.
 
-`sql/rds-bootstrap-roles.sql` remains a break-glass psql wrapper around the same static core SQL. Use approved secret injection, never command-line or shell-history passwords. The core roles remain scoped: `aura_migrator` owns `public` and creates schema objects; `aura_runtime` has runtime DML and sequence privileges; `aura_replication` has source-table read privileges plus `rds_replication`, but no DDL. The initial migration uses standard RDS `pg_trgm` and `unaccent`; it does not require `pg_ttl_index`.
+`sql/rds-bootstrap-roles.sql` remains a break-glass psql wrapper around the same static core SQL. Use approved secret injection, never command-line or shell-history passwords. The RDS administrator receives membership in `aura_migrator`, and `aura_migrator` receives database `CREATE`, before public-schema ownership changes. The core roles remain scoped: `aura_migrator` owns `public` and creates schema objects; `aura_runtime` has runtime DML and sequence privileges; `aura_replication` has source-table read privileges plus `rds_replication`, but no DDL. The initial migration uses standard RDS `pg_trgm` and `unaccent`; it does not require `pg_ttl_index`.
 
 For recovery, select the retained snapshot or desired point-in-time restore timestamp within the automated-backup window, restore into an isolated replacement instance/subnet/security-group plan, validate engine/parameter/role/schema state, then plan endpoint and secret handoff before application traffic. Do not assume a restore preserves current role grants, application-password alignment, or logical slots/publications. #1805 owns the tested restore runbook and evidence.
 
@@ -226,7 +226,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis plus shared Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. First task creation requires the approved native PostgreSQL LSN `DmsCdcInitialCdcStartPosition` CloudFormation parameter (`X/Y` uppercase hexadecimal); it rejects timestamps, checkpoints, `now`, and malformed input and has no default. The first approved task start uses `start-replication`; later starts use `resume-processing` and the DMS recovery checkpoint, never a replacement parameter value. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. The implementation never derives current WAL, starts capture during deploy, or creates/recreates the slot. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Neither deployment workflow starts, resets, creates, or recreates a task, slot, or checkpoint. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
 
 From `infra/`, the existing configuration checks are:
 
@@ -392,21 +392,21 @@ The compute stack exposes only:
 
 `Deploy (CD)` is the normal protected-environment release: its only inputs are `stage`
 and uploaded-artifact `CommitSHA`. Pushes only test and publish immutable artifacts.
-Normal deploy checks out that SHA and deploys existing network, data, private
-initialization, compute, API, and prod observability stacks while preserving the DMS
-first-start and consumer parameters.
-It refuses an uninitialized data foundation rather than inventing an LSN.
+Normal deploy checks out that SHA for infrastructure validation and deployment, then deploys
+existing network, data, private initialization, compute, API, and prod observability stacks
+without starting or resetting DMS. It refuses an uninitialized data foundation.
 
 `Initialize (CD)` is the separate protected manual first-run workflow. Its only inputs
-are `stage`, `CommitSHA`, and an approved uppercase PostgreSQL LSN. It supplies the LSN
-only when data is first created, deploys the private migration runtime and normal compute
-with event consumers off, invokes the private database migration Lambda, then invokes
-`fxrate-lambda` with its stable deployment source event ID. Only after both succeed does it
-enable the mapping, partner event rules, and FX schedule. Each step stops on failure; no
-workflow starts DMS. Before Initialize, pause the native ProductListing OpenSearch consumer
-and allow active work to settle. Do not run native and Lambda consumers together. To return
-to native work, make an approved protected CloudFormation change to disable the mapping
-first, then resume a compatible native consumer.
+are `stage` and `CommitSHA`. It always applies the selected network/data revision before
+it deploys the importing private migration runtime and normal compute with event consumers
+off, invokes the private database migration Lambda, then invokes `fxrate-lambda` with its
+stable deployment source event ID. Only after both succeed does it enable the mapping,
+partner event rules, and FX schedule. Each step stops on failure; no workflow starts DMS.
+The separately approved first CDC start must use the actual source slot/LSN, and later
+recovery uses DMS `resume-processing`. Before Initialize, pause the native ProductListing
+OpenSearch consumer and allow active work to settle. Do not run native and Lambda consumers
+together. To return to native work, make an approved protected CloudFormation change to
+disable the mapping first, then resume a compatible native consumer.
 
 The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 
