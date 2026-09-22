@@ -7,16 +7,19 @@ use product_listing_service::ports::ProductListingRawStreamId;
 use product_service::{
     ports::PendingProductListingRawStreamCursor,
     use_cases::{
-        NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionMode,
-        NormalizeProductListingRawRevisionResult, NormalizeProductListingRawRevisionUseCase,
+        NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
+        NormalizeProductListingRawRevisionMode, NormalizeProductListingRawRevisionResult,
+        NormalizeProductListingRawRevisionUseCase,
     },
 };
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::MissedTickBehavior};
 use tracing::{info, warn};
 
-const MAX_REVISIONS_PER_STREAM: u32 = 32;
-const PENDING_STREAM_LIMIT: u32 = 100;
+/// Bounded per-invocation stream drain shared by native and Lambda SQS adapters.
+pub const MAX_REVISIONS_PER_STREAM: u32 = 32;
+/// Bounded authoritative reconciliation page size for the scheduler-facing use case.
+pub const PENDING_STREAM_LIMIT: u32 = 100;
 const MAX_PENDING_STREAM_CONTINUATIONS: usize = PENDING_STREAM_LIMIT as usize * 2;
 const RECONCILIATION_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -183,6 +186,82 @@ impl ReconciliationState {
     }
 }
 
+/// Lambda- and polling-transport result for one compact raw-normalization wake-up.
+///
+/// `Complete` is emitted only after the authoritative stream is fully drained. A durable
+/// candidate rejection is included in that completed drain because its progress is committed.
+/// Every other result remains unfinished so SQS retry/redrive can recover it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingRawNormalizationJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl ProductListingRawNormalizationJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
+
+/// Decode and execute one compact schema-2 raw-normalization wake-up without exposing transport
+/// DTOs to the service. Stream ordering and progress remain PostgreSQL-owned.
+pub async fn process_product_listing_raw_normalization_job(
+    body: &str,
+    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
+) -> ProductListingRawNormalizationJobDisposition {
+    let job = match crate::wire::decode(body, WorkerScope::ProductListingRawNormalization) {
+        Ok(job) => job,
+        Err(_) => return ProductListingRawNormalizationJobDisposition::Poison("invalid_wire_job"),
+    };
+    let command = match command_from_job(job) {
+        Ok(command) => command,
+        Err(_) => {
+            return ProductListingRawNormalizationJobDisposition::Poison("unexpected_payload");
+        }
+    };
+    process_product_listing_raw_normalization_job_for_command(use_case, command).await
+}
+
+async fn process_product_listing_raw_normalization_job_for_command(
+    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
+    command: NormalizeProductListingRawRevisionCommand,
+) -> ProductListingRawNormalizationJobDisposition {
+    match use_case.execute(command).await {
+        Ok(result) => {
+            info!(
+                processed_revisions = result.revisions.len(),
+                normalization_failures = result.stream_failures.len(),
+                "raw stream drain finished"
+            );
+            if !result.stream_failures.is_empty() {
+                ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
+                    "normalization_stream_failed",
+                )
+            } else if !result.continuation_stream_ids.is_empty() {
+                ProductListingRawNormalizationJobDisposition::Retry("normalization_continuation")
+            } else {
+                ProductListingRawNormalizationJobDisposition::Complete("stream_drained")
+            }
+        }
+        Err(
+            NormalizeProductListingRawRevisionError::InvalidLimit
+            | NormalizeProductListingRawRevisionError::InvalidPersistedState { .. }
+            | NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion
+            | NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed { .. },
+        ) => ProductListingRawNormalizationJobDisposition::Poison("normalization_state_invalid"),
+        Err(_) => ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
+            "normalization_unavailable",
+        ),
+    }
+}
+
 pub async fn consume_product_listing_raw_normalization_queue(
     receiver: impl Into<WorkerQueueReceiver>,
     use_case: Arc<dyn NormalizeProductListingRawRevisionUseCase>,
@@ -298,32 +377,20 @@ async fn normalize_job(
     let Ok(command) = command_from_job(job) else {
         return JobOutcome::Invalid("unexpected_payload");
     };
-    match use_case.execute(command).await {
-        Ok(result) => {
-            info!(
-                processed_revisions = result.revisions.len(),
-                normalization_failures = result.stream_failures.len(),
-                "raw stream drain finished"
-            );
-            if !result.stream_failures.is_empty() {
-                return JobOutcome::DependencyUnavailable("normalization_stream_failed");
-            }
-            if !result.continuation_stream_ids.is_empty() {
-                return JobOutcome::Retry("normalization_continuation");
-            }
-            JobOutcome::Complete("stream_drained")
+    let disposition =
+        process_product_listing_raw_normalization_job_for_command(use_case.as_ref(), command).await;
+    match disposition {
+        ProductListingRawNormalizationJobDisposition::Complete(category) => {
+            JobOutcome::Complete(category)
         }
-        Err(error) => {
-            use product_service::use_cases::NormalizeProductListingRawRevisionError as E;
-            match error {
-                E::InvalidLimit
-                | E::InvalidPersistedState { .. }
-                | E::UnsupportedStoredSchemaVersion
-                | E::NormalizationConfigurationFailed { .. } => {
-                    JobOutcome::Invalid("normalization_state_invalid")
-                }
-                _ => JobOutcome::DependencyUnavailable("normalization_unavailable"),
-            }
+        ProductListingRawNormalizationJobDisposition::Retry(category) => {
+            JobOutcome::Retry(category)
+        }
+        ProductListingRawNormalizationJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
+        ProductListingRawNormalizationJobDisposition::Poison(category) => {
+            JobOutcome::Invalid(category)
         }
     }
 }

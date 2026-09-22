@@ -18,7 +18,9 @@ export interface EventingProps {
   readonly workerQueues: WorkerQueueCatalog;
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
+  readonly productListingNormalizationVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
 }
 
 export class Eventing extends Construct {
@@ -81,7 +83,9 @@ export class Eventing extends Construct {
       props.queues,
       props.workerQueues,
       props.productListingOpenSearchVersion,
+      props.productListingNormalizationVersion,
       props.productListingOpenSearchConsumerActivation,
+      props.productListingNormalizationConsumerActivation,
     );
   }
 }
@@ -174,7 +178,9 @@ function createSqsEventSources(
   queues: QueueCatalog,
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
+  productListingNormalizationVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
+  normalizationActivation: cdk.CfnCondition,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
 
@@ -192,11 +198,33 @@ function createSqsEventSources(
     ],
     resources: [productListingOpenSearch.queue.queueArn],
   }));
-  const productListingOpenSearchMapping = new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
+  new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
     batchSize: 1,
     enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+  });
+
+  const productListingNormalization = workerQueues["product-listing-normalization"];
+  if (!productListingNormalization) {
+    throw new Error("ProductListing normalization worker queue is required for its Lambda event source.");
+  }
+  functions.productListingNormalization.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueUrl",
+    ],
+    resources: [productListingNormalization.queue.queueArn],
+  }));
+  new lambda.CfnEventSourceMapping(scope, "ProductListingNormalizationQueueEventSource", {
+    batchSize: 10,
+    enabled: cdk.Fn.conditionIf(normalizationActivation.logicalId, true, false) as unknown as boolean,
+    eventSourceArn: productListingNormalization.queue.queueArn,
+    functionName: productListingNormalizationVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 

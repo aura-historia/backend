@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
 }
 
 export function artifactCommitShaParameter(scope: Construct): string {
@@ -24,9 +25,19 @@ export function applicationParameters(scope: Construct): ApplicationParameters {
   const productListingOpenSearchConsumerActivation = new cdk.CfnCondition(scope, "ProductListingOpenSearchConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingOpenSearchConsumerEnabled.valueAsString, "true"),
   });
+  const productListingNormalizationConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingNormalizationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing raw-normalization SQS Lambda after native-consumer and scheduled-reconciliation cutover gates.",
+  });
+  const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
+  });
 
   return {
     commitSha,
     productListingOpenSearchConsumerActivation,
+    productListingNormalizationConsumerActivation,
   };
 }

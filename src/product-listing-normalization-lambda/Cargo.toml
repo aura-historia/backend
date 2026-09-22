@@ -1,0 +1,24 @@
+[package]
+name = "product-listing-normalization-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aura-historia-worker = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["sqs"] }
+futures-util = { workspace = true }
+lambda_runtime = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+product-service = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+uuid = { workspace = true }

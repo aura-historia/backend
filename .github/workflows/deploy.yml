@@ -89,6 +89,7 @@ jobs:
           - src/fxrate-lambda
           - src/stripe-lambda
           - src/product-listing-opensearch-lambda
+          - src/product-listing-normalization-lambda
     steps:
       - uses: actions/checkout@v7
 

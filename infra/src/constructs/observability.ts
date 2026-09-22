@@ -139,7 +139,11 @@ function apiAlarm(
 
 const apiLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi"]);
 
-const queueWorkerKeys = new Set<LambdaKey>(["shopify", "productListingOpenSearch"]);
+const queueWorkerKeys = new Set<LambdaKey>([
+  "shopify",
+  "productListingOpenSearch",
+  "productListingNormalization",
+]);
 
 function toKebabCase(value: string): string {
   return value
