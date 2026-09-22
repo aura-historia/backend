@@ -189,7 +189,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
     const computeJson = JSON.stringify(compute.toJSON());
     const computeWorkerScopes = stage === "ephemeral"
-      ? ["product-listing-opensearch", "product-listing-normalization"]
+      ? ["product-listing-opensearch", "product-listing-normalization", "search-filter-percolator"]
       : EXPECTED_SCOPES;
     for (const scope of computeWorkerScopes) {
       expect(computeJson).toContain(`aura-worker-${scope}-${stage}`);
@@ -235,7 +235,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -250,7 +250,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -279,8 +279,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration adds one independent version/alias;
-    // both queue workers continue to use dedicated immutable versions.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(3);
+    // each queue worker continues to use a dedicated immutable version.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(4);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -299,7 +299,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -326,6 +326,47 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
+  });
+
+  test("deploys the dedicated saved-filter percolator Lambda with scoped dependencies and a cutover mapping", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const percolatorMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties.FunctionName).includes("SearchFilterPercolatorVersion"),
+    );
+    expect(percolatorMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(percolatorMapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-search-filter-percolator-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `search-filter-percolator-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"]
+        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("S3_BUCKET_NAME_TEMPLATES");
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("NOTIFICATION_EMAIL");
+
+    const policies = Object.values(compute.findResources("AWS::IAM::Policy"));
+    const percolatorSearchStatements = policies
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => statement.Action.includes("es:ESHttpPost"));
+    expect(percolatorSearchStatements).toHaveLength(1);
+    expect(percolatorSearchStatements[0].Action).toEqual([
+      "es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
+    ]);
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {
@@ -369,7 +410,7 @@ test("single-stack ephemeral has the same queue and consumer contract", () => {
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 3);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 4);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 

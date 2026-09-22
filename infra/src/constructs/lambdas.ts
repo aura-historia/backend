@@ -117,6 +117,35 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
   },
+  searchFilterPercolator: {
+    id: "SearchFilterPercolatorLambda",
+    binaryName: "search-filter-percolator-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      STAGE: context.config.stage,
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      VERTEX_AI_MODEL: context.config.isEphemeral
+        ? "gemini-3.1-flash-lite"
+        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      ...(context.config.isEphemeral
+        ? {}
+        : {
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+          }),
+    }),
+  },
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
@@ -142,6 +171,7 @@ export class Lambdas extends Construct {
   readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
+  readonly searchFilterPercolatorVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -206,6 +236,10 @@ export class Lambdas extends Construct {
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
       description: `product-listing-normalization-${props.parameters.commitSha}`,
+    });
+    this.searchFilterPercolatorVersion = new lambda.Version(this, "SearchFilterPercolatorVersion", {
+      lambda: this.functions.searchFilterPercolator,
+      description: `search-filter-percolator-${props.parameters.commitSha}`,
     });
     grantRuntimeAccess(props, this.functions);
   }
@@ -334,6 +368,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     }),
   );
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
+  props.search.grantRead(functions.searchFilterPercolator);
 
   if (props.postgres.secretArn) {
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {

@@ -277,5 +277,5 @@ test("ephemeral does not construct the DMS router, failure archive, or Kinesis m
   expect(JSON.stringify(template.toJSON())).not.toContain("cdc-router-lambda");
   template.resourceCountIs("AWS::S3::Bucket", 0);
   template.resourceCountIs("AWS::Kinesis::Stream", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 3);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 4);
 });

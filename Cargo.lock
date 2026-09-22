@@ -6967,6 +6967,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-percolator-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "domain-primitives",
+ "futures-util",
+ "fxrate-postgres",
+ "google-cloud-auth",
+ "lambda_runtime",
+ "large-language-model",
+ "opensearch",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "search-filter-postgres"
 version = "0.1.0"
 dependencies = [

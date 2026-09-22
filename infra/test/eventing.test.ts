@@ -28,6 +28,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const rules = resources(template, "AWS::Events::Rule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
+    const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
     const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
@@ -46,6 +47,14 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
     });
+    expect(templateJson.Parameters.SearchFilterPercolatorConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.SearchFilterPercolatorConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "SearchFilterPercolatorConsumerEnabled" }, "true"],
+    });
     if (stage === "ephemeral") {
       expect(templateJson.Parameters.CdcRouterEnabled).toBeUndefined();
       expect(templateJson.Conditions.CdcRouterActivation).toBeUndefined();
@@ -60,7 +69,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 3 : 4);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 4 : 5);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -90,6 +99,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       stage === "ephemeral"
         ? "WorkerQueuesProductListingNormalizationQueue"
         : `aura-worker-product-listing-normalization-${stage}`,
+    );
+    const percolatorMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterPercolatorVersion"),
+    );
+    expect(percolatorMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: percolatorActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(percolatorMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesSearchFilterPercolatorQueue"
+        : `aura-worker-search-filter-percolator-${stage}`,
     );
     const cdcRouterMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 100);
     if (stage === "ephemeral") {

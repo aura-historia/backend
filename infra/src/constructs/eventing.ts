@@ -21,8 +21,10 @@ export interface EventingProps {
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
   readonly productListingNormalizationVersion: lambda.IVersion;
+  readonly searchFilterPercolatorVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
@@ -112,8 +114,10 @@ export class Eventing extends Construct {
       props.workerQueues,
       props.productListingOpenSearchVersion,
       props.productListingNormalizationVersion,
+      props.searchFilterPercolatorVersion,
       props.productListingOpenSearchConsumerActivation,
       props.productListingNormalizationConsumerActivation,
+      props.searchFilterPercolatorConsumerActivation,
     );
   }
 }
@@ -288,8 +292,10 @@ function createSqsEventSources(
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
   productListingNormalizationVersion: lambda.IVersion,
+  searchFilterPercolatorVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
+  percolatorActivation: cdk.CfnCondition,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
 
@@ -334,6 +340,28 @@ function createSqsEventSources(
     enabled: cdk.Fn.conditionIf(normalizationActivation.logicalId, true, false) as unknown as boolean,
     eventSourceArn: productListingNormalization.queue.queueArn,
     functionName: productListingNormalizationVersion.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+  });
+
+  const searchFilterPercolator = workerQueues["search-filter-percolator"];
+  if (!searchFilterPercolator) {
+    throw new Error("Search-filter percolator worker queue is required for its Lambda event source.");
+  }
+  functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueUrl",
+    ],
+    resources: [searchFilterPercolator.queue.queueArn],
+  }));
+  new lambda.CfnEventSourceMapping(scope, "SearchFilterPercolatorQueueEventSource", {
+    batchSize: 1,
+    enabled: cdk.Fn.conditionIf(percolatorActivation.logicalId, true, false) as unknown as boolean,
+    eventSourceArn: searchFilterPercolator.queue.queueArn,
+    functionName: searchFilterPercolatorVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 

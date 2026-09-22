@@ -448,6 +448,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /certificates/{stage}/api-cloudfront-certificate-arn
 /vertex-ai/{stage}/project-id
 /vertex-ai/{stage}/location
+/vertex-ai/{stage}/model
 /secrets/{stage}/google-application-credentials
 
 /secrets/{stage}/zoho-accounts-url
@@ -458,12 +459,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /secrets/{stage}/zoho-refresh-token
 ```
 
-The API Lambda alone resolves the Vertex project, location, and Google ADC JSON.
-It writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is
-neither packaged nor logged. The API needs no runtime SSM permission because these
-are CloudFormation dynamic references. `product-listing-opensearch-lambda` receives
-none of the Vertex or Google ADC configuration and has no Google or SSM permission.
-It resolves the listed OpenSearch endpoint, username, and password in real stages.
+The API Lambda and `search-filter-percolator-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password; it has no SES, notification-delivery, or template configuration. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 `fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled sync.
 Protected manual `Initialize (CD)` invokes it after database initialization and before
 enabling the ProductListing mapping, with stable source ID

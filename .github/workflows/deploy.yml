@@ -99,6 +99,8 @@ jobs:
             binary: product-listing-opensearch-lambda
           - crate: src/product-listing-normalization-lambda
             binary: product-listing-normalization-lambda
+          - crate: src/search-filter-percolator-lambda
+            binary: search-filter-percolator-lambda
           - crate: src/aura-historia-worker
             binary: cdc-router-lambda
     steps:
