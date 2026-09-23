@@ -23,11 +23,15 @@ export interface EventingProps {
   readonly productListingNormalizationVersion: lambda.IVersion;
   readonly searchFilterProjectionVersion: lambda.IVersion;
   readonly searchFilterPercolatorVersion: lambda.IVersion;
+  readonly searchFilterMatchNotificationVersion: lambda.IVersion;
+  readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
+  readonly watchlistNotificationConsumerActivation: cdk.CfnCondition;
   readonly notificationDeliveryConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
@@ -120,11 +124,15 @@ export class Eventing extends Construct {
       props.productListingNormalizationVersion,
       props.searchFilterProjectionVersion,
       props.searchFilterPercolatorVersion,
+      props.searchFilterMatchNotificationVersion,
+      props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
       props.productListingOpenSearchConsumerActivation,
       props.productListingNormalizationConsumerActivation,
       props.searchFilterProjectionConsumerActivation,
       props.searchFilterPercolatorConsumerActivation,
+      props.searchFilterMatchNotificationConsumerActivation,
+      props.watchlistNotificationConsumerActivation,
       props.notificationDeliveryConsumerActivation,
     );
   }
@@ -302,11 +310,15 @@ function createSqsEventSources(
   productListingNormalizationVersion: lambda.IVersion,
   searchFilterProjectionVersion: lambda.IVersion,
   searchFilterPercolatorVersion: lambda.IVersion,
+  searchFilterMatchNotificationVersion: lambda.IVersion,
+  watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
   searchFilterProjectionActivation: cdk.CfnCondition,
   percolatorActivation: cdk.CfnCondition,
+  searchFilterMatchNotificationActivation: cdk.CfnCondition,
+  watchlistNotificationActivation: cdk.CfnCondition,
   notificationDeliveryActivation: cdk.CfnCondition,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
@@ -421,6 +433,55 @@ function createSqsEventSources(
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 
+  addWorkerLambdaEventSource(
+    scope,
+    "SearchFilterMatchNotificationQueueEventSource",
+    functions.searchFilterMatchNotification,
+    workerQueues["search-filter-match-notification"],
+    searchFilterMatchNotificationVersion,
+    searchFilterMatchNotificationActivation,
+    "Search-filter match notification",
+  );
+  addWorkerLambdaEventSource(
+    scope,
+    "WatchlistNotificationQueueEventSource",
+    functions.watchlistNotification,
+    workerQueues["watchlist-notification"],
+    watchlistNotificationVersion,
+    watchlistNotificationActivation,
+    "Watchlist notification",
+  );
+}
+
+function addWorkerLambdaEventSource(
+  scope: Construct,
+  id: string,
+  fn: lambda.Function,
+  workerQueue: WorkerQueueCatalog[WorkerScope] | undefined,
+  version: lambda.IVersion,
+  activation: cdk.CfnCondition,
+  description: string,
+): void {
+  if (!workerQueue) {
+    throw new Error(`${description} worker queue is required for its Lambda event source.`);
+  }
+  fn.addToRolePolicy(new iam.PolicyStatement({
+    actions: [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueUrl",
+    ],
+    resources: [workerQueue.queue.queueArn],
+  }));
+  new lambda.CfnEventSourceMapping(scope, id, {
+    batchSize: 1,
+    enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
+    eventSourceArn: workerQueue.queue.queueArn,
+    functionName: version.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+  });
 }
 
 function addSqsEventSource(

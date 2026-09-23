@@ -103,6 +103,10 @@ jobs:
             binary: search-filter-projection-lambda
           - crate: src/search-filter-percolator-lambda
             binary: search-filter-percolator-lambda
+          - crate: src/search-filter-match-notification-lambda
+            binary: search-filter-match-notification-lambda
+          - crate: src/watchlist-notification-lambda
+            binary: watchlist-notification-lambda
           - crate: src/notification-delivery-lambda
             binary: notification-delivery-lambda
           - crate: src/aura-historia-worker

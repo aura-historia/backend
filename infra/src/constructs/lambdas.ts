@@ -172,6 +172,20 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
           }),
     }),
   },
+  searchFilterMatchNotification: {
+    id: "SearchFilterMatchNotificationLambda",
+    binaryName: "search-filter-match-notification-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
+  watchlistNotification: {
+    id: "WatchlistNotificationLambda",
+    binaryName: "watchlist-notification-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
@@ -199,6 +213,8 @@ export class Lambdas extends Construct {
   readonly productListingNormalizationVersion: lambda.Version;
   readonly searchFilterProjectionVersion: lambda.Version;
   readonly searchFilterPercolatorVersion: lambda.Version;
+  readonly searchFilterMatchNotificationVersion: lambda.Version;
+  readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
@@ -273,6 +289,14 @@ export class Lambdas extends Construct {
     this.searchFilterPercolatorVersion = new lambda.Version(this, "SearchFilterPercolatorVersion", {
       lambda: this.functions.searchFilterPercolator,
       description: `search-filter-percolator-${props.parameters.commitSha}`,
+    });
+    this.searchFilterMatchNotificationVersion = new lambda.Version(this, "SearchFilterMatchNotificationVersion", {
+      lambda: this.functions.searchFilterMatchNotification,
+      description: `search-filter-match-notification-${props.parameters.commitSha}`,
+    });
+    this.watchlistNotificationVersion = new lambda.Version(this, "WatchlistNotificationVersion", {
+      lambda: this.functions.watchlistNotification,
+      description: `watchlist-notification-${props.parameters.commitSha}`,
     });
     this.notificationDeliveryVersion = new lambda.Version(this, "NotificationDeliveryVersion", {
       lambda: this.functions.notificationDelivery,

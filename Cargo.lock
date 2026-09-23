@@ -6961,6 +6961,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-match-notification-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "notification-postgres",
+ "notification-service",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "search-filter-postgres",
+ "search-filter-service",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "user-postgres",
+]
+
+[[package]]
 name = "search-filter-opensearch"
 version = "0.1.0"
 dependencies = [
@@ -9174,6 +9198,29 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "user-core",
+]
+
+[[package]]
+name = "watchlist-notification-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "notification-postgres",
+ "notification-service",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "watchlist-postgres",
 ]
 
 [[package]]

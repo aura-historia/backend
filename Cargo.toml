@@ -16,6 +16,8 @@ members = [
     "src/product-listing-normalization-lambda",
     "src/search-filter-projection-lambda",
     "src/search-filter-percolator-lambda",
+    "src/search-filter-match-notification-lambda",
+    "src/watchlist-notification-lambda",
     "src/notification-delivery-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
@@ -96,6 +98,8 @@ product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lam
 product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
 search-filter-projection-lambda = { path = "src/search-filter-projection-lambda" }
 search-filter-percolator-lambda = { path = "src/search-filter-percolator-lambda" }
+search-filter-match-notification-lambda = { path = "src/search-filter-match-notification-lambda" }
+watchlist-notification-lambda = { path = "src/watchlist-notification-lambda" }
 notification-delivery-lambda = { path = "src/notification-delivery-lambda" }
 base64 = "0.23.0"
 async-trait = "0.1.89"

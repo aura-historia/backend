@@ -21,14 +21,14 @@ interface WorkerQueueDefinition {
   readonly visibilityTimeoutSeconds: number;
 }
 
-// Only ProductListing OpenSearch is a Lambda SQS target. Other values match the polling Rust worker's budgets.
+// Lambda-backed scopes use visibility that covers six bounded 45-second invocations.
 export const WORKER_QUEUE_DEFINITIONS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 300 },
   // Lambda timeout is 45s; six bounded invocation attempts require 300s visibility.
   "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 300 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
-  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 60 },
-  "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 60 },
+  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 300 },
+  "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 300 },
   "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 60 },
   "product-embedding": { id: "ProductEmbedding", visibilityTimeoutSeconds: 300 },
   "product-translation": { id: "ProductTranslation", visibilityTimeoutSeconds: 300 },

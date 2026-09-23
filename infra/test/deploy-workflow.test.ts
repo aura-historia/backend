@@ -17,6 +17,10 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("stage:");
     expect(deployWorkflow).toContain("commit_sha:");
     expect(deployWorkflow).toContain("database-migration-lambda");
+    expect(deployWorkflow).toContain("crate: src/search-filter-match-notification-lambda");
+    expect(deployWorkflow).toContain("binary: search-filter-match-notification-lambda");
+    expect(deployWorkflow).toContain("crate: src/watchlist-notification-lambda");
+    expect(deployWorkflow).toContain("binary: watchlist-notification-lambda");
     expect(deployWorkflow).toContain("crate: src/aura-historia-worker");
     expect(deployWorkflow).toContain("binary: cdc-router-lambda");
     expect(deployWorkflow).toContain("--bin \"${{ matrix.binary }}\"");
