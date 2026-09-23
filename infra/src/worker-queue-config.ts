@@ -34,7 +34,8 @@ export const WORKER_QUEUE_DEFINITIONS = {
   "product-translation": { id: "ProductTranslation", visibilityTimeoutSeconds: 300 },
   // Lambda timeout is 45s; six bounded invocation attempts require 270s visibility.
   "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 270 },
-  "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 360 },
+  // The 45s Lambda leaves a five-minute delivery lease plus 30s recovery margin before retry.
+  "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 330 },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 
 export interface WorkerQueueSettings {

@@ -32,6 +32,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
     const matchNotificationActivation = { "Fn::If": ["SearchFilterMatchNotificationConsumerActivation", true, false] };
     const watchlistNotificationActivation = { "Fn::If": ["WatchlistNotificationConsumerActivation", true, false] };
+    const notificationDeliveryActivation = { "Fn::If": ["NotificationDeliveryConsumerActivation", true, false] };
     const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
@@ -69,6 +70,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     for (const [parameter, condition] of [
       ["SearchFilterMatchNotificationConsumerEnabled", "SearchFilterMatchNotificationConsumerActivation"],
       ["WatchlistNotificationConsumerEnabled", "WatchlistNotificationConsumerActivation"],
+      ["NotificationDeliveryConsumerEnabled", "NotificationDeliveryConsumerActivation"],
     ]) {
       expect(templateJson.Parameters[parameter]).toMatchObject({
         Type: "String",
@@ -93,7 +95,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 7 : 8);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 8 : 9);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -136,6 +138,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       stage === "ephemeral"
         ? "WorkerQueuesSearchFilterProjectionQueue"
         : `aura-worker-search-filter-projection-${stage}`,
+    );
+    const notificationDeliveryMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("NotificationDeliveryVersion"),
+    );
+    expect(notificationDeliveryMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: notificationDeliveryActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(notificationDeliveryMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesNotificationDeliveryQueue"
+        : `aura-worker-notification-delivery-${stage}`,
     );
     const percolatorMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterPercolatorVersion"),

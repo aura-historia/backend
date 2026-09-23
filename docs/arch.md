@@ -1835,12 +1835,12 @@ Production composition uses ten separate Standard SQS source/DLQ pairs, one per 
 Delivery is **durable at-least-once within retention**, not exactly-once or ordered processing:
 
 - Before Sequin acknowledgment, unconfirmed delivery stays with Sequin for retry.
-- After acknowledgment, SQS retains jobs across worker death until confirmed completion/delete, native DLQ transfer, or expiry.
+- After acknowledgment, SQS retains jobs across worker death until confirmed completion/delete, source-to-DLQ transfer, or expiry.
 - Source retention is 7 days; DLQ retention is 14 days. Standard source-to-DLQ transfer retains the original enqueue timestamp: DLQ arrival does not start a fresh 14-day window, and these are not additive 21-day guarantees.
 - Only `Complete` outcomes permit SQS deletion. Nonterminal claims, invalid jobs, handler failure/panic, execution/heartbeat timeout, and unconfirmed effects remain unacknowledged. Delete failure also permits redelivery; do not rerun a side effect merely to retry deletion.
 - Standard SQS can duplicate and reorder. Domain idempotency, authoritative state guards, and target-side version fences remain mandatory. External email acceptance cannot be atomic with PostgreSQL finalization; a crash can still duplicate an accepted email.
 
-Native consumers deliberately have one execution slot per process, no prefetch, bounded execution, and visibility heartbeats. ProductListing OpenSearch uses a dedicated Lambda mapping with batch size one; non-complete outcomes stay in batch failures for native SQS retry/DLQ. Native dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
+Native consumers deliberately have one execution slot per process, no prefetch, bounded execution, and visibility heartbeats. Dedicated Lambda mappings use batch-one `ReportBatchItemFailures`; non-complete outcomes stay in batch failures for native SQS retry/DLQ. Notification delivery uses a 45s invocation cap with a 35s service attempt budget and 330s source visibility (five-minute lease plus 30s recovery margin), rather than native polling timing. Native dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
 
 ### 12.5 Idempotency and ordering
 
@@ -1952,7 +1952,7 @@ Transient failures use bounded 30–900s exponential visibility backoff with jit
 
 Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the unchanged `requestPayload`, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
 
-Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the four-minute attempt budget includes claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
+Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the native worker's four-minute attempt budget and Lambda's 35-second attempt budget each include claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. Lambda timeout never cancels an SES request. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
 
 Logs MUST contain safe identifiers and error categories, not complete source rows, credentials, tokens, provider receipts, or sensitive payloads.
 
@@ -1971,7 +1971,7 @@ Monitor at least:
 * projection freshness;
 * projection rebuild status.
 
-CDK defines prod-only source oldest-age >= 900s and DLQ visible-count >= 1 alarms (Maximum, one 5-minute period, missing data not breaching). The DMS router additionally alarms on 15-minute Lambda `IteratorAge`, `Errors`, `Throttles`, and `DestinationDeliveryFailures`; every alarm publishes to the production alarm topic. Worker attempt, circuit, settlement, and normalization signals are structured logs, not automatically provisioned custom metrics or dashboards. Deployment and broader monitoring coverage require operator verification.
+CDK defines prod-only source oldest-age >= 900s and DLQ visible-count >= 1 alarms (Maximum, one 5-minute period, missing data not breaching). The DMS router additionally alarms on 15-minute Lambda `IteratorAge`, `Errors`, `Throttles`, and `DestinationDeliveryFailures`; every alarm publishes to the production alarm topic. Worker attempt, circuit, settlement, and normalization signals are structured logs, not automatically provisioned custom metrics or dashboards. Notification delivery additionally records safe delivery/attempt identifiers, claim deferral, send/finalization category, terminal outcome, and duration; queue backlog/DLQ and Lambda errors remain CloudWatch metrics/alarms. No recipients, rendered content, signed bodies, provider payloads, or credentials are logged. Deployment and broader monitoring coverage require operator verification.
 
 Structured logs SHOULD include, where available:
 

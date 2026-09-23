@@ -18,6 +18,7 @@ members = [
     "src/search-filter-percolator-lambda",
     "src/search-filter-match-notification-lambda",
     "src/watchlist-notification-lambda",
+    "src/notification-delivery-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
     "src/auction-core",
@@ -99,6 +100,7 @@ search-filter-projection-lambda = { path = "src/search-filter-projection-lambda"
 search-filter-percolator-lambda = { path = "src/search-filter-percolator-lambda" }
 search-filter-match-notification-lambda = { path = "src/search-filter-match-notification-lambda" }
 watchlist-notification-lambda = { path = "src/watchlist-notification-lambda" }
+notification-delivery-lambda = { path = "src/notification-delivery-lambda" }
 base64 = "0.23.0"
 async-trait = "0.1.89"
 axum = "0.8.7"

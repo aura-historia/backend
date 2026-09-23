@@ -6,7 +6,7 @@ import * as path from "node:path";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
-import { ssmValue } from "../config";
+import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
@@ -15,6 +15,7 @@ import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } 
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
+  readonly commitSha: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
 }
@@ -134,6 +135,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
           }),
     }),
   },
+  notificationDelivery: {
+    id: "NotificationDeliveryLambda",
+    binaryName: "notification-delivery-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: notificationDeliveryEnvironment,
+  },
   searchFilterPercolator: {
     id: "SearchFilterPercolatorLambda",
     binaryName: "search-filter-percolator-lambda",
@@ -206,6 +215,7 @@ export class Lambdas extends Construct {
   readonly searchFilterPercolatorVersion: lambda.Version;
   readonly searchFilterMatchNotificationVersion: lambda.Version;
   readonly watchlistNotificationVersion: lambda.Version;
+  readonly notificationDeliveryVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -220,6 +230,7 @@ export class Lambdas extends Construct {
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
+      commitSha: props.parameters.commitSha,
       postgres: props.postgres,
       search: props.search,
     };
@@ -286,6 +297,10 @@ export class Lambdas extends Construct {
     this.watchlistNotificationVersion = new lambda.Version(this, "WatchlistNotificationVersion", {
       lambda: this.functions.watchlistNotification,
       description: `watchlist-notification-${props.parameters.commitSha}`,
+    });
+    this.notificationDeliveryVersion = new lambda.Version(this, "NotificationDeliveryVersion", {
+      lambda: this.functions.notificationDelivery,
+      description: `notification-delivery-${props.parameters.commitSha}`,
     });
     grantRuntimeAccess(props, this.functions);
   }
@@ -416,6 +431,18 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
   props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
+  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["s3:GetObject"],
+    resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],
+  }));
+  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["ses:SendEmail"],
+    resources: [cdk.Stack.of(props.mailTemplateBucket).formatArn({
+      service: "ses",
+      resource: "identity",
+      resourceName: props.config.notificationEmail.identityDomain,
+    })],
+  }));
 
   if (props.postgres.secretArn) {
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -453,6 +480,16 @@ export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn:
       resources: [userPoolArn],
     }),
   );
+}
+
+function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    COMMIT_SHA: context.commitSha,
+    NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
+    NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
+    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
+    STAGE: context.config.stage,
+  };
 }
 
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {

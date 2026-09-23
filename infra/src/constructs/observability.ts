@@ -261,6 +261,7 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "productListingNormalization",
   "searchFilterMatchNotification",
   "watchlistNotification",
+  "notificationDelivery",
 ]);
 
 const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;
