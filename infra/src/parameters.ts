@@ -5,6 +5,7 @@ export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
@@ -39,6 +40,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   });
   const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
+  });
+  const productContentAssessmentConsumerEnabled = new cdk.CfnParameter(scope, "ProductContentAssessmentConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing content-assessment SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const productContentAssessmentConsumerActivation = new cdk.CfnCondition(scope, "ProductContentAssessmentConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productContentAssessmentConsumerEnabled.valueAsString, "true"),
   });
   const searchFilterProjectionConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterProjectionConsumerEnabled", {
     type: "String",
@@ -93,6 +103,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     commitSha,
     productListingOpenSearchConsumerActivation,
     productListingNormalizationConsumerActivation,
+    productContentAssessmentConsumerActivation,
     searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
     searchFilterMatchNotificationConsumerActivation,

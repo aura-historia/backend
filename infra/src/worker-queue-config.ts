@@ -29,7 +29,8 @@ export const WORKER_QUEUE_DEFINITIONS = {
   "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 300 },
   "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 300 },
-  "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 60 },
+  // A 45s Lambda needs the six-times-timeout SQS visibility margin (270s); failed messages still redrive after maxReceiveCount 5.
+  "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 270 },
   "product-embedding": { id: "ProductEmbedding", visibilityTimeoutSeconds: 300 },
   "product-translation": { id: "ProductTranslation", visibilityTimeoutSeconds: 300 },
   // Lambda timeout is 45s; six bounded invocation attempts require 270s visibility.

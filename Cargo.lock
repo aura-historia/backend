@@ -5968,6 +5968,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-content-assessment-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "product-listing-core"
 version = "0.1.0"
 dependencies = [

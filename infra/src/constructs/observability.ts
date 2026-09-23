@@ -259,6 +259,7 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "shopify",
   "productListingOpenSearch",
   "productListingNormalization",
+  "productContentAssessment",
   "searchFilterMatchNotification",
   "watchlistNotification",
   "notificationDelivery",
