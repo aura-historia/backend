@@ -101,6 +101,8 @@ jobs:
             binary: product-listing-normalization-lambda
           - crate: src/product-content-assessment-lambda
             binary: product-content-assessment-lambda
+          - crate: src/product-embedding-lambda
+            binary: product-embedding-lambda
           - crate: src/search-filter-projection-lambda
             binary: search-filter-projection-lambda
           - crate: src/search-filter-percolator-lambda

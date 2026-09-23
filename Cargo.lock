@@ -5989,6 +5989,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-embedding-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "embedding",
+ "futures-util",
+ "google-cloud-auth",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "product-listing-core"
 version = "0.1.0"
 dependencies = [

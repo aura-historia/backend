@@ -260,6 +260,7 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "productListingOpenSearch",
   "productListingNormalization",
   "productContentAssessment",
+  "productEmbedding",
   "searchFilterMatchNotification",
   "watchlistNotification",
   "notificationDelivery",

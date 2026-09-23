@@ -6,6 +6,7 @@ export interface ApplicationParameters {
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
+  readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
@@ -49,6 +50,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   });
   const productContentAssessmentConsumerActivation = new cdk.CfnCondition(scope, "ProductContentAssessmentConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productContentAssessmentConsumerEnabled.valueAsString, "true"),
+  });
+  const productEmbeddingConsumerEnabled = new cdk.CfnParameter(scope, "ProductEmbeddingConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing embedding SQS Lambda only after the native-consumer handoff, provider quota, and capacity gates are approved.",
+  });
+  const productEmbeddingConsumerActivation = new cdk.CfnCondition(scope, "ProductEmbeddingConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productEmbeddingConsumerEnabled.valueAsString, "true"),
   });
   const searchFilterProjectionConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterProjectionConsumerEnabled", {
     type: "String",
@@ -104,6 +114,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     productListingOpenSearchConsumerActivation,
     productListingNormalizationConsumerActivation,
     productContentAssessmentConsumerActivation,
+    productEmbeddingConsumerActivation,
     searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
     searchFilterMatchNotificationConsumerActivation,

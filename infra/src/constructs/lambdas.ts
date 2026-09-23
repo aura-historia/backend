@@ -125,6 +125,24 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
   },
+  productEmbedding: {
+    id: "ProductEmbeddingLambda",
+    binaryName: "product-embedding-lambda",
+    memorySize: 1024,
+    postgres: true,
+    timeoutSeconds: 60,
+    environment: (context) => ({
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+    }),
+  },
   searchFilterProjection: {
     id: "SearchFilterProjectionLambda",
     binaryName: "search-filter-projection-lambda",
@@ -219,6 +237,7 @@ export class Lambdas extends Construct {
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
   readonly productContentAssessmentVersion: lambda.Version;
+  readonly productEmbeddingVersion: lambda.Version;
   readonly searchFilterProjectionVersion: lambda.Version;
   readonly searchFilterPercolatorVersion: lambda.Version;
   readonly searchFilterMatchNotificationVersion: lambda.Version;
@@ -293,6 +312,10 @@ export class Lambdas extends Construct {
     this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
       lambda: this.functions.productContentAssessment,
       description: `product-content-assessment-${props.parameters.commitSha}`,
+    });
+    this.productEmbeddingVersion = new lambda.Version(this, "ProductEmbeddingVersion", {
+      lambda: this.functions.productEmbedding,
+      description: `product-embedding-${props.parameters.commitSha}`,
     });
     this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
       lambda: this.functions.searchFilterProjection,
