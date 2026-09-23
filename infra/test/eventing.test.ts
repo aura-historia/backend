@@ -30,6 +30,8 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
     const projectionActivation = { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] };
     const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
+    const matchNotificationActivation = { "Fn::If": ["SearchFilterMatchNotificationConsumerActivation", true, false] };
+    const watchlistNotificationActivation = { "Fn::If": ["WatchlistNotificationConsumerActivation", true, false] };
     const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
@@ -64,6 +66,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.SearchFilterPercolatorConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "SearchFilterPercolatorConsumerEnabled" }, "true"],
     });
+    for (const [parameter, condition] of [
+      ["SearchFilterMatchNotificationConsumerEnabled", "SearchFilterMatchNotificationConsumerActivation"],
+      ["WatchlistNotificationConsumerEnabled", "WatchlistNotificationConsumerActivation"],
+    ]) {
+      expect(templateJson.Parameters[parameter]).toMatchObject({
+        Type: "String",
+        Default: "false",
+        AllowedValues: ["true", "false"],
+      });
+      expect(templateJson.Conditions[condition]).toEqual({
+        "Fn::Equals": [{ Ref: parameter }, "true"],
+      });
+    }
     if (stage === "ephemeral") {
       expect(templateJson.Parameters.CdcRouterEnabled).toBeUndefined();
       expect(templateJson.Conditions.CdcRouterActivation).toBeUndefined();
@@ -78,7 +93,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 7 : 8);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -135,6 +150,35 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
         ? "WorkerQueuesSearchFilterPercolatorQueue"
         : `aura-worker-search-filter-percolator-${stage}`,
     );
+    const notificationMappings = [
+      {
+        version: "SearchFilterMatchNotificationVersion",
+        activation: matchNotificationActivation,
+        queueLogicalId: "WorkerQueuesSearchFilterMatchNotificationQueue",
+        queueName: "search-filter-match-notification",
+      },
+      {
+        version: "WatchlistNotificationVersion",
+        activation: watchlistNotificationActivation,
+        queueLogicalId: "WorkerQueuesWatchlistNotificationQueue",
+        queueName: "watchlist-notification",
+      },
+    ];
+    for (const mappingContract of notificationMappings) {
+      const mapping = mappings.find((candidate) =>
+        JSON.stringify(candidate.Properties?.FunctionName).includes(mappingContract.version),
+      );
+      expect(mapping?.Properties).toMatchObject({
+        BatchSize: 1,
+        Enabled: mappingContract.activation,
+        FunctionResponseTypes: ["ReportBatchItemFailures"],
+      });
+      expect(JSON.stringify(mapping?.Properties?.EventSourceArn)).toContain(
+        stage === "ephemeral"
+          ? mappingContract.queueLogicalId
+          : `aura-worker-${mappingContract.queueName}-${stage}`,
+      );
+    }
     const cdcRouterMapping = mappings.find((mapping) => mapping.Properties?.BatchSize === 100);
     if (stage === "ephemeral") {
       expect(cdcRouterMapping).toBeUndefined();

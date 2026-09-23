@@ -9,6 +9,26 @@ use search_filter_service::use_cases::{
 };
 use std::sync::Arc;
 
+/// Lambda- and polling-transport result for one saved-filter match notification job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterMatchNotificationJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl SearchFilterMatchNotificationJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
+
 pub async fn consume_search_filter_match_notification_queue(
     receiver: impl Into<WorkerQueueReceiver>,
     use_case: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
@@ -16,16 +36,32 @@ pub async fn consume_search_filter_match_notification_queue(
     receiver
         .into()
         .run(WorkerScope::SearchFilterMatchNotification, move |job| {
-            execute_job(use_case.clone(), job)
+            let use_case = Arc::clone(&use_case);
+            async move { polling_outcome(execute_job(use_case.as_ref(), job).await) }
         })
         .await;
 }
+
+/// Decode and execute one compact schema-2 saved-filter match notification job.
+///
+/// This is transport-neutral so Lambda and the polling worker retain the same exact-match source,
+/// lifecycle-lock, idempotency, and retry semantics.
+pub async fn process_search_filter_match_notification_job(
+    body: &str,
+    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
+) -> SearchFilterMatchNotificationJobDisposition {
+    match crate::wire::decode(body, WorkerScope::SearchFilterMatchNotification) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => SearchFilterMatchNotificationJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
 async fn execute_job(
-    use_case: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
+    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
     job: DomainJob,
-) -> JobOutcome {
+) -> SearchFilterMatchNotificationJobDisposition {
     let Ok(command) = command_from_job(job) else {
-        return JobOutcome::Invalid("match_metadata_invalid");
+        return SearchFilterMatchNotificationJobDisposition::Poison("match_metadata_invalid");
     };
     match use_case.execute(command).await {
         Ok(result) => notification_outcome(result),
@@ -36,25 +72,58 @@ async fn execute_job(
                 | E::ProductListingSourceStateInvalid { .. }
                 | E::ProductListingSourceMismatch
                 | E::ContentAssessmentStateInvalid { .. } => {
-                    JobOutcome::Invalid("match_notification_state_invalid")
+                    SearchFilterMatchNotificationJobDisposition::Poison(
+                        "match_notification_state_invalid",
+                    )
                 }
-                _ => JobOutcome::DependencyUnavailable("match_notification_unavailable"),
+                _ => SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(
+                    "match_notification_unavailable",
+                ),
             }
         }
     }
 }
-fn notification_outcome(result: GenerateSearchFilterMatchNotificationResult) -> JobOutcome {
+fn polling_outcome(disposition: SearchFilterMatchNotificationJobDisposition) -> JobOutcome {
+    match disposition {
+        SearchFilterMatchNotificationJobDisposition::Complete(category) => {
+            JobOutcome::Complete(category)
+        }
+        SearchFilterMatchNotificationJobDisposition::Retry(category) => JobOutcome::Retry(category),
+        SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
+        SearchFilterMatchNotificationJobDisposition::Poison(category) => {
+            JobOutcome::Invalid(category)
+        }
+    }
+}
+
+fn notification_outcome(
+    result: GenerateSearchFilterMatchNotificationResult,
+) -> SearchFilterMatchNotificationJobDisposition {
     use GenerateSearchFilterMatchNotificationResult as R;
     match result {
-        R::Created => JobOutcome::Complete("inserted"),
-        R::AlreadyExists => JobOutcome::Complete("duplicate"),
-        R::SuppressedByQuota => JobOutcome::Complete("suppressed_by_quota"),
+        R::Created => SearchFilterMatchNotificationJobDisposition::Complete("inserted"),
+        R::AlreadyExists => SearchFilterMatchNotificationJobDisposition::Complete("duplicate"),
+        R::SuppressedByQuota => {
+            SearchFilterMatchNotificationJobDisposition::Complete("suppressed_by_quota")
+        }
         // User deletion is a terminal recipient suppression, not missing historical business truth.
-        R::SuppressedForMissingUser => JobOutcome::Complete("missing_user"),
-        R::SuppressedForWithdrawnProductListing => JobOutcome::Complete("withdrawn"),
-        R::SuppressedForStaleMatch => JobOutcome::Complete("stale_match"),
-        R::SuppressedForMissingMatch => JobOutcome::Retry("missing_match"),
-        R::SuppressedForMissingProductListing => JobOutcome::Retry("missing_product"),
+        R::SuppressedForMissingUser => {
+            SearchFilterMatchNotificationJobDisposition::Complete("missing_user")
+        }
+        R::SuppressedForWithdrawnProductListing => {
+            SearchFilterMatchNotificationJobDisposition::Complete("withdrawn")
+        }
+        R::SuppressedForStaleMatch => {
+            SearchFilterMatchNotificationJobDisposition::Complete("stale_match")
+        }
+        R::SuppressedForMissingMatch => {
+            SearchFilterMatchNotificationJobDisposition::Retry("missing_match")
+        }
+        R::SuppressedForMissingProductListing => {
+            SearchFilterMatchNotificationJobDisposition::Retry("missing_product")
+        }
     }
 }
 fn command_from_job(
@@ -140,7 +209,10 @@ mod tests {
             R::SuppressedForMissingMatch,
             R::SuppressedForMissingProductListing,
         ] {
-            assert!(matches!(notification_outcome(result), JobOutcome::Retry(_)));
+            assert!(matches!(
+                notification_outcome(result),
+                SearchFilterMatchNotificationJobDisposition::Retry(_)
+            ));
         }
         for result in [
             R::Created,
@@ -152,7 +224,7 @@ mod tests {
         ] {
             assert!(matches!(
                 notification_outcome(result),
-                JobOutcome::Complete(_)
+                SearchFilterMatchNotificationJobDisposition::Complete(_)
             ));
         }
     }

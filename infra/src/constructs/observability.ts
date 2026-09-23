@@ -259,6 +259,8 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "shopify",
   "productListingOpenSearch",
   "productListingNormalization",
+  "searchFilterMatchNotification",
+  "watchlistNotification",
 ]);
 
 const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;

@@ -7,6 +7,8 @@ export interface ApplicationParameters {
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
+  readonly watchlistNotificationConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
@@ -55,6 +57,24 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   const searchFilterPercolatorConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterPercolatorConsumerActivation", {
     expression: cdk.Fn.conditionEquals(searchFilterPercolatorConsumerEnabled.valueAsString, "true"),
   });
+  const searchFilterMatchNotificationConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterMatchNotificationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter match notification SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const searchFilterMatchNotificationConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterMatchNotificationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterMatchNotificationConsumerEnabled.valueAsString, "true"),
+  });
+  const watchlistNotificationConsumerEnabled = new cdk.CfnParameter(scope, "WatchlistNotificationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated watchlist notification SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const watchlistNotificationConsumerActivation = new cdk.CfnCondition(scope, "WatchlistNotificationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(watchlistNotificationConsumerEnabled.valueAsString, "true"),
+  });
   const cdcRouterActivation = includeCdcRouterActivation
     ? cdcRouterCondition(scope)
     : undefined;
@@ -65,6 +85,8 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     productListingNormalizationConsumerActivation,
     searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
+    searchFilterMatchNotificationConsumerActivation,
+    watchlistNotificationConsumerActivation,
     cdcRouterActivation,
   };
 }
