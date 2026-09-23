@@ -145,8 +145,7 @@ native Axum router, and applies a `14 s` application request deadline. The same
 artifact matrix packages `cdc-router-lambda` from `aura-historia-worker`: it is a
 `256 MiB` / `30 s` Kinesis-to-SQS transport adapter that has no database, native
 worker polling loop, cron scheduler, health daemon, API Gateway route, Function
-URL, or reserved/provisioned concurrency. Native processes remain the local
-development entrypoints.
+URL, or reserved/provisioned concurrency. `notification-delivery-lambda` is a 512 MiB / 45s batch-one SQS consumer with an immutable function version. It composes only the durable PostgreSQL delivery service, versioned-template S3 reader, and one-attempt SES sender; mapping activation is a manual handoff gate, never an in-memory delivery cache. Native processes remain the local development entrypoints.
 
 A Lambda root constructs only its selected dependencies during cold start and
 reuses immutable configuration plus pool/client handles during warm invocations.
@@ -254,10 +253,11 @@ Production native processes are:
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
 queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
-`product-listing-opensearch` queue has a retained Lambda mapping in every compute
-stack, but it is disabled by default until explicit activation; the other nine are
-native polling-worker scopes. This catalog remains separate from Shopify resources
-and wiring.
+`product-listing-opensearch`, `product-listing-normalization`, `search-filter-projection`,
+`search-filter-percolator`, and `notification-delivery` queues have retained Lambda
+mappings in every compute stack, each disabled by default until its explicit activation;
+the other five remain native polling-worker scopes. This catalog remains separate from
+Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 

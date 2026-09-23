@@ -12,6 +12,7 @@ use notification_service::{
 };
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
+use tracing::{info, warn};
 
 const LEASE_SAFETY: Duration = Duration::seconds(5);
 
@@ -33,6 +34,132 @@ async fn execute_job(use_case: Arc<dyn DeliverNotificationUseCase>, job: DomainJ
     match use_case.execute(command).await {
         Ok(result) => delivery_outcome(result, OffsetDateTime::now_utc()),
         Err(error) => delivery_error(error),
+    }
+}
+
+/// Lambda- and polling-transport result for one compact notification-delivery wake-up.
+///
+/// Only durable terminal service results are complete. All other dispositions deliberately leave
+/// the SQS record unfinished: an accepted SES send cannot be atomically finalized in PostgreSQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationDeliveryJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl NotificationDeliveryJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
+
+/// Decode and execute one compact schema-2 delivery wake-up without exposing SQS transport
+/// metadata to the notification service. Lease ownership and finalization remain PostgreSQL-owned.
+pub async fn process_notification_delivery_job(
+    body: &str,
+    use_case: &(dyn DeliverNotificationUseCase + Send + Sync),
+) -> NotificationDeliveryJobDisposition {
+    let job = match crate::wire::decode(body, WorkerScope::NotificationDelivery) {
+        Ok(job) => job,
+        Err(_) => return NotificationDeliveryJobDisposition::Poison("invalid_wire_job"),
+    };
+    let command = match command_from_job(job) {
+        Ok(command) => command,
+        Err(_) => return NotificationDeliveryJobDisposition::Poison("unexpected_payload"),
+    };
+    let notification_delivery_id = command.notification_delivery_id;
+    match use_case.execute(command).await {
+        Ok(result) => {
+            let attempt_count = match result {
+                DeliverNotificationResult::Delivered { attempt_count } => Some(attempt_count),
+                _ => None,
+            };
+            let disposition = delivery_disposition(result);
+            info!(
+                notification_delivery_id = %notification_delivery_id,
+                attempt_count,
+                outcome = disposition.category(),
+                "notification delivery attempt finished"
+            );
+            disposition
+        }
+        Err(error) => {
+            let disposition = delivery_error_disposition(error);
+            warn!(
+                notification_delivery_id = %notification_delivery_id,
+                outcome = disposition.category(),
+                "notification delivery attempt remains unfinished"
+            );
+            disposition
+        }
+    }
+}
+
+fn delivery_disposition(result: DeliverNotificationResult) -> NotificationDeliveryJobDisposition {
+    match result {
+        DeliverNotificationResult::Delivered { .. } => {
+            NotificationDeliveryJobDisposition::Complete("delivered")
+        }
+        DeliverNotificationResult::AlreadyDelivered => {
+            NotificationDeliveryJobDisposition::Complete("already_delivered")
+        }
+        DeliverNotificationResult::PermanentlyFailed => {
+            NotificationDeliveryJobDisposition::Complete("permanently_failed")
+        }
+        DeliverNotificationResult::SourceMissing => {
+            NotificationDeliveryJobDisposition::Complete("source_missing_finalized")
+        }
+        DeliverNotificationResult::DeliveryMissing => {
+            NotificationDeliveryJobDisposition::Retry("delivery_missing")
+        }
+        DeliverNotificationResult::AlreadyClaimed { .. } => {
+            NotificationDeliveryJobDisposition::Retry("already_claimed")
+        }
+        DeliverNotificationResult::ClaimDeferred { .. } => {
+            NotificationDeliveryJobDisposition::Retry("claim_deferred")
+        }
+    }
+}
+
+fn delivery_error_disposition(
+    error: DeliverNotificationError,
+) -> NotificationDeliveryJobDisposition {
+    match error {
+        DeliverNotificationError::Repository(
+            NotificationDeliveryError::InvalidPersistedState { .. },
+        ) => NotificationDeliveryJobDisposition::Poison("delivery_state_invalid"),
+        DeliverNotificationError::UnregisteredChannel { .. } => {
+            NotificationDeliveryJobDisposition::Poison("delivery_channel_unregistered")
+        }
+        DeliverNotificationError::LeaseLost => {
+            NotificationDeliveryJobDisposition::Retry("lease_lost")
+        }
+        DeliverNotificationError::AmbiguousSend(_) => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable("provider_acceptance_unknown")
+        }
+        DeliverNotificationError::AttemptTimedOut { .. } => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable("delivery_attempt_timeout")
+        }
+        DeliverNotificationError::FinalizationExhausted { .. } => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable(
+                "delivery_finalization_unconfirmed",
+            )
+        }
+        DeliverNotificationError::Repository(NotificationDeliveryError::OperationFailed {
+            ..
+        })
+        | DeliverNotificationError::RetryableSend(_) => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable(
+                "delivery_dependency_unavailable",
+            )
+        }
     }
 }
 fn delivery_outcome(result: DeliverNotificationResult, now: OffsetDateTime) -> JobOutcome {

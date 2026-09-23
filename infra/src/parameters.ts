@@ -7,6 +7,7 @@ export interface ApplicationParameters {
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
+  readonly notificationDeliveryConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
@@ -55,6 +56,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   const searchFilterPercolatorConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterPercolatorConsumerActivation", {
     expression: cdk.Fn.conditionEquals(searchFilterPercolatorConsumerEnabled.valueAsString, "true"),
   });
+  const notificationDeliveryConsumerEnabled = new cdk.CfnParameter(scope, "NotificationDeliveryConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated notification-delivery SQS Lambda only after the native consumer is stopped, SES recipients are approved, and delivery recovery gates pass.",
+  });
+  const notificationDeliveryConsumerActivation = new cdk.CfnCondition(scope, "NotificationDeliveryConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(notificationDeliveryConsumerEnabled.valueAsString, "true"),
+  });
   const cdcRouterActivation = includeCdcRouterActivation
     ? cdcRouterCondition(scope)
     : undefined;
@@ -65,6 +75,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     productListingNormalizationConsumerActivation,
     searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
+    notificationDeliveryConsumerActivation,
     cdcRouterActivation,
   };
 }

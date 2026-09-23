@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - HTTP API traffic now uses one explicit API Gateway route matrix and the API Lambda `live` alias. The public method/path and authentication contracts are unchanged: optional Aura/Cognito authentication, application authorization, OAuth, and signed WooCommerce intake continue in Axum. API edge caching is disabled to prevent personalized responses from being shared; custom domains, CloudFront, WAF, CORS, and existing request limits remain in place.
 
+- Notification delivery now has a retained, default-disabled dedicated SQS Lambda mapping. It preserves PostgreSQL lease/send/finalize ownership and at-least-once delivery semantics; only durable terminal results acknowledge. SES acceptance followed by lost finalization can still duplicate email after lease expiry, so activation requires approved recipients and the documented handoff/recovery gates.
+
 - **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
 
 - **Breaking:** Partner ProductListing Auction association now uses `auction.auctionId`, an existing same-ListingSource `auc_` ID. Partners cannot resolve/create Auctions from `sourceAuctionId` or supply Auction metadata. Omit `auctionId` to preserve membership, send `null` to clear it, and use lot/timing leaf patches for listing-owned facts.
