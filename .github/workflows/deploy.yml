@@ -103,6 +103,8 @@ jobs:
             binary: search-filter-projection-lambda
           - crate: src/search-filter-percolator-lambda
             binary: search-filter-percolator-lambda
+          - crate: src/notification-delivery-lambda
+            binary: notification-delivery-lambda
           - crate: src/aura-historia-worker
             binary: cdc-router-lambda
     steps:

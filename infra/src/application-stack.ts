@@ -298,6 +298,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
       searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
+      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
@@ -416,6 +418,8 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
       searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
+      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
     });
 

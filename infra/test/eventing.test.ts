@@ -30,6 +30,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
     const projectionActivation = { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] };
     const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
+    const notificationDeliveryActivation = { "Fn::If": ["NotificationDeliveryConsumerActivation", true, false] };
     const cdcRouterActivation = { "Fn::If": ["CdcRouterActivation", true, false] };
 
     expect(templateJson.Parameters.ProductListingOpenSearchConsumerEnabled).toMatchObject({
@@ -64,6 +65,14 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(templateJson.Conditions.SearchFilterPercolatorConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "SearchFilterPercolatorConsumerEnabled" }, "true"],
     });
+    expect(templateJson.Parameters.NotificationDeliveryConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.NotificationDeliveryConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "NotificationDeliveryConsumerEnabled" }, "true"],
+    });
     if (stage === "ephemeral") {
       expect(templateJson.Parameters.CdcRouterEnabled).toBeUndefined();
       expect(templateJson.Conditions.CdcRouterActivation).toBeUndefined();
@@ -78,7 +87,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 5 : 6);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 6 : 7);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -121,6 +130,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       stage === "ephemeral"
         ? "WorkerQueuesSearchFilterProjectionQueue"
         : `aura-worker-search-filter-projection-${stage}`,
+    );
+    const notificationDeliveryMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("NotificationDeliveryVersion"),
+    );
+    expect(notificationDeliveryMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: notificationDeliveryActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(notificationDeliveryMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesNotificationDeliveryQueue"
+        : `aura-worker-notification-delivery-${stage}`,
     );
     const percolatorMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterPercolatorVersion"),
