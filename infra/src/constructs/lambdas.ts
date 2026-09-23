@@ -143,6 +143,27 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
         : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
     }),
   },
+  productTranslation: {
+    id: "ProductTranslationLambda",
+    binaryName: "product-translation-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      VERTEX_AI_MODEL: context.config.isEphemeral
+        ? "gemini-3.1-flash-lite"
+        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+    }),
+  },
   searchFilterProjection: {
     id: "SearchFilterProjectionLambda",
     binaryName: "search-filter-projection-lambda",
@@ -238,6 +259,7 @@ export class Lambdas extends Construct {
   readonly productListingNormalizationVersion: lambda.Version;
   readonly productContentAssessmentVersion: lambda.Version;
   readonly productEmbeddingVersion: lambda.Version;
+  readonly productTranslationVersion: lambda.Version;
   readonly searchFilterProjectionVersion: lambda.Version;
   readonly searchFilterPercolatorVersion: lambda.Version;
   readonly searchFilterMatchNotificationVersion: lambda.Version;
@@ -316,6 +338,10 @@ export class Lambdas extends Construct {
     this.productEmbeddingVersion = new lambda.Version(this, "ProductEmbeddingVersion", {
       lambda: this.functions.productEmbedding,
       description: `product-embedding-${props.parameters.commitSha}`,
+    });
+    this.productTranslationVersion = new lambda.Version(this, "ProductTranslationVersion", {
+      lambda: this.functions.productTranslation,
+      description: `product-translation-${props.parameters.commitSha}`,
     });
     this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
       lambda: this.functions.searchFilterProjection,
