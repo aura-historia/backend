@@ -7,6 +7,7 @@ export interface ApplicationParameters {
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
   readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
+  readonly productTranslationConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
@@ -59,6 +60,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   });
   const productEmbeddingConsumerActivation = new cdk.CfnCondition(scope, "ProductEmbeddingConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productEmbeddingConsumerEnabled.valueAsString, "true"),
+  });
+  const productTranslationConsumerEnabled = new cdk.CfnParameter(scope, "ProductTranslationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing translation SQS Lambda only after the native consumer is paused and settled and provider quota is approved.",
+  });
+  const productTranslationConsumerActivation = new cdk.CfnCondition(scope, "ProductTranslationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productTranslationConsumerEnabled.valueAsString, "true"),
   });
   const searchFilterProjectionConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterProjectionConsumerEnabled", {
     type: "String",
@@ -115,6 +125,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     productListingNormalizationConsumerActivation,
     productContentAssessmentConsumerActivation,
     productEmbeddingConsumerActivation,
+    productTranslationConsumerActivation,
     searchFilterProjectionConsumerActivation,
     searchFilterPercolatorConsumerActivation,
     searchFilterMatchNotificationConsumerActivation,

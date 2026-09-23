@@ -6258,6 +6258,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-translation-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-worker",
+ "aws_lambda_events",
+ "futures-util",
+ "google-cloud-auth",
+ "lambda_runtime",
+ "large-language-model",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "product-listing-translation-llm",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "public-network-policy"
 version = "0.1.0"
 

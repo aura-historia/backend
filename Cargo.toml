@@ -16,6 +16,7 @@ members = [
     "src/product-listing-normalization-lambda",
     "src/product-content-assessment-lambda",
     "src/product-embedding-lambda",
+    "src/product-translation-lambda",
     "src/search-filter-projection-lambda",
     "src/search-filter-percolator-lambda",
     "src/search-filter-match-notification-lambda",
@@ -100,6 +101,7 @@ product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lam
 product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
 product-content-assessment-lambda = { path = "src/product-content-assessment-lambda" }
 product-embedding-lambda = { path = "src/product-embedding-lambda" }
+product-translation-lambda = { path = "src/product-translation-lambda" }
 search-filter-projection-lambda = { path = "src/search-filter-projection-lambda" }
 search-filter-percolator-lambda = { path = "src/search-filter-percolator-lambda" }
 search-filter-match-notification-lambda = { path = "src/search-filter-match-notification-lambda" }

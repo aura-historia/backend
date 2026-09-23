@@ -19,6 +19,8 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("database-migration-lambda");
     expect(deployWorkflow).toContain("crate: src/product-content-assessment-lambda");
     expect(deployWorkflow).toContain("binary: product-content-assessment-lambda");
+    expect(deployWorkflow).toContain("crate: src/product-translation-lambda");
+    expect(deployWorkflow).toContain("binary: product-translation-lambda");
     expect(deployWorkflow).toContain("crate: src/search-filter-match-notification-lambda");
     expect(deployWorkflow).toContain("binary: search-filter-match-notification-lambda");
     expect(deployWorkflow).toContain("crate: src/watchlist-notification-lambda");

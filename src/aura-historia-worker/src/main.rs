@@ -2,23 +2,20 @@ use aura_historia_worker::notification_delivery::consume_notification_delivery_q
 use aura_historia_worker::product_content_assessment::consume_product_content_assessment_queue;
 
 use aura_historia_worker::product_listing_raw_normalization::consume_product_listing_raw_normalization_queue;
-use aura_historia_worker::product_translation::consume_product_translation_queue;
+
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
     WorkerOpenSearchConfig, WorkerRunError, WorkerRuntimeComposition, WorkerScope,
-    WorkerStartupConfig, WorkerStartupConfigError, WorkerVertexAiConfig,
-    run_until_shutdown_with_runtime,
+    WorkerStartupConfig, WorkerStartupConfigError, run_until_shutdown_with_runtime,
 };
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::Client as SesClient;
 use aws_smithy_types::timeout::TimeoutConfig;
 
-use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
-use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_core::notification_delivery::NotificationDeliveryChannel;
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
 use notification_postgres::{
@@ -52,15 +49,12 @@ use product_listing_postgres::{
     SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
-    SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
 use product_listing_service::use_cases::{
     AssessProductListingContentEventHandler, AssessProductListingContentEventUseCase,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
-    TranslateProductListingEventHandler, TranslateProductListingEventUseCase,
 };
-use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionHandler, NormalizeProductListingRawRevisionUseCase,
 };
@@ -77,8 +71,6 @@ use std::{future::Future, sync::Arc, time::Duration};
 use tokio::sync::watch;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
-
-const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[tokio::main]
 async fn main() {
@@ -109,6 +101,7 @@ async fn run() -> Result<(), MainError> {
         scope,
         WorkerScope::ProductListingOpenSearch
             | WorkerScope::SearchFilterPercolator
+            | WorkerScope::ProductListingTranslation
             | WorkerScope::ProductListingEmbedding
     ) {
         return Err(MainError::ScopeUsesLambda { scope });
@@ -139,13 +132,7 @@ async fn run() -> Result<(), MainError> {
         WorkerScope::ProductListingContentAssessment => {
             run_product_content_assessment(worker_config, pool, composition).await
         }
-        WorkerScope::ProductListingTranslation => {
-            let vertex_ai = startup
-                .vertex_ai()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_product_translation(worker_config, pool, composition, vertex_ai).await
-        }
-
+        WorkerScope::ProductListingTranslation => Err(MainError::ScopeUsesLambda { scope }),
         WorkerScope::ProductListingEmbedding => Err(MainError::ScopeUsesLambda { scope }),
         WorkerScope::ProductListingRawNormalization => {
             run_product_listing_raw_normalization(worker_config, pool, composition).await
@@ -215,26 +202,6 @@ async fn run_product_content_assessment(
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_product_content_assessment_queue(receiver, handler));
-    finish_runtime(config, runtime, task).await
-}
-
-async fn run_product_translation(
-    config: aura_historia_worker::WorkerConfig,
-    pool: sqlx::PgPool,
-    composition: WorkerRuntimeComposition,
-    vertex_ai: &WorkerVertexAiConfig,
-) -> Result<(), MainError> {
-    let handler: Arc<dyn TranslateProductListingEventUseCase> =
-        Arc::new(TranslateProductListingEventHandler::new(
-            SqlxProductListingTranslationSourceReader::new(pool.clone()),
-            LargeLanguageModelProductListingTitleTranslator::new(vertex_ai_large_language_model(
-                vertex_ai,
-            )?),
-            SqlxUnitOfWork::new(pool),
-            SqlxProductListingTranslationWriterFactory::new(),
-        ));
-    let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_product_translation_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 
@@ -431,31 +398,6 @@ impl SupervisedConsumer {
     }
 }
 
-fn vertex_ai_large_language_model(
-    config: &WorkerVertexAiConfig,
-) -> Result<VertexAiGemini, MainError> {
-    let config = VertexAiConfig::new(
-        config.project_id().to_owned(),
-        config.location().to_owned(),
-        config
-            .model()
-            .ok_or(MainError::MissingVertexAiModel)?
-            .to_owned(),
-    );
-    let credentials = vertex_ai_credentials()?;
-    VertexAiGemini::new(config, credentials).map_err(MainError::VertexAiHttpClient)
-}
-
-fn vertex_ai_credentials()
--> Result<google_cloud_auth::credentials::AccessTokenCredentials, MainError> {
-    GoogleCredentialsBuilder::default()
-        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
-        .build_access_token_credentials()
-        .map_err(|error| MainError::VertexAiCredentials {
-            detail: error.to_string(),
-        })
-}
-
 fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, MainError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint().clone());
     let builder = TransportBuilder::new(pool);
@@ -626,12 +568,7 @@ enum MainError {
 
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
-    #[error("failed to initialize Vertex AI credentials: {detail}")]
-    VertexAiCredentials { detail: String },
-    #[error("failed to build Vertex AI HTTP client: {0}")]
-    VertexAiHttpClient(reqwest::Error),
-    #[error("validated Vertex AI LLM configuration is missing its model")]
-    MissingVertexAiModel,
+
     #[error(transparent)]
     NotificationDispatcher(
         #[from] notification_service::ports::notification_channel_sender::NotificationDeliveryDispatcherRegistrationError,

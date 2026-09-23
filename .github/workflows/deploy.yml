@@ -103,6 +103,8 @@ jobs:
             binary: product-content-assessment-lambda
           - crate: src/product-embedding-lambda
             binary: product-embedding-lambda
+          - crate: src/product-translation-lambda
+            binary: product-translation-lambda
           - crate: src/search-filter-projection-lambda
             binary: search-filter-projection-lambda
           - crate: src/search-filter-percolator-lambda
