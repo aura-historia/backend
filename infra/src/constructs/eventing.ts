@@ -22,6 +22,7 @@ export interface EventingProps {
   readonly productListingOpenSearchVersion: lambda.IVersion;
   readonly productListingNormalizationVersion: lambda.IVersion;
   readonly productContentAssessmentVersion: lambda.IVersion;
+  readonly productEmbeddingVersion: lambda.IVersion;
   readonly searchFilterProjectionVersion: lambda.IVersion;
   readonly searchFilterPercolatorVersion: lambda.IVersion;
   readonly searchFilterMatchNotificationVersion: lambda.IVersion;
@@ -30,6 +31,7 @@ export interface EventingProps {
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
+  readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
@@ -125,6 +127,7 @@ export class Eventing extends Construct {
       props.productListingOpenSearchVersion,
       props.productListingNormalizationVersion,
       props.productContentAssessmentVersion,
+      props.productEmbeddingVersion,
       props.searchFilterProjectionVersion,
       props.searchFilterPercolatorVersion,
       props.searchFilterMatchNotificationVersion,
@@ -133,6 +136,7 @@ export class Eventing extends Construct {
       props.productListingOpenSearchConsumerActivation,
       props.productListingNormalizationConsumerActivation,
       props.productContentAssessmentConsumerActivation,
+      props.productEmbeddingConsumerActivation,
       props.searchFilterProjectionConsumerActivation,
       props.searchFilterPercolatorConsumerActivation,
       props.searchFilterMatchNotificationConsumerActivation,
@@ -313,6 +317,7 @@ function createSqsEventSources(
   productListingOpenSearchVersion: lambda.IVersion,
   productListingNormalizationVersion: lambda.IVersion,
   productContentAssessmentVersion: lambda.IVersion,
+  productEmbeddingVersion: lambda.IVersion,
   searchFilterProjectionVersion: lambda.IVersion,
   searchFilterPercolatorVersion: lambda.IVersion,
   searchFilterMatchNotificationVersion: lambda.IVersion,
@@ -321,6 +326,7 @@ function createSqsEventSources(
   activation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
   productContentAssessmentActivation: cdk.CfnCondition,
+  productEmbeddingActivation: cdk.CfnCondition,
   searchFilterProjectionActivation: cdk.CfnCondition,
   percolatorActivation: cdk.CfnCondition,
   searchFilterMatchNotificationActivation: cdk.CfnCondition,
@@ -403,6 +409,15 @@ function createSqsEventSources(
     productContentAssessmentVersion,
     productContentAssessmentActivation,
     "ProductListing content assessment",
+  );
+  addWorkerLambdaEventSource(
+    scope,
+    "ProductEmbeddingQueueEventSource",
+    functions.productEmbedding,
+    workerQueues["product-embedding"],
+    productEmbeddingVersion,
+    productEmbeddingActivation,
+    "ProductListing embedding",
   );
 
   const notificationDelivery = workerQueues["notification-delivery"];

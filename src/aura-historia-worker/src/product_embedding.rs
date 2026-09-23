@@ -2,6 +2,7 @@ use crate::{
     WorkerScope,
     cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
+    wire,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use product_listing_service::use_cases::{
@@ -10,6 +11,29 @@ use product_listing_service::use_cases::{
 };
 use std::sync::Arc;
 
+/// Lambda- and polling-transport result for one embedding job.
+///
+/// Only outcomes whose source guard and persistence are known to be complete are acknowledged.
+/// Source absence, provider failures, and an ambiguous transaction completion remain on SQS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEmbeddingJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl ProductEmbeddingJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
+    }
+}
+
 pub async fn consume_product_embedding_queue(
     receiver: impl Into<WorkerQueueReceiver>,
     use_case: Arc<dyn EmbedProductListingEventUseCase>,
@@ -17,16 +41,32 @@ pub async fn consume_product_embedding_queue(
     receiver
         .into()
         .run(WorkerScope::ProductListingEmbedding, move |job| {
-            execute_job(use_case.clone(), job)
+            let use_case = Arc::clone(&use_case);
+            async move { polling_outcome(execute_job(use_case.as_ref(), job).await) }
         })
         .await;
 }
+
+/// Decode and execute one compact schema-2 embedding job.
+///
+/// The adapter provides the trusted system operation context only. The service owns source
+/// validation, provider invocation, and source-version-guarded persistence.
+pub async fn process_product_embedding_job(
+    body: &str,
+    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
+) -> ProductEmbeddingJobDisposition {
+    match wire::decode(body, WorkerScope::ProductListingEmbedding) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => ProductEmbeddingJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
 async fn execute_job(
-    use_case: Arc<dyn EmbedProductListingEventUseCase>,
+    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
     job: DomainJob,
-) -> JobOutcome {
+) -> ProductEmbeddingJobDisposition {
     let Ok(command) = command_from_job(job) else {
-        return JobOutcome::Invalid("unexpected_payload");
+        return ProductEmbeddingJobDisposition::Poison("unexpected_payload");
     };
     let context = OperationContext {
         principal: Principal::System,
@@ -34,23 +74,41 @@ async fn execute_job(
         correlation_id: CorrelationId::new(command.event_id.to_string()),
     };
     match use_case.execute(&context, command).await {
-        Ok(result) => embedding_outcome(result.outcome),
-        Err(
-            EmbedProductListingEventError::ServiceOrSystemPrincipalRequired
-            | EmbedProductListingEventError::InvalidInput { .. },
-        ) => JobOutcome::Invalid("embedding_input_invalid"),
-        Err(_) => JobOutcome::DependencyUnavailable("embedding_unavailable"),
+        Ok(result) => embedding_disposition(result.outcome),
+        Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired) => {
+            ProductEmbeddingJobDisposition::Poison("system_principal_required")
+        }
+        Err(EmbedProductListingEventError::InvalidInput { .. }) => {
+            ProductEmbeddingJobDisposition::Poison("embedding_input_invalid")
+        }
+        // Provider, source, write, and commit failures leave the job retryable. In particular,
+        // a provider result does not prove that the guarded PostgreSQL commit completed.
+        Err(_) => ProductEmbeddingJobDisposition::DependencyUnavailable("embedding_unavailable"),
     }
 }
-fn embedding_outcome(outcome: EmbedProductListingEventOutcome) -> JobOutcome {
+
+fn embedding_disposition(
+    outcome: EmbedProductListingEventOutcome,
+) -> ProductEmbeddingJobDisposition {
     use EmbedProductListingEventOutcome as O;
     match outcome {
-        O::Applied => JobOutcome::Complete("applied"),
-        O::Duplicate => JobOutcome::Complete("duplicate"),
-        O::Stale => JobOutcome::Complete("stale"),
-        O::IgnoredEvent => JobOutcome::Complete("ignored_event"),
-        O::MissingTitle => JobOutcome::Complete("missing_title"),
-        O::ProductListingNotFound => JobOutcome::Retry("missing_source"),
+        O::Applied => ProductEmbeddingJobDisposition::Complete("applied"),
+        O::Duplicate => ProductEmbeddingJobDisposition::Complete("duplicate"),
+        O::Stale => ProductEmbeddingJobDisposition::Complete("stale"),
+        O::IgnoredEvent => ProductEmbeddingJobDisposition::Complete("ignored_event"),
+        O::MissingTitle => ProductEmbeddingJobDisposition::Complete("missing_title"),
+        O::ProductListingNotFound => ProductEmbeddingJobDisposition::Retry("missing_source"),
+    }
+}
+
+fn polling_outcome(disposition: ProductEmbeddingJobDisposition) -> JobOutcome {
+    match disposition {
+        ProductEmbeddingJobDisposition::Complete(category) => JobOutcome::Complete(category),
+        ProductEmbeddingJobDisposition::Retry(category) => JobOutcome::Retry(category),
+        ProductEmbeddingJobDisposition::DependencyUnavailable(category) => {
+            JobOutcome::DependencyUnavailable(category)
+        }
+        ProductEmbeddingJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
 }
 fn command_from_job(job: DomainJob) -> Result<EmbedProductListingCommand, crate::jobs::InvalidJob> {
@@ -89,12 +147,26 @@ mod tests {
     #[test]
     fn should_complete_authoritative_missing_title_but_retain_missing_source() {
         assert_eq!(
-            JobOutcome::Complete("missing_title"),
-            embedding_outcome(EmbedProductListingEventOutcome::MissingTitle)
+            ProductEmbeddingJobDisposition::Complete("missing_title"),
+            embedding_disposition(EmbedProductListingEventOutcome::MissingTitle)
         );
         assert_eq!(
-            JobOutcome::Retry("missing_source"),
-            embedding_outcome(EmbedProductListingEventOutcome::ProductListingNotFound)
+            ProductEmbeddingJobDisposition::Retry("missing_source"),
+            embedding_disposition(EmbedProductListingEventOutcome::ProductListingNotFound)
+        );
+    }
+
+    #[test]
+    fn should_preserve_retry_and_poison_dispositions_for_sqs_redrive() {
+        assert_eq!(
+            JobOutcome::DependencyUnavailable("embedding_unavailable"),
+            polling_outcome(ProductEmbeddingJobDisposition::DependencyUnavailable(
+                "embedding_unavailable"
+            ))
+        );
+        assert_eq!(
+            JobOutcome::Invalid("invalid_wire_job"),
+            polling_outcome(ProductEmbeddingJobDisposition::Poison("invalid_wire_job"))
         );
     }
 }

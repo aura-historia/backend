@@ -1,6 +1,5 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
 use aura_historia_worker::product_content_assessment::consume_product_content_assessment_queue;
-use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 
 use aura_historia_worker::product_listing_raw_normalization::consume_product_listing_raw_normalization_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
@@ -17,7 +16,6 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::Client as SesClient;
 use aws_smithy_types::timeout::TimeoutConfig;
-use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
@@ -51,8 +49,7 @@ use product_listing_postgres::{
     SqlxPendingProductListingRawStreamReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingContentAssessmentSourceReader,
-    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEmbeddingSourceReader,
-    SqlxProductListingEmbeddingWriterFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
@@ -60,7 +57,6 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::{
     AssessProductListingContentEventHandler, AssessProductListingContentEventUseCase,
-    EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
     TranslateProductListingEventHandler, TranslateProductListingEventUseCase,
 };
@@ -111,7 +107,9 @@ async fn run() -> Result<(), MainError> {
     let scope = startup.scope();
     if matches!(
         scope,
-        WorkerScope::ProductListingOpenSearch | WorkerScope::SearchFilterPercolator
+        WorkerScope::ProductListingOpenSearch
+            | WorkerScope::SearchFilterPercolator
+            | WorkerScope::ProductListingEmbedding
     ) {
         return Err(MainError::ScopeUsesLambda { scope });
     }
@@ -148,12 +146,7 @@ async fn run() -> Result<(), MainError> {
             run_product_translation(worker_config, pool, composition, vertex_ai).await
         }
 
-        WorkerScope::ProductListingEmbedding => {
-            let vertex_ai = startup
-                .vertex_ai()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_product_embedding(worker_config, pool, composition, vertex_ai).await
-        }
+        WorkerScope::ProductListingEmbedding => Err(MainError::ScopeUsesLambda { scope }),
         WorkerScope::ProductListingRawNormalization => {
             run_product_listing_raw_normalization(worker_config, pool, composition).await
         }
@@ -222,27 +215,6 @@ async fn run_product_content_assessment(
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_product_content_assessment_queue(receiver, handler));
-    finish_runtime(config, runtime, task).await
-}
-
-async fn run_product_embedding(
-    config: aura_historia_worker::WorkerConfig,
-    pool: sqlx::PgPool,
-    composition: WorkerRuntimeComposition,
-    vertex_ai: &WorkerVertexAiConfig,
-) -> Result<(), MainError> {
-    let handler: Arc<dyn EmbedProductListingEventUseCase> =
-        Arc::new(EmbedProductListingEventHandler::new(
-            SqlxProductListingEmbeddingSourceReader::new(pool.clone()),
-            VertexAiEmbeddingGenerator::new(
-                VertexAiEmbeddingConfig::new(vertex_ai.project_id(), vertex_ai.location()),
-                vertex_ai_credentials()?,
-            ),
-            SqlxUnitOfWork::new(pool),
-            SqlxProductListingEmbeddingWriterFactory::new(),
-        ));
-    let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_product_embedding_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 

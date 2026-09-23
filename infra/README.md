@@ -287,12 +287,12 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `search-filter-match-notification` | `SearchFilterMatchNotification` | 300s |
 | `watchlist-notification` | `WatchlistNotification` | 300s |
 | `product-content-assessment` | `ProductContentAssessment` | 270s |
-| `product-embedding` | `ProductEmbedding` | 300s |
+| `product-embedding` | `ProductEmbedding` | 360s |
 | `product-translation` | `ProductTranslation` | 300s |
 | `product-listing-normalization` | `ProductListingNormalization` | 270s |
 | `notification-delivery` | `NotificationDelivery` | 360s |
 
-`product-listing-opensearch`, `product-content-assessment`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
+`product-listing-opensearch`, `product-content-assessment`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
@@ -455,7 +455,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /secrets/{stage}/zoho-refresh-token
 ```
 
-The API Lambda and `search-filter-percolator-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password; it has no SES, notification-delivery, or template configuration. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
+The API Lambda, `search-filter-percolator-lambda`, and `product-embedding-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 `fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled sync.
 Protected manual `Initialize (CD)` invokes it after database initialization and before
 enabling the ProductListing mapping, with stable source ID
