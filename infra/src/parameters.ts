@@ -6,6 +6,7 @@ export interface ApplicationParameters {
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
@@ -45,6 +46,15 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   const searchFilterProjectionConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterProjectionConsumerActivation", {
     expression: cdk.Fn.conditionEquals(searchFilterProjectionConsumerEnabled.valueAsString, "true"),
   });
+  const searchFilterPercolatorConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterPercolatorConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter percolator SQS Lambda after the native-consumer cutover gate.",
+  });
+  const searchFilterPercolatorConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterPercolatorConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterPercolatorConsumerEnabled.valueAsString, "true"),
+  });
   const cdcRouterActivation = includeCdcRouterActivation
     ? cdcRouterCondition(scope)
     : undefined;
@@ -54,6 +64,7 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     productListingOpenSearchConsumerActivation,
     productListingNormalizationConsumerActivation,
     searchFilterProjectionConsumerActivation,
+    searchFilterPercolatorConsumerActivation,
     cdcRouterActivation,
   };
 }

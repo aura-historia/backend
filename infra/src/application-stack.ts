@@ -293,9 +293,11 @@ export class ApplicationComputeStack extends cdk.Stack {
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
+      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
+      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
@@ -409,9 +411,11 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
       searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
+      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
+      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
       cdcRouterActivation: parameters.cdcRouterActivation,
     });
 

@@ -101,6 +101,8 @@ jobs:
             binary: product-listing-normalization-lambda
           - crate: src/search-filter-projection-lambda
             binary: search-filter-projection-lambda
+          - crate: src/search-filter-percolator-lambda
+            binary: search-filter-percolator-lambda
           - crate: src/aura-historia-worker
             binary: cdc-router-lambda
     steps:

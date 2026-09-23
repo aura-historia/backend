@@ -5,7 +5,7 @@ use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_listing_raw_normalization::consume_product_listing_raw_normalization_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
-use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
+
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
@@ -18,7 +18,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::Client as SesClient;
 use aws_smithy_types::timeout::TimeoutConfig;
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_core::notification_delivery::NotificationDeliveryChannel;
@@ -51,10 +51,10 @@ use product_listing_postgres::{
     SqlxPendingProductListingRawStreamReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingContentAssessmentSourceReader,
-    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingCurrentEventGuardFactory,
-    SqlxProductListingEmbeddingSourceReader, SqlxProductListingEmbeddingWriterFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEmbeddingSourceReader,
+    SqlxProductListingEmbeddingWriterFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
@@ -70,13 +70,11 @@ use product_service::use_cases::{
 };
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
-    SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
-    SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
+    SqlxSearchFilterIndexReader, SqlxSearchFilterMatchNotificationSourceReaderFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
-    MatchProductListingEventHandler, MatchProductListingEventUseCase,
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
 use std::{future::Future, sync::Arc, time::Duration};
@@ -111,7 +109,10 @@ async fn run() -> Result<(), MainError> {
     ));
     let startup = WorkerStartupConfig::from_env()?;
     let scope = startup.scope();
-    if scope == WorkerScope::ProductListingOpenSearch {
+    if matches!(
+        scope,
+        WorkerScope::ProductListingOpenSearch | WorkerScope::SearchFilterPercolator
+    ) {
         return Err(MainError::ScopeUsesLambda { scope });
     }
     let worker_config = startup.worker().clone();
@@ -130,16 +131,7 @@ async fn run() -> Result<(), MainError> {
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_search_filter_projection(worker_config, pool, composition, opensearch).await
         }
-        WorkerScope::SearchFilterPercolator => {
-            let opensearch = startup
-                .opensearch()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            let vertex_ai = startup
-                .vertex_ai()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_search_filter_percolator(worker_config, pool, composition, opensearch, vertex_ai)
-                .await
-        }
+        WorkerScope::SearchFilterPercolator => Err(MainError::ScopeUsesLambda { scope }),
         WorkerScope::SearchFilterMatchNotification => {
             run_search_filter_match_notifications(worker_config, pool, composition).await
         }
@@ -188,29 +180,6 @@ async fn run_search_filter_projection(
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_search_filter_projection_queue(receiver, handler));
-    finish_runtime(config, runtime, task).await
-}
-
-async fn run_search_filter_percolator(
-    config: aura_historia_worker::WorkerConfig,
-    pool: sqlx::PgPool,
-    composition: WorkerRuntimeComposition,
-    opensearch: &WorkerOpenSearchConfig,
-    vertex_ai: &WorkerVertexAiConfig,
-) -> Result<(), MainError> {
-    let handler: Arc<dyn MatchProductListingEventUseCase> =
-        Arc::new(MatchProductListingEventHandler::new(
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-            SqlxProductListingCurrentEventGuardFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
-            vertex_ai_large_language_model(vertex_ai)?,
-            SqlxActiveSearchFilterMatchCandidateReaderFactory,
-            SqlxSearchFilterMatchWriterFactory,
-        ));
-    let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_search_filter_percolator_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 
