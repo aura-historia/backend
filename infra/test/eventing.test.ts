@@ -28,6 +28,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const rules = resources(template, "AWS::Events::Rule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
+    const contentAssessmentActivation = { "Fn::If": ["ProductContentAssessmentConsumerActivation", true, false] };
     const projectionActivation = { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] };
     const percolatorActivation = { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] };
     const matchNotificationActivation = { "Fn::If": ["SearchFilterMatchNotificationConsumerActivation", true, false] };
@@ -50,6 +51,14 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     });
     expect(templateJson.Conditions.ProductListingNormalizationConsumerActivation).toEqual({
       "Fn::Equals": [{ Ref: "ProductListingNormalizationConsumerEnabled" }, "true"],
+    });
+    expect(templateJson.Parameters.ProductContentAssessmentConsumerEnabled).toMatchObject({
+      Type: "String",
+      Default: "false",
+      AllowedValues: ["true", "false"],
+    });
+    expect(templateJson.Conditions.ProductContentAssessmentConsumerActivation).toEqual({
+      "Fn::Equals": [{ Ref: "ProductContentAssessmentConsumerEnabled" }, "true"],
     });
     expect(templateJson.Parameters.SearchFilterProjectionConsumerEnabled).toMatchObject({
       Type: "String",
@@ -95,7 +104,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       });
     }
 
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 8 : 9);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 9 : 10);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -125,6 +134,19 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
       stage === "ephemeral"
         ? "WorkerQueuesProductListingNormalizationQueue"
         : `aura-worker-product-listing-normalization-${stage}`,
+    );
+    const contentAssessmentMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties?.FunctionName).includes("ProductContentAssessmentVersion"),
+    );
+    expect(contentAssessmentMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: contentAssessmentActivation,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(contentAssessmentMapping?.Properties?.EventSourceArn)).toContain(
+      stage === "ephemeral"
+        ? "WorkerQueuesProductContentAssessmentQueue"
+        : `aura-worker-product-content-assessment-${stage}`,
     );
     const projectionMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties?.FunctionName).includes("SearchFilterProjectionVersion"),

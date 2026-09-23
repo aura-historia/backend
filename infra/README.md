@@ -253,11 +253,11 @@ Production native processes are:
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
 queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
-`product-listing-opensearch`, `product-listing-normalization`, `search-filter-projection`,
-`search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`,
-and `notification-delivery` queues have retained Lambda mappings in every compute
-stack, each disabled by default until its independent explicit activation; the other
-three remain native polling-worker scopes. This catalog remains separate from Shopify
+`product-listing-opensearch`, `product-listing-normalization`, `product-content-assessment`,
+`search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`,
+`watchlist-notification`, and `notification-delivery` queues have retained Lambda mappings
+in every compute stack, each disabled by default until its independent explicit activation;
+the other two remain native polling-worker scopes. This catalog remains separate from Shopify
 resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
@@ -286,13 +286,13 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `search-filter-percolator` | `SearchFilterPercolator` | 300s |
 | `search-filter-match-notification` | `SearchFilterMatchNotification` | 300s |
 | `watchlist-notification` | `WatchlistNotification` | 300s |
-| `product-content-assessment` | `ProductContentAssessment` | 60s |
+| `product-content-assessment` | `ProductContentAssessment` | 270s |
 | `product-embedding` | `ProductEmbedding` | 300s |
 | `product-translation` | `ProductTranslation` | 300s |
 | `product-listing-normalization` | `ProductListingNormalization` | 270s |
 | `notification-delivery` | `NotificationDelivery` | 360s |
 
-`product-listing-opensearch`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Their source visibility is **300s**, exceeding six times the Lambda timeout. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
+`product-listing-opensearch`, `product-content-assessment`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
@@ -300,7 +300,7 @@ with the mapping disabled, pause the corresponding native consumer and
 let in-flight work settle, then explicitly enable the mapping. Never run both
 consumers. To return control, disable the mapping first, then deliberately resume a
 compatible native consumer. Backlog remains durable in the retained source queue and
-uses its ordinary retry/DLQ rules. The remaining four scopes are polling Rust
+uses its ordinary retry/DLQ rules. The remaining two scopes are polling Rust
 processes, so the Lambda timing rule does not apply to them. Their values match the
 worker's 45s short / 240s slow budgets; notification's 360s visibility leaves headroom
 around its five-minute service-owned lease. Standard SQS may duplicate/reorder

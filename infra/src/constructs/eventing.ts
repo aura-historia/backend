@@ -21,6 +21,7 @@ export interface EventingProps {
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
   readonly productListingNormalizationVersion: lambda.IVersion;
+  readonly productContentAssessmentVersion: lambda.IVersion;
   readonly searchFilterProjectionVersion: lambda.IVersion;
   readonly searchFilterPercolatorVersion: lambda.IVersion;
   readonly searchFilterMatchNotificationVersion: lambda.IVersion;
@@ -28,6 +29,7 @@ export interface EventingProps {
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
   readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
   readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
   readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
@@ -122,6 +124,7 @@ export class Eventing extends Construct {
       props.workerQueues,
       props.productListingOpenSearchVersion,
       props.productListingNormalizationVersion,
+      props.productContentAssessmentVersion,
       props.searchFilterProjectionVersion,
       props.searchFilterPercolatorVersion,
       props.searchFilterMatchNotificationVersion,
@@ -129,6 +132,7 @@ export class Eventing extends Construct {
       props.notificationDeliveryVersion,
       props.productListingOpenSearchConsumerActivation,
       props.productListingNormalizationConsumerActivation,
+      props.productContentAssessmentConsumerActivation,
       props.searchFilterProjectionConsumerActivation,
       props.searchFilterPercolatorConsumerActivation,
       props.searchFilterMatchNotificationConsumerActivation,
@@ -308,6 +312,7 @@ function createSqsEventSources(
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
   productListingNormalizationVersion: lambda.IVersion,
+  productContentAssessmentVersion: lambda.IVersion,
   searchFilterProjectionVersion: lambda.IVersion,
   searchFilterPercolatorVersion: lambda.IVersion,
   searchFilterMatchNotificationVersion: lambda.IVersion,
@@ -315,6 +320,7 @@ function createSqsEventSources(
   notificationDeliveryVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
+  productContentAssessmentActivation: cdk.CfnCondition,
   searchFilterProjectionActivation: cdk.CfnCondition,
   percolatorActivation: cdk.CfnCondition,
   searchFilterMatchNotificationActivation: cdk.CfnCondition,
@@ -388,6 +394,16 @@ function createSqsEventSources(
     functionName: productListingNormalizationVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
+
+  addWorkerLambdaEventSource(
+    scope,
+    "ProductContentAssessmentQueueEventSource",
+    functions.productContentAssessment,
+    workerQueues["product-content-assessment"],
+    productContentAssessmentVersion,
+    productContentAssessmentActivation,
+    "ProductListing content assessment",
+  );
 
   const notificationDelivery = workerQueues["notification-delivery"];
   if (!notificationDelivery) {

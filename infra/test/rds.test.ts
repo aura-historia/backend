@@ -126,11 +126,14 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(13);
-    expect(runtimeFunctions).toHaveLength(12);
+    expect(functions).toHaveLength(14);
+    expect(runtimeFunctions).toHaveLength(13);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-content-assessment-lambda-${stage}`,
     )).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`,
@@ -195,7 +198,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    expect(runtimeSecretReadStatements).toHaveLength(12);
+    expect(runtimeSecretReadStatements).toHaveLength(13);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",
@@ -339,9 +342,12 @@ test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a 
   const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
     .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-  expect(functions).toHaveLength(11);
+  expect(functions).toHaveLength(12);
   expect(functions.find((resource) =>
     resource.Properties.FunctionName === "product-listing-normalization-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-content-assessment-lambda-ephemeral",
   )).toBeDefined();
   expect(functions.find((resource) =>
     resource.Properties.FunctionName === "notification-delivery-lambda-ephemeral",

@@ -99,6 +99,8 @@ jobs:
             binary: product-listing-opensearch-lambda
           - crate: src/product-listing-normalization-lambda
             binary: product-listing-normalization-lambda
+          - crate: src/product-content-assessment-lambda
+            binary: product-content-assessment-lambda
           - crate: src/search-filter-projection-lambda
             binary: search-filter-projection-lambda
           - crate: src/search-filter-percolator-lambda

@@ -118,6 +118,13 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
   },
+  productContentAssessment: {
+    id: "ProductContentAssessmentLambda",
+    binaryName: "product-content-assessment-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
   searchFilterProjection: {
     id: "SearchFilterProjectionLambda",
     binaryName: "search-filter-projection-lambda",
@@ -211,6 +218,7 @@ export class Lambdas extends Construct {
   readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
+  readonly productContentAssessmentVersion: lambda.Version;
   readonly searchFilterProjectionVersion: lambda.Version;
   readonly searchFilterPercolatorVersion: lambda.Version;
   readonly searchFilterMatchNotificationVersion: lambda.Version;
@@ -281,6 +289,10 @@ export class Lambdas extends Construct {
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
       description: `product-listing-normalization-${props.parameters.commitSha}`,
+    });
+    this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
+      lambda: this.functions.productContentAssessment,
+      description: `product-content-assessment-${props.parameters.commitSha}`,
     });
     this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
       lambda: this.functions.searchFilterProjection,

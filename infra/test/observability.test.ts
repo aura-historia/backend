@@ -3,6 +3,7 @@ import { Template } from "aws-cdk-lib/assertions";
 import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
 
 const ROUTER_FUNCTION_NAME = "cdc-router-lambda-prod";
+const CONTENT_ASSESSMENT_FUNCTION_NAME = "product-content-assessment-lambda-prod";
 
 function productionObservabilityTemplate(): Template {
   const app = new cdk.App({ analyticsReporting: false });
@@ -46,6 +47,25 @@ test("production alarms the CDC router's Kinesis lag, failure-archive delivery, 
 
   template.resourceCountIs("AWS::CloudWatch::Dashboard", 0);
   template.resourceCountIs("AWS::CloudFormation::Stack", 0);
+});
+
+test("production applies the queue-worker error threshold to content assessment", () => {
+  const template = productionObservabilityTemplate();
+  const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
+
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: `prod-${CONTENT_ASSESSMENT_FUNCTION_NAME}-errors`,
+    Namespace: "AWS/Lambda",
+    MetricName: "Errors",
+    Dimensions: [{ Name: "FunctionName", Value: CONTENT_ASSESSMENT_FUNCTION_NAME }],
+    Statistic: "Sum",
+    Period: 300,
+    Threshold: 5,
+    EvaluationPeriods: 1,
+    ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    TreatMissingData: "notBreaching",
+    AlarmActions: [{ Ref: topicIds[0] }],
+  });
 });
 
 test("production alarms DMS source/target lag, DMS and Kinesis capacity, and source WAL storage, with task-state notifications", () => {
