@@ -63,8 +63,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     skipEphemeral: true,
     timeoutSeconds: 10,
-    environment: () => ({
-      FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
+    environment: (context) => ({
+      FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${context.config.stage}/api-token`),
     }),
   },
 

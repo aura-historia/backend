@@ -30,6 +30,8 @@ export interface EventingProps {
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly partnerIntegrationActivation: cdk.CfnCondition;
+  readonly fxRateRefreshActivation?: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
   readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
@@ -84,12 +86,12 @@ export class Eventing extends Construct {
       this.shopifyEventBus,
       props.functions,
       props.queues,
-      props.productListingOpenSearchConsumerActivation,
+      props.partnerIntegrationActivation,
     );
 
     if (!props.config.isEphemeral) {
-      if (!props.functions.fxRateSync) {
-        throw new Error("Real eventing requires the FX Lambda.");
+      if (!props.functions.fxRateSync || !props.fxRateRefreshActivation) {
+        throw new Error("Real eventing requires the FX Lambda and refresh activation.");
       }
       const fxRateSyncStartSchedule = new events.Rule(this, "FxRateSyncStartSchedule", {
         enabled: false,
@@ -103,7 +105,7 @@ export class Eventing extends Construct {
       });
       const fxRateSyncStartScheduleResource = fxRateSyncStartSchedule.node.defaultChild as events.CfnRule;
       fxRateSyncStartScheduleResource.state = cdk.Fn.conditionIf(
-        props.productListingOpenSearchConsumerActivation.logicalId,
+        props.fxRateRefreshActivation.logicalId,
         "ENABLED",
         "DISABLED",
       ) as unknown as string;
@@ -137,6 +139,7 @@ export class Eventing extends Construct {
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
       props.productListingOpenSearchConsumerActivation,
+      props.partnerIntegrationActivation,
       props.productListingNormalizationConsumerActivation,
       props.productContentAssessmentConsumerActivation,
       props.productEmbeddingConsumerActivation,
@@ -329,6 +332,7 @@ function createSqsEventSources(
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
   activation: cdk.CfnCondition,
+  partnerIntegrationActivation: cdk.CfnCondition,
   normalizationActivation: cdk.CfnCondition,
   productContentAssessmentActivation: cdk.CfnCondition,
   productEmbeddingActivation: cdk.CfnCondition,
@@ -339,7 +343,7 @@ function createSqsEventSources(
   watchlistNotificationActivation: cdk.CfnCondition,
   notificationDeliveryActivation: cdk.CfnCondition,
 ): void {
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, activation);
+  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, partnerIntegrationActivation);
 
   const productListingOpenSearch = workerQueues["product-listing-opensearch"];
   if (!productListingOpenSearch) {

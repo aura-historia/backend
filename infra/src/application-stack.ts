@@ -254,7 +254,7 @@ export class ApplicationComputeStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
-    const parameters = applicationParameters(this, !config.isEphemeral);
+    const parameters = applicationParameters(this, !config.isEphemeral, !config.isEphemeral);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -301,6 +301,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
+      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
       productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,
@@ -431,6 +433,8 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
+      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
       productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
       productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
       productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,

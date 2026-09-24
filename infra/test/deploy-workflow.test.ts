@@ -51,6 +51,10 @@ describe("release workflow boundary", () => {
     expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=false');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=true');
+    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=false');
+    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=true');
+    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=false');
+    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=true');
     expect(initializeWorkflow).toContain('CdcRouterEnabled=false');
     expect(initializeWorkflow).not.toContain('CdcRouterEnabled=true');
     expect(initializeWorkflow).toContain('invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json');
@@ -67,6 +71,8 @@ describe("release workflow boundary", () => {
     const migrationInvoke = initializeWorkflow.indexOf('invoke_function "database-migration-lambda-${STAGE}"');
     const fxInvoke = initializeWorkflow.indexOf('invoke_function "fxrate-lambda-${STAGE}"');
     const activeCompute = initializeWorkflow.lastIndexOf('ProductListingOpenSearchConsumerEnabled=true');
+    const partnerIntegrationActivation = initializeWorkflow.lastIndexOf('PartnerIntegrationEnabled=true');
+    const fxRateRefreshActivation = initializeWorkflow.lastIndexOf('FxRateRefreshEnabled=true');
     expect(networkDeploy).toBeGreaterThanOrEqual(0);
     expect(dataDeploy).toBeGreaterThan(networkDeploy);
     expect(initializationDeploy).toBeGreaterThan(dataDeploy);
@@ -74,5 +80,7 @@ describe("release workflow boundary", () => {
     expect(migrationInvoke).toBeGreaterThan(inactiveCompute);
     expect(fxInvoke).toBeGreaterThan(migrationInvoke);
     expect(activeCompute).toBeGreaterThan(fxInvoke);
+    expect(partnerIntegrationActivation).toBeGreaterThan(fxInvoke);
+    expect(fxRateRefreshActivation).toBeGreaterThan(fxInvoke);
   });
 });
