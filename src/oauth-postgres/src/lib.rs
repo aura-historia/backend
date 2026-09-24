@@ -1,4 +1,5 @@
 mod authorization_code_repository;
+mod expired_credential_cleanup;
 mod mapping;
 mod oauth_client_authentication_reader;
 mod oauth_client_details_reader;
@@ -8,6 +9,7 @@ mod rows;
 mod third_party_exchange_code_repository;
 
 pub use authorization_code_repository::SqlxAuthorizationCodeRepositoryFactory;
+pub use expired_credential_cleanup::SqlxExpiredCredentialCleanup;
 pub use oauth_client_authentication_reader::SqlxOAuthClientAuthenticationReader;
 pub use oauth_client_details_reader::SqlxOAuthClientDetailsReader;
 pub use oauth_client_list_reader::SqlxOAuthClientListReader;

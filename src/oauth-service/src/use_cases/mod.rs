@@ -1,4 +1,5 @@
 pub mod authorize;
+pub mod cleanup_expired_credentials;
 pub mod create_client;
 pub mod delete_client;
 pub mod get_client;
@@ -14,6 +15,11 @@ mod support;
 pub use authorize::{
     AuthorizeHandler, AuthorizeRequest, AuthorizeResponse, AuthorizeUseCase, OAuthResponseType,
     OAuthState,
+};
+pub use cleanup_expired_credentials::{
+    CleanupCounts, CleanupExpiredCredentialsAndProviderReceiptsHandler,
+    CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
+    ExpiryCleanupBatchSizeError,
 };
 pub use create_client::{
     CreateOAuthClientCommand, CreateOAuthClientHandler, CreateOAuthClientResult,

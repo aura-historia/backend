@@ -49,6 +49,25 @@ test("production alarms the CDC router's Kinesis lag, failure-archive delivery, 
   template.resourceCountIs("AWS::CloudFormation::Stack", 0);
 });
 
+test("production alarms maintenance Scheduler DLQ visibility through the existing SNS topic", () => {
+  const template = productionObservabilityTemplate();
+  const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
+
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "prod-maintenance-scheduler-dlq-visible",
+    Namespace: "AWS/SQS",
+    MetricName: "ApproximateNumberOfMessagesVisible",
+    Dimensions: [{ Name: "QueueName", Value: "aura-historia-maintenance-scheduler-dlq-prod" }],
+    Statistic: "Maximum",
+    Period: 300,
+    Threshold: 1,
+    EvaluationPeriods: 1,
+    ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    TreatMissingData: "notBreaching",
+    AlarmActions: [{ Ref: topicIds[0] }],
+  });
+});
+
 test("production applies the queue-worker error threshold to content assessment", () => {
   const template = productionObservabilityTemplate();
   const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));

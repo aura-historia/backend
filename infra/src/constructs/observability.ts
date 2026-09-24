@@ -5,6 +5,7 @@ import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
+import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
@@ -17,6 +18,7 @@ export interface ObservabilityProps {
   readonly api: apigwv2.HttpApi;
   readonly functions: LambdaCatalog;
   readonly workerQueues: WorkerQueueCatalog;
+  readonly maintenanceSchedulerDeadLetterQueue: sqs.IQueue;
 }
 
 export class Observability extends Construct {
@@ -36,6 +38,19 @@ export class Observability extends Construct {
     const alarmAction = new actions.SnsAction(this.alarmTopic);
 
     const settings = props.config.workerQueues.alarms;
+    new cloudwatch.Alarm(this, "MaintenanceSchedulerDeadLetterVisibleAlarm", {
+      alarmName: `${props.stageName}-maintenance-scheduler-dlq-visible`,
+      alarmDescription: "Maintenance Scheduler has failed target deliveries; investigate the DLQ before replay.",
+      metric: props.maintenanceSchedulerDeadLetterQueue.metricApproximateNumberOfMessagesVisible({
+        statistic: "Maximum",
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
+
     for (const workerScope of props.config.workerQueues.enabledScopes) {
       const queues = props.workerQueues[workerScope];
       if (!queues) {
