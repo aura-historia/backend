@@ -194,7 +194,7 @@ fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> 
         SpiderDiscoveryError::Discovery("configured crawler URL has no host".to_string())
     })?;
     Ok(format!(
-        r"^https?://{}(?::(?:80|443))?(?:/|$)",
+        r"^(?:https?://{}(?::(?:80|443))?(?:/.*)?|/(?:[^/][^#]*)?|[^:/?#][^:/?#]*(?:/[^?#]*)?)$",
         regex::escape(host)
     ))
 }
@@ -211,9 +211,7 @@ async fn spider_public_http_client(
         .timeout(timeout)
         .connect_timeout(timeout)
         .no_proxy();
-    for address in target.addresses {
-        builder = builder.resolve(&target.host, address);
-    }
+    builder = builder.resolve_to_addrs(&target.host, &target.addresses);
     builder
         .build()
         .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))
@@ -374,6 +372,11 @@ impl Spider for SpiderImpl {
                 let raw_url = page.get_url();
 
                 let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
+                    CrawledUrl::new(parsed)
+                } else if let Some(root) = configured_root.as_ref() {
+                    let Ok(parsed) = root.join(raw_url) else {
+                        continue;
+                    };
                     CrawledUrl::new(parsed)
                 } else {
                     continue;
@@ -551,10 +554,14 @@ mod tests {
         let whitelist = regex::Regex::new(&pattern).unwrap();
 
         assert!(whitelist.is_match("https://example.com/product/1"));
+        assert!(whitelist.is_match("/product/1"));
+        assert!(whitelist.is_match("product/1"));
         assert!(!whitelist.is_match("https://www.example.com/product/1"));
         assert!(!whitelist.is_match("https://internal.example.com/product/1"));
         assert!(!whitelist.is_match("https://example.com.evil.test/product/1"));
         assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
+        assert!(!whitelist.is_match("//internal.example.com/product/1"));
+        assert!(!whitelist.is_match("mailto:test@example.com"));
     }
 
     #[test]
@@ -564,6 +571,7 @@ mod tests {
         let whitelist = regex::Regex::new(&pattern).unwrap();
 
         assert!(whitelist.is_match("https://www.example.com/product/1"));
+        assert!(whitelist.is_match("product/1"));
         assert!(!whitelist.is_match("https://example.com/product/1"));
     }
 
