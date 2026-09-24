@@ -4,6 +4,8 @@ import { Construct } from "constructs";
 export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly partnerIntegrationActivation: cdk.CfnCondition;
+  readonly fxRateRefreshActivation?: cdk.CfnCondition;
   readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
   readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
   readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
@@ -23,17 +25,33 @@ export function artifactCommitShaParameter(scope: Construct): string {
   }).valueAsString;
 }
 
-export function applicationParameters(scope: Construct, includeCdcRouterActivation = false): ApplicationParameters {
+export function applicationParameters(
+  scope: Construct,
+  includeCdcRouterActivation = false,
+  includeFxRateRefreshActivation = false,
+): ApplicationParameters {
   const commitSha = artifactCommitShaParameter(scope);
   const productListingOpenSearchConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingOpenSearchConsumerEnabled", {
     type: "String",
     default: "false",
     allowedValues: ["true", "false"],
-    description: "Enable ProductListing projection, partner event sources, and FX scheduling after initialization readiness checks.",
+    description: "Enable the dedicated ProductListing OpenSearch SQS Lambda after native-consumer handoff and initialization readiness checks.",
   });
   const productListingOpenSearchConsumerActivation = new cdk.CfnCondition(scope, "ProductListingOpenSearchConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingOpenSearchConsumerEnabled.valueAsString, "true"),
   });
+  const partnerIntegrationEnabled = new cdk.CfnParameter(scope, "PartnerIntegrationEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the retained Shopify and Stripe EventBridge intakes only after business migrations and initial FX capture succeed.",
+  });
+  const partnerIntegrationActivation = new cdk.CfnCondition(scope, "PartnerIntegrationActivation", {
+    expression: cdk.Fn.conditionEquals(partnerIntegrationEnabled.valueAsString, "true"),
+  });
+  const fxRateRefreshActivation = includeFxRateRefreshActivation
+    ? fxRateRefreshCondition(scope)
+    : undefined;
   const productListingNormalizationConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingNormalizationConsumerEnabled", {
     type: "String",
     default: "false",
@@ -122,6 +140,8 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
   return {
     commitSha,
     productListingOpenSearchConsumerActivation,
+    partnerIntegrationActivation,
+    fxRateRefreshActivation,
     productListingNormalizationConsumerActivation,
     productContentAssessmentConsumerActivation,
     productEmbeddingConsumerActivation,
@@ -133,6 +153,18 @@ export function applicationParameters(scope: Construct, includeCdcRouterActivati
     notificationDeliveryConsumerActivation,
     cdcRouterActivation,
   };
+}
+
+function fxRateRefreshCondition(scope: Construct): cdk.CfnCondition {
+  const fxRateRefreshEnabled = new cdk.CfnParameter(scope, "FxRateRefreshEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable recurring FX refresh only after the protected initial snapshot succeeds.",
+  });
+  return new cdk.CfnCondition(scope, "FxRateRefreshActivation", {
+    expression: cdk.Fn.conditionEquals(fxRateRefreshEnabled.valueAsString, "true"),
+  });
 }
 
 function cdcRouterCondition(scope: Construct): cdk.CfnCondition {
