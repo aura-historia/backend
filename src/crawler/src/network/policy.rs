@@ -99,9 +99,7 @@ pub async fn public_http_client(
     if http1_only {
         builder = builder.http1_only();
     }
-    for address in target.addresses {
-        builder = builder.resolve(&target.host, address);
-    }
+    builder = builder.resolve_to_addrs(&target.host, &target.addresses);
     builder.build().map_err(|_| PublicTargetError::InvalidUrl)
 }
 
