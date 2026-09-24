@@ -4,6 +4,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
@@ -29,6 +30,8 @@ export interface EventingProps {
   readonly searchFilterMatchNotificationVersion: lambda.IVersion;
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
+  readonly backendCleanupVersion: lambda.IVersion | undefined;
+  readonly fxRateSyncVersion: lambda.IVersion | undefined;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly partnerIntegrationActivation: cdk.CfnCondition;
   readonly fxRateRefreshActivation?: cdk.CfnCondition;
@@ -90,25 +93,16 @@ export class Eventing extends Construct {
     );
 
     if (!props.config.isEphemeral) {
-      if (!props.functions.fxRateSync || !props.fxRateRefreshActivation) {
-        throw new Error("Real eventing requires the FX Lambda and refresh activation.");
+      if (!props.backendCleanupVersion || !props.fxRateSyncVersion || !props.fxRateRefreshActivation) {
+        throw new Error("Real eventing requires cleanup and FX Lambda versions plus the maintenance activation.");
       }
-      const fxRateSyncStartSchedule = new events.Rule(this, "FxRateSyncStartSchedule", {
-        enabled: false,
-        schedule: events.Schedule.expression("cron(0 6,18 * * ? *)"),
-        targets: [
-          new targets.LambdaFunction(props.functions.fxRateSync, {
-            maxEventAge: cdk.Duration.hours(1),
-            retryAttempts: 3,
-          }),
-        ],
-      });
-      const fxRateSyncStartScheduleResource = fxRateSyncStartSchedule.node.defaultChild as events.CfnRule;
-      fxRateSyncStartScheduleResource.state = cdk.Fn.conditionIf(
-        props.fxRateRefreshActivation.logicalId,
-        "ENABLED",
-        "DISABLED",
-      ) as unknown as string;
+      createMaintenanceSchedules(
+        this,
+        props.config,
+        props.backendCleanupVersion,
+        props.fxRateSyncVersion,
+        props.fxRateRefreshActivation,
+      );
 
       if (!props.functions.cdcRouter || !props.dmsCdc || !props.cdcRouterActivation) {
         throw new Error("Real eventing requires the DMS CDC router Lambda, stream, and activation condition.");
@@ -153,6 +147,109 @@ export class Eventing extends Construct {
   }
 }
 
+
+const MAINTENANCE_SCHEDULER_DLQ_RETENTION_DAYS = 14;
+const SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS = 3_600;
+const SCHEDULE_MAXIMUM_RETRY_ATTEMPTS = 3;
+
+export function maintenanceSchedulerDeadLetterQueueName(stage: string): string {
+  return `aura-historia-maintenance-scheduler-dlq-${stage}`;
+}
+
+export function importMaintenanceSchedulerDeadLetterQueue(
+  scope: Construct,
+  id: string,
+  stage: string,
+): sqs.IQueue {
+  const queueName = maintenanceSchedulerDeadLetterQueueName(stage);
+  return sqs.Queue.fromQueueAttributes(scope, id, {
+    queueArn: cdk.Stack.of(scope).formatArn({ service: "sqs", resource: queueName }),
+    queueName,
+  });
+}
+
+function createMaintenanceSchedules(
+  scope: Construct,
+  config: StageConfig,
+  cleanupVersion: lambda.IVersion,
+  fxRateSyncVersion: lambda.IVersion,
+  activation: cdk.CfnCondition,
+): void {
+  const deadLetterQueue = new sqs.Queue(scope, "MaintenanceSchedulerDeadLetterQueue", {
+    queueName: maintenanceSchedulerDeadLetterQueueName(config.stage),
+    encryption: sqs.QueueEncryption.SQS_MANAGED,
+    enforceSSL: true,
+    retentionPeriod: cdk.Duration.days(MAINTENANCE_SCHEDULER_DLQ_RETENTION_DAYS),
+    removalPolicy: config.removalPolicy,
+  });
+  const role = new iam.Role(scope, "MaintenanceSchedulerExecutionRole", {
+    assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+  });
+  role.addToPolicy(new iam.PolicyStatement({
+    actions: ["lambda:InvokeFunction"],
+    resources: [cleanupVersion.functionArn, fxRateSyncVersion.functionArn],
+  }));
+  role.addToPolicy(new iam.PolicyStatement({
+    actions: ["sqs:SendMessage"],
+    resources: [deadLetterQueue.queueArn],
+  }));
+
+  const cleanupSchedule = new scheduler.CfnSchedule(scope, "ExpiredCredentialCleanupSchedule", {
+    name: `aura-historia-expired-credential-cleanup-${config.stage}`,
+    scheduleExpression: "cron(0 * * * ? *)",
+    scheduleExpressionTimezone: "UTC",
+    flexibleTimeWindow: { mode: "OFF" },
+    state: "DISABLED",
+    target: {
+      arn: cleanupVersion.functionArn,
+      roleArn: role.roleArn,
+      input: JSON.stringify({ schedule: "expired-credential-cleanup" }),
+      deadLetterConfig: { arn: deadLetterQueue.queueArn },
+      retryPolicy: {
+        maximumEventAgeInSeconds: SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS,
+        maximumRetryAttempts: SCHEDULE_MAXIMUM_RETRY_ATTEMPTS,
+      },
+    },
+  });
+  cleanupSchedule.state = maintenanceScheduleState(activation);
+
+  const fxRateSchedule = new scheduler.CfnSchedule(scope, "FxRateRefreshSchedule", {
+    name: `aura-historia-fxrate-refresh-${config.stage}`,
+    scheduleExpression: "cron(0 6,18 * * ? *)",
+    scheduleExpressionTimezone: "UTC",
+    flexibleTimeWindow: { mode: "OFF" },
+    state: "DISABLED",
+    target: {
+      arn: fxRateSyncVersion.functionArn,
+      roleArn: role.roleArn,
+      input: fxRateSchedulerInput(),
+      deadLetterConfig: { arn: deadLetterQueue.queueArn },
+      retryPolicy: {
+        maximumEventAgeInSeconds: SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS,
+        maximumRetryAttempts: SCHEDULE_MAXIMUM_RETRY_ATTEMPTS,
+      },
+    },
+  });
+  fxRateSchedule.state = maintenanceScheduleState(activation);
+}
+
+function maintenanceScheduleState(activation: cdk.CfnCondition): string {
+  return cdk.Fn.conditionIf(activation.logicalId, "ENABLED", "DISABLED") as unknown as string;
+}
+
+function fxRateSchedulerInput(): string {
+  return JSON.stringify({
+    version: "0",
+    id: "fxrate:<aws.scheduler.scheduled-time>",
+    "detail-type": "Scheduled Event",
+    source: "aura-historia.scheduler",
+    account: "000000000000",
+    time: "<aws.scheduler.scheduled-time>",
+    region: "eu-central-1",
+    resources: ["<aws.scheduler.schedule-arn>"],
+    detail: {},
+  });
+}
 
 function createPartnerEventRules(
   scope: Construct,

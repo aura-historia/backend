@@ -26,6 +26,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const templateJson = template.toJSON();
     const mappings = resources(template, "AWS::Lambda::EventSourceMapping");
     const rules = resources(template, "AWS::Events::Rule");
+    const schedules = resources(template, "AWS::Scheduler::Schedule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const partnerIntegrationActivation = { "Fn::If": ["PartnerIntegrationActivation", true, false] };
     const fxRateRefreshActivation = { "Fn::If": ["FxRateRefreshActivation", true, false] };
@@ -295,15 +296,56 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     expect(stripeRule?.Properties?.State).toEqual({ "Fn::If": ["PartnerIntegrationActivation", "ENABLED", "DISABLED"] });
     expect(shopifyRule?.Properties?.State).toEqual({ "Fn::If": ["PartnerIntegrationActivation", "ENABLED", "DISABLED"] });
 
-    const fxRateSchedule = rules.find((rule) => rule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)");
+    const fxRateSchedule = schedules.find((schedule) => schedule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)");
+    const cleanupSchedule = schedules.find((schedule) => schedule.Properties?.ScheduleExpression === "cron(0 * * * ? *)");
     expect(resources(template, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
     expect(productListingMapping?.DependsOn).toBeUndefined();
+    expect(rules.some((rule) => rule.Properties?.ScheduleExpression === "cron(0 6,18 * * ? *)")).toBe(false);
     if (stage === "ephemeral") {
-      expect(fxRateSchedule).toBeUndefined();
+      expect(schedules).toHaveLength(0);
     } else {
-      expect(fxRateSchedule?.Properties).toMatchObject({
-        State: { "Fn::If": ["FxRateRefreshActivation", "ENABLED", "DISABLED"] },
+      expect(schedules).toHaveLength(2);
+      for (const schedule of [cleanupSchedule, fxRateSchedule]) {
+        expect(schedule?.Properties).toMatchObject({
+          ScheduleExpressionTimezone: "UTC",
+          FlexibleTimeWindow: { Mode: "OFF" },
+          State: { "Fn::If": ["FxRateRefreshActivation", "ENABLED", "DISABLED"] },
+          Target: {
+            DeadLetterConfig: { Arn: expect.anything() },
+            RetryPolicy: {
+              MaximumEventAgeInSeconds: 3600,
+              MaximumRetryAttempts: 3,
+            },
+          },
+        });
+      }
+      const cleanupTarget = cleanupSchedule?.Properties?.Target as Record<string, unknown> | undefined;
+      const fxRateTarget = fxRateSchedule?.Properties?.Target as Record<string, unknown> | undefined;
+      expect(JSON.stringify(cleanupTarget?.Arn)).toContain("BackendCleanupVersion");
+      expect(cleanupTarget?.Input).toBe('{"schedule":"expired-credential-cleanup"}');
+      expect(JSON.stringify(fxRateTarget?.Arn)).toContain("FxRateSyncVersion");
+      expect(fxRateTarget?.Input).toBe(
+        '{"version":"0","id":"fxrate:<aws.scheduler.scheduled-time>","detail-type":"Scheduled Event","source":"aura-historia.scheduler","account":"000000000000","time":"<aws.scheduler.scheduled-time>","region":"eu-central-1","resources":["<aws.scheduler.schedule-arn>"],"detail":{}}',
+      );
+      expect(resources(template, "AWS::SQS::Queue").filter((queue) =>
+        queue.Properties?.QueueName === `aura-historia-maintenance-scheduler-dlq-${stage}`,
+      )).toHaveLength(1);
+      const schedulerRole = resources(template, "AWS::IAM::Role").find((role) =>
+        JSON.stringify(role.Properties?.AssumeRolePolicyDocument).includes("scheduler.amazonaws.com"),
+      );
+      expect(schedulerRole?.Properties).toMatchObject({
+        AssumeRolePolicyDocument: {
+          Statement: [expect.objectContaining({ Principal: { Service: "scheduler.amazonaws.com" } })],
+        },
       });
+      const schedulerPolicy = resources(template, "AWS::IAM::Policy").find((policy) => {
+        const policyText = JSON.stringify(policy.Properties);
+        return policyText.includes("lambda:InvokeFunction") && policyText.includes("sqs:SendMessage");
+      });
+      const schedulerPolicyText = JSON.stringify(schedulerPolicy?.Properties);
+      expect(schedulerPolicyText).toContain("BackendCleanupVersion");
+      expect(schedulerPolicyText).toContain("FxRateSyncVersion");
+      expect(schedulerPolicyText).toContain("MaintenanceSchedulerDeadLetterQueue");
       expect(JSON.stringify(template.toJSON())).toContain(`/fxratesapi/${stage}/api-token`);
       expect(JSON.stringify(template.toJSON())).not.toContain("fxrate-initial-snapshot-provider");
     }

@@ -1,4 +1,5 @@
 pub mod authorization_code_repository;
+pub mod expired_credential_cleanup;
 pub mod oauth_client_authentication_reader;
 pub mod oauth_client_details_reader;
 pub mod oauth_client_list_reader;
@@ -9,6 +10,9 @@ pub mod third_party_exchange_code_repository;
 
 pub use authorization_code_repository::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory,
+};
+pub use expired_credential_cleanup::{
+    CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
 };
 pub use oauth_client_authentication_reader::{
     OAuthClientAuthentication, OAuthClientAuthenticationReader,

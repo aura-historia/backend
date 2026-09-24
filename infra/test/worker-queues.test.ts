@@ -276,9 +276,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    // The API's stable HTTP integration adds one independent version/alias;
-    // all ten queue workers continue to use dedicated immutable versions.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(11);
+    // The API's stable HTTP integration and the two real-stage maintenance targets
+    // each use immutable versions; all ten queue workers retain their own versions.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 13);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -616,7 +616,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     }
     const template = Template.fromStack(stacks.observability!);
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
-      .filter((resource) => resource.Properties.Namespace === "AWS/SQS");
+      .filter((resource) => resource.Properties.Namespace === "AWS/SQS")
+      .filter((resource) => String(resource.Properties.AlarmName).startsWith("prod-worker-"));
     expect(alarms).toHaveLength(20);
     const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
     expect(topicIds).toHaveLength(1);

@@ -12,7 +12,7 @@ import { applicationParameters, artifactCommitShaParameter } from "./parameters"
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { DmsCdc } from "./constructs/dms-cdc";
-import { Eventing } from "./constructs/eventing";
+import { Eventing, importMaintenanceSchedulerDeadLetterQueue } from "./constructs/eventing";
 import { Network } from "./constructs/network";
 import {
   addUserPoolEnvironment,
@@ -300,6 +300,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
       watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      backendCleanupVersion: this.lambdas.backendCleanupVersion,
+      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       partnerIntegrationActivation: parameters.partnerIntegrationActivation,
       fxRateRefreshActivation: parameters.fxRateRefreshActivation,
@@ -432,6 +434,8 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
       watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      backendCleanupVersion: this.lambdas.backendCleanupVersion,
+      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
       partnerIntegrationActivation: parameters.partnerIntegrationActivation,
       fxRateRefreshActivation: parameters.fxRateRefreshActivation,
@@ -490,6 +494,11 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       api: props.api.api,
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
+      maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
+        this,
+        "MaintenanceSchedulerDeadLetterQueueAlarmImport",
+        stageName,
+      ),
     });
 
     if (this.observability.alarmTopic) {

@@ -93,6 +93,8 @@ jobs:
             binary: database-migration-lambda
           - crate: src/fxrate-lambda
             binary: fxrate-lambda
+          - crate: src/backend-cleanup-lambda
+            binary: backend-cleanup-lambda
           - crate: src/stripe-lambda
             binary: stripe-lambda
           - crate: src/product-listing-opensearch-lambda

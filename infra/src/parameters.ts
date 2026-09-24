@@ -160,7 +160,7 @@ function fxRateRefreshCondition(scope: Construct): cdk.CfnCondition {
     type: "String",
     default: "false",
     allowedValues: ["true", "false"],
-    description: "Enable recurring FX refresh only after the protected initial snapshot succeeds.",
+    description: "Enable recurring FX refresh and cleanup only after protected initialization succeeds.",
   });
   return new cdk.CfnCondition(scope, "FxRateRefreshActivation", {
     expression: cdk.Fn.conditionEquals(fxRateRefreshEnabled.valueAsString, "true"),

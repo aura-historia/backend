@@ -52,7 +52,7 @@ PostgreSQL is authoritative for User access tokens and canonical OAuth credentia
 - Credential tables are operational only. They must not enter Sequin/CDC publications, projections, analytics, or credential-bearing logs. The raw token in a third-party exchange-code row is short-lived escrow needed by that exchange only.
 - The cleanup operation first removes expired third-party exchange codes, and never removes an expired access token while an unexpired exchange code still references it. Authentication and redemption still check expiry themselves, so late, retried, or interrupted cleanup cannot make an expired credential valid.
 
-Business schema initialization needs no `pg_ttl_index` extension or background worker. Scheduler wiring remains owned by #1799.
+Business schema initialization needs no `pg_ttl_index` extension or background worker. In real stages, the `backend-cleanup-lambda` Scheduler target runs hourly in UTC after protected initialization activates recurring maintenance. Its fixed `EXPIRY_CLEANUP_BATCH_SIZE=100` is validated before database access; each invocation calls the cleanup function once, logs only safe direct-delete counts/duration/outcome, and returns failures for Scheduler retry/DLQ handling. Delayed physical cleanup is acceptable because expiry remains enforced by credential and receipt business paths.
 
 ## ProductListing events and revisions
 

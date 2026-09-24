@@ -126,8 +126,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(16);
-    expect(runtimeFunctions).toHaveLength(15);
+    expect(functions).toHaveLength(17);
+    expect(runtimeFunctions).toHaveLength(16);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
@@ -158,6 +158,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     initialization.resourceCountIs("AWS::Events::Rule", 0);
     expect(JSON.stringify(compute.toJSON())).not.toContain(`database-migration-lambda-${stage}`);
     expect(JSON.stringify(compute.toJSON())).toContain(`fxrate-lambda-${stage}`);
+    expect(JSON.stringify(compute.toJSON())).toContain(`backend-cleanup-lambda-${stage}`);
     const runtimeSecretArn = runtimeFunctions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
     expect(runtimeSecretArn).toBeDefined();
     for (const functionResource of runtimeFunctions) {
@@ -204,7 +205,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    expect(runtimeSecretReadStatements).toHaveLength(15);
+    expect(runtimeSecretReadStatements).toHaveLength(16);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",

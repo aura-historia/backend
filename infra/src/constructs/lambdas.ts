@@ -67,6 +67,17 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${context.config.stage}/api-token`),
     }),
   },
+  backendCleanup: {
+    id: "BackendCleanupLambda",
+    binaryName: "backend-cleanup-lambda",
+    memorySize: 128,
+    postgres: true,
+    skipEphemeral: true,
+    timeoutSeconds: 10,
+    environment: () => ({
+      EXPIRY_CLEANUP_BATCH_SIZE: "100",
+    }),
+  },
 
   postConfirmation: {
     id: "PrimaryUserPoolPostConfirmationLambda",
@@ -236,7 +247,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
-type EphemeralOptionalLambdaKey = "cdcRouter" | "fxRateSync";
+type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "fxRateSync";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
@@ -265,6 +276,8 @@ export class Lambdas extends Construct {
   readonly searchFilterMatchNotificationVersion: lambda.Version;
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
+  readonly backendCleanupVersion: lambda.Version | undefined;
+  readonly fxRateSyncVersion: lambda.Version | undefined;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -363,6 +376,24 @@ export class Lambdas extends Construct {
       lambda: this.functions.notificationDelivery,
       description: `notification-delivery-${props.parameters.commitSha}`,
     });
+    if (props.config.isEphemeral) {
+      this.backendCleanupVersion = undefined;
+      this.fxRateSyncVersion = undefined;
+    } else {
+      const backendCleanup = this.functions.backendCleanup;
+      const fxRateSync = this.functions.fxRateSync;
+      if (!backendCleanup || !fxRateSync) {
+        throw new Error("Real stages require backend cleanup and FX refresh Lambdas.");
+      }
+      this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
+        lambda: backendCleanup,
+        description: `backend-cleanup-${props.parameters.commitSha}`,
+      });
+      this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
+        lambda: fxRateSync,
+        description: `fxrate-sync-${props.parameters.commitSha}`,
+      });
+    }
     grantRuntimeAccess(props, this.functions);
   }
 }
