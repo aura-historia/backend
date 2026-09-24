@@ -151,11 +151,27 @@ pub trait Spider: Send + Sync {
 
 pub struct SpiderImpl {
     config: CrawlerConfig,
+    #[cfg(test)]
+    test_http_client: Option<spider::reqwest::Client>,
 }
 
 impl SpiderImpl {
     pub fn new(config: CrawlerConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            #[cfg(test)]
+            test_http_client: None,
+        }
+    }
+}
+
+#[cfg(test)]
+impl SpiderImpl {
+    fn with_test_http_client(config: CrawlerConfig, client: spider::reqwest::Client) -> Self {
+        Self {
+            config,
+            test_http_client: Some(client),
+        }
     }
 }
 
@@ -193,8 +209,12 @@ fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> 
     let host = url.host_str().ok_or_else(|| {
         SpiderDiscoveryError::Discovery("configured crawler URL has no host".to_string())
     })?;
+    // This is only Spider's coarse pre-parse filter. Keep it small: accept the
+    // relative references Spider can resolve, reject backslashes and obvious
+    // non-HTTP schemes, and leave authoritative host validation to the parsed
+    // URL check below.
     Ok(format!(
-        r"^(?:https?://{}(?::(?:80|443))?(?:/.*)?|/(?:[^/][^#]*)?|[^:/?#][^:/?#]*(?:/[^?#]*)?)$",
+        r"^(?:https?://{}(?::(?:80|443))?(?:[/?#][^\\]*)?|/(?:[^/\\][^\\]*)?|\?[^\\]*|#[^\\]*|[^:/?#\\][^:/?#\\]*(?:/[^?#\\]*)?(?:[?#][^\\]*)?)$",
         regex::escape(host)
     ))
 }
@@ -296,8 +316,19 @@ impl Spider for SpiderImpl {
             SpiderDiscoveryError::Discovery("configured crawler URL is invalid".to_string())
         })?;
         let request_timeout = std::time::Duration::from_secs(self.config.request_timeout_secs);
-        let root_url = preflight_crawl_root(configured_root, request_timeout).await?;
-        let client = spider_public_http_client(&root_url, request_timeout).await?;
+        #[cfg(test)]
+        let test_http_client = self.test_http_client.clone();
+        #[cfg(not(test))]
+        let test_http_client: Option<spider::reqwest::Client> = None;
+        let root_url = if test_http_client.is_some() {
+            configured_root.clone()
+        } else {
+            preflight_crawl_root(configured_root, request_timeout).await?
+        };
+        let client = match test_http_client {
+            Some(client) => client,
+            None => spider_public_http_client(&root_url, request_timeout).await?,
+        };
         let host_whitelist = configured_host_whitelist(&root_url)?;
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client);
@@ -371,16 +402,10 @@ impl Spider for SpiderImpl {
 
                 let raw_url = page.get_url();
 
-                let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
-                    CrawledUrl::new(parsed)
-                } else if let Some(root) = configured_root.as_ref() {
-                    let Ok(parsed) = root.join(raw_url) else {
-                        continue;
-                    };
-                    CrawledUrl::new(parsed)
-                } else {
+                let Ok(parsed) = url::Url::parse(raw_url) else {
                     continue;
                 };
+                let normalized = CrawledUrl::new(parsed);
 
                 if root_redirect_rejected
                     || !configured_root
@@ -546,33 +571,170 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn whitelist_for(root: &str) -> regex::Regex {
+        let pattern = configured_host_whitelist(&Url::parse(root).unwrap()).unwrap();
+        regex::Regex::new(&pattern).unwrap()
+    }
 
     #[test]
     fn should_allow_only_configured_host_in_spider_fetch_graph() {
-        let pattern =
-            configured_host_whitelist(&Url::parse("https://example.com").unwrap()).unwrap();
-        let whitelist = regex::Regex::new(&pattern).unwrap();
+        let whitelist = whitelist_for("https://example.com");
 
+        assert!(whitelist.is_match("https://example.com"));
+        assert!(whitelist.is_match("https://example.com/"));
         assert!(whitelist.is_match("https://example.com/product/1"));
+        assert!(whitelist.is_match("https://example.com/product/1?variant=x"));
+        assert!(whitelist.is_match("https://example.com?sort=price"));
+
         assert!(whitelist.is_match("/product/1"));
+        assert!(whitelist.is_match("/product/1?variant=x"));
+        assert!(whitelist.is_match("/product/1#reviews"));
+
         assert!(whitelist.is_match("product/1"));
+        assert!(whitelist.is_match("product/1?variant=x"));
+        assert!(whitelist.is_match("product/1#reviews"));
+
+        assert!(whitelist.is_match("?page=2"));
+        assert!(whitelist.is_match("./product/1"));
+        assert!(whitelist.is_match("../product/1"));
+
+        assert!(!whitelist.is_match("https://evil.example/product/1"));
+        assert!(!whitelist.is_match("https://example.com.evil.example/product/1"));
         assert!(!whitelist.is_match("https://www.example.com/product/1"));
-        assert!(!whitelist.is_match("https://internal.example.com/product/1"));
-        assert!(!whitelist.is_match("https://example.com.evil.test/product/1"));
-        assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
-        assert!(!whitelist.is_match("//internal.example.com/product/1"));
+
+        assert!(!whitelist.is_match("//evil.example/product/1"));
+        assert!(!whitelist.is_match(r"/\evil.example/product/1"));
+        assert!(!whitelist.is_match(r"\\evil.example/product/1"));
+
         assert!(!whitelist.is_match("mailto:test@example.com"));
+        assert!(!whitelist.is_match("javascript:alert(1)"));
+        assert!(!whitelist.is_match("data:text/html,test"));
+        assert!(!whitelist.is_match("ftp://evil.example/file"));
+
+        assert!(!whitelist.is_match("https://internal.example.com/product/1"));
+        assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
     }
 
     #[test]
     fn should_build_exact_www_host_graph_after_www_root_preflight() {
-        let pattern =
-            configured_host_whitelist(&Url::parse("https://www.example.com/").unwrap()).unwrap();
-        let whitelist = regex::Regex::new(&pattern).unwrap();
+        let whitelist = whitelist_for("https://www.example.com/");
 
         assert!(whitelist.is_match("https://www.example.com/product/1"));
         assert!(whitelist.is_match("product/1"));
         assert!(!whitelist.is_match("https://example.com/product/1"));
+    }
+
+    struct EnvironmentGuard {
+        name: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvironmentGuard {
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous = std::env::var(name).ok();
+            unsafe { std::env::set_var(name, value) };
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvironmentGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { std::env::set_var(self.name, value) },
+                None => unsafe { std::env::remove_var(self.name) },
+            }
+        }
+    }
+
+    async fn serve_regression_site(listener: tokio::net::TcpListener) {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                break;
+            };
+
+            tokio::spawn(async move {
+                let mut request = [0; 4096];
+                let Ok(bytes_read) = stream.read(&mut request).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&request[..bytes_read]);
+                let target = request.split_whitespace().nth(1).unwrap_or_default();
+                let (status, body) = match target {
+                    "/" => (
+                        "200 OK",
+                        r#"<!doctype html>
+                            <a href="/product/1">Product</a>
+                            <a href="category/1">Category</a>
+                            <a href="?page=2">Next</a>
+                            <a href="https://evil.example/product/1">External</a>"#,
+                    ),
+                    "/product/1" | "/category/1" | "/?page=2" => ("200 OK", "<p>page</p>"),
+                    _ => ("404 Not Found", ""),
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    }
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn should_discover_relative_links_with_real_spider_impl() {
+        let _body_limit = EnvironmentGuard::set(SPIDER_MAX_BODY_BYTES_ENV, "8388608");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(serve_regression_site(listener));
+
+        let client = spider::reqwest::Client::builder()
+            .redirect(spider::reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(2))
+            .connect_timeout(std::time::Duration::from_secs(2))
+            .no_proxy()
+            .resolve("example.com", address)
+            .build()
+            .unwrap();
+        let config = CrawlerConfig {
+            delay_millis: 0,
+            request_timeout_secs: 2,
+            concurrency_limit: 4,
+            channel_size: 32,
+            max_pages_per_crawl: 10,
+            max_crawl_duration: std::time::Duration::from_secs(10),
+            ..CrawlerConfig::default()
+        };
+        let spider = SpiderImpl::with_test_http_client(config, client);
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+        } = spider.crawl("http://example.com/").await.unwrap();
+
+        let mut discovered = HashSet::new();
+        while let Some(page) = pages.recv().await {
+            discovered.insert(page.url.to_string());
+        }
+        let diagnostics = diagnostics.await.unwrap();
+        server.abort();
+
+        assert!(
+            diagnostics.failure_kind.is_none(),
+            "unexpected crawl diagnostics: {diagnostics:?}"
+        );
+        assert!(discovered.len() > 1, "only the root page was discovered");
+        for expected in [
+            "http://example.com/",
+            "http://example.com/product/1",
+            "http://example.com/category/1",
+            "http://example.com/?page=2",
+        ] {
+            assert!(discovered.contains(expected), "missing {expected}");
+        }
+        assert!(!discovered.iter().any(|url| url.contains("evil.example")));
     }
 
     #[test]
