@@ -42,6 +42,7 @@ export interface NotificationEmailConfig {
 export interface NetworkConfig {
   readonly cidr: string;
   readonly region: typeof WORKLOAD_REGION;
+  readonly stageOpenSearchEgressCidrs: readonly string[];
 }
 
 export interface RdsConfig {
@@ -110,8 +111,8 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
   const isProd = stage === "prod";
   const isEphemeral = stage === "ephemeral";
 
-  const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.dev.aura-historia.com" : undefined;
-  const apiCloudFrontAliases = stage === "prod" ? ["api.aura-historia.com"] : stage === "dev" ? ["*.dev.aura-historia.com"] : [];
+  const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.stage.aura-historia.com" : undefined;
+  const apiCloudFrontAliases = apiDomainName ? [apiDomainName] : [];
 
   return {
     stage,
@@ -122,6 +123,8 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
       : {
           cidr: stage === "prod" ? "10.64.0.0/16" : "10.65.0.0/16",
           region: WORKLOAD_REGION,
+          // Reviewed stage host A record; confirm ownership and DNS before deploying changes.
+          stageOpenSearchEgressCidrs: stage === "dev" ? ["148.251.91.20/32"] : [],
         },
     rds: isEphemeral
       ? undefined

@@ -91,6 +91,11 @@ export class Network extends Construct {
     });
 
     this.applicationSecurityGroup.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), "Required HTTPS provider and AWS API egress through NAT");
+    if (props.config.stage === "dev") {
+      for (const cidr of props.config.network.stageOpenSearchEgressCidrs) {
+        this.applicationSecurityGroup.addEgressRule(ec2.Peer.ipv4(cidr), ec2.Port.tcp(9443), "Stage OpenSearch HTTPS via NAT");
+      }
+    }
     this.applicationSecurityGroup.addEgressRule(this.dmsEndpointSecurityGroup, ec2.Port.tcp(443), "Private shared Secrets Manager endpoint");
     this.applicationSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL");
     this.dmsSecurityGroup.addEgressRule(this.databaseSecurityGroup, ec2.Port.tcp(5432), "Private PostgreSQL replication");
