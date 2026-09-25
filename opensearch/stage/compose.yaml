@@ -1,0 +1,56 @@
+# Standalone stage service: application deployment never runs this Compose project.
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    restart: unless-stopped
+    environment:
+      cluster.name: aura-stage
+      node.name: stage-1
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms6g -Xmx6g
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:?Set the admin secret in a private env file}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    mem_limit: 16g
+    volumes:
+      - data:/usr/share/opensearch/data
+    ports:
+      - 127.0.0.1:19200:9200
+    networks:
+      - search
+
+  # Run only for issuance/renewal: the HTTP-01 challenge temporarily owns port 80.
+  certbot:
+    image: certbot/certbot:latest@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    profiles: [cert]
+    ports:
+      - 80:80
+    volumes:
+      - ./certs:/etc/letsencrypt
+    command: ["renew", "--non-interactive", "--config-dir", "/etc/letsencrypt", "--work-dir", "/etc/letsencrypt/work", "--logs-dir", "/etc/letsencrypt/logs"]
+
+  gateway:
+    image: caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    profiles: [public]
+    restart: unless-stopped
+    depends_on:
+      - opensearch
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${OPENSEARCH_CERT_DIR:-./certs}:/certs:ro
+    ports:
+      - 9443:9443
+    networks:
+      - search
+
+volumes:
+  data:
+
+networks:
+  search:

@@ -162,7 +162,7 @@ PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/c
 Stripe billing settings, Zoho settings, generated Cognito issuer/JWKS/client/pool settings,
 Vertex project and location, and staged ADC credential JSON. Real-stage nonsecret and secret
 configuration uses the existing SSM dynamic-reference paths:
-`/opensearch/<stage>/{username,password}`, `/stripe/<stage>/api-key`,
+`/opensearch/<stage>/reader/{username,password}`, `/stripe/<stage>/api-key`,
 `/vertex-ai/<stage>/{project-id,location}`, `/secrets/<stage>/google-application-credentials`, and
 `/zoho/<stage>/{accounts-url,campaigns-url,client-id,client-secret,list-key,refresh-token}`.
 The Lambda role has only `cognito-idp:ListUsers` and
@@ -418,8 +418,10 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 
 ```text
 /opensearch/{stage}/endpoint-url
-/opensearch/{stage}/username
-/opensearch/{stage}/password
+/opensearch/{stage}/reader/{username,password}
+/opensearch/{stage}/product-projector/{username,password}
+/opensearch/{stage}/filter-projector/{username,password}
+/opensearch/{stage}/percolator/{username,password}
 /eventbridge/{stage}/stripe-event-bus-name
 /eventbridge/{stage}/shopify-event-bus-name
 /stripe/{stage}/pro-product-id

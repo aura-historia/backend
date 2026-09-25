@@ -211,6 +211,38 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
   });
 });
 
+describe.each(STAGES)("%s OpenSearch runtime credentials", (stage) => {
+  test("uses distinct role-scoped SSM parameters for each runtime", () => {
+    const template = computeTemplate(stage);
+    const paths: unknown[] = [];
+
+    for (const [binary, role] of [
+      ["aura-historia-api", "reader"],
+      ["product-listing-opensearch-lambda", "product-projector"],
+      ["search-filter-projection-lambda", "filter-projector"],
+      ["search-filter-percolator-lambda", "percolator"],
+    ] as const) {
+      const environment = lambdaFunction(template, `${binary}-${stage}`).Properties.Environment as {
+        Variables: Record<string, unknown>;
+      };
+      expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
+
+      if (stage === "ephemeral") {
+        expect(environment.Variables.OPENSEARCH_USERNAME).toBeUndefined();
+        expect(environment.Variables.OPENSEARCH_PASSWORD).toBeUndefined();
+      } else {
+        const username = `{{resolve:ssm:/opensearch/${stage}/${role}/username}}`;
+        const password = `{{resolve:ssm:/opensearch/${stage}/${role}/password}}`;
+        expect(environment.Variables.OPENSEARCH_USERNAME).toBe(username);
+        expect(environment.Variables.OPENSEARCH_PASSWORD).toBe(password);
+        paths.push(username, password);
+      }
+    }
+
+    expect(new Set(paths).size).toBe(stage === "ephemeral" ? 0 : 8);
+  });
+});
+
 test("configuration-only API updates still change the currentVersion target", () => {
   const before = computeTemplate("dev");
   const app = new cdk.App({ analyticsReporting: false });

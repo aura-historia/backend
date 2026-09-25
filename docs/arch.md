@@ -1754,7 +1754,7 @@ PostgreSQL owns business truth for:
 
 Credential tables are operational PostgreSQL storage, not CDC sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 
-OpenSearch contains rebuildable search projections only.
+OpenSearch contains rebuildable search projections only. The independently operated single-node stage service, asset application, security boundary, and live acceptance gates are documented in [Stage OpenSearch](opensearch-stage.md); application releases must not administer or restart it.
 
 `product_listing_events` is a transactional ProductListing domain/enrichment journal and selected DMS CDC source in the target path. It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
 

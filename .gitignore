@@ -38,6 +38,9 @@ coverage.lcov
 
 # Environment variables file
 .env
+/opensearch/stage/.admin-curl
+/opensearch/stage/.credentials/
+/opensearch/stage/certs/
 
 # Output files
 **/scraper_output.json
