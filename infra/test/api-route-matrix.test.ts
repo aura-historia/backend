@@ -108,17 +108,24 @@ describe("HTTP API route policy matrix", () => {
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.ApplicationBearer)).not.toHaveLength(0);
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.OAuth)).not.toHaveLength(0);
 
-    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/")))
-      .toEqual(expect.arrayContaining([expect.objectContaining({
-        policy: expect.objectContaining({
-          bearer: "REQUIRED",
-          authorization: RouteAuthorizationClass.Administrator,
-        }),
-      })]));
-    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/")))
-      .toHaveLength(API_ROUTE_CATALOG.filter((route) => route.policy.authorization === RouteAuthorizationClass.Administrator).length);
+    const adminRoutes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/"));
+    expect(adminRoutes.length).toBeGreaterThan(0);
+    expect(adminRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual(
+      API_ROUTE_CATALOG.filter((route) => route.policy.authorization === RouteAuthorizationClass.Administrator)
+        .map((route) => routeKey(route.method, route.path)).sort(),
+    );
+    for (const route of adminRoutes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.Administrator,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+    }
 
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
+      method: "POST",
       path: "/api/v1/webhooks/woocommerce/{listing_source_id}",
       policy: expect.objectContaining({
         bearer: "REQUIRED",
@@ -126,10 +133,28 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.WooCommerceSignature,
       }),
     }));
-    expect(API_ROUTE_CATALOG.filter((route) => ["/health", "/ready"].includes(route.path)))
-      .toEqual(expect.arrayContaining([expect.objectContaining({ policy: expect.objectContaining({ bearer: "NONE" }) })]));
-    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/me/")))
-      .toEqual(expect.arrayContaining([expect.objectContaining({ policy: expect.objectContaining({ bearer: "REQUIRED", authorization: RouteAuthorizationClass.AuthenticatedUser }) })]));
+    const healthRoutes = API_ROUTE_CATALOG.filter((route) => ["/health", "/ready"].includes(route.path));
+    expect(healthRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual(["GET /health", "GET /ready"]);
+    for (const route of healthRoutes) {
+      expect(route.auth).toBe(RouteAuthPolicy.Anonymous);
+      expect(route.policy).toEqual({
+        bearer: "NONE",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+    }
+    const meRoutes = API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/me" || route.path.startsWith("/api/v1/me/"));
+    expect(meRoutes.map((route) => routeKey(route.method, route.path))).toContain("DELETE /api/v1/me");
+    for (const route of meRoutes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.AuthenticatedUser,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+    }
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
       path: "/api/v1/oauth/authorize",
       policy: expect.objectContaining({ bearer: "REQUIRED", oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce }),

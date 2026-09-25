@@ -1,38 +1,21 @@
+#[cfg(test)]
+use crate::cdc::{DomainJob, DomainJobPayload};
 use crate::{
     WorkerScope,
-    cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
-    wire,
 };
-use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use product_content_assessment_lambda::execute_job;
+pub use product_content_assessment_lambda::{
+    ProductContentAssessmentJobDisposition, process_product_content_assessment_job,
+};
+#[cfg(test)]
+use product_content_assessment_lambda::{assessment_disposition, command_from_job};
+use product_listing_service::use_cases::AssessProductListingContentEventUseCase;
+#[cfg(test)]
 use product_listing_service::use_cases::{
-    AssessProductListingContentCommand, AssessProductListingContentEventError,
-    AssessProductListingContentEventOutcome, AssessProductListingContentEventUseCase,
+    AssessProductListingContentCommand, AssessProductListingContentEventOutcome,
 };
 use std::sync::Arc;
-
-/// Lambda- and polling-transport result for one content-assessment job.
-///
-/// Only a committed service outcome may be acknowledged. Missing committed sources,
-/// transaction failures, timeouts, and malformed jobs remain on SQS for retry or redrive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProductContentAssessmentJobDisposition {
-    Complete(&'static str),
-    Retry(&'static str),
-    DependencyUnavailable(&'static str),
-    Poison(&'static str),
-}
-
-impl ProductContentAssessmentJobDisposition {
-    pub const fn category(self) -> &'static str {
-        match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
-        }
-    }
-}
 
 pub async fn consume_product_content_assessment_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -47,61 +30,6 @@ pub async fn consume_product_content_assessment_queue(
         .await;
 }
 
-/// Decode and execute one compact schema-2 content-assessment job.
-///
-/// This adapter deliberately does not contain content-policy behavior; it only supplies the
-/// trusted system operation context and preserves service-owned guarded persistence semantics.
-pub async fn process_product_content_assessment_job(
-    body: &str,
-    use_case: &(dyn AssessProductListingContentEventUseCase + Send + Sync),
-) -> ProductContentAssessmentJobDisposition {
-    match wire::decode(body, WorkerScope::ProductListingContentAssessment) {
-        Ok(job) => execute_job(use_case, job).await,
-        Err(_) => ProductContentAssessmentJobDisposition::Poison("invalid_wire_job"),
-    }
-}
-
-async fn execute_job(
-    use_case: &(dyn AssessProductListingContentEventUseCase + Send + Sync),
-    job: DomainJob,
-) -> ProductContentAssessmentJobDisposition {
-    let Ok(command) = command_from_job(job) else {
-        return ProductContentAssessmentJobDisposition::Poison("unexpected_payload");
-    };
-    let context = OperationContext {
-        principal: Principal::System,
-        request_id: RequestId::new(format!("product-content-assessment:{}", command.event_id)),
-        correlation_id: CorrelationId::new(command.event_id.to_string()),
-    };
-    match use_case.execute(&context, command).await {
-        Ok(result) => assessment_disposition(result.outcome),
-        Err(AssessProductListingContentEventError::ServiceOrSystemPrincipalRequired) => {
-            ProductContentAssessmentJobDisposition::Poison("system_principal_required")
-        }
-        // A provider is intentionally not part of this scope. Source, write, commit, and
-        // unknown completion errors must remain retryable rather than being acknowledged.
-        Err(_) => {
-            ProductContentAssessmentJobDisposition::DependencyUnavailable("assessment_unavailable")
-        }
-    }
-}
-
-fn assessment_disposition(
-    outcome: AssessProductListingContentEventOutcome,
-) -> ProductContentAssessmentJobDisposition {
-    use AssessProductListingContentEventOutcome as O;
-    match outcome {
-        O::Applied => ProductContentAssessmentJobDisposition::Complete("applied"),
-        O::Cleared => ProductContentAssessmentJobDisposition::Complete("cleared"),
-        O::Duplicate => ProductContentAssessmentJobDisposition::Complete("duplicate"),
-        O::Stale => ProductContentAssessmentJobDisposition::Complete("stale"),
-        O::IgnoredEvent => ProductContentAssessmentJobDisposition::Complete("ignored_event"),
-        O::ProductListingNotFound => {
-            ProductContentAssessmentJobDisposition::Retry("missing_source")
-        }
-    }
-}
-
 fn polling_outcome(disposition: ProductContentAssessmentJobDisposition) -> JobOutcome {
     match disposition {
         ProductContentAssessmentJobDisposition::Complete(category) => {
@@ -113,18 +41,6 @@ fn polling_outcome(disposition: ProductContentAssessmentJobDisposition) -> JobOu
         }
         ProductContentAssessmentJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
-}
-
-fn command_from_job(
-    job: DomainJob,
-) -> Result<AssessProductListingContentCommand, crate::jobs::InvalidJob> {
-    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
-        return Err(crate::jobs::InvalidJob);
-    };
-    Ok(AssessProductListingContentCommand {
-        event_id: event.event_id,
-        product_listing_id: event.product_listing_id,
-    })
 }
 
 #[cfg(test)]

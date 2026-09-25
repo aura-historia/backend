@@ -1,8 +1,5 @@
-use aura_historia_worker::notification_delivery::{
-    NotificationDeliveryJobDisposition, process_notification_delivery_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use notification_core::notification_delivery::NotificationDeliveryChannel;
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
@@ -11,16 +8,15 @@ use notification_service::{
     ports::notification_channel_sender::{
         NotificationChannelSender, NotificationDeliveryDispatcher,
     },
+    ports::notification_delivery_repository::NotificationDeliveryError,
     use_cases::commands::deliver_notification::{
-        DeliverNotificationHandler, DeliverNotificationTiming, DeliverNotificationUseCase,
+        DeliverNotificationCommand, DeliverNotificationError, DeliverNotificationHandler,
+        DeliverNotificationResult, DeliverNotificationTiming, DeliverNotificationUseCase,
     },
 };
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use platform_lambda_sqs::{RecordOutcome, process_batch};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 pub const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -89,22 +85,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Returns every record as unfinished when setup consumes the usable invocation budget.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -113,62 +94,174 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        let disposition = if processing_budget.is_zero() {
-            NotificationDeliveryJobDisposition::Retry("insufficient_invocation_budget")
-        } else {
-            match record.body {
-                Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-                None => NotificationDeliveryJobDisposition::Poison("missing_message_body"),
-            }
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_notification_delivery_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(disposition, NotificationDeliveryJobDisposition::Complete(_)),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if !matches!(disposition, NotificationDeliveryJobDisposition::Complete(_)) {
-            warn!(message_id = %message_id, outcome = disposition.category(), "Notification delivery record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "Notification delivery record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished notification delivery batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn DeliverNotificationUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> NotificationDeliveryJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_notification_delivery_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => NotificationDeliveryJobDisposition::Retry("execution_timeout"),
-        Err(_) => NotificationDeliveryJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationDeliveryJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl NotificationDeliveryJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+/// Decode and execute one compact schema-2 delivery wake-up without exposing SQS transport
+/// metadata to the notification service. Lease ownership and finalization remain PostgreSQL-owned.
+pub async fn process_notification_delivery_job(
+    body: &str,
+    use_case: &(dyn DeliverNotificationUseCase + Send + Sync),
+) -> NotificationDeliveryJobDisposition {
+    let job = match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::NotificationDelivery,
+    ) {
+        Ok(job) => job,
+        Err(_) => return NotificationDeliveryJobDisposition::Poison("invalid_wire_job"),
+    };
+    let command = match command_from_job(job) {
+        Ok(command) => command,
+        Err(_) => return NotificationDeliveryJobDisposition::Poison("unexpected_payload"),
+    };
+    let notification_delivery_id = command.notification_delivery_id;
+    match use_case.execute(command).await {
+        Ok(result) => {
+            let attempt_count = match result {
+                DeliverNotificationResult::Delivered { attempt_count } => Some(attempt_count),
+                _ => None,
+            };
+            let disposition = delivery_disposition(result);
+            info!(
+                notification_delivery_id = %notification_delivery_id,
+                attempt_count,
+                outcome = disposition.category(),
+                "notification delivery attempt finished"
+            );
+            disposition
+        }
+        Err(error) => {
+            let disposition = delivery_error_disposition(error);
+            warn!(
+                notification_delivery_id = %notification_delivery_id,
+                outcome = disposition.category(),
+                "notification delivery attempt remains unfinished"
+            );
+            disposition
+        }
+    }
+}
+
+pub fn delivery_disposition(
+    result: DeliverNotificationResult,
+) -> NotificationDeliveryJobDisposition {
+    match result {
+        DeliverNotificationResult::Delivered { .. } => {
+            NotificationDeliveryJobDisposition::Complete("delivered")
+        }
+        DeliverNotificationResult::AlreadyDelivered => {
+            NotificationDeliveryJobDisposition::Complete("already_delivered")
+        }
+        DeliverNotificationResult::PermanentlyFailed => {
+            NotificationDeliveryJobDisposition::Complete("permanently_failed")
+        }
+        DeliverNotificationResult::SourceMissing => {
+            NotificationDeliveryJobDisposition::Complete("source_missing_finalized")
+        }
+        DeliverNotificationResult::DeliveryMissing => {
+            NotificationDeliveryJobDisposition::Retry("delivery_missing")
+        }
+        DeliverNotificationResult::AlreadyClaimed { .. } => {
+            NotificationDeliveryJobDisposition::Retry("already_claimed")
+        }
+        DeliverNotificationResult::ClaimDeferred { .. } => {
+            NotificationDeliveryJobDisposition::Retry("claim_deferred")
+        }
+    }
+}
+
+pub fn delivery_error_disposition(
+    error: DeliverNotificationError,
+) -> NotificationDeliveryJobDisposition {
+    match error {
+        DeliverNotificationError::Repository(
+            NotificationDeliveryError::InvalidPersistedState { .. },
+        ) => NotificationDeliveryJobDisposition::Poison("delivery_state_invalid"),
+        DeliverNotificationError::UnregisteredChannel { .. } => {
+            NotificationDeliveryJobDisposition::Poison("delivery_channel_unregistered")
+        }
+        DeliverNotificationError::LeaseLost => {
+            NotificationDeliveryJobDisposition::Retry("lease_lost")
+        }
+        DeliverNotificationError::AmbiguousSend(_) => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable("provider_acceptance_unknown")
+        }
+        DeliverNotificationError::AttemptTimedOut { .. } => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable("delivery_attempt_timeout")
+        }
+        DeliverNotificationError::FinalizationExhausted { .. } => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable(
+                "delivery_finalization_unconfirmed",
+            )
+        }
+        DeliverNotificationError::Repository(NotificationDeliveryError::OperationFailed {
+            ..
+        })
+        | DeliverNotificationError::RetryableSend(_) => {
+            NotificationDeliveryJobDisposition::DependencyUnavailable(
+                "delivery_dependency_unavailable",
+            )
+        }
+    }
+}
+pub fn command_from_job<O>(
+    job: DomainJob<O>,
+) -> Result<DeliverNotificationCommand, aura_historia_jobs::InvalidJob> {
+    let DomainJobPayload::NotificationDeliveryCreated(delivery) = job.payload else {
+        return Err(aura_historia_jobs::InvalidJob);
+    };
+    Ok(DeliverNotificationCommand {
+        notification_delivery_id: delivery.notification_delivery_id,
+    })
 }
 
 #[cfg(test)]

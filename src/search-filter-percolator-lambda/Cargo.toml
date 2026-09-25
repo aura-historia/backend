@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aura-historia-worker = { workspace = true }
+
+aura-historia-jobs = { path = "../aura-historia-jobs" }
 aws_lambda_events = { workspace = true, features = ["sqs"] }
 fxrate-postgres = { workspace = true }
-futures-util = { workspace = true }
-google-cloud-auth = { workspace = true }
 large-language-model = { workspace = true }
 lambda_runtime = { workspace = true }
 opensearch = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { path = "../platform-lambda-sqs" }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }
@@ -20,7 +20,6 @@ product-listing-postgres = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
-serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing = { workspace = true }

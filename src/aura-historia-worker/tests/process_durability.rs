@@ -11,7 +11,8 @@ const POSTGRES: Postgres = Postgres::new("migrations");
 const SEQUIN: Sequin = Sequin::worker_webhook_for_tables(&["public.product_listing_events"]);
 
 #[aura_integration_test(services = [POSTGRES, WORKER_SQS, SEQUIN])]
-async fn should_persist_accepted_work_after_process_dies_before_handler_commit_t07() {
+async fn should_persist_accepted_work_after_process_dies_before_handler_commit_via_sdk_release_t07()
+{
     case(async {
         let pool = get_postgres_client().await;
         let observations = Observations::new();
@@ -47,9 +48,11 @@ async fn should_persist_accepted_work_after_process_dies_before_handler_commit_t
 
         let mut restarted = WorkerProcess::start(&pool, &sqs, address).await?;
         assert_ne!(original_pid, restarted.id());
-        // Let the original production 270s visibility expire naturally: no republish/receive
-        // by the test and no recreation of the source queue, DLQ, DB, or Sequin containers.
+        // Test-only SDK release simulates lease expiry; it does NOT prove the natural 270s clock.
+        // worker_queue_contract separately checks the configured production visibility.
+        make_visible(&original).await?;
         let redelivery = observations.received(&message_id, 2).await?;
+        assert_eq!(message_id, redelivery.message_id);
         assert_eq!(body, redelivery.body);
         assert!(
             original.handle != redelivery.handle,
@@ -68,7 +71,8 @@ async fn should_persist_accepted_work_after_process_dies_before_handler_commit_t
 }
 
 #[aura_integration_test(services = [POSTGRES, WORKER_SQS, SEQUIN])]
-async fn should_preserve_committed_result_after_process_dies_before_sqs_delete_t08() {
+async fn should_preserve_committed_result_after_process_dies_before_sqs_delete_via_sdk_release_t08()
+{
     case(async {
         let pool = get_postgres_client().await;
         let observations = Observations::new();
@@ -89,9 +93,16 @@ async fn should_preserve_committed_result_after_process_dies_before_sqs_delete_t
         sqs.allow_new_deletes();
         let mut restarted = WorkerProcess::start(&pool, &sqs, address).await?;
         assert_ne!(original_pid, restarted.id());
+        // Test-only SDK release simulates lease expiry; it does NOT prove the natural 270s clock.
+        // worker_queue_contract separately checks the configured production visibility.
+        make_visible(&original).await?;
         let redelivery = observations.received(&message_id, 2).await?;
+        assert_eq!(message_id, redelivery.message_id);
         assert_eq!(body, redelivery.body);
-        assert!(original.handle != redelivery.handle);
+        assert_ne!(
+            original.handle, redelivery.handle,
+            "restart must get a fresh real receipt"
+        );
         observations.deleted(&redelivery).await?;
         // Full target row, timestamps and xmin must survive: duplicate is a semantic no-op,
         // not an overwrite with equivalent values or an in-process deduplication cache.
@@ -192,7 +203,7 @@ async fn should_keep_native_poison_dlq_across_os_restart_and_process_unrelated_w
     case(async {
         let pool = get_postgres_client().await;
         let observations = Observations::new();
-        let sqs = Relay::sqs("primary", observations.clone(), false).await?;
+        let mut sqs = Relay::sqs("primary", observations.clone(), false).await?;
         let address = unused_address()?;
         let webhook = Relay::webhook(address, observations.clone()).await?;
         let mut child = WorkerProcess::start(&pool, &sqs, address).await?;
@@ -233,6 +244,12 @@ async fn should_keep_native_poison_dlq_across_os_restart_and_process_unrelated_w
         assert_queue_counts(0, 1).await?;
         let original_pid = child.id();
         child.kill()?;
+        // The dead child's server-side long poll can still reserve the next job without
+        // returning a receipt. Close the test relay and let that bounded poll expire before
+        // publishing unrelated work; source/DLQ, redrive policy and history are untouched.
+        sqs.stop().await?;
+        wait_for_abandoned_sqs_long_poll().await?;
+        sqs = Relay::sqs("primary", observations.clone(), false).await?;
 
         let mut restarted = WorkerProcess::start(&pool, &sqs, address).await?;
         assert_ne!(original_pid, restarted.id());
@@ -241,9 +258,12 @@ async fn should_keep_native_poison_dlq_across_os_restart_and_process_unrelated_w
         assert_eq!(dead.message_id(), still_dead.message_id());
         assert_native_redrive_policy().await?;
         let healthy_source = commit_source(&pool).await?;
-        let (_, healthy_message_id) = observed_publication(&observations, healthy_source).await?;
+        let (healthy_body, healthy_message_id) =
+            observed_publication(&observations, healthy_source).await?;
+        let healthy_receipt = observations.received(&healthy_message_id, 1).await?;
+        assert_eq!(healthy_body, healthy_receipt.body);
         persisted_assessment(&pool, healthy_source).await?;
-        observations.completed(&healthy_message_id).await?;
+        observations.deleted(&healthy_receipt).await?;
         assert_eq!(1, assessment_count(&pool).await?);
         assert_queue_counts(0, 1).await?;
         let retained = dlq_message().await?;

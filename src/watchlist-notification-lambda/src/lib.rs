@@ -1,8 +1,5 @@
-use aura_historia_worker::watchlist_notifications::{
-    WatchlistNotificationJobDisposition, process_watchlist_notification_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use notification_postgres::{
     SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
@@ -12,18 +9,16 @@ use notification_service::{
     notification_creation::NotificationCreationCoordinatorFactory,
 };
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 
 use product_listing_postgres::SqlxProductListingWatchlistNotificationSourceReaderFactory;
 use product_listing_service::use_cases::{
-    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
+    GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsHandler,
+    GenerateWatchlistNotificationsResult, GenerateWatchlistNotificationsUseCase,
 };
 
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
@@ -76,22 +71,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Returns every record as unfinished when startup work consumes the usable invocation budget.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -100,66 +80,130 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            warn!(message_id = %message_id, outcome = "insufficient_invocation_budget", "Watchlist notification record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => WatchlistNotificationJobDisposition::Poison("missing_message_body"),
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_watchlist_notification_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(
+                    disposition,
+                    WatchlistNotificationJobDisposition::Complete(_)
+                ),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if !matches!(
-            disposition,
-            WatchlistNotificationJobDisposition::Complete(_)
-        ) {
-            warn!(message_id = %message_id, outcome = disposition.category(), "Watchlist notification record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "Watchlist notification record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished watchlist notification batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> WatchlistNotificationJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_watchlist_notification_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => WatchlistNotificationJobDisposition::Retry("execution_timeout"),
-        Err(_) => WatchlistNotificationJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchlistNotificationJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl WatchlistNotificationJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_watchlist_notification_job(
+    body: &str,
+    use_case: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
+) -> WatchlistNotificationJobDisposition {
+    match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::WatchlistNotification,
+    ) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => WatchlistNotificationJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O>(
+    handler: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> WatchlistNotificationJobDisposition {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
+        return WatchlistNotificationJobDisposition::Poison("unexpected_payload");
+    };
+    // The service loads the exact historical event and locks current lifecycle through commit.
+    // No transport cache/current-event comparison may suppress a later historical notification.
+    match handler
+        .execute(GenerateWatchlistNotificationsCommand {
+            event_id: event.event_id,
+            product_listing_id: event.product_listing_id,
+        })
+        .await
+    {
+        Ok(result) => watchlist_outcome(result),
+        Err(_) => WatchlistNotificationJobDisposition::DependencyUnavailable(
+            "watchlist_notification_unavailable",
+        ),
+    }
+}
+
+pub fn watchlist_outcome(
+    result: GenerateWatchlistNotificationsResult,
+) -> WatchlistNotificationJobDisposition {
+    match result {
+        GenerateWatchlistNotificationsResult::Applied {
+            recipient_count,
+            inserted_count,
+            already_exists_count,
+        } => {
+            tracing::info!(
+                recipient_count,
+                inserted_count,
+                already_exists_count,
+                "historical watchlist notifications committed"
+            );
+            WatchlistNotificationJobDisposition::Complete(
+                if inserted_count == 0 && already_exists_count > 0 {
+                    "duplicate"
+                } else {
+                    "applied"
+                },
+            )
+        }
+        GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
+            WatchlistNotificationJobDisposition::Retry("missing_source")
+        }
+        GenerateWatchlistNotificationsResult::IgnoredEvent => {
+            WatchlistNotificationJobDisposition::Complete("ignored_event")
+        }
+        GenerateWatchlistNotificationsResult::SuppressedForWithdrawnProductListing => {
+            WatchlistNotificationJobDisposition::Complete("withdrawn")
+        }
+    }
 }
 
 #[cfg(test)]

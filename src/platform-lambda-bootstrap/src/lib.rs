@@ -1,3 +1,9 @@
+mod google_adc;
+
+pub use google_adc::{
+    google_application_default_credentials, materialize_google_application_credentials_from_env,
+};
+
 use lambda_runtime::Context;
 use platform_observability::{LogLevel, LoggingConfig};
 use platform_postgres::{PostgresCredentials, PostgresPoolConfig};

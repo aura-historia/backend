@@ -117,7 +117,7 @@ jobs:
             binary: watchlist-notification-lambda
           - crate: src/notification-delivery-lambda
             binary: notification-delivery-lambda
-          - crate: src/aura-historia-worker
+          - crate: src/cdc-router-lambda
             binary: cdc-router-lambda
     steps:
       - uses: actions/checkout@v7

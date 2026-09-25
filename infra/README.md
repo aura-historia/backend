@@ -142,7 +142,7 @@ cargo lambda build --locked --release \
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
 native Axum router, and applies a `14 s` application request deadline. The same
-artifact matrix packages `cdc-router-lambda` from `aura-historia-worker`: it is a
+artifact matrix packages `cdc-router-lambda` from its own crate: it is a
 `256 MiB` / `30 s` Kinesis-to-SQS transport adapter that has no database, native
 worker polling loop, cron scheduler, health daemon, API Gateway route, Function
 URL, or reserved/provisioned concurrency. `notification-delivery-lambda` is a 512 MiB / 45s batch-one SQS consumer with an immutable function version. It composes only the durable PostgreSQL delivery service, versioned-template S3 reader, and one-attempt SES sender; mapping activation is a manual handoff gate, never an in-memory delivery cache. Native processes remain the local development entrypoints.

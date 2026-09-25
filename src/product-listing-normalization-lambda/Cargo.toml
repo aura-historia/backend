@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aura-historia-worker = { workspace = true }
+aura-historia-jobs = { path = "../aura-historia-jobs" }
 aws_lambda_events = { workspace = true, features = ["sqs"] }
-futures-util = { workspace = true }
 lambda_runtime = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { path = "../platform-lambda-sqs" }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }

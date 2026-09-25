@@ -6,7 +6,6 @@ use aws_smithy_types::timeout::TimeoutConfig;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use notification_delivery_lambda::{
     compose_delivery_use_case, handler_with_invocation_budget, invocation_budget,
-    retain_all_records,
 };
 use notification_email_aws::EmailDeliveryConfig;
 use notification_service::use_cases::commands::deliver_notification::DeliverNotificationUseCase;
@@ -14,10 +13,10 @@ use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
     log_invocation_start, logging_config_from_env,
 };
+use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{future::Future, sync::Arc, time::Instant};
-use tracing::warn;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -87,22 +86,16 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<DeliveryUseCaseLease, Error>>,
 {
-    let budget = invocation_budget(&event.context);
-    let Some(use_case) = complete_before_invocation_deadline(&budget, setup()).await else {
-        warn!(
-            outcome = "invocation_setup_timeout",
-            "Notification delivery setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-    let Ok(use_case) = use_case else {
-        warn!(
-            outcome = "invocation_setup_failed",
-            "Notification delivery setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-    handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+    handle_sqs_invocation(
+        event,
+        "notification-delivery-lambda",
+        invocation_budget,
+        setup,
+        |event, use_case, budget| async move {
+            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+        },
+    )
+    .await
 }
 
 fn email_config() -> Result<EmailDeliveryConfig, Error> {
@@ -117,15 +110,4 @@ fn email_config() -> Result<EmailDeliveryConfig, Error> {
 
 fn required_env(name: &'static str) -> Result<String, Error> {
     std::env::var(name).map_err(|_| Error::from(format!("missing required {name}")))
-}
-
-async fn complete_before_invocation_deadline<T>(
-    budget: &platform_lambda_bootstrap::LambdaInvocationBudget,
-    operation: impl Future<Output = T>,
-) -> Option<T> {
-    let remaining = budget.remaining();
-    if remaining.is_zero() {
-        return None;
-    }
-    tokio::time::timeout(remaining, operation).await.ok()
 }

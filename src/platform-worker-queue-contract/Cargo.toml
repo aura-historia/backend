@@ -1,0 +1,11 @@
+[package]
+name = "platform-worker-queue-contract"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aura-historia-jobs = { path = "../aura-historia-jobs" }
+aws-sdk-sqs = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }

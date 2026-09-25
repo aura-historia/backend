@@ -1,25 +1,21 @@
 use crate::{
     WorkerScope,
-    cdc::{DomainJob, DomainJobPayload},
+    cdc::DomainJob,
     queue::{JobOutcome, WorkerQueueReceiver},
 };
 use product_listing_service::ports::ProductListingRawStreamId;
 use product_service::{
     ports::PendingProductListingRawStreamCursor,
     use_cases::{
-        NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
-        NormalizeProductListingRawRevisionMode, NormalizeProductListingRawRevisionResult,
-        NormalizeProductListingRawRevisionUseCase,
+        NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionMode,
+        NormalizeProductListingRawRevisionResult, NormalizeProductListingRawRevisionUseCase,
     },
 };
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::MissedTickBehavior};
 use tracing::{info, warn};
 
-/// Bounded per-invocation stream drain shared by native and Lambda SQS adapters.
-pub const MAX_REVISIONS_PER_STREAM: u32 = 32;
-/// Bounded authoritative reconciliation page size for the legacy native worker.
-pub const PENDING_STREAM_LIMIT: u32 = 100;
+pub use product_listing_normalization_lambda::{MAX_REVISIONS_PER_STREAM, PENDING_STREAM_LIMIT};
 const MAX_PENDING_STREAM_CONTINUATIONS: usize = PENDING_STREAM_LIMIT as usize * 2;
 const RECONCILIATION_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -191,76 +187,12 @@ impl ReconciliationState {
 /// `Complete` is emitted only after the authoritative stream is fully drained. A durable
 /// candidate rejection is included in that completed drain because its progress is committed.
 /// Every other result remains unfinished so SQS retry/redrive can recover it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProductListingRawNormalizationJobDisposition {
-    Complete(&'static str),
-    Retry(&'static str),
-    DependencyUnavailable(&'static str),
-    Poison(&'static str),
-}
-
-impl ProductListingRawNormalizationJobDisposition {
-    pub const fn category(self) -> &'static str {
-        match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
-        }
-    }
-}
-
-/// Decode and execute one compact schema-2 raw-normalization wake-up without exposing transport
-/// DTOs to the service. Stream ordering and progress remain PostgreSQL-owned.
-pub async fn process_product_listing_raw_normalization_job(
-    body: &str,
-    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
-) -> ProductListingRawNormalizationJobDisposition {
-    let job = match crate::wire::decode(body, WorkerScope::ProductListingRawNormalization) {
-        Ok(job) => job,
-        Err(_) => return ProductListingRawNormalizationJobDisposition::Poison("invalid_wire_job"),
-    };
-    let command = match command_from_job(job) {
-        Ok(command) => command,
-        Err(_) => {
-            return ProductListingRawNormalizationJobDisposition::Poison("unexpected_payload");
-        }
-    };
-    process_product_listing_raw_normalization_job_for_command(use_case, command).await
-}
-
-async fn process_product_listing_raw_normalization_job_for_command(
-    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
-    command: NormalizeProductListingRawRevisionCommand,
-) -> ProductListingRawNormalizationJobDisposition {
-    match use_case.execute(command).await {
-        Ok(result) => {
-            info!(
-                processed_revisions = result.revisions.len(),
-                normalization_failures = result.stream_failures.len(),
-                "raw stream drain finished"
-            );
-            if !result.stream_failures.is_empty() {
-                ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
-                    "normalization_stream_failed",
-                )
-            } else if !result.continuation_stream_ids.is_empty() {
-                ProductListingRawNormalizationJobDisposition::Retry("normalization_continuation")
-            } else {
-                ProductListingRawNormalizationJobDisposition::Complete("stream_drained")
-            }
-        }
-        Err(
-            NormalizeProductListingRawRevisionError::InvalidLimit
-            | NormalizeProductListingRawRevisionError::InvalidPersistedState { .. }
-            | NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion
-            | NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed { .. },
-        ) => ProductListingRawNormalizationJobDisposition::Poison("normalization_state_invalid"),
-        Err(_) => ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
-            "normalization_unavailable",
-        ),
-    }
-}
+pub use product_listing_normalization_lambda::{
+    ProductListingRawNormalizationJobDisposition, process_product_listing_raw_normalization_job,
+};
+use product_listing_normalization_lambda::{
+    command_from_job, process_product_listing_raw_normalization_job_for_command,
+};
 
 pub async fn consume_product_listing_raw_normalization_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -500,23 +432,6 @@ async fn reconcile_pending_stream_turn(
     }
 }
 
-fn command_from_job(
-    job: DomainJob,
-) -> Result<NormalizeProductListingRawRevisionCommand, ProductListingRawNormalizationWorkerError> {
-    let DomainJobPayload::ProductListingRawRevision(revision) = job.payload else {
-        return Err(ProductListingRawNormalizationWorkerError::UnexpectedJobPayload);
-    };
-    Ok(NormalizeProductListingRawRevisionCommand {
-        mode: NormalizeProductListingRawRevisionMode::RawRevision {
-            product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
-            product_listing_raw_revision_id: revision.product_listing_raw_revision_id,
-            revision: revision.revision,
-        },
-        max_revisions_per_stream: MAX_REVISIONS_PER_STREAM,
-        pending_stream_limit: PENDING_STREAM_LIMIT,
-    })
-}
-
 fn reconcile_command(
     pending_stream_cursor: Option<PendingProductListingRawStreamCursor>,
     pending_stream_limit: u32,
@@ -548,18 +463,15 @@ fn continuation_command(
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-enum ProductListingRawNormalizationWorkerError {
-    #[error("product listing raw normalization queue received an unexpected job payload")]
-    UnexpectedJobPayload,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         InMemoryQueueSender, QueueConfig, QueueConfigError,
-        cdc::{IdempotencyKey, OrderingKey, ProductListingRawRevisionJob, WorkerQueue},
+        cdc::{
+            DomainJobPayload, IdempotencyKey, OrderingKey, ProductListingRawRevisionJob,
+            WorkerQueue,
+        },
         in_memory_queue,
     };
     use product_listing_service::ports::{ProductListingRawRevisionId, ProductListingRawStreamId};

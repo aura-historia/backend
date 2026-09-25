@@ -27,7 +27,7 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("binary: search-filter-match-notification-lambda");
     expect(deployWorkflow).toContain("crate: src/watchlist-notification-lambda");
     expect(deployWorkflow).toContain("binary: watchlist-notification-lambda");
-    expect(deployWorkflow).toContain("crate: src/aura-historia-worker");
+    expect(deployWorkflow).toContain("crate: src/cdc-router-lambda");
     expect(deployWorkflow).toContain("binary: cdc-router-lambda");
     expect(deployWorkflow).toContain("--bin \"${{ matrix.binary }}\"");
     expect(deployWorkflow).toContain("target/lambda/$BIN_NAME/bootstrap.zip");

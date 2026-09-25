@@ -21,7 +21,7 @@ use test_api::{WorkerSqs, get_sqs_client};
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub const WORKER_SQS: WorkerSqs = WorkerSqs::new("product-content-assessment", 270);
-// A killed worker leaves an owned receipt invisible for the full 270s queue visibility.
+// Bound individual fixture waits, including independent retry and shutdown boundaries.
 const BOUNDARY_TIMEOUT: Duration = Duration::from_secs(360);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -485,8 +485,8 @@ pub async fn send(body: &str) -> TestResult<String> {
         .to_owned())
 }
 
-/// Operator action only, after the relay confirms the real receive and worker retry settlement.
-/// No extra source receives, changed redrive policy, or synthetic receive-count history.
+/// Test-only SDK release of a confirmed real receipt after its crash or retry boundary settles.
+/// Simulates lease expiry without extra receives, changed redrive policy, or synthetic history.
 pub async fn make_visible(receipt: &Receipt) -> TestResult {
     get_sqs_client()
         .await
@@ -546,6 +546,19 @@ pub async fn dlq_message() -> TestResult<Message> {
         }
     })
     .await
+}
+
+/// Allow LocalStack's already-dispatched long poll to finish after the killed child and
+/// test relay are gone; otherwise it can reserve the next job without delivering its receipt.
+pub async fn wait_for_abandoned_sqs_long_poll() -> TestResult {
+    let wait_seconds: u64 = WORKER_SQS
+        .queues()
+        .attributes
+        .get(&QueueAttributeName::ReceiveMessageWaitTimeSeconds)
+        .ok_or("source queue long-poll interval missing")?
+        .parse()?;
+    tokio::time::sleep(Duration::from_secs(wait_seconds + 2)).await;
+    Ok(())
 }
 
 pub async fn assert_queue_counts(source_messages: usize, dlq_messages: usize) -> TestResult {

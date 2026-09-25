@@ -1,21 +1,17 @@
-use aura_historia_worker::search_filter_projection::{
-    SearchFilterProjectionJobDisposition, process_search_filter_projection_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, SearchFilterOperation, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::SqlxSearchFilterIndexReader;
 use search_filter_service::use_cases::{
+    ProjectSearchFilterChangeCommand, ProjectSearchFilterChangeError,
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
+    SearchFilterProjectionOperation,
 };
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -63,21 +59,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Retains every record when startup cannot establish a safe authoritative composition.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -86,68 +68,112 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            warn!(message_id = %message_id, outcome = "insufficient_invocation_budget", "Saved-filter projection record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => SearchFilterProjectionJobDisposition::Poison("missing_message_body"),
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_search_filter_projection_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(
+                    disposition,
+                    SearchFilterProjectionJobDisposition::Complete(_)
+                ),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if !matches!(
-            disposition,
-            SearchFilterProjectionJobDisposition::Complete(_)
-        ) {
-            warn!(message_id = %message_id, outcome = disposition.category(), "Saved-filter projection record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "Saved-filter projection record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished saved-filter OpenSearch projection batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn ProjectSearchFilterChangeUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> SearchFilterProjectionJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_search_filter_projection_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => {
-            SearchFilterProjectionJobDisposition::DependencyUnavailable("execution_timeout")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterProjectionJobDisposition {
+    Complete(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl SearchFilterProjectionJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
         }
-        Err(_) => SearchFilterProjectionJobDisposition::DependencyUnavailable("handler_panicked"),
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_search_filter_projection_job(
+    body: &str,
+    use_case: &(dyn ProjectSearchFilterChangeUseCase + Send + Sync),
+) -> SearchFilterProjectionJobDisposition {
+    match decode::<SearchFilterOperation>(body, WorkerScope::SearchFilterProjection) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => SearchFilterProjectionJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O: Into<SearchFilterOperation>>(
+    handler: &(dyn ProjectSearchFilterChangeUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> SearchFilterProjectionJobDisposition {
+    let Ok(command) = command_from_job(job) else {
+        return SearchFilterProjectionJobDisposition::Poison("projection_metadata_invalid");
+    };
+    match handler.execute(command).await {
+        Ok(result) => {
+            tracing::info!(outcome = ?result.outcome, "search filter projection write completed");
+            SearchFilterProjectionJobDisposition::Complete("projection_written_or_stale")
+        }
+        Err(
+            ProjectSearchFilterChangeError::InvalidSourceVersion
+            | ProjectSearchFilterChangeError::DeleteVersionOverflow
+            | ProjectSearchFilterChangeError::InvalidPersistedState { .. },
+        ) => SearchFilterProjectionJobDisposition::Poison("projection_state_invalid"),
+        Err(
+            ProjectSearchFilterChangeError::ReadFailed { .. }
+            | ProjectSearchFilterChangeError::WriteFailed { .. },
+        ) => SearchFilterProjectionJobDisposition::DependencyUnavailable("projection_unavailable"),
+    }
+}
+
+pub fn command_from_job<O: Into<SearchFilterOperation>>(
+    job: DomainJob<O>,
+) -> Result<ProjectSearchFilterChangeCommand, aura_historia_jobs::InvalidJob> {
+    let DomainJobPayload::SearchFilterChanged(change) = job.payload else {
+        return Err(aura_historia_jobs::InvalidJob);
+    };
+    if change.version <= 0 {
+        return Err(aura_historia_jobs::InvalidJob);
+    }
+    Ok(ProjectSearchFilterChangeCommand {
+        search_filter_id: change.user_search_filter_id,
+        source_version: change.version,
+        operation: match change.operation.into() {
+            SearchFilterOperation::Insert | SearchFilterOperation::Update => {
+                SearchFilterProjectionOperation::Upsert
+            }
+            SearchFilterOperation::Delete => SearchFilterProjectionOperation::Delete,
+        },
+    })
 }
 
 #[cfg(test)]

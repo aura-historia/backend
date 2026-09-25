@@ -1,33 +1,21 @@
+#[cfg(test)]
+use crate::cdc::{DomainJob, DomainJobPayload};
 use crate::{
     WorkerScope,
-    cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
 };
+use product_listing_service::use_cases::GenerateWatchlistNotificationsUseCase;
+#[cfg(test)]
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsResult,
-    GenerateWatchlistNotificationsUseCase,
 };
 use std::sync::Arc;
-
-/// Lambda- and polling-transport result for one historical watchlist notification job.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WatchlistNotificationJobDisposition {
-    Complete(&'static str),
-    Retry(&'static str),
-    DependencyUnavailable(&'static str),
-    Poison(&'static str),
-}
-
-impl WatchlistNotificationJobDisposition {
-    pub const fn category(self) -> &'static str {
-        match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
-        }
-    }
-}
+use watchlist_notification_lambda::execute_job;
+#[cfg(test)]
+use watchlist_notification_lambda::watchlist_outcome;
+pub use watchlist_notification_lambda::{
+    WatchlistNotificationJobDisposition, process_watchlist_notification_job,
+};
 
 pub async fn consume_watchlist_notification_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -42,43 +30,6 @@ pub async fn consume_watchlist_notification_queue(
         .await;
 }
 
-/// Decode and execute one compact schema-2 watchlist notification job.
-///
-/// This is transport-neutral so Lambda and the polling worker retain the same historical-source,
-/// lifecycle-lock, idempotency, and retry semantics.
-pub async fn process_watchlist_notification_job(
-    body: &str,
-    handler: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
-) -> WatchlistNotificationJobDisposition {
-    match crate::wire::decode(body, WorkerScope::WatchlistNotification) {
-        Ok(job) => execute_job(handler, job).await,
-        Err(_) => WatchlistNotificationJobDisposition::Poison("invalid_wire_job"),
-    }
-}
-
-async fn execute_job(
-    handler: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
-    job: DomainJob,
-) -> WatchlistNotificationJobDisposition {
-    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
-        return WatchlistNotificationJobDisposition::Poison("unexpected_payload");
-    };
-    // The service loads the exact historical event and locks current lifecycle through commit.
-    // No transport cache/current-event comparison may suppress a later historical notification.
-    match handler
-        .execute(GenerateWatchlistNotificationsCommand {
-            event_id: event.event_id,
-            product_listing_id: event.product_listing_id,
-        })
-        .await
-    {
-        Ok(result) => watchlist_outcome(result),
-        Err(_) => WatchlistNotificationJobDisposition::DependencyUnavailable(
-            "watchlist_notification_unavailable",
-        ),
-    }
-}
-
 fn polling_outcome(disposition: WatchlistNotificationJobDisposition) -> JobOutcome {
     match disposition {
         WatchlistNotificationJobDisposition::Complete(category) => JobOutcome::Complete(category),
@@ -87,41 +38,6 @@ fn polling_outcome(disposition: WatchlistNotificationJobDisposition) -> JobOutco
             JobOutcome::DependencyUnavailable(category)
         }
         WatchlistNotificationJobDisposition::Poison(category) => JobOutcome::Invalid(category),
-    }
-}
-
-fn watchlist_outcome(
-    result: GenerateWatchlistNotificationsResult,
-) -> WatchlistNotificationJobDisposition {
-    match result {
-        GenerateWatchlistNotificationsResult::Applied {
-            recipient_count,
-            inserted_count,
-            already_exists_count,
-        } => {
-            tracing::info!(
-                recipient_count,
-                inserted_count,
-                already_exists_count,
-                "historical watchlist notifications committed"
-            );
-            WatchlistNotificationJobDisposition::Complete(
-                if inserted_count == 0 && already_exists_count > 0 {
-                    "duplicate"
-                } else {
-                    "applied"
-                },
-            )
-        }
-        GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
-            WatchlistNotificationJobDisposition::Retry("missing_source")
-        }
-        GenerateWatchlistNotificationsResult::IgnoredEvent => {
-            WatchlistNotificationJobDisposition::Complete("ignored_event")
-        }
-        GenerateWatchlistNotificationsResult::SuppressedForWithdrawnProductListing => {
-            WatchlistNotificationJobDisposition::Complete("withdrawn")
-        }
     }
 }
 

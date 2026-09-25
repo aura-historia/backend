@@ -1,23 +1,19 @@
-use aura_historia_worker::product_embedding::{
-    ProductEmbeddingJobDisposition, process_product_embedding_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingGenerator};
-use futures_util::FutureExt;
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxProductListingEmbeddingSourceReader, SqlxProductListingEmbeddingWriterFactory,
 };
 use product_listing_service::use_cases::{
-    EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
+    EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
+    EmbedProductListingEventOutcome, EmbedProductListingEventUseCase,
 };
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 // These limits reserve a five-second response margin around a 60-second provider invocation
@@ -81,21 +77,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Retains every source record if credentials or the PostgreSQL composition cannot be ready.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -104,95 +86,130 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_product_embedding_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let started_at = results.started_at;
     let mut guard_rejection_count = 0_usize;
     let mut retry_count = 0_usize;
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            retry_count += 1;
-            warn!(
-                message_id = %message_id,
-                outcome = "insufficient_invocation_budget",
-                "Product embedding record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-
-        let processing_started_at = Instant::now();
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => ProductEmbeddingJobDisposition::Poison("missing_message_body"),
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (matches!(disposition, ProductEmbeddingJobDisposition::Complete(_)), disposition.category()),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        let processing_duration_ms = processing_started_at.elapsed().as_millis();
-        if matches!(
-            disposition,
-            ProductEmbeddingJobDisposition::Complete("duplicate" | "stale" | "ignored_event")
-        ) {
+        if matches!(&attempt.outcome, RecordOutcome::Completed(ProductEmbeddingJobDisposition::Complete("duplicate" | "stale" | "ignored_event"))) {
             guard_rejection_count += 1;
         }
-        if !matches!(disposition, ProductEmbeddingJobDisposition::Complete(_)) {
-            retry_count += 1;
-            warn!(
-                message_id = %message_id,
-                outcome = disposition.category(),
-                processing_duration_ms,
-                "Product embedding record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
-        } else {
-            info!(
-                message_id = %message_id,
-                outcome = disposition.category(),
-                processing_duration_ms,
-                "Product embedding record completed"
-            );
+        if !complete { retry_count += 1; }
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+        processing_duration_ms = attempt.duration.as_millis(),
+                "Product embedding record retained for SQS retry or redrive");
         }
-    }
-
+        if complete { info!(message_id = %attempt.message_id, outcome = category, processing_duration_ms = attempt.duration.as_millis(), "Product embedding record completed"); }
+        complete
+    });
     info!(
         embedding_sqs_message_count = record_count,
-        embedding_failed_sqs_message_count = failures.len(),
+        embedding_failed_sqs_message_count = response.batch_item_failures.len(),
         embedding_guard_rejection_count = guard_rejection_count,
         embedding_retry_count = retry_count,
-        embedding_batch_duration_ms = invocation_started_at.elapsed().as_millis(),
+        embedding_batch_duration_ms = started_at.elapsed().as_millis(),
         "Finished ProductListing embedding batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> ProductEmbeddingJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_product_embedding_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => ProductEmbeddingJobDisposition::Retry("execution_timeout"),
-        Err(_) => ProductEmbeddingJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductEmbeddingJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl ProductEmbeddingJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_product_embedding_job(
+    body: &str,
+    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
+) -> ProductEmbeddingJobDisposition {
+    match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::ProductListingEmbedding,
+    ) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => ProductEmbeddingJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O>(
+    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> ProductEmbeddingJobDisposition {
+    let Ok(command) = command_from_job(job) else {
+        return ProductEmbeddingJobDisposition::Poison("unexpected_payload");
+    };
+    let context = OperationContext {
+        principal: Principal::System,
+        request_id: RequestId::new(format!("product-embedding:{}", command.event_id)),
+        correlation_id: CorrelationId::new(command.event_id.to_string()),
+    };
+    match use_case.execute(&context, command).await {
+        Ok(result) => embedding_disposition(result.outcome),
+        Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired) => {
+            ProductEmbeddingJobDisposition::Poison("system_principal_required")
+        }
+        Err(EmbedProductListingEventError::InvalidInput { .. }) => {
+            ProductEmbeddingJobDisposition::Poison("embedding_input_invalid")
+        }
+        // Provider, source, write, and commit failures leave the job retryable. In particular,
+        // a provider result does not prove that the guarded PostgreSQL commit completed.
+        Err(_) => ProductEmbeddingJobDisposition::DependencyUnavailable("embedding_unavailable"),
+    }
+}
+
+pub fn embedding_disposition(
+    outcome: EmbedProductListingEventOutcome,
+) -> ProductEmbeddingJobDisposition {
+    use EmbedProductListingEventOutcome as O;
+    match outcome {
+        O::Applied => ProductEmbeddingJobDisposition::Complete("applied"),
+        O::Duplicate => ProductEmbeddingJobDisposition::Complete("duplicate"),
+        O::Stale => ProductEmbeddingJobDisposition::Complete("stale"),
+        O::IgnoredEvent => ProductEmbeddingJobDisposition::Complete("ignored_event"),
+        O::MissingTitle => ProductEmbeddingJobDisposition::Complete("missing_title"),
+        O::ProductListingNotFound => ProductEmbeddingJobDisposition::Retry("missing_source"),
+    }
+}
+
+pub fn command_from_job<O>(
+    job: DomainJob<O>,
+) -> Result<EmbedProductListingCommand, aura_historia_jobs::InvalidJob> {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
+        return Err(aura_historia_jobs::InvalidJob);
+    };
+    Ok(EmbedProductListingCommand {
+        event_id: event.event_id,
+        product_listing_id: event.product_listing_id,
+    })
 }
 
 #[cfg(test)]

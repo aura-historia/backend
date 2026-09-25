@@ -1,13 +1,11 @@
-use aura_historia_worker::search_filter_percolator::{
-    SearchFilterPercolatorJobDisposition, process_search_filter_percolator_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use large_language_model::VertexAiGemini;
 use opensearch::OpenSearch;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxProductListingCurrentEventGuardFactory,
@@ -18,13 +16,11 @@ use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterMatchWriterFactory,
 };
 use search_filter_service::use_cases::{
-    MatchProductListingEventHandler, MatchProductListingEventUseCase,
+    MatchProductListingEventCommand, MatchProductListingEventError,
+    MatchProductListingEventHandler, MatchProductListingEventOutcome,
+    MatchProductListingEventUseCase,
 };
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -78,22 +74,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Retains every valid record when credential refresh or composition cannot finish safely.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -102,84 +83,140 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            warn!(
-                message_id = %message_id,
-                outcome = "insufficient_invocation_budget",
-                "Saved-filter percolator record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-        let processing_started_at = Instant::now();
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => SearchFilterPercolatorJobDisposition::Poison("missing_message_body"),
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_search_filter_percolator_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (matches!(disposition, SearchFilterPercolatorJobDisposition::Complete(_)), disposition.category()),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        let processing_duration_ms = processing_started_at.elapsed().as_millis();
-        if !matches!(
-            disposition,
-            SearchFilterPercolatorJobDisposition::Complete(_)
-        ) {
-            warn!(
-                message_id = %message_id,
-                outcome = disposition.category(),
-                processing_duration_ms,
-                "Saved-filter percolator record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
-        } else {
-            info!(
-                message_id = %message_id,
-                outcome = disposition.category(),
-                processing_duration_ms,
-                "Saved-filter percolator record completed"
-            );
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+        processing_duration_ms = attempt.duration.as_millis(),
+                "Saved-filter percolator record retained for SQS retry or redrive");
         }
-    }
-
+        if complete { info!(message_id = %attempt.message_id, outcome = category, processing_duration_ms = attempt.duration.as_millis(), "Saved-filter percolator record completed"); }
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished saved-filter percolator batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn MatchProductListingEventUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> SearchFilterPercolatorJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_search_filter_percolator_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => SearchFilterPercolatorJobDisposition::Retry("execution_timeout"),
-        Err(_) => SearchFilterPercolatorJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterPercolatorJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl SearchFilterPercolatorJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_search_filter_percolator_job(
+    body: &str,
+    use_case: &(dyn MatchProductListingEventUseCase + Send + Sync),
+) -> SearchFilterPercolatorJobDisposition {
+    match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::SearchFilterPercolator,
+    ) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => SearchFilterPercolatorJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O>(
+    use_case: &(dyn MatchProductListingEventUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> SearchFilterPercolatorJobDisposition {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
+        return SearchFilterPercolatorJobDisposition::Poison("unexpected_payload");
+    };
+    match use_case
+        .execute(MatchProductListingEventCommand {
+            origin_event_id: event.event_id,
+            product_listing_id: event.product_listing_id,
+        })
+        .await
+    {
+        Ok(result) => {
+            tracing::info!(
+                percolated_count = result.percolated_count,
+                persisted_match_count = result.persisted_match_count,
+                enhanced_evaluation_failure_count = result.enhanced_evaluation_failure_count,
+                outcome = percolator_outcome(result.outcome).category(),
+                "percolation completed"
+            );
+            percolator_outcome(result.outcome)
+        }
+        Err(error) => {
+            use MatchProductListingEventError as E;
+            match error {
+                E::ProductListingSourceStateInvalid { .. }
+                | E::ProductListingSourceMismatch
+                | E::SaleSnapshotStateInvalid { .. }
+                | E::EventSnapshotStateInvalid { .. }
+                | E::EventValuationConversionFailed { .. }
+                | E::CandidateStateInvalid { .. }
+                | E::PersistedMatchStateInvalid { .. } => {
+                    SearchFilterPercolatorJobDisposition::Poison("percolator_state_invalid")
+                }
+                E::SaleSnapshotNotFound { .. } | E::EventSnapshotNotFound { .. } => {
+                    SearchFilterPercolatorJobDisposition::Retry("valuation_snapshot_missing")
+                }
+                _ => SearchFilterPercolatorJobDisposition::DependencyUnavailable(
+                    "percolator_unavailable",
+                ),
+            }
+        }
+    }
+}
+
+pub fn percolator_outcome(
+    outcome: MatchProductListingEventOutcome,
+) -> SearchFilterPercolatorJobDisposition {
+    match outcome {
+        MatchProductListingEventOutcome::Processed => {
+            SearchFilterPercolatorJobDisposition::Complete("processed")
+        }
+        MatchProductListingEventOutcome::DuplicateAlreadyPersisted => {
+            SearchFilterPercolatorJobDisposition::Complete("duplicate")
+        }
+        MatchProductListingEventOutcome::StaleSourceSkipped => {
+            SearchFilterPercolatorJobDisposition::Complete("stale")
+        }
+        MatchProductListingEventOutcome::InactiveSourceSkipped => {
+            SearchFilterPercolatorJobDisposition::Complete("inactive_source")
+        }
+        MatchProductListingEventOutcome::IgnoredEventType => {
+            SearchFilterPercolatorJobDisposition::Complete("ignored_event")
+        }
+        MatchProductListingEventOutcome::SourceNotFound => {
+            SearchFilterPercolatorJobDisposition::Retry("missing_source")
+        }
+    }
 }
 
 #[cfg(test)]

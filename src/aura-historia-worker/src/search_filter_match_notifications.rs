@@ -1,33 +1,21 @@
+#[cfg(test)]
+use crate::cdc::{DomainJob, DomainJobPayload};
 use crate::{
     WorkerScope,
-    cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
 };
+use search_filter_match_notification_lambda::execute_job;
+pub use search_filter_match_notification_lambda::{
+    SearchFilterMatchNotificationJobDisposition, process_search_filter_match_notification_job,
+};
+#[cfg(test)]
+use search_filter_match_notification_lambda::{command_from_job, notification_outcome};
+use search_filter_service::use_cases::GenerateSearchFilterMatchNotificationUseCase;
+#[cfg(test)]
 use search_filter_service::use_cases::{
-    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationError,
-    GenerateSearchFilterMatchNotificationResult, GenerateSearchFilterMatchNotificationUseCase,
+    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationResult,
 };
 use std::sync::Arc;
-
-/// Lambda- and polling-transport result for one saved-filter match notification job.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchFilterMatchNotificationJobDisposition {
-    Complete(&'static str),
-    Retry(&'static str),
-    DependencyUnavailable(&'static str),
-    Poison(&'static str),
-}
-
-impl SearchFilterMatchNotificationJobDisposition {
-    pub const fn category(self) -> &'static str {
-        match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
-        }
-    }
-}
 
 pub async fn consume_search_filter_match_notification_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -42,47 +30,6 @@ pub async fn consume_search_filter_match_notification_queue(
         .await;
 }
 
-/// Decode and execute one compact schema-2 saved-filter match notification job.
-///
-/// This is transport-neutral so Lambda and the polling worker retain the same exact-match source,
-/// lifecycle-lock, idempotency, and retry semantics.
-pub async fn process_search_filter_match_notification_job(
-    body: &str,
-    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
-) -> SearchFilterMatchNotificationJobDisposition {
-    match crate::wire::decode(body, WorkerScope::SearchFilterMatchNotification) {
-        Ok(job) => execute_job(use_case, job).await,
-        Err(_) => SearchFilterMatchNotificationJobDisposition::Poison("invalid_wire_job"),
-    }
-}
-
-async fn execute_job(
-    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
-    job: DomainJob,
-) -> SearchFilterMatchNotificationJobDisposition {
-    let Ok(command) = command_from_job(job) else {
-        return SearchFilterMatchNotificationJobDisposition::Poison("match_metadata_invalid");
-    };
-    match use_case.execute(command).await {
-        Ok(result) => notification_outcome(result),
-        Err(error) => {
-            use GenerateSearchFilterMatchNotificationError as E;
-            match error {
-                E::MatchSourceStateInvalid { .. }
-                | E::ProductListingSourceStateInvalid { .. }
-                | E::ProductListingSourceMismatch
-                | E::ContentAssessmentStateInvalid { .. } => {
-                    SearchFilterMatchNotificationJobDisposition::Poison(
-                        "match_notification_state_invalid",
-                    )
-                }
-                _ => SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(
-                    "match_notification_unavailable",
-                ),
-            }
-        }
-    }
-}
 fn polling_outcome(disposition: SearchFilterMatchNotificationJobDisposition) -> JobOutcome {
     match disposition {
         SearchFilterMatchNotificationJobDisposition::Complete(category) => {
@@ -96,48 +43,6 @@ fn polling_outcome(disposition: SearchFilterMatchNotificationJobDisposition) -> 
             JobOutcome::Invalid(category)
         }
     }
-}
-
-fn notification_outcome(
-    result: GenerateSearchFilterMatchNotificationResult,
-) -> SearchFilterMatchNotificationJobDisposition {
-    use GenerateSearchFilterMatchNotificationResult as R;
-    match result {
-        R::Created => SearchFilterMatchNotificationJobDisposition::Complete("inserted"),
-        R::AlreadyExists => SearchFilterMatchNotificationJobDisposition::Complete("duplicate"),
-        R::SuppressedByQuota => {
-            SearchFilterMatchNotificationJobDisposition::Complete("suppressed_by_quota")
-        }
-        // User deletion is a terminal recipient suppression, not missing historical business truth.
-        R::SuppressedForMissingUser => {
-            SearchFilterMatchNotificationJobDisposition::Complete("missing_user")
-        }
-        R::SuppressedForWithdrawnProductListing => {
-            SearchFilterMatchNotificationJobDisposition::Complete("withdrawn")
-        }
-        R::SuppressedForStaleMatch => {
-            SearchFilterMatchNotificationJobDisposition::Complete("stale_match")
-        }
-        R::SuppressedForMissingMatch => {
-            SearchFilterMatchNotificationJobDisposition::Retry("missing_match")
-        }
-        R::SuppressedForMissingProductListing => {
-            SearchFilterMatchNotificationJobDisposition::Retry("missing_product")
-        }
-    }
-}
-fn command_from_job(
-    job: DomainJob,
-) -> Result<GenerateSearchFilterMatchNotificationCommand, crate::jobs::InvalidJob> {
-    let DomainJobPayload::SearchFilterMatchCreated(change) = job.payload else {
-        return Err(crate::jobs::InvalidJob);
-    };
-    Ok(GenerateSearchFilterMatchNotificationCommand {
-        user_id: change.user_id,
-        search_filter_id: change.user_search_filter_id,
-        product_listing_id: change.product_listing_id,
-        origin_event_id: change.origin_event_id,
-    })
 }
 
 #[cfg(test)]

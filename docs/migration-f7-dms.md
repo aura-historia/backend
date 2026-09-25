@@ -106,10 +106,11 @@ Run the existing checks before any approved AWS fixture:
 npm --prefix infra run build
 npm --prefix infra test
 npm --prefix infra run synth:all
-cargo test -p aura-historia-worker kinesis::tests --lib --all-features
+cargo test -p cdc-router-lambda --lib --all-features
+cargo test -p aura-historia-worker cdc::tests --lib --all-features
 ```
 
-These are source/template checks only. The fixture record is live evidence only when tied to the deployed identities above.
+These are source/template checks only. Synthetic router fixtures and the native worker's legacy ingress tests are not evidence of a DMS-to-Kinesis capture or SQS integration. The standalone `cdc-router-lambda` owns Kinesis processing; the old worker Kinesis module and dormant router binary are removed. The native `/cdc/sequin` parser still accepts DMS-shaped JSON as an existing compatibility behavior, alongside Sequin and generic input. Removing that decoder and its contract validation requires a separately approved legacy ingress change; do not treat it as an alternative DMS/Kinesis router or as proof of R6 activation. The fixture record is live evidence only when tied to the deployed identities above.
 
 ## Checkpoints, poison handling, and recovery
 

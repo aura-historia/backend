@@ -1,38 +1,19 @@
+#[cfg(test)]
+use crate::cdc::{DomainJob, DomainJobPayload};
 use crate::{
     WorkerScope,
-    cdc::{DomainJob, DomainJobPayload},
     queue::{JobOutcome, WorkerQueueReceiver},
-    wire,
 };
-use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use product_embedding_lambda::execute_job;
+pub use product_embedding_lambda::{ProductEmbeddingJobDisposition, process_product_embedding_job};
+#[cfg(test)]
+use product_embedding_lambda::{command_from_job, embedding_disposition};
+use product_listing_service::use_cases::EmbedProductListingEventUseCase;
+#[cfg(test)]
 use product_listing_service::use_cases::{
-    EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventOutcome,
-    EmbedProductListingEventUseCase,
+    EmbedProductListingCommand, EmbedProductListingEventOutcome,
 };
 use std::sync::Arc;
-
-/// Lambda- and polling-transport result for one embedding job.
-///
-/// Only outcomes whose source guard and persistence are known to be complete are acknowledged.
-/// Source absence, provider failures, and an ambiguous transaction completion remain on SQS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProductEmbeddingJobDisposition {
-    Complete(&'static str),
-    Retry(&'static str),
-    DependencyUnavailable(&'static str),
-    Poison(&'static str),
-}
-
-impl ProductEmbeddingJobDisposition {
-    pub const fn category(self) -> &'static str {
-        match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
-        }
-    }
-}
 
 pub async fn consume_product_embedding_queue(
     receiver: impl Into<WorkerQueueReceiver>,
@@ -47,60 +28,6 @@ pub async fn consume_product_embedding_queue(
         .await;
 }
 
-/// Decode and execute one compact schema-2 embedding job.
-///
-/// The adapter provides the trusted system operation context only. The service owns source
-/// validation, provider invocation, and source-version-guarded persistence.
-pub async fn process_product_embedding_job(
-    body: &str,
-    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
-) -> ProductEmbeddingJobDisposition {
-    match wire::decode(body, WorkerScope::ProductListingEmbedding) {
-        Ok(job) => execute_job(use_case, job).await,
-        Err(_) => ProductEmbeddingJobDisposition::Poison("invalid_wire_job"),
-    }
-}
-
-async fn execute_job(
-    use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
-    job: DomainJob,
-) -> ProductEmbeddingJobDisposition {
-    let Ok(command) = command_from_job(job) else {
-        return ProductEmbeddingJobDisposition::Poison("unexpected_payload");
-    };
-    let context = OperationContext {
-        principal: Principal::System,
-        request_id: RequestId::new(format!("product-embedding:{}", command.event_id)),
-        correlation_id: CorrelationId::new(command.event_id.to_string()),
-    };
-    match use_case.execute(&context, command).await {
-        Ok(result) => embedding_disposition(result.outcome),
-        Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired) => {
-            ProductEmbeddingJobDisposition::Poison("system_principal_required")
-        }
-        Err(EmbedProductListingEventError::InvalidInput { .. }) => {
-            ProductEmbeddingJobDisposition::Poison("embedding_input_invalid")
-        }
-        // Provider, source, write, and commit failures leave the job retryable. In particular,
-        // a provider result does not prove that the guarded PostgreSQL commit completed.
-        Err(_) => ProductEmbeddingJobDisposition::DependencyUnavailable("embedding_unavailable"),
-    }
-}
-
-fn embedding_disposition(
-    outcome: EmbedProductListingEventOutcome,
-) -> ProductEmbeddingJobDisposition {
-    use EmbedProductListingEventOutcome as O;
-    match outcome {
-        O::Applied => ProductEmbeddingJobDisposition::Complete("applied"),
-        O::Duplicate => ProductEmbeddingJobDisposition::Complete("duplicate"),
-        O::Stale => ProductEmbeddingJobDisposition::Complete("stale"),
-        O::IgnoredEvent => ProductEmbeddingJobDisposition::Complete("ignored_event"),
-        O::MissingTitle => ProductEmbeddingJobDisposition::Complete("missing_title"),
-        O::ProductListingNotFound => ProductEmbeddingJobDisposition::Retry("missing_source"),
-    }
-}
-
 fn polling_outcome(disposition: ProductEmbeddingJobDisposition) -> JobOutcome {
     match disposition {
         ProductEmbeddingJobDisposition::Complete(category) => JobOutcome::Complete(category),
@@ -111,16 +38,6 @@ fn polling_outcome(disposition: ProductEmbeddingJobDisposition) -> JobOutcome {
         ProductEmbeddingJobDisposition::Poison(category) => JobOutcome::Invalid(category),
     }
 }
-fn command_from_job(job: DomainJob) -> Result<EmbedProductListingCommand, crate::jobs::InvalidJob> {
-    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
-        return Err(crate::jobs::InvalidJob);
-    };
-    Ok(EmbedProductListingCommand {
-        event_id: event.event_id,
-        product_listing_id: event.product_listing_id,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

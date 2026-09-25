@@ -3,12 +3,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use aura_historia_worker::{
+use aws_sdk_sqs::{Client, config::Region};
+use cdc_router_lambda::{
     cdc::{CdcFanout, WorkerQueueRegistry},
     kinesis,
     queue::{CdcRouterQueueConfig, SqsQueue},
 };
-use aws_sdk_sqs::{Client, config::Region};
 use futures_util::future::try_join_all;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_observability::{LogLevel, LoggingConfig, init};

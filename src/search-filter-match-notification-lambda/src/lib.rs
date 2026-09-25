@@ -1,8 +1,5 @@
-use aura_historia_worker::search_filter_match_notifications::{
-    SearchFilterMatchNotificationJobDisposition, process_search_filter_match_notification_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use notification_postgres::{
     SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
@@ -12,6 +9,7 @@ use notification_service::{
     notification_creation::NotificationCreationCoordinatorFactory,
 };
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 
 use product_listing_postgres::{
@@ -24,14 +22,12 @@ use search_filter_postgres::{
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use search_filter_service::use_cases::{
-    GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
+    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationError,
+    GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationResult,
+    GenerateSearchFilterMatchNotificationUseCase,
 };
 
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 use user_postgres::SqlxUserTierEntitlementsFactory;
@@ -89,22 +85,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Retains every record when PostgreSQL credentials or composition cannot complete safely.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -113,66 +94,141 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            warn!(message_id = %message_id, outcome = "insufficient_invocation_budget", "Saved-filter match-notification record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => SearchFilterMatchNotificationJobDisposition::Poison("missing_message_body"),
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_search_filter_match_notification_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(
+                    disposition,
+                    SearchFilterMatchNotificationJobDisposition::Complete(_)
+                ),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if !matches!(
-            disposition,
-            SearchFilterMatchNotificationJobDisposition::Complete(_)
-        ) {
-            warn!(message_id = %message_id, outcome = disposition.category(), "Saved-filter match-notification record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "Saved-filter match-notification record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished saved-filter match-notification batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> SearchFilterMatchNotificationJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_search_filter_match_notification_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => SearchFilterMatchNotificationJobDisposition::Retry("execution_timeout"),
-        Err(_) => SearchFilterMatchNotificationJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterMatchNotificationJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl SearchFilterMatchNotificationJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_search_filter_match_notification_job(
+    body: &str,
+    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
+) -> SearchFilterMatchNotificationJobDisposition {
+    match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::SearchFilterMatchNotification,
+    ) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => SearchFilterMatchNotificationJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O>(
+    use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> SearchFilterMatchNotificationJobDisposition {
+    let Ok(command) = command_from_job(job) else {
+        return SearchFilterMatchNotificationJobDisposition::Poison("match_metadata_invalid");
+    };
+    match use_case.execute(command).await {
+        Ok(result) => notification_outcome(result),
+        Err(error) => {
+            use GenerateSearchFilterMatchNotificationError as E;
+            match error {
+                E::MatchSourceStateInvalid { .. }
+                | E::ProductListingSourceStateInvalid { .. }
+                | E::ProductListingSourceMismatch
+                | E::ContentAssessmentStateInvalid { .. } => {
+                    SearchFilterMatchNotificationJobDisposition::Poison(
+                        "match_notification_state_invalid",
+                    )
+                }
+                _ => SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(
+                    "match_notification_unavailable",
+                ),
+            }
+        }
+    }
+}
+pub fn notification_outcome(
+    result: GenerateSearchFilterMatchNotificationResult,
+) -> SearchFilterMatchNotificationJobDisposition {
+    use GenerateSearchFilterMatchNotificationResult as R;
+    match result {
+        R::Created => SearchFilterMatchNotificationJobDisposition::Complete("inserted"),
+        R::AlreadyExists => SearchFilterMatchNotificationJobDisposition::Complete("duplicate"),
+        R::SuppressedByQuota => {
+            SearchFilterMatchNotificationJobDisposition::Complete("suppressed_by_quota")
+        }
+        // User deletion is a terminal recipient suppression, not missing historical business truth.
+        R::SuppressedForMissingUser => {
+            SearchFilterMatchNotificationJobDisposition::Complete("missing_user")
+        }
+        R::SuppressedForWithdrawnProductListing => {
+            SearchFilterMatchNotificationJobDisposition::Complete("withdrawn")
+        }
+        R::SuppressedForStaleMatch => {
+            SearchFilterMatchNotificationJobDisposition::Complete("stale_match")
+        }
+        R::SuppressedForMissingMatch => {
+            SearchFilterMatchNotificationJobDisposition::Retry("missing_match")
+        }
+        R::SuppressedForMissingProductListing => {
+            SearchFilterMatchNotificationJobDisposition::Retry("missing_product")
+        }
+    }
+}
+pub fn command_from_job<O>(
+    job: DomainJob<O>,
+) -> Result<GenerateSearchFilterMatchNotificationCommand, aura_historia_jobs::InvalidJob> {
+    let DomainJobPayload::SearchFilterMatchCreated(change) = job.payload else {
+        return Err(aura_historia_jobs::InvalidJob);
+    };
+    Ok(GenerateSearchFilterMatchNotificationCommand {
+        user_id: change.user_id,
+        search_filter_id: change.user_search_filter_id,
+        product_listing_id: change.product_listing_id,
+        origin_event_id: change.origin_event_id,
+    })
 }
 
 #[cfg(test)]

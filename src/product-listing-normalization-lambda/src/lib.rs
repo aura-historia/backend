@@ -1,28 +1,27 @@
-use aura_historia_worker::product_listing_raw_normalization::{
-    ProductListingRawNormalizationJobDisposition, process_product_listing_raw_normalization_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
 use product_service::use_cases::{
-    NormalizeProductListingRawRevisionHandler, NormalizeProductListingRawRevisionUseCase,
+    NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
+    NormalizeProductListingRawRevisionHandler, NormalizeProductListingRawRevisionMode,
+    NormalizeProductListingRawRevisionUseCase,
 };
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
 const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
+// Keep the Lambda stream drain bounded exactly like the legacy polling consumer.
+pub const MAX_REVISIONS_PER_STREAM: u32 = 32;
+pub const PENDING_STREAM_LIMIT: u32 = 100;
 
 /// Builds the one PostgreSQL-backed normalization use case used by production and integration tests.
 pub fn compose_normalization_use_case(
@@ -66,22 +65,7 @@ pub async fn handler_with_invocation_budget(
 
 /// Returns every record as unfinished when startup work consumes the usable invocation budget.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -90,66 +74,131 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let processing_budget = max_record_processing_budget.min(remaining);
-        if processing_budget.is_zero() {
-            warn!(message_id = %message_id, outcome = "insufficient_invocation_budget", "Raw normalization record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
-            continue;
-        }
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => ProductListingRawNormalizationJobDisposition::Poison("missing_message_body"),
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_product_listing_raw_normalization_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(
+                    disposition,
+                    ProductListingRawNormalizationJobDisposition::Complete(_)
+                ),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if !matches!(
-            disposition,
-            ProductListingRawNormalizationJobDisposition::Complete(_)
-        ) {
-            warn!(message_id = %message_id, outcome = disposition.category(), "Raw normalization record retained for SQS retry or redrive");
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "Raw normalization record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished ProductListing raw normalization batch"
     );
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> ProductListingRawNormalizationJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_product_listing_raw_normalization_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => ProductListingRawNormalizationJobDisposition::Retry("execution_timeout"),
-        Err(_) => ProductListingRawNormalizationJobDisposition::Retry("handler_panicked"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingRawNormalizationJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
+}
+
+impl ProductListingRawNormalizationJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+/// Decode and execute one compact schema-2 raw-normalization wake-up without exposing transport
+/// DTOs to the service. Stream ordering and progress remain PostgreSQL-owned.
+pub async fn process_product_listing_raw_normalization_job(
+    body: &str,
+    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
+) -> ProductListingRawNormalizationJobDisposition {
+    let job = match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::ProductListingRawNormalization,
+    ) {
+        Ok(job) => job,
+        Err(_) => return ProductListingRawNormalizationJobDisposition::Poison("invalid_wire_job"),
+    };
+    let command = match command_from_job(job) {
+        Ok(command) => command,
+        Err(_) => {
+            return ProductListingRawNormalizationJobDisposition::Poison("unexpected_payload");
+        }
+    };
+    process_product_listing_raw_normalization_job_for_command(use_case, command).await
+}
+
+pub async fn process_product_listing_raw_normalization_job_for_command(
+    use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
+    command: NormalizeProductListingRawRevisionCommand,
+) -> ProductListingRawNormalizationJobDisposition {
+    match use_case.execute(command).await {
+        Ok(result) => {
+            info!(
+                processed_revisions = result.revisions.len(),
+                normalization_failures = result.stream_failures.len(),
+                "raw stream drain finished"
+            );
+            if !result.stream_failures.is_empty() {
+                ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
+                    "normalization_stream_failed",
+                )
+            } else if !result.continuation_stream_ids.is_empty() {
+                ProductListingRawNormalizationJobDisposition::Retry("normalization_continuation")
+            } else {
+                ProductListingRawNormalizationJobDisposition::Complete("stream_drained")
+            }
+        }
+        Err(
+            NormalizeProductListingRawRevisionError::InvalidLimit
+            | NormalizeProductListingRawRevisionError::InvalidPersistedState { .. }
+            | NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion
+            | NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed { .. },
+        ) => ProductListingRawNormalizationJobDisposition::Poison("normalization_state_invalid"),
+        Err(_) => ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
+            "normalization_unavailable",
+        ),
+    }
+}
+
+pub fn command_from_job<O>(
+    job: DomainJob<O>,
+) -> Result<NormalizeProductListingRawRevisionCommand, aura_historia_jobs::InvalidJob> {
+    let DomainJobPayload::ProductListingRawRevision(revision) = job.payload else {
+        return Err(aura_historia_jobs::InvalidJob);
+    };
+    Ok(NormalizeProductListingRawRevisionCommand {
+        mode: NormalizeProductListingRawRevisionMode::RawRevision {
+            product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
+            product_listing_raw_revision_id: revision.product_listing_raw_revision_id,
+            revision: revision.revision,
+        },
+        max_revisions_per_stream: MAX_REVISIONS_PER_STREAM,
+        pending_stream_limit: PENDING_STREAM_LIMIT,
+    })
 }
 
 #[cfg(test)]

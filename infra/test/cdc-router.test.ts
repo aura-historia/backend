@@ -69,7 +69,7 @@ function routerPolicyStatements(template: Template, routerLogicalId: string): Po
 }
 
 describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
-  test("uses the worker binary convention without VPC, PostgreSQL, secret, or concurrency configuration", () => {
+  test("keeps the router artifact identity without VPC, PostgreSQL, secret, or concurrency configuration", () => {
     const { compute } = stackTemplates(stage);
     const [routerLogicalId, router] = namedResource(
       compute,
@@ -110,12 +110,6 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
 
   test("maps the real DMS Kinesis stream with bounded failure handling and default-disabled activation", () => {
     const { data, compute } = stackTemplates(stage);
-    const [routerLogicalId] = namedResource(
-      compute,
-      "AWS::Lambda::Function",
-      "FunctionName",
-      `cdc-router-lambda-${stage}`,
-    );
     const routerVersionLogicalId = Object.keys(compute.findResources("AWS::Lambda::Version"))
       .find((logicalId) => logicalId.includes("CdcRouterVersion"));
     expect(routerVersionLogicalId).toBeDefined();

@@ -1,7 +1,7 @@
 pub mod cdc;
 mod http;
 pub mod jobs;
-pub mod kinesis;
+
 pub mod notification_delivery;
 pub mod product_content_assessment;
 pub mod product_embedding;
@@ -33,6 +33,7 @@ use tracing::info;
 use crate::cdc::{
     CdcFanout, CdcIngestError, WorkerQueue, WorkerQueueReceivers, WorkerQueueRegistry,
 };
+pub use aura_historia_jobs::WorkerScope;
 
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 pub const WORKER_DRAIN_TIMEOUT_SECONDS_ENV: &str = "AURA_HISTORIA_WORKER_DRAIN_TIMEOUT_SECONDS";
@@ -69,117 +70,26 @@ pub trait WorkerJob: Send + 'static {}
 
 impl<T> WorkerJob for T where T: Send + 'static {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
-pub enum WorkerScope {
-    SearchFilterProjection,
-    SearchFilterPercolator,
-    SearchFilterMatchNotification,
-    WatchlistNotification,
-    ProductListingContentAssessment,
-    ProductListingTranslation,
-    ProductListingEmbedding,
-    ProductListingOpenSearch,
-    ProductListingRawNormalization,
-    NotificationDelivery,
-}
-
-impl WorkerScope {
-    pub const ALL: [Self; 10] = [
-        Self::SearchFilterProjection,
-        Self::SearchFilterPercolator,
-        Self::SearchFilterMatchNotification,
-        Self::WatchlistNotification,
-        Self::ProductListingContentAssessment,
-        Self::ProductListingTranslation,
-        Self::ProductListingEmbedding,
-        Self::ProductListingOpenSearch,
-        Self::ProductListingRawNormalization,
-        Self::NotificationDelivery,
-    ];
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::SearchFilterProjection => "search-filter-projection",
-            Self::SearchFilterPercolator => "search-filter-percolator",
-            Self::SearchFilterMatchNotification => "search-filter-match-notification",
-            Self::WatchlistNotification => "watchlist-notification",
-            Self::ProductListingContentAssessment => "product-content-assessment",
-            Self::ProductListingTranslation => "product-translation",
-            Self::ProductListingEmbedding => "product-embedding",
-            Self::ProductListingOpenSearch => "product-listing-opensearch",
-            Self::ProductListingRawNormalization => "product-listing-normalization",
-            Self::NotificationDelivery => "notification-delivery",
+fn worker_scope_from_getter<F>(mut get: F) -> Result<WorkerScope, WorkerStartupConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let stage = get(WORKER_STAGE_ENV);
+    let value = match get(WORKER_SCOPE_ENV) {
+        Some(value) => value,
+        None if is_local_development_stage(stage.as_deref()) => {
+            DEFAULT_LOCAL_WORKER_SCOPE.to_owned()
         }
-    }
-
-    pub(crate) fn from_getter<F>(mut get: F) -> Result<Self, WorkerStartupConfigError>
-    where
-        F: FnMut(&'static str) -> Option<String>,
-    {
-        let stage = get(WORKER_STAGE_ENV);
-        let value = match get(WORKER_SCOPE_ENV) {
-            Some(value) => value,
-            None if is_local_development_stage(stage.as_deref()) => {
-                DEFAULT_LOCAL_WORKER_SCOPE.to_owned()
-            }
-            None => {
-                return Err(WorkerStartupConfigError::MissingEnv {
-                    name: WORKER_SCOPE_ENV,
-                });
-            }
-        };
-
-        use strum::IntoEnumIterator;
-        Self::iter()
-            .find(|scope| scope.as_str() == value)
-            .ok_or(WorkerStartupConfigError::InvalidScope { value })
-    }
-
-    pub const fn router_queue_url_env(self) -> &'static str {
-        match self {
-            Self::SearchFilterProjection => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PROJECTION"
-            }
-            Self::SearchFilterPercolator => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PERCOLATOR"
-            }
-            Self::SearchFilterMatchNotification => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_MATCH_NOTIFICATION"
-            }
-            Self::WatchlistNotification => "AURA_HISTORIA_ROUTER_QUEUE_URL_WATCHLIST_NOTIFICATION",
-            Self::ProductListingContentAssessment => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_CONTENT_ASSESSMENT"
-            }
-            Self::ProductListingTranslation => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_TRANSLATION"
-            }
-            Self::ProductListingEmbedding => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_EMBEDDING"
-            }
-            Self::ProductListingOpenSearch => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_OPENSEARCH"
-            }
-            Self::ProductListingRawNormalization => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_RAW_NORMALIZATION"
-            }
-            Self::NotificationDelivery => "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY",
+        None => {
+            return Err(WorkerStartupConfigError::MissingEnv {
+                name: WORKER_SCOPE_ENV,
+            });
         }
-    }
-
-    pub(crate) const fn consumer_queue(self) -> WorkerQueue {
-        match self {
-            Self::SearchFilterProjection => WorkerQueue::SearchFilterOpenSearch,
-            Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
-            Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
-            Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
-            Self::ProductListingContentAssessment => WorkerQueue::ProductListingContentAssessment,
-            Self::ProductListingTranslation => WorkerQueue::ProductListingTranslate,
-            Self::ProductListingEmbedding => WorkerQueue::ProductListingEmbed,
-            Self::ProductListingOpenSearch => WorkerQueue::ProductListingOpenSearch,
-            Self::ProductListingRawNormalization => WorkerQueue::ProductListingRawNormalization,
-            Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
-        }
-    }
+    };
+    use strum::IntoEnumIterator;
+    WorkerScope::iter()
+        .find(|scope| scope.as_str() == value)
+        .ok_or(WorkerStartupConfigError::InvalidScope { value })
 }
 
 fn is_local_development_stage(stage: Option<&str>) -> bool {
@@ -347,7 +257,7 @@ impl WorkerStartupConfig {
         F: FnMut(&'static str) -> Option<String>,
     {
         let stage = get(WORKER_STAGE_ENV);
-        let scope = WorkerScope::from_getter(&mut get)?;
+        let scope = worker_scope_from_getter(&mut get)?;
         let worker = WorkerConfig::from_getter(&mut get)?;
         let queue = queue::SqsQueueConfig::from_getter(scope, &mut get)?;
         let postgres = postgres_config(&mut get)?;
@@ -1199,7 +1109,7 @@ mod tests {
     fn should_default_scope_only_in_local_development(#[case] stage: &str) {
         let values = env(&[(WORKER_STAGE_ENV, stage)]);
 
-        let scope = WorkerScope::from_getter(|name| values.get(name).cloned());
+        let scope = worker_scope_from_getter(|name| values.get(name).cloned());
 
         assert!(matches!(scope, Ok(WorkerScope::SearchFilterProjection)));
     }

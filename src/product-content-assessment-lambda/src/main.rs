@@ -4,15 +4,14 @@ use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
     log_invocation_start, logging_config_from_env,
 };
+use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_content_assessment_lambda::{
     compose_product_content_assessment_use_case, handler_with_invocation_budget, invocation_budget,
-    retain_all_records,
 };
 use product_listing_service::use_cases::AssessProductListingContentEventUseCase;
 use std::{future::Future, sync::Arc, time::Instant};
-use tracing::warn;
 
 const COMPONENT: &str = "product-content-assessment-lambda";
 
@@ -69,31 +68,14 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<ProductContentAssessmentUseCaseLease, Error>>,
 {
-    let budget = invocation_budget(&event.context);
-    let Some(use_case) = complete_before_invocation_deadline(&budget, setup()).await else {
-        warn!(
-            outcome = "invocation_setup_timeout",
-            "Product content-assessment setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-    let Ok(use_case) = use_case else {
-        warn!(
-            outcome = "invocation_setup_failed",
-            "Product content-assessment setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-    handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
-}
-
-async fn complete_before_invocation_deadline<T>(
-    budget: &platform_lambda_bootstrap::LambdaInvocationBudget,
-    operation: impl Future<Output = T>,
-) -> Option<T> {
-    let remaining = budget.remaining();
-    if remaining.is_zero() {
-        return None;
-    }
-    tokio::time::timeout(remaining, operation).await.ok()
+    handle_sqs_invocation(
+        event,
+        COMPONENT,
+        invocation_budget,
+        setup,
+        |event, use_case, budget| async move {
+            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+        },
+    )
+    .await
 }

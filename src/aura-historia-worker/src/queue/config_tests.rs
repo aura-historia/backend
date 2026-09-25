@@ -1,6 +1,6 @@
 use super::{
     AWS_REGION_ENV, Attributes, CdcRouterQueueConfig, QueueError, SQS_ENDPOINT_ENV, SqsQueueConfig,
-    WORKER_QUEUE_URL_ENV, private_policy, tls_denied, validate_attributes,
+    WORKER_QUEUE_URL_ENV, validate_attributes,
 };
 use crate::WorkerScope;
 use aws_sdk_sqs::types::QueueAttributeName;
@@ -217,28 +217,7 @@ fn should_accept_aws_standard_absent_fifo_and_kms_encryption() {
     attrs.insert(QueueAttributeName::KmsMasterKeyId, "alias/aws/sqs".into());
     assert_eq!(Ok(()), validate_attributes(&config, &attrs, false));
 }
-#[test]
-fn should_reject_tls_denies_that_do_not_cover_all_insecure_calls() {
-    let arn = "arn:aws:sqs:eu-central-1:123456789012:queue";
-    let statement = json!({"Effect":"Deny", "Principal":"*", "Action":"sqs:*", "Resource":arn,
-        "Condition":{"Bool":{"aws:SecureTransport":"false"}}});
-    assert!(tls_denied(&json!({"Statement":statement}), arn));
-    for (field, value) in [
-        ("Effect", json!("Allow")),
-        ("Principal", json!({"AWS":"restricted"})),
-        ("Action", json!("sqs:SendMessage")),
-        ("Resource", json!("other")),
-        ("Condition", json!({"Bool":{"aws:SecureTransport":"true"}})),
-        (
-            "Condition",
-            json!({"Bool":{"aws:SecureTransport":"false"}, "StringEquals":{"aws:SourceArn":"other"}}),
-        ),
-    ] {
-        let mut bad = statement.clone();
-        bad[field] = value;
-        assert!(!tls_denied(&json!({"Statement":[bad]}), arn));
-    }
-}
+
 #[test]
 fn should_reject_wrong_url_scope_stage_region_account_and_fifo() {
     let scope = WorkerScope::NotificationDelivery;
@@ -353,16 +332,6 @@ fn should_require_private_policies_and_exclusive_dlq_redrive() {
         Err(QueueError::Attribute("DLQ RedrivePolicy")),
         validate_attributes(&config, &broken, true)
     );
-}
-
-#[test]
-fn should_allow_only_explicit_principals_and_reject_not_principal_grants() {
-    let allow = json!({"Effect":"Allow", "Principal":{"AWS":["arn:aws:iam::123456789012:role/worker"]},
-        "Action":"sqs:SendMessage", "Resource":"*"});
-    assert!(private_policy(&json!({"Statement":allow})));
-    let mut broken = allow;
-    broken["NotPrincipal"] = json!({"AWS":"arn:aws:iam::123456789012:role/other"});
-    assert!(!private_policy(&json!({"Statement":broken})));
 }
 
 #[test]
