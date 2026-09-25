@@ -1,0 +1,7 @@
+{
+  "cluster_permissions": [],
+  "index_permissions": [
+    {"index_patterns": ["product-listings", "user_search_filters"], "allowed_actions": ["indices:data/read/search"]}
+  ],
+  "tenant_permissions": []
+}

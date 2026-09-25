@@ -1,0 +1,7 @@
+{
+  "cluster_permissions": ["indices:data/read/point_in_time/delete"],
+  "index_permissions": [
+    {"index_patterns": ["user_search_filters"], "allowed_actions": ["indices:data/read/search", "indices:data/read/point_in_time/create", "indices:data/read/point_in_time/delete"]}
+  ],
+  "tenant_permissions": []
+}

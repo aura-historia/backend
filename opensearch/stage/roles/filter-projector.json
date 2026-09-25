@@ -1,0 +1,7 @@
+{
+  "cluster_permissions": [],
+  "index_permissions": [
+    {"index_patterns": ["user_search_filters"], "allowed_actions": ["indices:data/write/index"]}
+  ],
+  "tenant_permissions": []
+}

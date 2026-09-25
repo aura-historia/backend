@@ -1,0 +1,12 @@
+{
+  "description": "Hybrid BM25+kNN search pipeline using Reciprocal Rank Fusion",
+  "phase_results_processors": [
+    {
+      "score-ranker-processor": {
+        "combination": {
+          "technique": "rrf"
+        }
+      }
+    }
+  ]
+}

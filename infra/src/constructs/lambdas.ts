@@ -117,8 +117,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       ...(context.config.isEphemeral
         ? {}
         : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/product-projector/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/product-projector/password`),
           }),
     }),
   },
@@ -187,8 +187,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       ...(context.config.isEphemeral
         ? {}
         : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/filter-projector/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/filter-projector/password`),
           }),
     }),
   },
@@ -224,8 +224,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       ...(context.config.isEphemeral
         ? {}
         : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/percolator/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/percolator/password`),
           }),
     }),
   },
@@ -627,8 +627,8 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
 
   return {
     ...environment,
-    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/password`),
-    OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/username`),
+    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
+    OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
     AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(
       `/secrets/${config.stage}/google-application-credentials`,
     ),
