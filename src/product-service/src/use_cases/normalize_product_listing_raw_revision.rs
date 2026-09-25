@@ -83,7 +83,8 @@ pub struct NormalizeProductListingRawRevisionResult {
     pub oldest_pending_age_seconds: Option<u64>,
     /// Non-durable cursor for the next reconciliation page. `None` safely resets the traversal.
     pub next_pending_stream_cursor: Option<PendingProductListingRawStreamCursor>,
-    /// Streams that need a later worker-local recovery turn after a clean capped drain.
+    /// Streams needing another bounded drain after a clean capped turn. The SQS Lambda
+    /// retains the wake-up until progress is fully drained.
     pub continuation_stream_ids: Vec<ProductListingRawStreamId>,
 }
 
@@ -442,9 +443,11 @@ where
                 product_listing_raw_revision_id: _,
                 revision: _,
             } => {
-                let StreamDrainResult { revisions, error } = self
+                let drain = self
                     .drain_stream(product_listing_raw_stream_id, max_revisions_per_stream)
                     .await;
+                let requires_continuation = drain.requires_continuation(max_revisions_per_stream);
+                let StreamDrainResult { revisions, error } = drain;
                 if let Some(error) = error {
                     return Err(error);
                 }
@@ -454,7 +457,11 @@ where
                     pending_stream_page_count: None,
                     oldest_pending_age_seconds: None,
                     next_pending_stream_cursor: None,
-                    continuation_stream_ids: Vec::new(),
+                    continuation_stream_ids: if requires_continuation {
+                        vec![product_listing_raw_stream_id]
+                    } else {
+                        Vec::new()
+                    },
                 });
             }
             NormalizeProductListingRawRevisionMode::ReconcileContinuation {
@@ -1278,6 +1285,7 @@ mod tests {
                 .map(|completion| completion.revision)
                 .collect::<Vec<_>>()
         );
+        assert_eq!(vec![stream_id], result.continuation_stream_ids);
         assert!(state.streams[0].revisions.is_empty());
         assert_eq!(3, state.begins);
         assert_eq!(3, state.commits);

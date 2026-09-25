@@ -33,6 +33,12 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
+export interface NotificationEmailConfig {
+  readonly from: string;
+  readonly identityDomain: string;
+  readonly replyTo: string;
+}
+
 export interface NetworkConfig {
   readonly cidr: string;
   readonly region: typeof WORKLOAD_REGION;
@@ -74,6 +80,7 @@ export interface StageConfig {
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoEmail: CognitoEmailConfig | undefined;
+  readonly notificationEmail: NotificationEmailConfig;
   readonly opensearchDomainName: string;
   readonly opensearchEndpointUrl: string;
   readonly enableProductionObservability: boolean;
@@ -163,6 +170,17 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
           from: "Aura Historia <auth@notify.aura-historia.com>",
           identityDomain: "notify.aura-historia.com",
           replyTo: "contact@aura-historia.com",
+        },
+    notificationEmail: isEphemeral
+      ? {
+          from: "Aura Historia <notifications@example.test>",
+          identityDomain: "example.test",
+          replyTo: "support@example.test",
+        }
+      : {
+          from: ssmValue(`/notifications/${stage}/email-from`),
+          identityDomain: "notify.aura-historia.com",
+          replyTo: ssmValue(`/notifications/${stage}/email-reply-to`),
         },
     opensearchDomainName: isEphemeral ? "test-domain" : `aura-historia-${stage}`,
     opensearchEndpointUrl: isEphemeral ? "" : ssmValue(`/opensearch/${stage}/endpoint-url`),

@@ -367,6 +367,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-cdc-routing"
+version = "0.1.0"
+dependencies = [
+ "aura-historia-jobs",
+ "domain-primitives",
+ "fxrate-core",
+ "localization",
+ "money",
+ "notification-core",
+ "product-listing-core",
+ "search-filter-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "tracing",
+ "url",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
 name = "aura-historia-cron"
 version = "0.1.0"
 dependencies = [
@@ -393,75 +415,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-jobs"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "notification-core",
+ "product-listing-core",
+ "search-filter-core",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "user-core",
+]
+
+[[package]]
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "test-api",
-]
-
-[[package]]
-name = "aura-historia-worker"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws-sdk-sqs",
- "aws-smithy-types",
- "axum",
- "domain-primitives",
- "embedding",
- "fxrate-core",
- "fxrate-postgres",
- "google-cloud-auth",
- "hyper 1.11.1",
- "hyper-util",
- "indexmap 2.14.2",
- "large-language-model",
- "listing-source-core",
- "listing-source-postgres",
- "listing-source-service",
- "localization",
- "money",
- "notification-core",
- "notification-email-aws",
- "notification-postgres",
- "notification-service",
- "opensearch",
- "platform-observability",
- "platform-postgres",
- "product-listing-core",
- "product-listing-normalization",
- "product-listing-opensearch",
- "product-listing-postgres",
- "product-listing-service",
- "product-listing-translation-llm",
- "product-service",
- "reqwest 0.12.28",
- "rstest",
- "search-filter-core",
- "search-filter-opensearch",
- "search-filter-postgres",
- "search-filter-service",
- "serde",
- "serde_json",
- "serial_test",
- "sqlx",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "user-postgres",
- "user-service",
- "uuid",
- "watchlist-postgres",
 ]
 
 [[package]]
@@ -1306,6 +1279,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "backend-cleanup-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "lambda_runtime",
+ "oauth-postgres",
+ "oauth-service",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "platform-postgres-secretsmanager",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1641,6 +1631,39 @@ dependencies = [
  "jobserver",
  "libc",
  "shlex",
+]
+
+[[package]]
+name = "cdc-router-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-cdc-routing",
+ "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-sqs",
+ "aws-smithy-types",
+ "aws_lambda_events",
+ "domain-primitives",
+ "futures-util",
+ "fxrate-core",
+ "lambda_runtime",
+ "localization",
+ "money",
+ "notification-core",
+ "platform-observability",
+ "platform-worker-queue-contract",
+ "product-listing-core",
+ "search-filter-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "uuid",
 ]
 
 [[package]]
@@ -4878,6 +4901,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "notification-delivery-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "aws-smithy-types",
+ "aws_lambda_events",
+ "domain-primitives",
+ "lambda_runtime",
+ "listing-source-core",
+ "notification-core",
+ "notification-email-aws",
+ "notification-postgres",
+ "notification-service",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
 name = "notification-email"
 version = "0.1.0"
 dependencies = [
@@ -5763,9 +5820,11 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
+ "google-cloud-auth",
  "lambda_runtime",
  "platform-observability",
  "platform-postgres",
+ "serde_json",
  "serial_test",
  "sqlx",
  "test-api",
@@ -5773,6 +5832,18 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "platform-lambda-sqs"
+version = "0.1.0"
+dependencies = [
+ "aws_lambda_events",
+ "futures-util",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5817,6 +5888,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "platform-worker-queue-contract"
+version = "0.1.0"
+dependencies = [
+ "aura-historia-jobs",
+ "aws-sdk-sqs",
+ "serde_json",
+ "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]
@@ -5938,6 +6020,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-content-assessment-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "lambda_runtime",
+ "listing-source-core",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "product-embedding-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "embedding",
+ "lambda_runtime",
+ "listing-source-core",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "product-listing-core"
 version = "0.1.0"
 dependencies = [
@@ -5986,6 +6125,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-listing-normalization-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "listing-source-core",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-normalization",
+ "product-listing-postgres",
+ "product-listing-service",
+ "product-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "product-listing-opensearch"
 version = "0.1.0"
 dependencies = [
@@ -6023,15 +6190,15 @@ name = "product-listing-opensearch-lambda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aura-historia-worker",
+ "aura-historia-jobs",
  "aws_lambda_events",
  "domain-primitives",
- "futures-util",
  "fxrate-postgres",
  "lambda_runtime",
  "listing-source-core",
  "opensearch",
  "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
@@ -6157,6 +6324,37 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-translation-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "lambda_runtime",
+ "large-language-model",
+ "listing-source-core",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "product-listing-translation-llm",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -6909,6 +7107,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-match-notification-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "lambda_runtime",
+ "listing-source-core",
+ "notification-postgres",
+ "notification-service",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "search-filter-core",
+ "search-filter-postgres",
+ "search-filter-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-postgres",
+ "uuid",
+]
+
+[[package]]
 name = "search-filter-opensearch"
 version = "0.1.0"
 dependencies = [
@@ -6942,6 +7173,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-percolator-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "fxrate-postgres",
+ "lambda_runtime",
+ "large-language-model",
+ "listing-source-core",
+ "localization",
+ "money",
+ "opensearch",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "search-filter-core",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
 name = "search-filter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -6966,6 +7236,39 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
+name = "search-filter-projection-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "localization",
+ "money",
+ "opensearch",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "search-filter-core",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "url",
  "user-core",
  "uuid",
 ]
@@ -8171,7 +8474,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "aura-historia-worker",
  "aws-config",
  "aws-sdk-account",
  "aws-sdk-cloudformation",
@@ -8183,7 +8485,6 @@ dependencies = [
  "aws-sdk-sqs",
  "aws_lambda_events",
  "axum",
- "base64 0.23.1",
  "ctrlc",
  "derive_builder",
  "futures",
@@ -9066,6 +9367,38 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "user-core",
+]
+
+[[package]]
+name = "watchlist-notification-lambda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "domain-primitives",
+ "lambda_runtime",
+ "listing-source-core",
+ "notification-postgres",
+ "notification-service",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "uuid",
+ "watchlist-postgres",
 ]
 
 [[package]]

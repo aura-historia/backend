@@ -11,12 +11,56 @@ const initializeWorkflow = readFileSync(
 );
 
 describe("release workflow boundary", () => {
+  test("packages exactly the CDK Lambda artifacts, not the legacy native worker", () => {
+    const artifacts = [...deployWorkflow.matchAll(/^\s+- crate: src\/([a-z0-9-]+)\n\s+binary: ([a-z0-9-]+)$/gm)]
+      .map(([, crate, binary]) => ({ crate, binary }));
+    const binaries = [
+      "aura-historia-api",
+      "shopify-lambda",
+      "cognito-post-confirmation",
+      "cloudwatch-log-retention-lambda",
+      "database-migration-lambda",
+      "fxrate-lambda",
+      "backend-cleanup-lambda",
+      "stripe-lambda",
+      "product-listing-opensearch-lambda",
+      "product-listing-normalization-lambda",
+      "product-content-assessment-lambda",
+      "product-embedding-lambda",
+      "product-translation-lambda",
+      "search-filter-projection-lambda",
+      "search-filter-percolator-lambda",
+      "search-filter-match-notification-lambda",
+      "watchlist-notification-lambda",
+      "notification-delivery-lambda",
+      "cdc-router-lambda",
+    ];
+    expect(artifacts.map(({ binary }) => binary).sort()).toEqual(binaries.sort());
+    expect(artifacts.every(({ crate, binary }) => crate === binary)).toBe(true);
+    expect(deployWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
+    expect(initializeWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
+  });
+
   test("keeps pushes artifact-only and normal deploy limited to stage plus immutable artifact source", () => {
     expect(deployWorkflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(deployWorkflow).toContain("cancel-in-progress: false");
     expect(deployWorkflow).toContain("stage:");
     expect(deployWorkflow).toContain("commit_sha:");
     expect(deployWorkflow).toContain("database-migration-lambda");
+    expect(deployWorkflow).toContain("crate: src/backend-cleanup-lambda");
+    expect(deployWorkflow).toContain("binary: backend-cleanup-lambda");
+    expect(deployWorkflow).toContain("crate: src/product-content-assessment-lambda");
+    expect(deployWorkflow).toContain("binary: product-content-assessment-lambda");
+    expect(deployWorkflow).toContain("crate: src/product-translation-lambda");
+    expect(deployWorkflow).toContain("binary: product-translation-lambda");
+    expect(deployWorkflow).toContain("crate: src/search-filter-match-notification-lambda");
+    expect(deployWorkflow).toContain("binary: search-filter-match-notification-lambda");
+    expect(deployWorkflow).toContain("crate: src/watchlist-notification-lambda");
+    expect(deployWorkflow).toContain("binary: watchlist-notification-lambda");
+    expect(deployWorkflow).toContain("crate: src/cdc-router-lambda");
+    expect(deployWorkflow).toContain("binary: cdc-router-lambda");
+    expect(deployWorkflow).toContain("--bin \"${{ matrix.binary }}\"");
+    expect(deployWorkflow).toContain("target/lambda/$BIN_NAME/bootstrap.zip");
     expect(deployWorkflow).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
     expect(deployWorkflow).toContain("DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}");
     expect(deployWorkflow).toContain("Data foundation is not initialized; run Initialize (CD) first.");
@@ -39,6 +83,12 @@ describe("release workflow boundary", () => {
     expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=false');
     expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=true');
+    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=false');
+    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=true');
+    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=false');
+    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=true');
+    expect(initializeWorkflow).toContain('CdcRouterEnabled=false');
+    expect(initializeWorkflow).not.toContain('CdcRouterEnabled=true');
     expect(initializeWorkflow).toContain('invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json');
     expect(initializeWorkflow).toContain('invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json');
     expect(initializeWorkflow).toContain("--cli-read-timeout 900");
@@ -53,6 +103,8 @@ describe("release workflow boundary", () => {
     const migrationInvoke = initializeWorkflow.indexOf('invoke_function "database-migration-lambda-${STAGE}"');
     const fxInvoke = initializeWorkflow.indexOf('invoke_function "fxrate-lambda-${STAGE}"');
     const activeCompute = initializeWorkflow.lastIndexOf('ProductListingOpenSearchConsumerEnabled=true');
+    const partnerIntegrationActivation = initializeWorkflow.lastIndexOf('PartnerIntegrationEnabled=true');
+    const fxRateRefreshActivation = initializeWorkflow.lastIndexOf('FxRateRefreshEnabled=true');
     expect(networkDeploy).toBeGreaterThanOrEqual(0);
     expect(dataDeploy).toBeGreaterThan(networkDeploy);
     expect(initializationDeploy).toBeGreaterThan(dataDeploy);
@@ -60,5 +112,7 @@ describe("release workflow boundary", () => {
     expect(migrationInvoke).toBeGreaterThan(inactiveCompute);
     expect(fxInvoke).toBeGreaterThan(migrationInvoke);
     expect(activeCompute).toBeGreaterThan(fxInvoke);
+    expect(partnerIntegrationActivation).toBeGreaterThan(fxInvoke);
+    expect(fxRateRefreshActivation).toBeGreaterThan(fxInvoke);
   });
 });

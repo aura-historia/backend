@@ -1,6 +1,9 @@
 use application::error::BoxError;
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
+pub use product_listing_core::product_listing_raw_id::{
+    ProductListingRawRevisionId, ProductListingRawStreamId,
+};
 use product_listing_normalization::{
     NormalizationInputHash, ProductListingNormalizationInput, RawProductListingProvenance,
 };
@@ -11,9 +14,6 @@ use time::OffsetDateTime;
 const SHA256_BYTES: usize = 32;
 pub const MAX_PROVIDER_RECEIPT_SCOPE_UTF8_BYTES: usize = 128;
 pub const MAX_PROVIDER_RECEIPT_DELIVERY_ID_UTF8_BYTES: usize = 512;
-
-domain_primitives::object_id_newtype!(ProductListingRawStreamId, "prs");
-domain_primitives::object_id_newtype!(ProductListingRawRevisionId, "prr");
 
 /// Raw ingestion methods intentionally exclude `PARTNER_API`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]

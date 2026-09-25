@@ -10,9 +10,23 @@ test-api = { workspace = true }
 members = [
     "src/application",
     "src/aura-historia-api",
-    "src/aura-historia-worker",
+    "src/aura-historia-jobs",
+    "src/aura-historia-cdc-routing",
+    "src/cdc-router-lambda",
+    "src/platform-lambda-sqs",
+    "src/platform-worker-queue-contract",
     "src/aura-historia-cron",
+    "src/backend-cleanup-lambda",
     "src/product-listing-opensearch-lambda",
+    "src/product-listing-normalization-lambda",
+    "src/product-content-assessment-lambda",
+    "src/product-embedding-lambda",
+    "src/product-translation-lambda",
+    "src/search-filter-projection-lambda",
+    "src/search-filter-percolator-lambda",
+    "src/search-filter-match-notification-lambda",
+    "src/watchlist-notification-lambda",
+    "src/notification-delivery-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
     "src/auction-core",
@@ -87,8 +101,21 @@ members = [
 ]
 
 [workspace.dependencies]
-aura-historia-worker = { path = "src/aura-historia-worker" }
+aura-historia-jobs = { path = "src/aura-historia-jobs" }
+aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }
+platform-worker-queue-contract = { path = "src/platform-worker-queue-contract" }
+cdc-router-lambda = { path = "src/cdc-router-lambda" }
+platform-lambda-sqs = { path = "src/platform-lambda-sqs" }
 product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lambda" }
+product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
+product-content-assessment-lambda = { path = "src/product-content-assessment-lambda" }
+product-embedding-lambda = { path = "src/product-embedding-lambda" }
+product-translation-lambda = { path = "src/product-translation-lambda" }
+search-filter-projection-lambda = { path = "src/search-filter-projection-lambda" }
+search-filter-percolator-lambda = { path = "src/search-filter-percolator-lambda" }
+search-filter-match-notification-lambda = { path = "src/search-filter-match-notification-lambda" }
+watchlist-notification-lambda = { path = "src/watchlist-notification-lambda" }
+notification-delivery-lambda = { path = "src/notification-delivery-lambda" }
 base64 = "0.23.0"
 async-trait = "0.1.89"
 axum = "0.8.7"

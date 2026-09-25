@@ -1,0 +1,35 @@
+[package]
+name = "product-translation-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+aura-historia-jobs = { path = "../aura-historia-jobs" }
+application = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["sqs"] }
+lambda_runtime = { workspace = true }
+large-language-model = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { path = "../platform-lambda-sqs" }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+product-listing-translation-llm = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+listing-source-core = { workspace = true }
+product-listing-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+uuid = { workspace = true }

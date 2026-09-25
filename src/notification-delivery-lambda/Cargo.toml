@@ -1,0 +1,36 @@
+[package]
+name = "notification-delivery-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aura-historia-jobs = { path = "../aura-historia-jobs" }
+aws_lambda_events = { workspace = true, features = ["sqs"] }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-sesv2 = { workspace = true }
+aws-smithy-types = { workspace = true }
+lambda_runtime = { workspace = true }
+notification-core = { workspace = true }
+notification-email-aws = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { path = "../platform-lambda-sqs" }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+listing-source-core = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres", "ses"] }
+time = { workspace = true }
+user-core = { workspace = true }
+uuid = { workspace = true }

@@ -21,18 +21,23 @@ interface WorkerQueueDefinition {
   readonly visibilityTimeoutSeconds: number;
 }
 
-// Only ProductListing OpenSearch is a Lambda SQS target. Other values match the polling Rust worker's budgets.
+// Lambda-backed scopes use visibility that covers six bounded 45-second invocations.
 export const WORKER_QUEUE_DEFINITIONS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 300 },
-  "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 60 },
+  // Lambda timeout is 45s; six bounded invocation attempts require 300s visibility.
+  "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 300 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
-  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 60 },
-  "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 60 },
-  "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 60 },
-  "product-embedding": { id: "ProductEmbedding", visibilityTimeoutSeconds: 300 },
+  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 300 },
+  "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 300 },
+  // A 45s Lambda needs the six-times-timeout SQS visibility margin (270s); failed messages still redrive after maxReceiveCount 5.
+  "product-content-assessment": { id: "ProductContentAssessment", visibilityTimeoutSeconds: 270 },
+  // The embedding Lambda has a 60s provider envelope; six attempts require 360s visibility.
+  "product-embedding": { id: "ProductEmbedding", visibilityTimeoutSeconds: 360 },
   "product-translation": { id: "ProductTranslation", visibilityTimeoutSeconds: 300 },
-  "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 300 },
-  "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 360 },
+  // Lambda timeout is 45s; six bounded invocation attempts require 270s visibility.
+  "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 270 },
+  // The 45s Lambda leaves a five-minute delivery lease plus 30s recovery margin before retry.
+  "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 330 },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 
 export interface WorkerQueueSettings {

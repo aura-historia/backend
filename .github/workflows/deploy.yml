@@ -79,16 +79,47 @@ jobs:
       contents: read
       id-token: write
     strategy:
+      # Lambda-only artifact catalog; native CDC ingress is an external handoff, not a deploy artifact.
       matrix:
-        crate:
-          - src/aura-historia-api
-          - src/shopify-lambda
-          - src/cognito-post-confirmation
-          - src/cloudwatch-log-retention-lambda
-          - src/database-migration-lambda
-          - src/fxrate-lambda
-          - src/stripe-lambda
-          - src/product-listing-opensearch-lambda
+        include:
+          - crate: src/aura-historia-api
+            binary: aura-historia-api
+          - crate: src/shopify-lambda
+            binary: shopify-lambda
+          - crate: src/cognito-post-confirmation
+            binary: cognito-post-confirmation
+          - crate: src/cloudwatch-log-retention-lambda
+            binary: cloudwatch-log-retention-lambda
+          - crate: src/database-migration-lambda
+            binary: database-migration-lambda
+          - crate: src/fxrate-lambda
+            binary: fxrate-lambda
+          - crate: src/backend-cleanup-lambda
+            binary: backend-cleanup-lambda
+          - crate: src/stripe-lambda
+            binary: stripe-lambda
+          - crate: src/product-listing-opensearch-lambda
+            binary: product-listing-opensearch-lambda
+          - crate: src/product-listing-normalization-lambda
+            binary: product-listing-normalization-lambda
+          - crate: src/product-content-assessment-lambda
+            binary: product-content-assessment-lambda
+          - crate: src/product-embedding-lambda
+            binary: product-embedding-lambda
+          - crate: src/product-translation-lambda
+            binary: product-translation-lambda
+          - crate: src/search-filter-projection-lambda
+            binary: search-filter-projection-lambda
+          - crate: src/search-filter-percolator-lambda
+            binary: search-filter-percolator-lambda
+          - crate: src/search-filter-match-notification-lambda
+            binary: search-filter-match-notification-lambda
+          - crate: src/watchlist-notification-lambda
+            binary: watchlist-notification-lambda
+          - crate: src/notification-delivery-lambda
+            binary: notification-delivery-lambda
+          - crate: src/cdc-router-lambda
+            binary: cdc-router-lambda
     steps:
       - uses: actions/checkout@v7
 
@@ -122,11 +153,11 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_LTO: true
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
-        run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip
+        run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip --bin "${{ matrix.binary }}"
 
       - name: Copy Lambda zip artifact
         run: |
-          BIN_NAME=$(basename ${{ matrix.crate }})
+          BIN_NAME=${{ matrix.binary }}
           OUT_DIR=$GITHUB_WORKSPACE/artifacts
           mkdir -p $OUT_DIR
           cp target/lambda/$BIN_NAME/bootstrap.zip $OUT_DIR/$BIN_NAME-${{ env.STAGE_NAME }}-${{ env.DEPLOY_COMMIT_SHA }}.zip
@@ -139,7 +170,7 @@ jobs:
 
       - name: Upload Lambda to S3
         run: |
-          BIN_NAME=$(basename ${{ matrix.crate }})
+          BIN_NAME=${{ matrix.binary }}
           aws s3api put-object \
             --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
             --key "$BIN_NAME-${{ env.STAGE_NAME }}-${{ env.DEPLOY_COMMIT_SHA }}.zip" \

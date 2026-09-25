@@ -1,7 +1,3 @@
-use aura_historia_worker::{
-    OPENSEARCH_ENDPOINT_URL_ENV, OPENSEARCH_PASSWORD_ENV, OPENSEARCH_USERNAME_ENV, WORKER_STAGE_ENV,
-};
-
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::{
     OpenSearch,
@@ -12,17 +8,21 @@ use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
     log_invocation_start, logging_config_from_env, required_config_from_env,
 };
+use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
 
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_opensearch_lambda::{
     compose_projection_use_case, handler_with_invocation_budget, invocation_budget,
-    retain_all_records,
 };
 use product_listing_service::use_cases::ProjectProductListingUseCase;
 use std::{future::Future, sync::Arc, time::Instant};
-use tracing::warn;
 use url::Url;
+
+const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
+const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
+const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
+const WORKER_STAGE_ENV: &str = "STAGE";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -84,34 +84,16 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<ProjectionUseCaseLease, Error>>,
 {
-    let budget = invocation_budget(&event.context);
-    let Some(use_case) = complete_before_invocation_deadline(&budget, setup()).await else {
-        warn!(
-            outcome = "invocation_setup_timeout",
-            "ProductListing projection setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-    let Ok(use_case) = use_case else {
-        warn!(
-            outcome = "invocation_setup_failed",
-            "ProductListing projection setup retained every record for SQS retry or redrive"
-        );
-        return retain_all_records(&event);
-    };
-
-    handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
-}
-
-async fn complete_before_invocation_deadline<T>(
-    budget: &platform_lambda_bootstrap::LambdaInvocationBudget,
-    operation: impl Future<Output = T>,
-) -> Option<T> {
-    let remaining = budget.remaining();
-    if remaining.is_zero() {
-        return None;
-    }
-    tokio::time::timeout(remaining, operation).await.ok()
+    handle_sqs_invocation(
+        event,
+        "product-listing-opensearch-lambda",
+        invocation_budget,
+        setup,
+        |event, use_case, budget| async move {
+            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+        },
+    )
+    .await
 }
 
 struct OpenSearchConfig {
@@ -157,6 +139,7 @@ mod tests {
     use super::*;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use lambda_runtime::Context;
+    use platform_lambda_sqs::{SetupOutcome, run_setup_with_budget};
     use std::{
         sync::{
             Arc,
@@ -172,12 +155,13 @@ mod tests {
         let polls = Arc::new(AtomicUsize::new(0));
         let operation_polls = Arc::clone(&polls);
 
-        let result = complete_before_invocation_deadline(&budget, async move {
+        let result = run_setup_with_budget(&budget, || async move {
             operation_polls.fetch_add(1, Ordering::AcqRel);
+            Ok::<_, ()>(())
         })
         .await;
 
-        assert!(result.is_none());
+        assert!(matches!(result, SetupOutcome::TimedOut));
         assert_eq!(0, polls.load(Ordering::Acquire));
     }
 
@@ -250,13 +234,13 @@ mod tests {
         let refresh = async move {
             operation_started.notify_one();
             operation_release.notified().await;
+            Ok::<_, ()>(())
         };
-        let (result, ()) = tokio::join!(
-            complete_before_invocation_deadline(&budget, refresh),
-            async { started.notified().await }
-        );
+        let (result, ()) = tokio::join!(run_setup_with_budget(&budget, || refresh), async {
+            started.notified().await
+        });
 
-        assert!(result.is_none());
+        assert!(matches!(result, SetupOutcome::TimedOut));
         release.notify_waiters();
     }
 
@@ -280,13 +264,12 @@ mod tests {
         started.notified().await;
 
         let budget = budget_with_usable_time(Duration::from_millis(100));
-        let result = complete_before_invocation_deadline(
-            &budget,
-            cache.get_or_try_build("version-1", || async { Ok::<_, ()>(2) }),
-        )
+        let result = run_setup_with_budget(&budget, || {
+            cache.get_or_try_build("version-1", || async { Ok::<_, ()>(2) })
+        })
         .await;
 
-        assert!(result.is_none());
+        assert!(matches!(result, SetupOutcome::TimedOut));
         release.notify_waiters();
         let completed = holder.await;
         assert!(matches!(completed, Ok(Ok(_))));

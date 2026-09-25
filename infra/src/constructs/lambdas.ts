@@ -6,7 +6,7 @@ import * as path from "node:path";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
-import { ssmValue } from "../config";
+import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
@@ -15,6 +15,7 @@ import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } 
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
+  readonly commitSha: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
 }
@@ -48,6 +49,13 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 128,
     timeoutSeconds: 10,
   },
+  cdcRouter: {
+    id: "CdcRouterLambda",
+    binaryName: "cdc-router-lambda",
+    memorySize: 256,
+    skipEphemeral: true,
+    timeoutSeconds: 30,
+  },
   fxRateSync: {
     id: "FxRateSyncLambda",
     binaryName: "fxrate-lambda",
@@ -55,8 +63,19 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     skipEphemeral: true,
     timeoutSeconds: 10,
+    environment: (context) => ({
+      FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${context.config.stage}/api-token`),
+    }),
+  },
+  backendCleanup: {
+    id: "BackendCleanupLambda",
+    binaryName: "backend-cleanup-lambda",
+    memorySize: 128,
+    postgres: true,
+    skipEphemeral: true,
+    timeoutSeconds: 10,
     environment: () => ({
-      FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
+      EXPIRY_CLEANUP_BATCH_SIZE: "100",
     }),
   },
 
@@ -103,10 +122,132 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
           }),
     }),
   },
+  productListingNormalization: {
+    id: "ProductListingNormalizationLambda",
+    binaryName: "product-listing-normalization-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
+  productContentAssessment: {
+    id: "ProductContentAssessmentLambda",
+    binaryName: "product-content-assessment-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
+  productEmbedding: {
+    id: "ProductEmbeddingLambda",
+    binaryName: "product-embedding-lambda",
+    memorySize: 1024,
+    postgres: true,
+    timeoutSeconds: 60,
+    environment: (context) => ({
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+    }),
+  },
+  productTranslation: {
+    id: "ProductTranslationLambda",
+    binaryName: "product-translation-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      VERTEX_AI_MODEL: context.config.isEphemeral
+        ? "gemini-3.1-flash-lite"
+        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+    }),
+  },
+  searchFilterProjection: {
+    id: "SearchFilterProjectionLambda",
+    binaryName: "search-filter-projection-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      STAGE: context.config.stage,
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      ...(context.config.isEphemeral
+        ? {}
+        : {
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+          }),
+    }),
+  },
+  notificationDelivery: {
+    id: "NotificationDeliveryLambda",
+    binaryName: "notification-delivery-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: notificationDeliveryEnvironment,
+  },
+  searchFilterPercolator: {
+    id: "SearchFilterPercolatorLambda",
+    binaryName: "search-filter-percolator-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+    environment: (context) => ({
+      STAGE: context.config.stage,
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+        ? "aura-historia-ephemeral-test"
+        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: context.config.isEphemeral
+        ? "eu"
+        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      VERTEX_AI_MODEL: context.config.isEphemeral
+        ? "gemini-3.1-flash-lite"
+        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
+        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
+        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      ...(context.config.isEphemeral
+        ? {}
+        : {
+            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/username`),
+            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/password`),
+          }),
+    }),
+  },
+  searchFilterMatchNotification: {
+    id: "SearchFilterMatchNotificationLambda",
+    binaryName: "search-filter-match-notification-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
+  watchlistNotification: {
+    id: "WatchlistNotificationLambda",
+    binaryName: "watchlist-notification-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
+  },
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
-type EphemeralOptionalLambdaKey = "fxRateSync";
+export const API_LAMBDA_ALIAS_NAME = "live";
+type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "fxRateSync";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
@@ -124,7 +265,20 @@ export interface LambdasProps {
 
 export class Lambdas extends Construct {
   readonly functions: LambdaFunctions;
+  readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
+  readonly productListingNormalizationVersion: lambda.Version;
+  readonly productContentAssessmentVersion: lambda.Version;
+  readonly productEmbeddingVersion: lambda.Version;
+  readonly productTranslationVersion: lambda.Version;
+  readonly searchFilterProjectionVersion: lambda.Version;
+  readonly searchFilterPercolatorVersion: lambda.Version;
+  readonly searchFilterMatchNotificationVersion: lambda.Version;
+  readonly watchlistNotificationVersion: lambda.Version;
+  readonly notificationDeliveryVersion: lambda.Version;
+  readonly backendCleanupVersion: lambda.Version | undefined;
+  readonly cdcRouterVersion: lambda.Version | undefined;
+  readonly fxRateSyncVersion: lambda.Version | undefined;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -139,6 +293,7 @@ export class Lambdas extends Construct {
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
+      commitSha: props.parameters.commitSha,
       postgres: props.postgres,
       search: props.search,
     };
@@ -166,6 +321,9 @@ export class Lambdas extends Construct {
           props.artifactBucket,
           `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
         ),
+        currentVersionOptions: key === "auraHistoriaApi"
+          ? { description: `aura-historia-api-${props.parameters.commitSha}` }
+          : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
@@ -177,10 +335,75 @@ export class Lambdas extends Construct {
     }
 
     this.functions = functions as LambdaFunctions;
+    this.apiAlias = new lambda.Alias(this, "AuraHistoriaApiAlias", {
+      aliasName: API_LAMBDA_ALIAS_NAME,
+      version: this.functions.auraHistoriaApi.currentVersion,
+      description: "Stable HTTP API integration target",
+    });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
       description: `product-listing-opensearch-${props.parameters.commitSha}`,
     });
+    this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
+      lambda: this.functions.productListingNormalization,
+      description: `product-listing-normalization-${props.parameters.commitSha}`,
+    });
+    this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
+      lambda: this.functions.productContentAssessment,
+      description: `product-content-assessment-${props.parameters.commitSha}`,
+    });
+    this.productEmbeddingVersion = new lambda.Version(this, "ProductEmbeddingVersion", {
+      lambda: this.functions.productEmbedding,
+      description: `product-embedding-${props.parameters.commitSha}`,
+    });
+    this.productTranslationVersion = new lambda.Version(this, "ProductTranslationVersion", {
+      lambda: this.functions.productTranslation,
+      description: `product-translation-${props.parameters.commitSha}`,
+    });
+    this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
+      lambda: this.functions.searchFilterProjection,
+      description: `search-filter-projection-${props.parameters.commitSha}`,
+    });
+    this.searchFilterPercolatorVersion = new lambda.Version(this, "SearchFilterPercolatorVersion", {
+      lambda: this.functions.searchFilterPercolator,
+      description: `search-filter-percolator-${props.parameters.commitSha}`,
+    });
+    this.searchFilterMatchNotificationVersion = new lambda.Version(this, "SearchFilterMatchNotificationVersion", {
+      lambda: this.functions.searchFilterMatchNotification,
+      description: `search-filter-match-notification-${props.parameters.commitSha}`,
+    });
+    this.watchlistNotificationVersion = new lambda.Version(this, "WatchlistNotificationVersion", {
+      lambda: this.functions.watchlistNotification,
+      description: `watchlist-notification-${props.parameters.commitSha}`,
+    });
+    this.notificationDeliveryVersion = new lambda.Version(this, "NotificationDeliveryVersion", {
+      lambda: this.functions.notificationDelivery,
+      description: `notification-delivery-${props.parameters.commitSha}`,
+    });
+    if (props.config.isEphemeral) {
+      this.backendCleanupVersion = undefined;
+      this.cdcRouterVersion = undefined;
+      this.fxRateSyncVersion = undefined;
+    } else {
+      const backendCleanup = this.functions.backendCleanup;
+      const cdcRouter = this.functions.cdcRouter;
+      const fxRateSync = this.functions.fxRateSync;
+      if (!backendCleanup || !cdcRouter || !fxRateSync) {
+        throw new Error("Real stages require backend cleanup, CDC router, and FX refresh Lambdas.");
+      }
+      this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
+        lambda: backendCleanup,
+        description: `backend-cleanup-${props.parameters.commitSha}`,
+      });
+      this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
+        lambda: cdcRouter,
+        description: `cdc-router-${props.parameters.commitSha}`,
+      });
+      this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
+        lambda: fxRateSync,
+        description: `fxrate-sync-${props.parameters.commitSha}`,
+      });
+    }
     grantRuntimeAccess(props, this.functions);
   }
 }
@@ -308,6 +531,20 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     }),
   );
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
+  props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
+  props.search.grantRead(functions.searchFilterPercolator);
+  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["s3:GetObject"],
+    resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],
+  }));
+  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["ses:SendEmail"],
+    resources: [cdk.Stack.of(props.mailTemplateBucket).formatArn({
+      service: "ses",
+      resource: "identity",
+      resourceName: props.config.notificationEmail.identityDomain,
+    })],
+  }));
 
   if (props.postgres.secretArn) {
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -345,6 +582,16 @@ export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn:
       resources: [userPoolArn],
     }),
   );
+}
+
+function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    COMMIT_SHA: context.commitSha,
+    NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
+    NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
+    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
+    STAGE: context.config.stage,
+  };
 }
 
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
@@ -403,6 +650,23 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
 
   for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
     if (config.isEphemeral && definition.skipEphemeral) {
+      continue;
+    }
+
+    if (key === "auraHistoriaApi") {
+      catalog[key] = lambda.Function.fromFunctionAttributes(
+        importScope,
+        `${definition.id}AliasImport`,
+        {
+          functionArn: cdk.Stack.of(scope).formatArn({
+            service: "lambda",
+            resource: "function",
+            resourceName: `${lambdaFunctionName(key, config.stage)}:${API_LAMBDA_ALIAS_NAME}`,
+            arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+          }),
+          sameEnvironment: true,
+        },
+      );
       continue;
     }
 

@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "record-type": "control",
+    "operation": "create-table",
+    "schema-name": "public",
+    "table-name": "search_filters"
+  },
+  "control": {
+    "table-def": {
+      "columns": {
+        "user_search_filter_id": {
+          "type": "WSTRING",
+          "length": 36,
+          "nullable": false
+        }
+      },
+      "primary-key": ["user_search_filter_id"]
+    }
+  }
+}

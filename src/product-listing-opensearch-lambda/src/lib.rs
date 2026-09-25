@@ -1,23 +1,18 @@
-use aura_historia_worker::product_listing_opensearch::{
-    ProductListingOpenSearchJobDisposition, process_product_listing_opensearch_job,
-};
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use futures_util::FutureExt;
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
+use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_opensearch::OpenSearchProductListingSearchProjection;
 use product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory;
 use product_listing_service::use_cases::{
-    ProjectProductListingHandler, ProjectProductListingUseCase,
+    ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,
+    ProjectProductListingOutcome, ProjectProductListingUseCase,
 };
-use std::{
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -73,21 +68,7 @@ pub async fn handler_with_invocation_budget(
 /// A missing message ID still fails the whole invocation because Lambda cannot form a truthful
 /// partial batch response for it.
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = event
-        .payload
-        .records
-        .iter()
-        .map(|record| {
-            record.message_id.clone().ok_or_else(|| {
-                Error::from("SQS event record has no message ID; fail whole invocation")
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(batch_failure)
-        .collect();
-    Ok(response)
+    platform_lambda_sqs::retain_all_records(event)
 }
 
 async fn handler_with_budget(
@@ -96,82 +77,119 @@ async fn handler_with_budget(
     invocation_budget: Duration,
     max_record_processing_budget: Duration,
 ) -> Result<SqsBatchResponse, Error> {
-    let record_count = event.payload.records.len();
-    let invocation_started_at = Instant::now();
-    let mut failures = Vec::new();
-
-    for record in event.payload.records {
-        let message_id = record.message_id.ok_or_else(|| {
-            Error::from("SQS event record has no message ID; fail whole invocation")
-        })?;
-        let remaining = invocation_budget.saturating_sub(invocation_started_at.elapsed());
-        let Some(processing_budget) =
-            record_processing_budget(max_record_processing_budget, remaining)
-        else {
-            warn!(
-                message_id = %message_id,
-                outcome = "insufficient_invocation_budget",
-                "ProductListing projection record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
-            continue;
+    let results = process_batch(
+        event,
+        invocation_budget,
+        max_record_processing_budget,
+        |body| async move { process_product_listing_opensearch_job(&body, use_case).await },
+    )
+    .await?;
+    let record_count = results.record_count;
+    let response = results.finish(|attempt| {
+        let (complete, category) = match &attempt.outcome {
+            RecordOutcome::Completed(disposition) => (
+                matches!(
+                    disposition,
+                    ProductListingOpenSearchJobDisposition::Complete(_)
+                ),
+                disposition.category(),
+            ),
+            RecordOutcome::MissingBody => (false, "missing_message_body"),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
+            RecordOutcome::TimedOut => (false, "execution_timeout"),
+            RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        let disposition = match record.body {
-            Some(body) => process_with_budget(&body, use_case, processing_budget).await,
-            None => ProductListingOpenSearchJobDisposition::Poison("missing_message_body"),
-        };
-
-        if !matches!(
-            disposition,
-            ProductListingOpenSearchJobDisposition::Complete(_)
-        ) {
-            warn!(
-                message_id = %message_id,
-                outcome = disposition.category(),
-                "ProductListing projection record retained for SQS retry or redrive"
-            );
-            failures.push(batch_failure(message_id));
+        if !complete {
+            warn!(message_id = %attempt.message_id, outcome = category,
+                "ProductListing projection record retained for SQS retry or redrive");
         }
-    }
-
+        complete
+    });
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = failures.len(),
+        failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished ProductListing OpenSearch projection batch"
     );
-
-    let mut response = SqsBatchResponse::default();
-    response.batch_item_failures = failures;
     Ok(response)
 }
 
-fn record_processing_budget(maximum: Duration, remaining: Duration) -> Option<Duration> {
-    let budget = maximum.min(remaining);
-    (!budget.is_zero()).then_some(budget)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingOpenSearchJobDisposition {
+    Complete(&'static str),
+    Retry(&'static str),
+    DependencyUnavailable(&'static str),
+    Poison(&'static str),
 }
 
-async fn process_with_budget(
-    body: &str,
-    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
-    processing_budget: Duration,
-) -> ProductListingOpenSearchJobDisposition {
-    match AssertUnwindSafe(tokio::time::timeout(
-        processing_budget,
-        process_product_listing_opensearch_job(body, use_case),
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(Ok(disposition)) => disposition,
-        Ok(Err(_)) => ProductListingOpenSearchJobDisposition::Retry("execution_timeout"),
-        Err(_) => ProductListingOpenSearchJobDisposition::Retry("handler_panicked"),
+impl ProductListingOpenSearchJobDisposition {
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::DependencyUnavailable(category)
+            | Self::Poison(category) => category,
+        }
     }
 }
 
-fn batch_failure(message_id: String) -> BatchItemFailure {
-    let mut failure = BatchItemFailure::default();
-    failure.item_identifier = message_id;
-    failure
+pub async fn process_product_listing_opensearch_job(
+    body: &str,
+    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
+) -> ProductListingOpenSearchJobDisposition {
+    match decode::<aura_historia_jobs::SearchFilterOperation>(
+        body,
+        WorkerScope::ProductListingOpenSearch,
+    ) {
+        Ok(job) => execute_job(use_case, job).await,
+        Err(_) => ProductListingOpenSearchJobDisposition::Poison("invalid_wire_job"),
+    }
+}
+
+pub async fn execute_job<O>(
+    use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
+    job: DomainJob<O>,
+) -> ProductListingOpenSearchJobDisposition {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
+        return ProductListingOpenSearchJobDisposition::Poison("unexpected_payload");
+    };
+    match use_case
+        .execute(ProjectProductListingCommand {
+            event_id: event.event_id,
+            product_listing_id: event.product_listing_id,
+        })
+        .await
+    {
+        Ok(result) => projection_disposition(result.outcome),
+        Err(ProjectProductListingError::SaleObservationFxSnapshotMissing) => {
+            ProductListingOpenSearchJobDisposition::Retry("sale_snapshot_missing")
+        }
+        Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. }) => {
+            ProductListingOpenSearchJobDisposition::Poison("sale_snapshot_invalid")
+        }
+        Err(_) => {
+            ProductListingOpenSearchJobDisposition::DependencyUnavailable("projection_unavailable")
+        }
+    }
+}
+
+pub fn projection_disposition(
+    outcome: ProjectProductListingOutcome,
+) -> ProductListingOpenSearchJobDisposition {
+    match outcome {
+        ProjectProductListingOutcome::Applied => {
+            ProductListingOpenSearchJobDisposition::Complete("applied")
+        }
+        ProjectProductListingOutcome::Deleted => {
+            ProductListingOpenSearchJobDisposition::Complete("deleted")
+        }
+        ProjectProductListingOutcome::Stale => {
+            ProductListingOpenSearchJobDisposition::Complete("stale")
+        }
+        // Absence of the committed event/source is not evidence that its projection was removed.
+        ProjectProductListingOutcome::MissingSource => {
+            ProductListingOpenSearchJobDisposition::Retry("missing_source")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -407,7 +425,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_whole_batch_when_a_record_has_no_message_id() {
+    async fn should_fail_whole_batch_before_processing_when_a_record_has_no_message_id() {
         let processor = FakeUseCase::new([FakeResult::Applied]);
 
         let result = handler(
@@ -420,7 +438,7 @@ mod tests {
         .await;
 
         assert!(result.is_err());
-        assert_eq!(processor.calls(), 1);
+        assert_eq!(processor.calls(), 0);
     }
 
     fn valid_body() -> String {

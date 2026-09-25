@@ -23,6 +23,7 @@ use notification_service::ports::{
 };
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct EmailDeliveryConfig {
     template_bucket: String,
     from_email_address: String,

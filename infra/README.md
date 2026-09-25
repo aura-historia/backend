@@ -12,7 +12,7 @@ synthesized for:
 
 ## Migration baseline
 
-The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) records the approved migration target, current CDK declarations, unverified live resources, ownership, and cutover gates. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Both documents, this README, and CDK synthesis do not prove deployed state.
+The [architecture contract](../docs/arch.md#12-cdc-and-projection-architecture) records the target worker ownership and cutover boundaries. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Neither document, this README, nor CDK synthesis proves deployed state.
 
 ## Structure
 
@@ -20,7 +20,7 @@ The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) recor
 bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, RDS shape, SSM dynamic refs
-src/worker-queue-config.ts # typed native worker scopes, timing, retention, alarms
+src/worker-queue-config.ts # typed worker queue scopes, timing, retention, alarms
 src/parameters.ts          # deployment artifact version input
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
 src/constructs/            # focused infrastructure modules
@@ -33,7 +33,7 @@ src/constructs/            # focused infrastructure modules
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # existing Shopify Lambda queue and DLQ
-  worker-queues.ts          # separate native worker queues, scoped IAM, handoff outputs
+  worker-queues.ts          # scoped worker queues, unbound IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
 sql/
   rds-bootstrap-roles.sql      # break-glass psql wrapper for role bootstrap
@@ -57,6 +57,8 @@ DmsCdc (real stages only)
 ```
 
 It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. The detailed start, slot, mapping, LOB, test, and cost contract is in [Migration F7](../docs/migration-f7-dms.md).
+
+The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. R6 selects the journal plus raw revisions, saved filters, matches, and delivery intents, with explicit trigger operations enforced by the router. #1788 owns AWS evidence and controlled replay proof.
 
 ## Common commands
 
@@ -139,10 +141,11 @@ cargo lambda build --locked --release \
 `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
-native Axum router, and applies a `14 s` application request deadline. Native
-processes remain the local development entrypoints. The artifact has no worker
-polling loop, cron scheduler, health daemon, API Gateway route, Function URL, or
-reserved/provisioned concurrency.
+native Axum router, and applies a `14 s` application request deadline. The same
+artifact matrix packages `cdc-router-lambda` from its own crate: it is a
+`256 MiB` / `30 s` Kinesis-to-SQS transport adapter that has no database, native
+worker polling loop, cron scheduler, health daemon, API Gateway route, Function
+URL, or reserved/provisioned concurrency. `notification-delivery-lambda` is a 512 MiB / 45s batch-one SQS consumer with an immutable function version. It composes only the durable PostgreSQL delivery service, versioned-template S3 reader, and one-attempt SES sender; mapping activation is a manual handoff gate, never an in-memory delivery cache. Native processes remain the local development entrypoints.
 
 A Lambda root constructs only its selected dependencies during cold start and
 reuses immutable configuration plus pool/client handles during warm invocations.
@@ -206,7 +209,6 @@ Migrated roots require a TLS-enabled PostgreSQL fixture. Run the code/config gat
 
 ```bash
 cargo test -p platform-postgres --all-features
-cargo test -p aura-historia-worker --lib --all-features
 npm --prefix infra test
 ```
 
@@ -238,22 +240,25 @@ npm run synth -- --context stage=prod
 
 They do not deploy or exercise AWS. The AWS fixture procedure is documented/manual; no new test script is implied. Real-stage declarations and synthesis are not live-resource or AWS-test proof. Look up DMS, Kinesis retention, and PrivateLink endpoint/data prices at change-set approval or execution; existing NAT has no DMS incremental charge. See [Migration F7](../docs/migration-f7-dms.md#cost-delta).
 
-## Native processes
+## Target artifact boundary
 
-Production native processes are:
-
-- `aura-historia-api`
-- `aura-historia-worker`
-- `aura-historia-cron`
+On pushes, `Deploy (CD)` builds and uploads only the Rust Lambda ZIP catalog
+referenced by CDK, including the ten scoped worker Lambdas and `cdc-router-lambda`.
+Normal manual deploy references those uploaded ZIPs by `CommitSHA`. Neither path
+builds, uploads, configures, or deploys the legacy native `aura-historia-worker`
+artifact or Sequin ingress. Native process deployment remains externally owned;
+this change does not pause consumers or activate the DMS/Kinesis path.
 
 ## Worker queue contract
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
 queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
-`product-listing-opensearch` queue has a retained Lambda mapping in every compute
-stack, but it is disabled by default until explicit activation; the other nine are
-native polling-worker scopes. This catalog remains separate from Shopify resources
-and wiring.
+`product-listing-opensearch`, `product-listing-normalization`, `product-content-assessment`,
+`product-embedding`, `product-translation`, `search-filter-projection`,
+`search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`, and
+`notification-delivery` queues have retained Lambda mappings in every compute stack, each
+disabled by default until its independent explicit activation. This catalog remains separate
+from Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
@@ -277,43 +282,35 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | Runtime scope | Output stem after `Worker` | Initial source visibility |
 | --- | --- | ---: |
 | `product-listing-opensearch` | `ProductListingOpensearch` | 300s |
-| `search-filter-projection` | `SearchFilterProjection` | 60s |
+| `search-filter-projection` | `SearchFilterProjection` | 300s |
 | `search-filter-percolator` | `SearchFilterPercolator` | 300s |
-| `search-filter-match-notification` | `SearchFilterMatchNotification` | 60s |
-| `watchlist-notification` | `WatchlistNotification` | 60s |
-| `product-content-assessment` | `ProductContentAssessment` | 60s |
-| `product-embedding` | `ProductEmbedding` | 300s |
+| `search-filter-match-notification` | `SearchFilterMatchNotification` | 300s |
+| `watchlist-notification` | `WatchlistNotification` | 300s |
+| `product-content-assessment` | `ProductContentAssessment` | 270s |
+| `product-embedding` | `ProductEmbedding` | 360s |
 | `product-translation` | `ProductTranslation` | 300s |
-| `product-listing-normalization` | `ProductListingNormalization` | 300s |
-| `notification-delivery` | `NotificationDelivery` | 360s |
+| `product-listing-normalization` | `ProductListingNormalization` | 270s |
+| `notification-delivery` | `NotificationDelivery` | 330s |
 
-`product-listing-opensearch` is a 512 MiB, 45s Lambda with a retained SQS mapping
-targeting a published function version, batch size one, and
-`ReportBatchItemFailures`. Its source visibility is **300s**, exceeding six times its
-Lambda timeout and matching the native slow-work profile. The mapping defaults to
-disabled; its resource, function version, queue pair, and IAM stay present while off.
-The Lambda uses no custom visibility change or receipt daemon; only completed service
-results are omitted from failures.
+`product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
-with the mapping disabled, pause the native `product-listing-opensearch` consumer and
+with the mapping disabled, pause the corresponding native consumer and
 let in-flight work settle, then explicitly enable the mapping. Never run both
 consumers. To return control, disable the mapping first, then deliberately resume a
 compatible native consumer. Backlog remains durable in the retained source queue and
-uses its ordinary retry/DLQ rules. The remaining nine scopes are polling Rust
-processes, so the Lambda timing rule does not apply to them. Their values match the
-worker's 45s short / 240s slow budgets; notification's 360s visibility leaves headroom
-around its five-minute service-owned lease. Standard SQS may duplicate/reorder
-messages; handlers must remain idempotent.
+uses its ordinary retry/DLQ rules. Standard SQS may duplicate/reorder messages; handlers
+must remain idempotent.
 
 ### Identity and outputs
 
-The nine bare-metal runtimes' AWS role/trust and process deployment are **not
+The four bare-metal runtimes' AWS role/trust and process deployment are **not
 defined in this CDK app**. No IAM user, access key, or invented deploy binding is
-created. The ProductListing Lambda has its own CDK execution role with source-queue
-consume and scoped OpenSearch access only; it has no queue purge, DLQ-message, or
-redrive power. The external identity owner attaches only needed unbound policies
+created. Each Lambda has its own CDK execution role with only the capabilities required by
+its scope; the notification generators receive PostgreSQL secret access and consume
+only their own source queue, not provider-delivery permissions. No Lambda has queue
+purge, DLQ-message, or redrive power. The external identity owner attaches only needed unbound policies
 to native workers; do not reuse the CI deploy role or a Lambda role as a worker role.
 
 | Unbound policy | Exact source actions | Paired DLQ actions |
@@ -340,19 +337,11 @@ The data stack (or single ephemeral stack) outputs:
 - Managed policy names: `aura-worker-<scope>-publisher-<stage>` and
   `aura-worker-<scope>-consumer-<stage>`.
 
-Set `AURA_HISTORIA_WORKER_SCOPE` to the exact runtime scope and
-`AURA_HISTORIA_WORKER_QUEUE_URL` to its **source** `QueueUrl`, never its DLQ.
-See [`examples/worker.env.example`](examples/worker.env.example). Preserve existing
-`POSTGRES_*` and scope-specific OpenSearch/Vertex settings. EMAIL delivery still
-requires `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`,
-`NOTIFICATION_EMAIL_REPLY_TO`, `COMMIT_SHA`, and `STAGE`, with existing S3/SES grants.
-No secrets or credentials belong in the example or stack outputs.
-
-For LocalStack, `singleStack=true` still produces `...-ephemeral` names. Use
-`STAGE=ephemeral`; substituting `local` or `test` implies different queue names.
-`AWS_ENDPOINT_URL_SQS` is allowed only in `ephemeral`, `local`, or `test`, with
-exactly the same origin as the queue URL. Real AWS stages must not set endpoint
-overrides; the runtime rejects global `AWS_ENDPOINT_URL`.
+These outputs and unbound policies remain for an externally managed native
+consumer during a controlled handoff; they are not native process deployment,
+credentials, or environment injection by CDK. Use the source queue URL, never
+the DLQ, and keep stage and AWS region consistent with the outputs. For LocalStack,
+`singleStack=true` still produces `...-ephemeral` names.
 
 ### Operations and rollout boundary
 
@@ -377,9 +366,8 @@ rules, Shopify mapping, and the default-disabled ProductListing mapping. The sch
 FX rule remains off until protected initialization enables it; initial FX is a direct,
 idempotent Lambda invocation, not a CloudFormation custom resource. It does not change
 Sequin subscriptions, publish a new production CDC path, start DMS, grant runtime
-redrive/purge power, or prove live AWS behavior. Native worker deployment remains
-external for the other scopes. Synthesis alone does not establish durable delivery or
-AWS acceptance evidence.
+redrive/purge power, or prove live AWS behavior. Legacy native worker deployment remains
+external. Synthesis alone does not establish durable delivery or AWS acceptance evidence.
 
 ## Deployment inputs
 
@@ -389,6 +377,10 @@ The compute stack exposes only:
 - `ProductListingOpenSearchConsumerEnabled` — `false` by default. It changes retained
   resources between off and on; it does not add, remove, replace, purge, or rename
   the ProductListing queue, mapping, Lambda, or FX resources.
+- `CdcRouterEnabled` — `false` by default. It independently enables only the existing
+  DMS/Kinesis router mapping after the approved slot/task-start and live-delivery gates;
+  it does not start, stop, reset, replace, or recreate DMS, the slot, stream, queues,
+  or checkpoints.
 
 `Deploy (CD)` is the normal protected-environment release: its only inputs are `stage`
 and uploaded-artifact `CommitSHA`. Pushes only test and publish immutable artifacts.
@@ -400,8 +392,9 @@ without starting or resetting DMS. It refuses an uninitialized data foundation.
 are `stage` and `CommitSHA`. It always applies the selected network/data revision before
 it deploys the importing private migration runtime and normal compute with event consumers
 off, invokes the private database migration Lambda, then invokes `fxrate-lambda` with its
-stable deployment source event ID. Only after both succeed does it enable the mapping,
-partner event rules, and FX schedule. Each step stops on failure; no workflow starts DMS.
+stable deployment source event ID. Only after both succeed does it enable the ProductListing
+mapping, partner event rules, and FX schedule; it keeps `CdcRouterEnabled=false`. Each step
+stops on failure; no workflow starts DMS.
 The separately approved first CDC start must use the actual source slot/LSN, and later
 recovery uses DMS `resume-processing`. Before Initialize, pause the native ProductListing
 OpenSearch consumer and allow active work to settle. Do not run native and Lambda consumers
@@ -439,6 +432,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /certificates/{stage}/api-cloudfront-certificate-arn
 /vertex-ai/{stage}/project-id
 /vertex-ai/{stage}/location
+/vertex-ai/{stage}/model
 /secrets/{stage}/google-application-credentials
 
 /secrets/{stage}/zoho-accounts-url
@@ -449,12 +443,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /secrets/{stage}/zoho-refresh-token
 ```
 
-The API Lambda alone resolves the Vertex project, location, and Google ADC JSON.
-It writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is
-neither packaged nor logged. The API needs no runtime SSM permission because these
-are CloudFormation dynamic references. `product-listing-opensearch-lambda` receives
-none of the Vertex or Google ADC configuration and has no Google or SSM permission.
-It resolves the listed OpenSearch endpoint, username, and password in real stages.
+The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 `fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled sync.
 Protected manual `Initialize (CD)` invokes it after database initialization and before
 enabling the ProductListing mapping, with stable source ID

@@ -1,6 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { Template } from "aws-cdk-lib/assertions";
 import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
@@ -11,15 +9,15 @@ import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerSc
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 300 },
-  "search-filter-projection": { id: "SearchFilterProjection", visibility: 60 },
+  "search-filter-projection": { id: "SearchFilterProjection", visibility: 300 },
   "search-filter-percolator": { id: "SearchFilterPercolator", visibility: 300 },
-  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 60 },
-  "watchlist-notification": { id: "WatchlistNotification", visibility: 60 },
-  "product-content-assessment": { id: "ProductContentAssessment", visibility: 60 },
-  "product-embedding": { id: "ProductEmbedding", visibility: 300 },
+  "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 300 },
+  "watchlist-notification": { id: "WatchlistNotification", visibility: 300 },
+  "product-content-assessment": { id: "ProductContentAssessment", visibility: 270 },
+  "product-embedding": { id: "ProductEmbedding", visibility: 360 },
   "product-translation": { id: "ProductTranslation", visibility: 300 },
-  "product-listing-normalization": { id: "ProductListingNormalization", visibility: 300 },
-  "notification-delivery": { id: "NotificationDelivery", visibility: 360 },
+  "product-listing-normalization": { id: "ProductListingNormalization", visibility: 270 },
+  "notification-delivery": { id: "NotificationDelivery", visibility: 330 },
 } as const;
 const EXPECTED_SCOPES = Object.keys(EXPECTED_WORKERS) as WorkerScope[];
 
@@ -188,8 +186,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(outputs.WorkerQueueAwsRegion).toEqual({ Value: { Ref: "AWS::Region" } });
     expect(outputs.WorkerQueueStage).toEqual({ Value: stage });
     const computeJson = JSON.stringify(compute.toJSON());
-    expect(computeJson).toContain(`aura-worker-product-listing-opensearch-${stage}`);
-    for (const scope of EXPECTED_SCOPES.filter((scope) => scope !== "product-listing-opensearch")) {
+    const computeWorkerScopes = EXPECTED_SCOPES;
+    for (const scope of computeWorkerScopes) {
+      expect(computeJson).toContain(`aura-worker-${scope}-${stage}`);
+    }
+    for (const scope of EXPECTED_SCOPES.filter((scope) => !computeWorkerScopes.includes(scope))) {
       expect(computeJson).not.toContain(`aura-worker-${scope}-${stage}`);
     }
     expect(JSON.stringify(Template.fromStack(stacks.api).toJSON())).not.toContain("aura-worker-");
@@ -230,8 +231,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(2);
-    const shopifyMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 10);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    const shopifyMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
+    );
     expect(shopifyMapping?.Properties).toMatchObject({
       FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
@@ -243,8 +246,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(2);
-    const productListingMapping = mappings.find((mapping) => mapping.Properties.BatchSize === 1);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    const productListingMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
+    );
     expect(productListingMapping?.Properties).toMatchObject({
       Enabled: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
@@ -269,16 +274,335 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(1);
-    expect(Object.values(compute.findResources("AWS::Lambda::Alias"))).toHaveLength(0);
+    // The API's stable HTTP integration, real-stage CDC router, and two maintenance targets
+    // each use immutable versions; all ten queue workers retain their own versions.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 14);
+    const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].Properties).toMatchObject({
+      Description: "Stable HTTP API integration target",
+      Name: "live",
+    });
     const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => statement.Action.includes("es:ESHttpPut"));
-    expect(projectionSearchStatements).toHaveLength(1);
+    expect(projectionSearchStatements).toHaveLength(2);
     expect(projectionSearchStatements[0]).toMatchObject({
       Action: "es:ESHttpPut",
       Effect: "Allow",
     });
+  });
+
+  test("retains the saved-filter projection handoff with only PostgreSQL, OpenSearch, and its source queue", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("SearchFilterProjectionVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-search-filter-projection-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
+        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
+    );
+  });
+
+  test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    const normalizationMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
+    );
+    expect(normalizationMapping?.Properties).toMatchObject({
+      BatchSize: 10,
+      Enabled: { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(normalizationMapping?.Properties.FunctionName))
+      .toContain("ProductListingNormalizationVersion");
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+    );
+  });
+
+  test("deploys the ProductListing content-assessment Lambda with only PostgreSQL and its source queue", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("ProductContentAssessmentVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["ProductContentAssessmentConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-product-content-assessment-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `product-content-assessment-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+
+    const assessmentPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .find((policy) => JSON.stringify(policy.Properties.Roles).includes("ProductContentAssessmentLambdaServiceRole"));
+    const queueStatements = (assessmentPolicy?.Properties.PolicyDocument.Statement ?? [])
+      .filter((statement: { readonly Action: unknown; readonly Resource: unknown }) =>
+        Array.isArray(statement.Action) && statement.Action.includes("sqs:ReceiveMessage"));
+    expect(queueStatements).toHaveLength(1);
+    expect(queueStatements[0]).toMatchObject({
+      Effect: "Allow",
+      Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl"],
+    });
+    expect(JSON.stringify(queueStatements[0].Resource))
+      .toContain(`aura-worker-product-content-assessment-${stage}`);
+  });
+
+  test("deploys the ProductListing embedding Lambda with its dedicated queue, PostgreSQL, and Vertex ADC only", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("ProductEmbeddingVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["ProductEmbeddingConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-product-embedding-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `product-embedding-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 1024,
+      Timeout: 60,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"]
+        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX_AI_MODEL|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+
+    const embeddingPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .find((policy) => JSON.stringify(policy.Properties.Roles).includes("ProductEmbeddingLambdaServiceRole"));
+    const statements = embeddingPolicy?.Properties.PolicyDocument.Statement ?? [];
+    const queueStatements = statements.filter((statement: { readonly Action: unknown }) =>
+      Array.isArray(statement.Action) && statement.Action.includes("sqs:ReceiveMessage"),
+    );
+    expect(queueStatements).toHaveLength(1);
+    expect(queueStatements[0]).toMatchObject({
+      Effect: "Allow",
+      Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl"],
+    });
+    expect(JSON.stringify(queueStatements[0])).toContain(`aura-worker-product-embedding-${stage}`);
+    expect(JSON.stringify(statements)).not.toMatch(/sqs:SendMessage|es:|ses:|s3:/);
+  });
+
+  test("deploys the ProductListing translation Lambda with its dedicated queue, PostgreSQL, and Vertex LLM configuration only", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("ProductTranslationVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["ProductTranslationConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-product-translation-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `product-translation-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"]
+        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+
+    const translationPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .find((policy) => JSON.stringify(policy.Properties.Roles).includes("ProductTranslationLambdaServiceRole"));
+    const statements = translationPolicy?.Properties.PolicyDocument.Statement ?? [];
+    const queueStatements = statements.filter((statement: { readonly Action: unknown }) =>
+      Array.isArray(statement.Action) && statement.Action.includes("sqs:ReceiveMessage"),
+    );
+    expect(queueStatements).toHaveLength(1);
+    expect(queueStatements[0]).toMatchObject({
+      Effect: "Allow",
+      Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl"],
+    });
+    expect(JSON.stringify(queueStatements[0])).toContain(`aura-worker-product-translation-${stage}`);
+    expect(JSON.stringify(statements)).not.toMatch(/sqs:SendMessage|es:|ses:|s3:/);
+  });
+
+  test("deploys the notification-delivery Lambda with only PostgreSQL, versioned templates, SES, and its source queue", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const mapping = mappings.find((candidate) =>
+      JSON.stringify(candidate.Properties.FunctionName).includes("NotificationDeliveryVersion"),
+    );
+    expect(mapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["NotificationDeliveryConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-notification-delivery-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `notification-delivery-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "S3_BUCKET_NAME_TEMPLATES", "STAGE"]
+        : ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+    );
+    const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
+      .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));
+    const statements = deliveryPolicy?.Properties.PolicyDocument.Statement ?? [];
+    expect(statements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ Action: "s3:GetObject", Effect: "Allow" }),
+      expect.objectContaining({ Action: "ses:SendEmail", Effect: "Allow" }),
+      expect.objectContaining({
+        Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl"],
+        Effect: "Allow",
+      }),
+    ]));
+    expect(JSON.stringify(statements)).not.toContain("ses:*");
+    expect(JSON.stringify(statements)).not.toContain("sqs:PurgeQueue");
+    expect(JSON.stringify(statements)).not.toContain("StartMessageMoveTask");
+  });
+
+  test("deploys the dedicated saved-filter percolator Lambda with scoped dependencies and a cutover mapping", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    const percolatorMapping = mappings.find((mapping) =>
+      JSON.stringify(mapping.Properties.FunctionName).includes("SearchFilterPercolatorVersion"),
+    );
+    expect(percolatorMapping?.Properties).toMatchObject({
+      BatchSize: 1,
+      Enabled: { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(JSON.stringify(percolatorMapping?.Properties.EventSourceArn))
+      .toContain(`aura-worker-search-filter-percolator-${stage}`);
+
+    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .filter((resource) => resource.Properties.FunctionName === `search-filter-percolator-lambda-${stage}`);
+    expect(functions).toHaveLength(1);
+    expect(functions[0].Properties).toMatchObject({
+      MemorySize: 512,
+      Timeout: 45,
+      Runtime: "provided.al2023",
+      Handler: "lib.handler",
+    });
+    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"]
+        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("S3_BUCKET_NAME_TEMPLATES");
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("NOTIFICATION_EMAIL");
+
+    const policies = Object.values(compute.findResources("AWS::IAM::Policy"));
+    const percolatorSearchStatements = policies
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => statement.Action.includes("es:ESHttpPost"));
+    expect(percolatorSearchStatements).toHaveLength(1);
+    expect(percolatorSearchStatements[0].Action).toEqual([
+      "es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
+    ]);
+  });
+
+  test("deploys separate PostgreSQL-only notification generators with isolated default-off mappings", () => {
+    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
+    for (const [version, activation, queue, binary] of [
+      ["SearchFilterMatchNotificationVersion", "SearchFilterMatchNotificationConsumerActivation", "search-filter-match-notification", "search-filter-match-notification-lambda"],
+      ["WatchlistNotificationVersion", "WatchlistNotificationConsumerActivation", "watchlist-notification", "watchlist-notification-lambda"],
+    ]) {
+      const mapping = mappings.find((candidate) => JSON.stringify(candidate.Properties.FunctionName).includes(version));
+      expect(mapping?.Properties).toMatchObject({
+        BatchSize: 1,
+        Enabled: { "Fn::If": [activation, true, false] },
+        FunctionResponseTypes: ["ReportBatchItemFailures"],
+      });
+      expect(JSON.stringify(mapping?.Properties.EventSourceArn)).toContain(`aura-worker-${queue}-${stage}`);
+
+      const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
+        .filter((resource) => resource.Properties.FunctionName === `${binary}-${stage}`);
+      expect(functions).toHaveLength(1);
+      expect(functions[0].Properties).toMatchObject({
+        MemorySize: 512,
+        Timeout: 45,
+        Runtime: "provided.al2023",
+        Handler: "lib.handler",
+      });
+      expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+      expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
+        stage === "ephemeral"
+          ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
+          : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      );
+      expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
+    }
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {
@@ -290,7 +614,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     }
     const template = Template.fromStack(stacks.observability!);
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
-      .filter((resource) => resource.Properties.Namespace === "AWS/SQS");
+      .filter((resource) => resource.Properties.Namespace === "AWS/SQS")
+      .filter((resource) => String(resource.Properties.AlarmName).startsWith("prod-worker-"));
     expect(alarms).toHaveLength(20);
     const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
     expect(topicIds).toHaveLength(1);
@@ -322,7 +647,7 @@ test("single-stack ephemeral has the same queue and consumer contract", () => {
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 11);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 
@@ -345,18 +670,6 @@ test.each<{ enabledScopes: WorkerScope[] }>([
   expect(Object.keys(template.toJSON().Outputs)).toHaveLength(enabledScopes.length * 6 + 2);
 });
 
-test("example uses the exact source queue, region, stage and scope without credentials or endpoint overrides", () => {
-  const example = fs.readFileSync(path.join(__dirname, "../examples/worker.env.example"), "utf8");
-  const environment = Object.fromEntries(example.split("\n")
-    .filter((line) => line.trim() && !line.startsWith("#"))
-    .map((line) => line.split("=")));
-  expect(environment).toEqual({
-    AWS_REGION: "eu-central-1",
-    STAGE: "prod",
-    AURA_HISTORIA_WORKER_SCOPE: "notification-delivery",
-    AURA_HISTORIA_WORKER_QUEUE_URL: "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-notification-delivery-prod",
-  });
-});
 
 test("queue names use stage, never a custom stack prefix, and reject names over SQS's limit", () => {
   const app = new cdk.App({ analyticsReporting: false });

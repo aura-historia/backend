@@ -4,6 +4,18 @@ import { Construct } from "constructs";
 export interface ApplicationParameters {
   readonly commitSha: string;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
+  readonly partnerIntegrationActivation: cdk.CfnCondition;
+  readonly fxRateRefreshActivation?: cdk.CfnCondition;
+  readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
+  readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
+  readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
+  readonly productTranslationConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
+  readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
+  readonly watchlistNotificationConsumerActivation: cdk.CfnCondition;
+  readonly notificationDeliveryConsumerActivation: cdk.CfnCondition;
+  readonly cdcRouterActivation?: cdk.CfnCondition;
 }
 
 export function artifactCommitShaParameter(scope: Construct): string {
@@ -13,20 +25,156 @@ export function artifactCommitShaParameter(scope: Construct): string {
   }).valueAsString;
 }
 
-export function applicationParameters(scope: Construct): ApplicationParameters {
+export function applicationParameters(
+  scope: Construct,
+  includeCdcRouterActivation = false,
+  includeFxRateRefreshActivation = false,
+): ApplicationParameters {
   const commitSha = artifactCommitShaParameter(scope);
   const productListingOpenSearchConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingOpenSearchConsumerEnabled", {
     type: "String",
     default: "false",
     allowedValues: ["true", "false"],
-    description: "Enable ProductListing projection, partner event sources, and FX scheduling after initialization readiness checks.",
+    description: "Enable the dedicated ProductListing OpenSearch SQS Lambda after native-consumer handoff and initialization readiness checks.",
   });
   const productListingOpenSearchConsumerActivation = new cdk.CfnCondition(scope, "ProductListingOpenSearchConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingOpenSearchConsumerEnabled.valueAsString, "true"),
   });
+  const partnerIntegrationEnabled = new cdk.CfnParameter(scope, "PartnerIntegrationEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the retained Shopify and Stripe EventBridge intakes only after business migrations and initial FX capture succeed.",
+  });
+  const partnerIntegrationActivation = new cdk.CfnCondition(scope, "PartnerIntegrationActivation", {
+    expression: cdk.Fn.conditionEquals(partnerIntegrationEnabled.valueAsString, "true"),
+  });
+  const fxRateRefreshActivation = includeFxRateRefreshActivation
+    ? fxRateRefreshCondition(scope)
+    : undefined;
+  const productListingNormalizationConsumerEnabled = new cdk.CfnParameter(scope, "ProductListingNormalizationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing raw-normalization SQS Lambda after native-consumer handoff and CDC/SQS delivery readiness gates.",
+  });
+  const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),
+  });
+  const productContentAssessmentConsumerEnabled = new cdk.CfnParameter(scope, "ProductContentAssessmentConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing content-assessment SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const productContentAssessmentConsumerActivation = new cdk.CfnCondition(scope, "ProductContentAssessmentConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productContentAssessmentConsumerEnabled.valueAsString, "true"),
+  });
+  const productEmbeddingConsumerEnabled = new cdk.CfnParameter(scope, "ProductEmbeddingConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing embedding SQS Lambda only after the native-consumer handoff, provider quota, and capacity gates are approved.",
+  });
+  const productEmbeddingConsumerActivation = new cdk.CfnCondition(scope, "ProductEmbeddingConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productEmbeddingConsumerEnabled.valueAsString, "true"),
+  });
+  const productTranslationConsumerEnabled = new cdk.CfnParameter(scope, "ProductTranslationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated ProductListing translation SQS Lambda only after the native consumer is paused and settled and provider quota is approved.",
+  });
+  const productTranslationConsumerActivation = new cdk.CfnCondition(scope, "ProductTranslationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(productTranslationConsumerEnabled.valueAsString, "true"),
+  });
+  const searchFilterProjectionConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterProjectionConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter projection SQS Lambda after the native-consumer handoff and deletion-fence gates.",
+  });
+  const searchFilterProjectionConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterProjectionConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterProjectionConsumerEnabled.valueAsString, "true"),
+  });
+  const searchFilterPercolatorConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterPercolatorConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter percolator SQS Lambda after the native-consumer cutover gate.",
+  });
+  const searchFilterPercolatorConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterPercolatorConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterPercolatorConsumerEnabled.valueAsString, "true"),
+  });
+  const searchFilterMatchNotificationConsumerEnabled = new cdk.CfnParameter(scope, "SearchFilterMatchNotificationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated saved-filter match notification SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const searchFilterMatchNotificationConsumerActivation = new cdk.CfnCondition(scope, "SearchFilterMatchNotificationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(searchFilterMatchNotificationConsumerEnabled.valueAsString, "true"),
+  });
+  const watchlistNotificationConsumerEnabled = new cdk.CfnParameter(scope, "WatchlistNotificationConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated watchlist notification SQS Lambda after the native-consumer handoff is complete.",
+  });
+  const watchlistNotificationConsumerActivation = new cdk.CfnCondition(scope, "WatchlistNotificationConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(watchlistNotificationConsumerEnabled.valueAsString, "true"),
+  });
+  const notificationDeliveryConsumerEnabled = new cdk.CfnParameter(scope, "NotificationDeliveryConsumerEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the dedicated notification-delivery SQS Lambda only after the native consumer is stopped, SES recipients are approved, and delivery recovery gates pass.",
+  });
+  const notificationDeliveryConsumerActivation = new cdk.CfnCondition(scope, "NotificationDeliveryConsumerActivation", {
+    expression: cdk.Fn.conditionEquals(notificationDeliveryConsumerEnabled.valueAsString, "true"),
+  });
+  const cdcRouterActivation = includeCdcRouterActivation
+    ? cdcRouterCondition(scope)
+    : undefined;
 
   return {
     commitSha,
     productListingOpenSearchConsumerActivation,
+    partnerIntegrationActivation,
+    fxRateRefreshActivation,
+    productListingNormalizationConsumerActivation,
+    productContentAssessmentConsumerActivation,
+    productEmbeddingConsumerActivation,
+    productTranslationConsumerActivation,
+    searchFilterProjectionConsumerActivation,
+    searchFilterPercolatorConsumerActivation,
+    searchFilterMatchNotificationConsumerActivation,
+    watchlistNotificationConsumerActivation,
+    notificationDeliveryConsumerActivation,
+    cdcRouterActivation,
   };
+}
+
+function fxRateRefreshCondition(scope: Construct): cdk.CfnCondition {
+  const fxRateRefreshEnabled = new cdk.CfnParameter(scope, "FxRateRefreshEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable recurring FX refresh and cleanup only after protected initialization succeeds.",
+  });
+  return new cdk.CfnCondition(scope, "FxRateRefreshActivation", {
+    expression: cdk.Fn.conditionEquals(fxRateRefreshEnabled.valueAsString, "true"),
+  });
+}
+
+function cdcRouterCondition(scope: Construct): cdk.CfnCondition {
+  const cdcRouterEnabled = new cdk.CfnParameter(scope, "CdcRouterEnabled", {
+    type: "String",
+    default: "false",
+    allowedValues: ["true", "false"],
+    description: "Enable the DMS/Kinesis CDC router only after separately approved slot, task-start, and delivery evidence gates.",
+  });
+  return new cdk.CfnCondition(scope, "CdcRouterActivation", {
+    expression: cdk.Fn.conditionEquals(cdcRouterEnabled.valueAsString, "true"),
+  });
 }

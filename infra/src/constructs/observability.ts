@@ -2,9 +2,13 @@ import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
+import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
+import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
 import type { WorkerQueueCatalog } from "./worker-queues";
@@ -15,6 +19,7 @@ export interface ObservabilityProps {
   readonly api: apigwv2.HttpApi;
   readonly functions: LambdaCatalog;
   readonly workerQueues: WorkerQueueCatalog;
+  readonly maintenanceSchedulerDeadLetterQueue: sqs.IQueue;
 }
 
 export class Observability extends Construct {
@@ -34,6 +39,19 @@ export class Observability extends Construct {
     const alarmAction = new actions.SnsAction(this.alarmTopic);
 
     const settings = props.config.workerQueues.alarms;
+    new cloudwatch.Alarm(this, "MaintenanceSchedulerDeadLetterVisibleAlarm", {
+      alarmName: `${props.stageName}-maintenance-scheduler-dlq-visible`,
+      alarmDescription: "Maintenance Scheduler has failed target deliveries; investigate the DLQ before replay.",
+      metric: props.maintenanceSchedulerDeadLetterQueue.metricApproximateNumberOfMessagesVisible({
+        statistic: "Maximum",
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
+
     for (const workerScope of props.config.workerQueues.enabledScopes) {
       const queues = props.workerQueues[workerScope];
       if (!queues) {
@@ -76,10 +94,41 @@ export class Observability extends Construct {
       lambdaAlarm(this, props.stageName, `${key}ErrorAlarm`, "Errors", functionName, queueWorkerKeys.has(key) ? 5 : 1)
         .addAlarmAction(alarmAction);
 
-      if (apiLambdaKeys.has(key)) {
+      if (throttleAlarmLambdaKeys.has(key)) {
         lambdaAlarm(this, props.stageName, `${key}ThrottleAlarm`, "Throttles", functionName, 1).addAlarmAction(alarmAction);
       }
     }
+
+    const cdcRouterFunctionName = lambdaFunctionName("cdcRouter", props.config.stage);
+    lambdaAlarm(
+      this,
+      props.stageName,
+      "CdcRouterIteratorAgeAlarm",
+      "IteratorAge",
+      cdcRouterFunctionName,
+      CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS,
+      "Maximum",
+    ).addAlarmAction(alarmAction);
+    lambdaAlarm(
+      this,
+      props.stageName,
+      "CdcRouterDestinationDeliveryFailuresAlarm",
+      "DestinationDeliveryFailures",
+      cdcRouterFunctionName,
+      1,
+    ).addAlarmAction(alarmAction);
+
+    const routerMappingId = cdk.Fn.importValue(cdcRouterEventSourceMappingIdExportName(props.config.stage));
+    for (const [id, metricName] of [
+      ["CdcRouterArchiveDeliveredAlarm", "OnFailureDestinationDeliveredEventCount"],
+      ["CdcRouterDroppedEventAlarm", "DroppedEventCount"],
+    ] as const) {
+      cdcMetricAlarm(this, props.stageName, id, "AWS/Lambda", metricName, { EventSourceMappingUUID: routerMappingId }, 1, "Sum")
+        .addAlarmAction(alarmAction);
+    }
+
+    cdcDmsAlarms(this, props.stageName, alarmAction);
+    cdcDmsTaskStateNotifications(this, props.stageName, this.alarmTopic);
   }
 }
 
@@ -90,6 +139,7 @@ function lambdaAlarm(
   metricName: string,
   functionName: string,
   threshold: number,
+  statistic = "Sum",
 ): cloudwatch.Alarm {
   return new cloudwatch.Alarm(scope, id, {
     alarmName: `${stageName}-${toKebabCase(functionName)}-${toKebabCase(metricName)}`,
@@ -98,13 +148,104 @@ function lambdaAlarm(
       namespace: "AWS/Lambda",
       metricName,
       dimensionsMap: { FunctionName: functionName },
-      statistic: "Sum",
+      statistic,
       period: cdk.Duration.minutes(5),
     }),
     threshold,
     evaluationPeriods: 1,
     comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
+}
+
+function cdcDmsAlarms(scope: Construct, stageName: string, alarmAction: actions.SnsAction): void {
+  const replicationInstanceIdentifier = `aura-historia-dms-cdc-${stageName}`;
+  const replicationTaskIdentifier = `aura-historia-cdc-${stageName}`;
+  const databaseInstanceIdentifier = `aura-historia-postgres-${stageName}`;
+  const streamName = `aura-historia-cdc-${stageName}`;
+  const dmsTaskDimensions = { ReplicationInstanceIdentifier: replicationInstanceIdentifier, ReplicationTaskIdentifier: replicationTaskIdentifier };
+
+  cdcMetricAlarm(scope, stageName, "CdcDmsSourceLatencyAlarm", "AWS/DMS", "CDCLatencySource", dmsTaskDimensions, 300)
+    .addAlarmAction(alarmAction);
+  cdcMetricAlarm(scope, stageName, "CdcDmsTargetLatencyAlarm", "AWS/DMS", "CDCLatencyTarget", dmsTaskDimensions, 300)
+    .addAlarmAction(alarmAction);
+  cdcMetricAlarm(
+    scope,
+    stageName,
+    "CdcDmsCapacityAlarm",
+    "AWS/DMS",
+    "CPUUtilization",
+    { ReplicationInstanceIdentifier: replicationInstanceIdentifier },
+    80,
+    "Maximum",
+    3,
+  ).addAlarmAction(alarmAction);
+  cdcMetricAlarm(
+    scope,
+    stageName,
+    "CdcKinesisWriteCapacityAlarm",
+    "AWS/Kinesis",
+    "WriteProvisionedThroughputExceeded",
+    { StreamName: streamName },
+    1,
+  ).addAlarmAction(alarmAction);
+
+  new cloudwatch.Alarm(scope, "CdcSourceWalStorageAlarm", {
+    alarmName: `${stageName}-cdc-source-wal-storage`,
+    alarmDescription: "RDS free storage is at or below 10 GiB; investigate logical-slot WAL retention before source storage is exhausted.",
+    metric: new cloudwatch.Metric({
+      namespace: "AWS/RDS",
+      metricName: "FreeStorageSpace",
+      dimensionsMap: { DBInstanceIdentifier: databaseInstanceIdentifier },
+      statistic: "Minimum",
+      period: cdk.Duration.minutes(5),
+    }),
+    threshold: 10 * 1024 * 1024 * 1024,
+    evaluationPeriods: 1,
+    comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  }).addAlarmAction(alarmAction);
+}
+
+function cdcMetricAlarm(
+  scope: Construct,
+  stageName: string,
+  id: string,
+  namespace: string,
+  metricName: string,
+  dimensionsMap: Record<string, string>,
+  threshold: number,
+  statistic = "Maximum",
+  evaluationPeriods = 1,
+): cloudwatch.Alarm {
+  return new cloudwatch.Alarm(scope, id, {
+    alarmName: `${stageName}-${toKebabCase(id.replace(/Alarm$/, ""))}`,
+    alarmDescription: `CDC ${metricName} requires operator investigation.`,
+    metric: new cloudwatch.Metric({
+      namespace,
+      metricName,
+      dimensionsMap,
+      statistic,
+      period: cdk.Duration.minutes(5),
+    }),
+    threshold,
+    evaluationPeriods,
+    comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
+}
+
+function cdcDmsTaskStateNotifications(scope: Construct, stageName: string, alarmTopic: sns.ITopic): void {
+  new events.Rule(scope, "CdcDmsTaskStateChangeRule", {
+    description: `Notify on stopped or failed DMS replication-task state changes in ${stageName}.`,
+    eventPattern: {
+      source: ["aws.dms"],
+      detailType: ["DMS Replication Task State Change"],
+      detail: {
+        eventType: ["REPLICATION_TASK_FAILED", "REPLICATION_TASK_STOPPED"],
+      },
+    },
+    targets: [new targets.SnsTopic(alarmTopic)],
   });
 }
 
@@ -137,9 +278,21 @@ function apiAlarm(
   });
 }
 
-const apiLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi"]);
+const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter"]);
 
-const queueWorkerKeys = new Set<LambdaKey>(["shopify", "productListingOpenSearch"]);
+const queueWorkerKeys = new Set<LambdaKey>([
+  "shopify",
+  "productListingOpenSearch",
+  "productListingNormalization",
+  "productContentAssessment",
+  "productEmbedding",
+  "productTranslation",
+  "searchFilterMatchNotification",
+  "watchlistNotification",
+  "notificationDelivery",
+]);
+
+const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;
 
 function toKebabCase(value: string): string {
   return value

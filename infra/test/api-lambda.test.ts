@@ -25,6 +25,32 @@ function apiFunction(template: Template, stage: StageName): CloudFormationResour
   return lambdaFunction(template, `aura-historia-api-${stage}`);
 }
 
+function apiAliasVersion(template: Template): { alias: CloudFormationResource; version: CloudFormationResource; versionId: string } {
+  const aliases = Object.values(template.findResources("AWS::Lambda::Alias")) as CloudFormationResource[];
+  expect(aliases).toHaveLength(1);
+  const alias = aliases[0];
+  const versionRef = alias.Properties.FunctionVersion as { "Fn::GetAtt": [string, string] };
+  expect(versionRef["Fn::GetAtt"][1]).toBe("Version");
+  const versionId = versionRef["Fn::GetAtt"][0];
+  const version = template.findResources("AWS::Lambda::Version")[versionId] as CloudFormationResource | undefined;
+  if (!version) {
+    throw new Error(`API alias references missing version ${versionId}.`);
+  }
+  return { alias, version, versionId };
+}
+
+function resolveCommitSha(value: unknown, sha: string): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (JSON.stringify(value) === JSON.stringify({ Ref: "CommitSHA" })) {
+    return sha;
+  }
+  const join = (value as { "Fn::Join": [string, unknown[]] })["Fn::Join"];
+  expect(join[0]).toBe("");
+  return join[1].map((part) => resolveCommitSha(part, sha)).join("");
+}
+
 function expectedApiEnvironmentKeys(stage: StageName): string[] {
   const keys = [
     "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
@@ -111,17 +137,55 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
   });
 
+  test("promotes parameter-only artifacts and rollback through an immutable live version", () => {
+    const template = computeTemplate(stage);
+    const { alias, version, versionId } = apiAliasVersion(template);
+    const apiFunctionEntries = Object.entries(template.findResources("AWS::Lambda::Function"));
+    const [functionId] = apiFunctionEntries.find(
+      ([, resource]) => (resource as CloudFormationResource).Properties.FunctionName === `aura-historia-api-${stage}`,
+    ) ?? [];
+    const code = apiFunction(template, stage).Properties.Code as { S3Key: unknown };
+    const firstSha = "aaaaaaaa";
+    const nextSha = "bbbbbbbb";
+
+    expect(alias.Properties).toMatchObject({ Name: "live", FunctionName: { Ref: functionId } });
+    expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
+    expect(version.Properties.Description).toEqual({
+      "Fn::Join": ["", ["aura-historia-api-", { Ref: "CommitSHA" }]],
+    });
+    expect(code.S3Key).toEqual({
+      "Fn::Join": ["", [`aura-historia-api-${stage}-`, { Ref: "CommitSHA" }, ".zip"]],
+    });
+    // Same synthesized template: only the deploy-time parameter changes, never a synth-time clock or random ID.
+    const [initial, promotion, rollback, unchanged] = [firstSha, nextSha, firstSha, firstSha]
+      .map((sha) => resolveCommitSha(version.Properties.Description, sha));
+    expect(initial).toBe("aura-historia-api-aaaaaaaa");
+    expect(promotion).toBe("aura-historia-api-bbbbbbbb");
+    expect(promotion).not.toBe(initial);
+    expect(rollback).not.toBe(promotion);
+    expect(rollback).toBe(initial);
+    expect(unchanged).toBe(rollback);
+    expect(resolveCommitSha(code.S3Key, firstSha)).toBe(`aura-historia-api-${stage}-aaaaaaaa.zip`);
+    expect(resolveCommitSha(code.S3Key, nextSha)).toBe(`aura-historia-api-${stage}-bbbbbbbb.zip`);
+    // Alias references the version resource, not $LATEST or any assumed numeric version ID.
+    expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [versionId, "Version"] });
+    expect(version.Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(version.Properties.ProvisionedConcurrencyConfig).toBeUndefined();
+  });
+
   test("keeps Vertex ADC configuration and permissions out of the projector", () => {
     const template = computeTemplate(stage);
-    const projector = lambdaFunction(template, `product-listing-opensearch-lambda-${stage}`);
-    const projectorEnvironment = projector.Properties.Environment as { Variables: Record<string, unknown> };
+    for (const name of ["product-listing-opensearch-lambda", "search-filter-projection-lambda"]) {
+      const projector = lambdaFunction(template, `${name}-${stage}`);
+      const projectorEnvironment = projector.Properties.Environment as { Variables: Record<string, unknown> };
 
-    expect(projectorEnvironment.Variables.AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON).toBeUndefined();
-    expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
-    expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
-    expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
-    expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
-    expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
+      expect(projectorEnvironment.Variables.AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON).toBeUndefined();
+      expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+      expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
+      expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
+      expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
+      expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
+    }
     expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("ssm:GetParameter");
   });
 
@@ -139,9 +203,26 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(apiFunctionLogicalId).toBeDefined();
     expect(functionResource.Properties.VpcConfig === undefined).toBe(stage === "ephemeral");
     expect(JSON.stringify(eventSourceMappings)).not.toContain(apiFunctionLogicalId);
-    expect(JSON.stringify(aliases)).not.toContain(apiFunctionLogicalId);
+    expect(aliases).toHaveLength(1);
+    expect(JSON.stringify(aliases[0])).toContain(apiFunctionLogicalId);
+    expect(JSON.stringify(aliases[0])).toContain("live");
     expect(Object.values(template.findResources("AWS::Lambda::Url"))).toHaveLength(0);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Integration"))).toHaveLength(0);
+  });
+});
+
+test("configuration-only API updates still change the currentVersion target", () => {
+  const before = computeTemplate("dev");
+  const app = new cdk.App({ analyticsReporting: false });
+  const stacks = createApplicationStacks(app, { stage: "dev" });
+  stacks.compute.lambdas.functions.auraHistoriaApi.addEnvironment("TEST_VERSION_CONFIG", "changed");
+  const afterTemplate = Template.fromStack(stacks.compute);
+  const { alias, versionId: after } = apiAliasVersion(afterTemplate);
+
+  expect(after).not.toBe(apiAliasVersion(before).versionId);
+  expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [after, "Version"] });
+  expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description).toEqual({
+    "Fn::Join": ["", ["aura-historia-api-", { Ref: "CommitSHA" }]],
   });
 });
 

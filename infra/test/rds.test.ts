@@ -126,14 +126,39 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(7);
-    expect(runtimeFunctions).toHaveLength(6);
+    expect(functions).toHaveLength(17);
+    expect(runtimeFunctions).toHaveLength(16);
     expect(migration).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-content-assessment-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-embedding-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-translation-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `search-filter-percolator-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `search-filter-match-notification-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `watchlist-notification-lambda-${stage}`,
+    )).toBeDefined();
     expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(1);
     initialization.resourceCountIs("AWS::Lambda::EventSourceMapping", 0);
     initialization.resourceCountIs("AWS::Events::Rule", 0);
     expect(JSON.stringify(compute.toJSON())).not.toContain(`database-migration-lambda-${stage}`);
     expect(JSON.stringify(compute.toJSON())).toContain(`fxrate-lambda-${stage}`);
+    expect(JSON.stringify(compute.toJSON())).toContain(`backend-cleanup-lambda-${stage}`);
     const runtimeSecretArn = runtimeFunctions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
     expect(runtimeSecretArn).toBeDefined();
     for (const functionResource of runtimeFunctions) {
@@ -180,7 +205,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    expect(runtimeSecretReadStatements).toHaveLength(6);
+    expect(runtimeSecretReadStatements).toHaveLength(16);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",
@@ -324,7 +349,34 @@ test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a 
   const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
     .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-  expect(functions).toHaveLength(5);
+  expect(functions).toHaveLength(14);
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-embedding-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-translation-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-listing-normalization-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "product-content-assessment-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "notification-delivery-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "search-filter-projection-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "search-filter-percolator-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "search-filter-match-notification-lambda-ephemeral",
+  )).toBeDefined();
+  expect(functions.find((resource) =>
+    resource.Properties.FunctionName === "watchlist-notification-lambda-ephemeral",
+  )).toBeDefined();
   for (const functionResource of functions) {
     const environment = functionResource.Properties.Environment.Variables;
     expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE);

@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
+google-cloud-auth = { workspace = true }
 lambda_runtime = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }

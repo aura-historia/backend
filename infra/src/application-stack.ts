@@ -12,7 +12,7 @@ import { applicationParameters, artifactCommitShaParameter } from "./parameters"
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { DmsCdc } from "./constructs/dms-cdc";
-import { Eventing } from "./constructs/eventing";
+import { Eventing, importMaintenanceSchedulerDeadLetterQueue } from "./constructs/eventing";
 import { Network } from "./constructs/network";
 import {
   addUserPoolEnvironment,
@@ -93,6 +93,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     storage: data.storage,
     queues: data.queues,
     search: data.search,
+    dmsCdc: data.dmsCdc,
     network: network?.network,
   });
   compute.addDependency(data);
@@ -238,6 +239,7 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly storage: Storage;
   readonly queues: Queues;
   readonly search: Search;
+  readonly dmsCdc?: DmsCdc;
   readonly network?: Network;
 }
 
@@ -252,7 +254,7 @@ export class ApplicationComputeStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
-    const parameters = applicationParameters(this);
+    const parameters = applicationParameters(this, !config.isEphemeral, !config.isEphemeral);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -285,11 +287,36 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
-      queues: importQueueCatalog(this, "EventingQueueImports", stageName),
-      workerQueues: importWorkerQueueCatalog(this, "EventingWorkerQueueImports", config),
+      queues: importQueueCatalog(this, "Queues", stageName),
+      workerQueues: importWorkerQueueCatalog(this, "WorkerQueues", config),
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
+      productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
+      productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
+      productTranslationVersion: this.lambdas.productTranslationVersion,
+      searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
+      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
+      searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
+      watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
+      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      backendCleanupVersion: this.lambdas.backendCleanupVersion,
+      cdcRouterVersion: this.lambdas.cdcRouterVersion,
+      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
+      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
+      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
+      productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
+      productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,
+      productTranslationConsumerActivation: parameters.productTranslationConsumerActivation,
+      searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
+      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
+      searchFilterMatchNotificationConsumerActivation: parameters.searchFilterMatchNotificationConsumerActivation,
+      watchlistNotificationConsumerActivation: parameters.watchlistNotificationConsumerActivation,
+      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
+      cdcRouterActivation: parameters.cdcRouterActivation,
+      dmsCdc: props.dmsCdc,
     });
 
     computeOutputs(this, {
@@ -320,7 +347,6 @@ export class ApplicationApiStack extends cdk.Stack {
       config,
       stageName,
       functions: importLambdaCatalog(this, "LambdaImports", config),
-      identity: props.identity,
     });
 
     new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
@@ -400,14 +426,37 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       workerQueues: this.workerQueues.catalog,
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
+      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
+      productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
+      productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
+      productTranslationVersion: this.lambdas.productTranslationVersion,
+      searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
+      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
+      searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
+      watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
+      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
+      backendCleanupVersion: this.lambdas.backendCleanupVersion,
+      cdcRouterVersion: this.lambdas.cdcRouterVersion,
+      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
       productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
+      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
+      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
+      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
+      productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
+      productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,
+      productTranslationConsumerActivation: parameters.productTranslationConsumerActivation,
+      searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
+      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
+      searchFilterMatchNotificationConsumerActivation: parameters.searchFilterMatchNotificationConsumerActivation,
+      watchlistNotificationConsumerActivation: parameters.watchlistNotificationConsumerActivation,
+      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
+      cdcRouterActivation: parameters.cdcRouterActivation,
     });
 
     this.api = new BackendHttpApi(this, "HttpApi", {
       config,
       stageName,
       functions: this.lambdas.functions,
-      identity: this.identity,
     });
 
     dataOutputs(this, {
@@ -447,6 +496,11 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       api: props.api.api,
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
+      maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
+        this,
+        "MaintenanceSchedulerDeadLetterQueueAlarmImport",
+        stageName,
+      ),
     });
 
     if (this.observability.alarmTopic) {

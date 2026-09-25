@@ -7,6 +7,7 @@ pub mod product_listing;
 pub mod product_listing_auction;
 pub mod product_listing_event;
 pub mod product_listing_price;
+pub mod product_listing_raw_id;
 
 pub mod product_listing_id;
 pub mod product_listing_image;
