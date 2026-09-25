@@ -202,14 +202,11 @@ fn only_explicit_principals_are_private() {
 
 #[test]
 fn global_endpoint_override_is_not_accepted() {
-    let config = SqsQueueConfig::from_getter(WorkerScope::NotificationDelivery, |name| {
-        match name {
-            "AURA_HISTORIA_WORKER_QUEUE_URL" => Some("https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-notification-delivery-prod".into()),
-            "AWS_REGION" => Some("eu-central-1".into()),
-            "STAGE" => Some("prod".into()),
-            "AWS_ENDPOINT_URL" => Some("https://other.example".into()),
-            _ => None,
-        }
+    let config = CdcRouterQueueConfig::from_getter(|name| match name {
+        "AWS_REGION" => Some("eu-central-1".into()),
+        "STAGE" => Some("prod".into()),
+        "AWS_ENDPOINT_URL" => Some("https://other.example".into()),
+        _ => None,
     });
     assert_eq!(
         config.err(),

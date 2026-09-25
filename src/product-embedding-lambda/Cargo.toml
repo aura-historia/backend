@@ -24,3 +24,10 @@ tracing = { workspace = true }
 [dev-dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+listing-source-core = { workspace = true }
+product-listing-core = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+uuid = { workspace = true }

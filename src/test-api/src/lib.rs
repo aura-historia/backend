@@ -16,8 +16,6 @@ mod opensearch;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod s3;
-#[cfg(feature = "sequin")]
-mod sequin;
 #[cfg(feature = "ses")]
 mod ses;
 mod signal;
@@ -45,8 +43,6 @@ pub use postgres::{
     get_postgres_tls_root_certificate_path,
 };
 pub use s3::S3;
-#[cfg(feature = "sequin")]
-pub use sequin::*;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]
 pub use ses::*;

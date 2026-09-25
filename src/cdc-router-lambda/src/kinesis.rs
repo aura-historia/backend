@@ -229,7 +229,7 @@ mod tests {
     use aws_lambda_events::kinesis::KinesisRecord;
     use lambda_runtime::Context;
     use std::sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     };
 
@@ -241,11 +241,19 @@ mod tests {
         include_str!("../tests/fixtures/dms-kinesis/synthetic-notification-delivery-delete.json");
 
     #[derive(Default)]
-    struct Recorder(AtomicUsize);
+    struct Recorder {
+        attempts: AtomicUsize,
+        fail_at: AtomicUsize,
+        bodies: Mutex<Vec<String>>,
+    }
     #[async_trait::async_trait]
     impl Publisher for Recorder {
-        async fn publish(&self, _: &str) -> Result<(), ()> {
-            self.0.fetch_add(1, Ordering::SeqCst);
+        async fn publish(&self, body: &str) -> Result<(), ()> {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt == self.fail_at.load(Ordering::SeqCst) {
+                return Err(());
+            }
+            self.bodies.lock().unwrap().push(body.to_owned());
             Ok(())
         }
     }
@@ -300,7 +308,45 @@ mod tests {
             Some("102"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(5, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn lost_fanout_confirmation_checkpoints_and_replays_the_same_semantic_job() {
+        let (fanout, recorder) = fanout();
+        recorder.fail_at.store(2, Ordering::SeqCst);
+        let failed = handler(
+            event(vec![record("100", DATA), record("101", DATA)]),
+            &fanout,
+        )
+        .await
+        .unwrap();
+        assert_eq!(1, failed.batch_item_failures.len());
+        assert_eq!(
+            Some("100"),
+            failed.batch_item_failures[0].item_identifier.as_deref()
+        );
+        assert_eq!(2, recorder.attempts.load(Ordering::SeqCst));
+        let first = recorder.bodies.lock().unwrap()[0].clone();
+        let original: serde_json::Value = serde_json::from_str(&first).unwrap();
+        assert_eq!(2, original["schema_version"]);
+        assert_eq!(
+            "product-event:evt_01j0000000e008000000000005",
+            original["idempotency_key"]
+        );
+
+        recorder.fail_at.store(0, Ordering::SeqCst);
+        let replay = handler(
+            event(vec![record("100", DATA), record("101", DATA)]),
+            &fanout,
+        )
+        .await
+        .unwrap();
+        assert!(replay.batch_item_failures.is_empty());
+        let bodies = recorder.bodies.lock().unwrap();
+        assert_eq!(11, bodies.len()); // One confirmed job, then both five-job fanouts.
+        assert_eq!(first, bodies[1]);
+        assert_eq!(bodies[1..6], bodies[6..11]);
     }
 
     #[tokio::test]
@@ -308,7 +354,7 @@ mod tests {
         let (fanout, recorder) = fanout();
         let result = handler(event(vec![record("100", DATA), record("", DATA)]), &fanout).await;
         assert!(result.is_err());
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -325,7 +371,7 @@ mod tests {
             Some("100"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -341,7 +387,7 @@ mod tests {
             Some("100"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -360,7 +406,7 @@ mod tests {
             Some("100"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -374,7 +420,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.batch_item_failures.is_empty());
-        assert_eq!(5, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -399,7 +445,7 @@ mod tests {
             Some("100"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -420,7 +466,7 @@ mod tests {
             Some("101"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(0, recorder.0.load(Ordering::SeqCst));
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[test]

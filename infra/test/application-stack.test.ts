@@ -23,6 +23,14 @@ describe("Application stacks", () => {
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::StepFunctions::StateMachine"))).toHaveLength(0);
   });
 
+  test.each(STAGES)("does not synthesize native worker or Sequin ingress in %s", (stage) => {
+    const stacks = createStacks(stage);
+    for (const stack of [stacks.data, stacks.compute, stacks.api]) {
+      const template = Template.fromStack(stack);
+      expect(JSON.stringify(template.toJSON())).not.toMatch(/aura-historia-worker|\/cdc\/sequin|AURA_HISTORIA_WORKER_/i);
+    }
+  });
+
   test("synthesizes the ephemeral stack without CloudFront", () => {
     const app = new cdk.App({ analyticsReporting: false });
     const template = Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" }));

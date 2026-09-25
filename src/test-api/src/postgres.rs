@@ -66,11 +66,6 @@ pub fn get_postgres_tls_root_certificate_path() -> PathBuf {
         .clone()
 }
 
-#[cfg(feature = "sequin")]
-pub(crate) fn get_postgres_host_port() -> u16 {
-    postgres_host_port()
-}
-
 fn postgres_connection_string(host: &str, database: &str) -> String {
     format!(
         "postgres://{}:{}@{}:{}/{}",

@@ -1,6 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { Template } from "aws-cdk-lib/assertions";
 import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
@@ -672,18 +670,6 @@ test.each<{ enabledScopes: WorkerScope[] }>([
   expect(Object.keys(template.toJSON().Outputs)).toHaveLength(enabledScopes.length * 6 + 2);
 });
 
-test("example uses the exact source queue, region, stage and scope without credentials or endpoint overrides", () => {
-  const example = fs.readFileSync(path.join(__dirname, "../examples/worker.env.example"), "utf8");
-  const environment = Object.fromEntries(example.split("\n")
-    .filter((line) => line.trim() && !line.startsWith("#"))
-    .map((line) => line.split("=")));
-  expect(environment).toEqual({
-    AWS_REGION: "eu-central-1",
-    STAGE: "prod",
-    AURA_HISTORIA_WORKER_SCOPE: "notification-delivery",
-    AURA_HISTORIA_WORKER_QUEUE_URL: "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-notification-delivery-prod",
-  });
-});
 
 test("queue names use stage, never a custom stack prefix, and reject names over SQS's limit", () => {
   const app = new cdk.App({ analyticsReporting: false });

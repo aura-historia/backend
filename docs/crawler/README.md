@@ -2,7 +2,7 @@
 
 The `crawler` crate discovers and extracts generic product evidence from enabled `WEB_CRAWL` ListingSources. It has its own Postgres state for domains, URLs, schemas, retries, budgets, and review artifacts.
 
-It is not a ProductListing writer. It sends immutable raw observations to the ProductListing raw-capture use case; the normalization worker is the sole authority that turns raw evidence into canonical ProductListings. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts.
+It is not a ProductListing writer. It sends immutable raw observations to the ProductListing raw-capture use case; the normalization Lambda is the sole authority that turns raw evidence into canonical ProductListings after CDC activation. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: a successful capture is not proof of normalization.
 
 ## Flow
 
@@ -13,7 +13,10 @@ flowchart LR
     Spider --> Urls[Local URL state]
     Urls --> Scraper[Scraper]
     Scraper --> Raw[Immutable raw observation]
-    Raw --> Normalizer[ProductListing normalization worker]
+    Raw --> Capture[Business PostgreSQL raw revision]
+    Capture --> CDC[DMS / Kinesis router after approved start]
+    CDC --> SQS[Normalization SQS queue]
+    SQS --> Normalizer[ProductListing normalization Lambda]
 ```
 
 Each spider or scraper pass first refreshes the complete authoritative ListingSource scope. A failed refresh skips that pass. `crawl_enabled` admits work only; disabling a source retains its crawler history and configuration.

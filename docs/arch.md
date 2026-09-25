@@ -1725,20 +1725,9 @@ Authoritative PostgreSQL writes MUST commit according to the transaction rules a
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes the current legacy Sequin/runtime declarations from the agreed DMS/Kinesis/Lambda target.
+CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The target source, once explicitly activated, is `PostgreSQL commit -> DMS -> Kinesis -> immutable router Lambda version -> scoped Standard SQS source queues / DLQs -> worker Lambdas -> service handlers and projection adapters`. The router and workers are independently gated; code and infrastructure declarations do not prove any stage is delivering. [Migration F7](migration-f7-dms.md) owns DMS activation and live evidence; the [durable-worker runbook](durable-worker-runbook.md) owns queue recovery and handoff.
 
-**Current legacy transport (not target):**
-
-```text
-PostgreSQL commit
-    -> logical replication
-    -> Sequin
-    -> CDC router
-    -> scoped Standard SQS source queues / DLQs
-    -> service handlers and projection adapters
-```
-
-**Target transport after approved cutover:** `PostgreSQL commit -> DMS -> Kinesis -> immutable router Lambda version -> scoped Standard SQS source queues / DLQs -> worker Lambdas -> service handlers and projection adapters`.
+Historically the native `aura-historia-worker` accepted Sequin CDC over HTTP, published scoped SQS jobs and polled the same source queues (including a local raw-backlog reconciliation loop). That source path is not part of the post-removal target. Its source removal does **not** stop external Sequin subscriptions, drain in-flight deliveries, retire credentials/slots, start DMS, or enable any Lambda mapping; these require separate approved live decommission/activation evidence.
 
 ### 12.1 Storage ownership
 
@@ -1763,11 +1752,11 @@ PostgreSQL owns business truth for:
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
 
-Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
+Credential tables are operational PostgreSQL storage, not CDC sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 
 OpenSearch contains rebuildable search projections only.
 
-`product_listing_events` is a transactional ProductListing domain/enrichment journal and selected CDC source (Sequin in the current legacy path; DMS in the target path). It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
+`product_listing_events` is a transactional ProductListing domain/enrichment journal and selected DMS CDC source in the target path. It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
 
 Additional stores MUST be classified as one of:
 
@@ -1818,15 +1807,13 @@ source change
     -> matching job
 ```
 
-The router MUST fully prevalidate the batch before publishing anything: source/schema/table/operation, typed payloads, stable domain keys, every destination, and serialized job bounds. Invalid later changes MUST NOT cause partial publication.
+The Kinesis router MUST prevalidate each complete record route before publishing any of that record's jobs: source/schema/table/operation, typed payloads, stable domain keys, every destination, and serialized job bounds. An invalid record MUST NOT cause partial publication of its own route. An earlier record in the same Kinesis batch may already have published jobs; on failure, report the earliest unconfirmed sequence and leave later records unprocessed.
 
-**Current legacy Sequin router only:** return Sequin `202` only after SQS confirms publication of **every** required job for this scoped delivery. Validation, publication failure, timeout, or ambiguous send outcome MUST NOT acknowledge. Network failure can still leave partial fanout; Sequin redelivery intentionally republishes the same logical jobs. Valid scope-irrelevant events may produce zero jobs and acknowledge normally.
-
-**Current legacy Sequin router only:** ingress is bounded: 1 MiB body, 100 changes, 500 derived jobs, 8s total publication deadline inside a 10s HTTP request deadline. Sequin's operational delivery timeout MUST exceed 10s (15s recommended), with batches at most 100 and within byte limits. Deployment configuration belongs to the external Sequin owner, not the repository's test fixtures. Socket/header limits and exact configuration are in the [durable-worker runbook](durable-worker-runbook.md).
+Historical Sequin ingress returned `202` only after every required SQS publication was confirmed; incomplete/ambiguous publication left the delivery unacknowledged and redelivery could duplicate partial fanout. Do not treat removal of that HTTP endpoint as an acknowledgment, drain, or decommission of externally owned subscriptions. The target router instead uses Kinesis checkpoint and failure-archive custody below.
 
 #### DMS/Kinesis router transport
 
-The target `cdc-router-lambda` crate is a thin non-VPC Lambda with no PostgreSQL or provider credentials. Ten separate worker Lambda crates consume scoped SQS batches via `platform-lambda-sqs`, while `aura-historia-jobs` owns the schema-2 compact job contract and typed scope identity. `aura-historia-cdc-routing` shares transport-independent per-table job policy with the retained legacy Sequin ingress; DMS parsing, publication and checkpoints belong only to the router. `platform-worker-queue-contract` shares read-only destination identity/attribute validation; it does not publish or consume messages. Worker-specific dispatch and durable completion decisions stay beside each runtime and its existing service; the shared adapter owns only invocation budgets, setup and batch mechanics. The retained native `aura-historia-worker` is legacy transport pending a separate cutover and source cleanup. As a temporary compatibility exception, it calls the ten specialized Lambda libraries for job/result mapping instead of duplicating them; target Lambdas do not depend on it. The router accepts only native Kinesis records with an unmodified usable sequence number and strict DMS data (`{ data, metadata }`) or control (`{ control, metadata }`) payloads; operation and source table identity reside in `metadata`, while `control` holds table details. It never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
+The target `cdc-router-lambda` crate is a thin non-VPC Lambda with no PostgreSQL or provider credentials. Ten separate worker Lambda crates consume scoped SQS batches via `platform-lambda-sqs`, while `aura-historia-jobs` owns the schema-2 compact job contract and typed scope identity. `aura-historia-cdc-routing` owns transport-independent per-table job policy; DMS parsing, publication and checkpoints belong only to the router. `platform-worker-queue-contract` shares read-only destination identity/attribute validation; it does not publish or consume messages. Worker-specific dispatch and durable completion decisions stay beside each runtime and its existing service; the shared adapter owns only invocation budgets, setup and batch mechanics. The router accepts only native Kinesis records with an unmodified usable sequence number and strict DMS data (`{ data, metadata }`) or control (`{ control, metadata }`) payloads; operation and source table identity reside in `metadata`, while `control` holds table details. It never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
 
 The handler reserves response headroom from its actual Lambda deadline, processes records in stream order, and returns only the earliest unconfirmed Kinesis sequence number with `ReportBatchItemFailures`; it then stops. Records after that checkpoint are unprocessed, never successful. A missing sequence number fails the whole invocation because Lambda cannot receive a truthful partial failure. Expired budget, malformed/unsupported input, incompatible schema control, failed/lost SQS confirmation, and partial fanout are failures. Valid DMS non-trigger operations and selected informational controls are acknowledged no-ops. SQS IDs, DMS delivery metadata, and Kinesis sequence numbers are transport correlation only, never business identity.
 
@@ -1834,17 +1821,17 @@ The `CdcRouterEnabled` mapping is independently disabled by default and uses `TR
 
 ### 12.4 Durable delivery guarantee
 
-Production composition uses ten separate Standard SQS source/DLQ pairs, one per worker scope, with no user-tier scope or tier dimension. There is no worker inbox, processed-job table, or worker-owned PostgreSQL DLQ. In-memory queue helpers are test composition only; the normalizer's bounded cursor/continuation FIFO is reconstructible scheduling state, not acknowledged job custody.
+Production composition uses ten separate Standard SQS source/DLQ pairs, one per worker scope, with no user-tier scope or tier dimension. There is no worker inbox, processed-job table, or worker-owned PostgreSQL DLQ. No Lambda-local queue, cursor, or reconciliation FIFO holds acknowledged work; the raw normalizer's bounded PostgreSQL stream drain relies on persisted heads and SQS retries.
 
 Delivery is **durable at-least-once within retention**, not exactly-once or ordered processing:
 
-- Before Sequin acknowledgment, unconfirmed delivery stays with Sequin for retry.
-- After acknowledgment, SQS retains jobs across worker death until confirmed completion/delete, source-to-DLQ transfer, or expiry.
+- Before the router confirms all required SQS sends, the Kinesis record remains uncheckpointed for bounded Lambda retry; exhausted invocations go to the retained S3 failure archive. A partial send can be duplicated on retry. This is not the worker DLQ.
+- After confirmed publication, SQS retains jobs across worker death until confirmed completion/delete, source-to-DLQ transfer, or expiry.
 - Source retention is 7 days; DLQ retention is 14 days. Standard source-to-DLQ transfer retains the original enqueue timestamp: DLQ arrival does not start a fresh 14-day window, and these are not additive 21-day guarantees.
-- Only `Complete` outcomes permit SQS deletion. Nonterminal claims, invalid jobs, handler failure/panic, execution/heartbeat timeout, and unconfirmed effects remain unacknowledged. Delete failure also permits redelivery; do not rerun a side effect merely to retry deletion.
+- Only complete outcomes permit SQS acknowledgment/deletion. Nonterminal claims, invalid jobs, handler failure/panic, timeout, and unconfirmed effects remain in `batchItemFailures` for retry/redrive. Lost deletion/response may redeliver; do not rerun a side effect merely to retry deletion.
 - Standard SQS can duplicate and reorder. Domain idempotency, authoritative state guards, and target-side version fences remain mandatory. External email acceptance cannot be atomic with PostgreSQL finalization; a crash can still duplicate an accepted email.
 
-Native consumers deliberately have one execution slot per process, no prefetch, bounded execution, and visibility heartbeats. Dedicated Lambda mappings use batch-one `ReportBatchItemFailures`; non-complete outcomes stay in batch failures for native SQS retry/DLQ. Notification delivery uses a 45s invocation cap with a 35s service attempt budget and 330s source visibility (five-minute lease plus 30s recovery margin), rather than native polling timing. Native dependency circuits pause consumption without blocking durable ingress. Cutover MUST account for legacy in-memory queues and DLQs before stopping old workers; SQS cannot recover previously lost jobs. See the runbook for retention, rollout, and recovery limits.
+Dedicated Lambda SQS mappings use `ReportBatchItemFailures` (batch one for all scopes except raw normalization's batch ten); non-complete outcomes remain failed for SQS retry/DLQ. Notification delivery uses a 45s invocation cap with a 35s service attempt budget and 330s source visibility (five-minute lease plus 30s recovery margin). No native polling or scheduled raw reconciliation exists in the target. Historical cutover MUST account for legacy in-memory work and DLQs before shutting down old processes; SQS cannot recover previously lost jobs. See the [runbook](durable-worker-runbook.md) for retention, rollout, and recovery limits.
 
 ### 12.5 Idempotency and ordering
 
@@ -1940,7 +1927,7 @@ Database migrations affecting CDC consumers MUST use expand-and-contract changes
 
 Tables or columns consumed by CDC MUST NOT be renamed or removed without reviewing:
 
-* Sequin configuration;
+* DMS task table mapping and approved external legacy subscription disposition;
 * router logic;
 * deserialization;
 * projection handlers;
@@ -1952,11 +1939,11 @@ The initial business schema defines `completed_lease_token` and `completed_at`. 
 
 ### 12.9 Failure handling
 
-Transient failures use bounded 30–900s exponential visibility backoff with jitter; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain undeleted for the DLQ. Malformed upstream CDC never reaches SQS: Sequin delivery stays unacknowledged; the DMS/Kinesis router instead returns the earliest Kinesis failure and its configured retry/age policy sends the complete invocation to the retained S3 archive. Neither is worker-DLQ redrive.
+The ten target Lambda mappings return failed SQS message IDs through `ReportBatchItemFailures`; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain failed for the DLQ. Malformed upstream DMS CDC never reaches SQS: the router returns the earliest Kinesis failure and its configured retry/age policy sends the complete invocation to the retained S3 archive. This is not worker-DLQ redrive. The retired native worker's visibility backoff and Sequin retry behavior describe history only.
 
-Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the documented unchanged outer `payload` JSON string, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
+Operators MUST repair the cause before small controlled SQS redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the documented unchanged outer `payload` JSON string, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
 
-Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the native worker's four-minute attempt budget and Lambda's 35-second attempt budget each include claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. Lambda timeout never cancels an SES request. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
+Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the Lambda's 35-second attempt budget includes claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. Lambda timeout never cancels an SES request. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
 
 Logs MUST contain safe identifiers and error categories, not complete source rows, credentials, tokens, provider receipts, or sensitive payloads.
 
@@ -1966,7 +1953,7 @@ Monitor at least:
 
 * PostgreSQL replication-slot lag;
 * retained WAL growth;
-* Sequin delivery lag and retries;
+* DMS task/source/target CDC lag and state;
 * unacknowledged change age;
 * router failures, throttles, Kinesis iterator age, and failure-destination delivery failures;
 * source queue depth/oldest age and DLQ depth;
@@ -2001,20 +1988,20 @@ CDC tests SHOULD cover:
 * concurrent delivery;
 * stale changes;
 * full prevalidation and partial publication followed by redelivery;
-* ingress bounds, ambiguous publication, and dependency pauses;
-* complete-only deletion, visibility failure, and native DLQ handling;
+* DMS ingress bounds, ambiguous publication, and deadline exhaustion;
+* complete-only SQS acknowledgment, batch failures, and native SQS DLQ handling;
 * projection version checks, including tombstones beyond physical-delete GC;
 * replay;
 * full projection rebuild.
 
-Test acknowledged jobs surviving worker restart, duplicates after completion/delete response loss, schema compatibility, and notification lease/finalization ambiguity. Real AWS smoke is opt-in, never credential-required CI; mutations require an explicitly isolated sandbox account/stage and unique resources. Do not claim acceptance or deployment verification without executing it.
+Test published jobs surviving worker Lambda failure, duplicates after completion/response loss, schema compatibility, and notification lease/finalization ambiguity. Real AWS smoke is opt-in, never credential-required CI; mutations require an explicitly isolated sandbox account/stage and unique resources. Do not claim acceptance or deployment verification without executing it.
 
 ### 12.12 Non-negotiable rules
 
 1. Every dataset has one operational owner.
 2. Only committed PostgreSQL changes are propagated.
 3. Projection stores are never part of PostgreSQL transactions.
-4. Sequin is acknowledged only after full prevalidation and confirmed publication of all required jobs.
+4. Kinesis is checkpointed only after full route validation and confirmed publication of all required jobs; exhausted failures retain archive custody.
 5. Handlers tolerate duplicates; target writes enforce idempotency, and external sends retain their documented ambiguity.
 6. Older source versions cannot overwrite newer projections.
 7. Projections are rebuildable from authoritative truth.

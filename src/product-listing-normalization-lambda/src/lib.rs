@@ -19,7 +19,7 @@ use tracing::{info, warn};
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
 const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
-// Keep the Lambda stream drain bounded exactly like the legacy polling consumer.
+// Bound each attempt; capped wake-ups remain failed SQS items until the stream drains.
 pub const MAX_REVISIONS_PER_STREAM: u32 = 32;
 pub const PENDING_STREAM_LIMIT: u32 = 100;
 

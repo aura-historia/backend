@@ -12,7 +12,7 @@ synthesized for:
 
 ## Migration baseline
 
-The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) records the approved migration target, current CDK declarations, unverified live resources, ownership, and cutover gates. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Both documents, this README, and CDK synthesis do not prove deployed state.
+The [architecture contract](../docs/arch.md#12-cdc-and-projection-architecture) records the target worker ownership and cutover boundaries. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Neither document, this README, nor CDK synthesis proves deployed state.
 
 ## Structure
 
@@ -20,7 +20,7 @@ The checked-in [Migration F1 inventory](../docs/migration-f1-inventory.md) recor
 bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, RDS shape, SSM dynamic refs
-src/worker-queue-config.ts # typed native worker scopes, timing, retention, alarms
+src/worker-queue-config.ts # typed worker queue scopes, timing, retention, alarms
 src/parameters.ts          # deployment artifact version input
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
 src/constructs/            # focused infrastructure modules
@@ -33,7 +33,7 @@ src/constructs/            # focused infrastructure modules
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # existing Shopify Lambda queue and DLQ
-  worker-queues.ts          # separate native worker queues, scoped IAM, handoff outputs
+  worker-queues.ts          # scoped worker queues, unbound IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
 sql/
   rds-bootstrap-roles.sql      # break-glass psql wrapper for role bootstrap
@@ -209,7 +209,6 @@ Migrated roots require a TLS-enabled PostgreSQL fixture. Run the code/config gat
 
 ```bash
 cargo test -p platform-postgres --all-features
-cargo test -p aura-historia-worker --lib --all-features
 npm --prefix infra test
 ```
 
@@ -241,13 +240,14 @@ npm run synth -- --context stage=prod
 
 They do not deploy or exercise AWS. The AWS fixture procedure is documented/manual; no new test script is implied. Real-stage declarations and synthesis are not live-resource or AWS-test proof. Look up DMS, Kinesis retention, and PrivateLink endpoint/data prices at change-set approval or execution; existing NAT has no DMS incremental charge. See [Migration F7](../docs/migration-f7-dms.md#cost-delta).
 
-## Native processes
+## Target artifact boundary
 
-Production native processes are:
-
-- `aura-historia-api`
-- `aura-historia-worker`
-- `aura-historia-cron`
+On pushes, `Deploy (CD)` builds and uploads only the Rust Lambda ZIP catalog
+referenced by CDK, including the ten scoped worker Lambdas and `cdc-router-lambda`.
+Normal manual deploy references those uploaded ZIPs by `CommitSHA`. Neither path
+builds, uploads, configures, or deploys the legacy native `aura-historia-worker`
+artifact or Sequin ingress. Native process deployment remains externally owned;
+this change does not pause consumers or activate the DMS/Kinesis path.
 
 ## Worker queue contract
 
@@ -337,19 +337,11 @@ The data stack (or single ephemeral stack) outputs:
 - Managed policy names: `aura-worker-<scope>-publisher-<stage>` and
   `aura-worker-<scope>-consumer-<stage>`.
 
-Set `AURA_HISTORIA_WORKER_SCOPE` to the exact runtime scope and
-`AURA_HISTORIA_WORKER_QUEUE_URL` to its **source** `QueueUrl`, never its DLQ.
-See [`examples/worker.env.example`](examples/worker.env.example). Preserve existing
-`POSTGRES_*` and scope-specific OpenSearch/Vertex settings. EMAIL delivery still
-requires `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`,
-`NOTIFICATION_EMAIL_REPLY_TO`, `COMMIT_SHA`, and `STAGE`, with existing S3/SES grants.
-No secrets or credentials belong in the example or stack outputs.
-
-For LocalStack, `singleStack=true` still produces `...-ephemeral` names. Use
-`STAGE=ephemeral`; substituting `local` or `test` implies different queue names.
-`AWS_ENDPOINT_URL_SQS` is allowed only in `ephemeral`, `local`, or `test`, with
-exactly the same origin as the queue URL. Real AWS stages must not set endpoint
-overrides; the runtime rejects global `AWS_ENDPOINT_URL`.
+These outputs and unbound policies remain for an externally managed native
+consumer during a controlled handoff; they are not native process deployment,
+credentials, or environment injection by CDK. Use the source queue URL, never
+the DLQ, and keep stage and AWS region consistent with the outputs. For LocalStack,
+`singleStack=true` still produces `...-ephemeral` names.
 
 ### Operations and rollout boundary
 
@@ -374,9 +366,8 @@ rules, Shopify mapping, and the default-disabled ProductListing mapping. The sch
 FX rule remains off until protected initialization enables it; initial FX is a direct,
 idempotent Lambda invocation, not a CloudFormation custom resource. It does not change
 Sequin subscriptions, publish a new production CDC path, start DMS, grant runtime
-redrive/purge power, or prove live AWS behavior. Native worker deployment remains
-external for the other scopes. Synthesis alone does not establish durable delivery or
-AWS acceptance evidence.
+redrive/purge power, or prove live AWS behavior. Legacy native worker deployment remains
+external. Synthesis alone does not establish durable delivery or AWS acceptance evidence.
 
 ## Deployment inputs
 

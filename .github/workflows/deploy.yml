@@ -79,6 +79,7 @@ jobs:
       contents: read
       id-token: write
     strategy:
+      # Lambda-only artifact catalog; native CDC ingress is an external handoff, not a deploy artifact.
       matrix:
         include:
           - crate: src/aura-historia-api

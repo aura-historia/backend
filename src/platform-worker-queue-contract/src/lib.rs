@@ -7,7 +7,6 @@ use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
 
-pub const WORKER_QUEUE_URL_ENV: &str = "AURA_HISTORIA_WORKER_QUEUE_URL";
 pub const AWS_REGION_ENV: &str = "AWS_REGION";
 pub const SQS_ENDPOINT_ENV: &str = "AWS_ENDPOINT_URL_SQS";
 
@@ -38,11 +37,9 @@ pub enum QueueError {
     InvalidResponse,
     #[error("worker SQS message exceeds encoded size limit")]
     MessageTooLarge,
-    #[error("worker consumer scope mismatch")]
-    Scope,
 }
 
-/// The router has one configured source queue per scope, unlike a native worker consumer.
+/// The router has one configured source queue per scope.
 #[derive(Clone, Debug)]
 pub struct CdcRouterQueueConfig {
     queues: Vec<SqsQueueConfig>,
@@ -126,7 +123,7 @@ impl SqsQueueConfig {
             || segments[1].len() != 12
             || !segments[1].bytes().all(|b| b.is_ascii_digit())
         {
-            return Err(QueueError::InvalidConfig(WORKER_QUEUE_URL_ENV));
+            return Err(QueueError::InvalidConfig("queue URL"));
         }
         let account = segments[1].to_owned();
         let aws_host = format!("sqs.{region}.amazonaws.com");
@@ -142,7 +139,7 @@ impl SqsQueueConfig {
             || queue_url.host_str() != Some(aws_host.as_str())
             || queue_url.port().is_some()
         {
-            return Err(QueueError::InvalidConfig(WORKER_QUEUE_URL_ENV));
+            return Err(QueueError::InvalidConfig("queue URL"));
         }
         Ok(Self {
             scope,
@@ -152,34 +149,6 @@ impl SqsQueueConfig {
             endpoint: local_endpoint,
             account,
         })
-    }
-
-    pub fn from_env(scope: WorkerScope) -> Result<Self, QueueError> {
-        Self::from_getter(scope, |name| std::env::var(name).ok())
-    }
-
-    pub fn from_getter<F>(scope: WorkerScope, mut get: F) -> Result<Self, QueueError>
-    where
-        F: FnMut(&'static str) -> Option<String>,
-    {
-        let queue_url = required_config(&mut get, WORKER_QUEUE_URL_ENV)?
-            .parse()
-            .map_err(|_| QueueError::InvalidConfig(WORKER_QUEUE_URL_ENV))?;
-        let region = required_config(&mut get, AWS_REGION_ENV)?;
-        let stage = required_config(&mut get, "STAGE")?;
-        if get("AWS_ENDPOINT_URL").is_some() {
-            return Err(QueueError::InvalidConfig(
-                "AWS_ENDPOINT_URL (use AWS_ENDPOINT_URL_SQS)",
-            ));
-        }
-        let endpoint = get(SQS_ENDPOINT_ENV)
-            .map(|value| {
-                value
-                    .parse()
-                    .map_err(|_| QueueError::InvalidConfig(SQS_ENDPOINT_ENV))
-            })
-            .transpose()?;
-        Self::new(scope, queue_url, region, stage, endpoint)
     }
 
     pub const fn scope(&self) -> WorkerScope {
