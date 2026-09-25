@@ -226,7 +226,6 @@ export class BackendHttpApi extends Construct {
 
 
     const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
-    const localStackPathParameterLambdas = new Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>();
     for (const definition of API_ROUTE_CATALOG) {
       const targetFunction = props.functions[definition.lambda];
       if (!targetFunction) {
@@ -238,6 +237,7 @@ export class BackendHttpApi extends Construct {
         integration = new integrations.HttpLambdaIntegration(
           `${definition.lambda}Integration`,
           targetFunction,
+          { scopePermissionToRoute: false },
         );
         integrationsByLambda.set(definition.lambda, integration);
       }
@@ -247,27 +247,12 @@ export class BackendHttpApi extends Construct {
         methods: [definition.method],
         integration,
       });
-
-      if (props.config.isEphemeral && definition.path.includes("{")) {
-        localStackPathParameterLambdas.set(definition.lambda, targetFunction);
-      }
     }
-
-    this.grantLocalStackPathParameterInvokes(localStackPathParameterLambdas);
 
     const customDomain = this.configureCustomDomain(props);
     this.distribution = this.configureCloudFront(props, customDomain);
 
     this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
-  }
-
-  private grantLocalStackPathParameterInvokes(functions: Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>): void {
-    for (const [lambdaKey, targetFunction] of functions) {
-      targetFunction.addPermission(`${lambdaKey}LocalStackPathParameterInvoke`, {
-        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
-        sourceArn: this.api.arnForExecuteApi("*", "/*"),
-      });
-    }
   }
 
   private configureCustomDomain(props: HttpApiProps): apigwv2.CfnDomainName | undefined {

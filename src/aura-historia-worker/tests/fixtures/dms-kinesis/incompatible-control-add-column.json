@@ -1,13 +1,11 @@
 {
-  "control": {
+  "metadata": {
+    "record-type": "control",
     "operation": "add-column",
     "schema-name": "public",
     "table-name": "search_filters"
   },
-  "metadata": {
-    "record-type": "control",
-    "timestamp": "2026-09-21T12:00:11Z",
-    "transaction-id": "1012",
-    "transaction-record-id": "1"
+  "control": {
+    "column-name": "new_column"
   }
 }

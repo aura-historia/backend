@@ -716,15 +716,6 @@ struct DmsKinesisMetadata {
     transaction_record_id: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
-struct DmsControl {
-    operation: String,
-    #[serde(default, rename = "schema-name")]
-    schema_name: Option<String>,
-    #[serde(default, rename = "table-name")]
-    table_name: Option<String>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DmsKinesisRecordClassification {
     Trigger,
@@ -803,10 +794,19 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                 if data.is_some() {
                     return Err(dms_record_error("data/control payload"));
                 }
-                let control = control.ok_or_else(|| dms_record_error("control object"))?;
-                let control: DmsControl = serde_json::from_value(control)
-                    .map_err(|_| dms_record_error("control object"))?;
-                match classify_dms_control(&control) {
+                let control = control
+                    .as_ref()
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| dms_record_error("control object"))?;
+                // The control object holds table details, never the routing metadata. Refuse a
+                // duplicate metadata envelope rather than silently accepting a contradiction.
+                if ["operation", "schema-name", "table-name", "record-type"]
+                    .iter()
+                    .any(|field| control.contains_key(*field))
+                {
+                    return Err(dms_record_error("control metadata in payload"));
+                }
+                match classify_dms_control(&metadata, control) {
                     DmsKinesisRecordClassification::InformationalControl => Ok(Self {
                         delivery_id,
                         source: Some(DMS_KINESIS_SOURCE.to_owned()),
@@ -861,21 +861,38 @@ fn classify_dms_data(
     classify_dms_table_operation(table_name, operation)
 }
 
-fn classify_dms_control(control: &DmsControl) -> DmsKinesisRecordClassification {
-    match control.operation.as_str() {
-        "create-table" => match (&control.schema_name, &control.table_name) {
-            // Task-level controls are not table scoped and do not alter a selected schema mapping.
-            (None, None) => DmsKinesisRecordClassification::InformationalControl,
-            (Some(schema), Some(table)) if schema == "public" && dms_table_is_selected(table) => {
-                DmsKinesisRecordClassification::InformationalControl
-            }
-            _ => DmsKinesisRecordClassification::IncompatibleSchemaControl,
-        },
+fn classify_dms_control(
+    metadata: &DmsKinesisMetadata,
+    control: &Map<String, Value>,
+) -> DmsKinesisRecordClassification {
+    let operation = match metadata.operation.as_deref() {
+        None => return DmsKinesisRecordClassification::Invalid("missing control operation"),
+        Some("") => return DmsKinesisRecordClassification::Invalid("empty control operation"),
+        Some(operation) => operation,
+    };
+    let schema = match metadata.schema_name.as_deref() {
+        None => return DmsKinesisRecordClassification::Invalid("missing control schema"),
+        Some("") => return DmsKinesisRecordClassification::Invalid("empty control schema"),
+        Some(schema) => schema,
+    };
+    let table = match metadata.table_name.as_deref() {
+        None => return DmsKinesisRecordClassification::Invalid("missing control table"),
+        Some("") => return DmsKinesisRecordClassification::Invalid("empty control table"),
+        Some(table) => table,
+    };
+    if schema != "public" || !dms_table_is_selected(table) {
+        return DmsKinesisRecordClassification::IncompatibleSchemaControl;
+    }
+    match operation {
+        "create-table" if control.get("table-def").is_some_and(Value::is_object) => {
+            DmsKinesisRecordClassification::InformationalControl
+        }
+        "create-table" => DmsKinesisRecordClassification::Invalid("control table definition"),
         "rename-table" | "drop-table" | "change-columns" | "add-column" | "drop-column"
         | "rename-column" | "column-type-change" => {
             DmsKinesisRecordClassification::IncompatibleSchemaControl
         }
-        _ => DmsKinesisRecordClassification::Invalid("control operation"),
+        _ => DmsKinesisRecordClassification::Invalid("unsupported control operation"),
     }
 }
 
@@ -4295,12 +4312,13 @@ mod tests {
             assert!(
                 parse_cdc_batch(
                     serde_json::json!({
-                        "control": {
+                        "control": {"column-name": "example"},
+                        "metadata": {
+                            "record-type": "control",
                             "operation": operation,
                             "schema-name": "public",
                             "table-name": "search_filters"
-                        },
-                        "metadata": {"record-type": "control"}
+                        }
                     })
                     .to_string()
                     .as_str()
@@ -4352,12 +4370,103 @@ mod tests {
                 "metadata": {"record-type": "control"}
             }),
             serde_json::json!({
-                "control": {"operation": "unknown-control"},
-                "metadata": {"record-type": "control"}
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table"}
+            }),
+            serde_json::json!({
+                "control": {"operation": "create-table", "table-def": {}},
+                "metadata": {"record-type": "control", "schema-name": "public", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"operation": "create-table", "table-def": {}},
+                "metadata": {"record-type": "control", "operation": "drop-table", "schema-name": "public", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "unknown-control", "schema-name": "public", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "public", "table-name": ""}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "other", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "public", "table-name": "unknown_table"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": 7, "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "public", "table-name": null}
+            }),
+            serde_json::json!({
+                "control": {},
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "public", "table-name": "search_filters"}
+            }),
+            serde_json::json!({
+                "control": [],
+                "metadata": {"record-type": "control", "operation": "create-table", "schema-name": "public", "table-name": "search_filters"}
             }),
         ] {
             assert!(parse_cdc_batch(&record.to_string()).is_err());
         }
+    }
+
+    #[test]
+    fn should_distinguish_missing_empty_malformed_and_unsupported_control_metadata() {
+        let base: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/synthetic-control-create-table.json"
+        )))
+        .expect("structural specification fixture");
+        for (field, replacement, expected) in [
+            ("operation", None, "missing control operation"),
+            (
+                "operation",
+                Some(Value::String(String::new())),
+                "empty control operation",
+            ),
+            (
+                "operation",
+                Some(Value::String("unexpected".into())),
+                "unsupported control operation",
+            ),
+            ("schema-name", None, "missing control schema"),
+            (
+                "schema-name",
+                Some(Value::String(String::new())),
+                "empty control schema",
+            ),
+            ("table-name", None, "missing control table"),
+            (
+                "table-name",
+                Some(Value::String(String::new())),
+                "empty control table",
+            ),
+        ] {
+            let mut record = base.clone();
+            if let Some(value) = replacement {
+                record["metadata"][field] = value;
+            } else {
+                record["metadata"].as_object_mut().unwrap().remove(field);
+            }
+            let error = parse_dms_kinesis_record(record.to_string().as_bytes())
+                .expect_err("invalid control metadata");
+            assert_eq!(expected, error.to_string(), "{field}");
+        }
+        let mut malformed = base;
+        malformed["metadata"]["operation"] = serde_json::json!(7);
+        assert!(parse_dms_kinesis_record(malformed.to_string().as_bytes()).is_err());
     }
 
     #[tokio::test]

@@ -238,6 +238,8 @@ mod tests {
         include_str!("../tests/fixtures/dms-kinesis/synthetic-notification-delivery-delete.json");
     const INCOMPATIBLE_CONTROL: &str =
         include_str!("../tests/fixtures/dms-kinesis/incompatible-control-add-column.json");
+    const INFORMATIONAL_CONTROL: &str =
+        include_str!("../tests/fixtures/dms-kinesis/synthetic-control-create-table.json");
 
     #[tokio::test]
     async fn should_decode_kinesis_data_and_confirm_the_canonical_fanout() {
@@ -273,6 +275,71 @@ mod tests {
             WorkerQueue::SearchFilterOpenSearch,
             WorkerQueue::NotificationDelivery,
         ] {
+            assert!(
+                receivers
+                    .recv_timeout(queue, Duration::from_millis(10))
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_ack_metadata_scoped_create_table_then_publish_the_next_data_record() {
+        let (fanout, mut receivers) = fanout();
+        let response = handler(
+            event([
+                record("100", INFORMATIONAL_CONTROL.as_bytes()),
+                record("101", PRODUCT_EVENT.as_bytes()),
+            ]),
+            &fanout,
+        )
+        .await
+        .expect("informational control and data batch");
+
+        assert!(response.batch_item_failures.is_empty());
+        for queue in [
+            WorkerQueue::ProductListingOpenSearch,
+            WorkerQueue::SearchFilterPercolator,
+            WorkerQueue::ProductListingContentAssessment,
+            WorkerQueue::ProductListingEmbed,
+            WorkerQueue::ProductListingTranslate,
+        ] {
+            assert_eq!(
+                Some(queue),
+                receivers.recv(queue).await.map(|job| job.target_queue)
+            );
+            assert!(
+                receivers
+                    .recv_timeout(queue, Duration::from_millis(10))
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retain_control_with_contradictory_payload_and_not_publish_later_data() {
+        let (fanout, mut receivers) = fanout();
+        let mut contradictory: serde_json::Value =
+            serde_json::from_str(INFORMATIONAL_CONTROL).expect("control fixture");
+        contradictory["metadata"]["operation"] = serde_json::json!("drop-table");
+        contradictory["control"]["operation"] = serde_json::json!("create-table");
+        let response = handler(
+            event([
+                record(
+                    "100",
+                    serde_json::to_string(&contradictory).unwrap().as_bytes(),
+                ),
+                record("101", PRODUCT_EVENT.as_bytes()),
+            ]),
+            &fanout,
+        )
+        .await
+        .expect("partial batch response");
+
+        assert_eq!(vec![Some("100".to_owned())], failure_ids(response));
+        for queue in WorkerQueue::ALL {
             assert!(
                 receivers
                     .recv_timeout(queue, Duration::from_millis(10))

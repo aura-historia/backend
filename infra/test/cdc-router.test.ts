@@ -141,6 +141,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       "MaximumBatchingWindowInSeconds",
       "MaximumRecordAgeInSeconds",
       "MaximumRetryAttempts",
+      "MetricsConfig",
       "StartingPosition",
     ]);
     expect(mapping!.Properties).toMatchObject({
@@ -157,11 +158,20 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       MaximumBatchingWindowInSeconds: 1,
       MaximumRecordAgeInSeconds: 3600,
       MaximumRetryAttempts: 3,
+      MetricsConfig: { Metrics: ["EventCount"] },
       StartingPosition: "TRIM_HORIZON",
     });
     expect(JSON.stringify(mapping!.Properties.EventSourceArn)).toContain("DmsCdcCdcStream");
     expect(mapping!.Properties.ProvisionedPollerConfig).toBeUndefined();
     expect(mapping!.Properties.ScalingConfig).toBeUndefined();
+
+    const [mappingLogicalId] = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping") as Record<string, Resource>)
+      .find(([, resource]) => resource === mapping)!;
+    const mappingIdOutputs = Object.values(compute.toJSON().Outputs as Record<string, unknown>);
+    expect(mappingIdOutputs).toContainEqual({
+      Value: { "Fn::GetAtt": [mappingLogicalId, "Id"] },
+      Export: { Name: `aura-historia-cdc-router-event-source-mapping-id-${stage}` },
+    });
   });
 
   test("retains an encrypted, private failure archive and grants the router only its read, fan-out, and archive actions", () => {

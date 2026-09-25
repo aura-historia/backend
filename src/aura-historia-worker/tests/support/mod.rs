@@ -9,13 +9,16 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 pub const fn queues(scope: WorkerScope) -> WorkerSqs {
     let visibility = match scope {
-        WorkerScope::NotificationDelivery => 360,
-        WorkerScope::ProductListingRawNormalization
-        | WorkerScope::ProductListingOpenSearch
+        WorkerScope::ProductListingOpenSearch
+        | WorkerScope::SearchFilterProjection
         | WorkerScope::SearchFilterPercolator
-        | WorkerScope::ProductListingEmbedding
+        | WorkerScope::SearchFilterMatchNotification
+        | WorkerScope::WatchlistNotification
         | WorkerScope::ProductListingTranslation => 300,
-        _ => 60,
+        WorkerScope::ProductListingContentAssessment
+        | WorkerScope::ProductListingRawNormalization => 270,
+        WorkerScope::ProductListingEmbedding => 360,
+        WorkerScope::NotificationDelivery => 330,
     };
     WorkerSqs::new(scope.as_str(), visibility)
 }

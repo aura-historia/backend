@@ -1,13 +1,20 @@
 {
-  "control": {
+  "metadata": {
+    "record-type": "control",
     "operation": "create-table",
     "schema-name": "public",
     "table-name": "search_filters"
   },
-  "metadata": {
-    "record-type": "control",
-    "timestamp": "2026-09-21T12:00:08Z",
-    "transaction-id": "1009",
-    "transaction-record-id": "1"
+  "control": {
+    "table-def": {
+      "columns": {
+        "user_search_filter_id": {
+          "type": "WSTRING",
+          "length": 36,
+          "nullable": false
+        }
+      },
+      "primary-key": ["user_search_filter_id"]
+    }
   }
 }

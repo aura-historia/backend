@@ -14,7 +14,7 @@ function productionObservabilityTemplate(): Template {
   return Template.fromStack(stacks.observability);
 }
 
-test("production alarms the CDC router's Kinesis lag, failure-archive delivery, errors, and throttles through the existing SNS topic", () => {
+test("production alarms the CDC router's Kinesis lag, archive transfer, drops, delivery failures, errors, and throttles through the existing SNS topic", () => {
   const template = productionObservabilityTemplate();
   const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
   const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
@@ -38,6 +38,27 @@ test("production alarms the CDC router's Kinesis lag, failure-archive delivery, 
       Statistic: statistic,
       Period: 300,
       Threshold: threshold,
+      EvaluationPeriods: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+      TreatMissingData: "notBreaching",
+      AlarmActions: [{ Ref: topicIds[0] }],
+    });
+  }
+
+  for (const [alarmName, metricName] of [
+    ["prod-cdc-router-archive-delivered", "OnFailureDestinationDeliveredEventCount"],
+    ["prod-cdc-router-dropped-event", "DroppedEventCount"],
+  ] as const) {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: alarmName,
+      Namespace: "AWS/Lambda",
+      MetricName: metricName,
+      Dimensions: [{ Name: "EventSourceMappingUUID", Value: {
+        "Fn::ImportValue": "aura-historia-cdc-router-event-source-mapping-id-prod",
+      } }],
+      Statistic: "Sum",
+      Period: 300,
+      Threshold: 1,
       EvaluationPeriods: 1,
       ComparisonOperator: "GreaterThanOrEqualToThreshold",
       TreatMissingData: "notBreaching",

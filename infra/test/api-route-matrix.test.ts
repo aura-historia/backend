@@ -145,21 +145,42 @@ describe("HTTP API route policy matrix", () => {
   test.each(STAGES)("synthesizes the complete %s route matrix to one live API alias", (stage) => {
     const template = apiTemplate(stage);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route")) as CloudFormationResource[];
+    const integrationIds = Object.keys(template.findResources("AWS::ApiGatewayV2::Integration"));
     const integrations = Object.values(template.findResources("AWS::ApiGatewayV2::Integration")) as CloudFormationResource[];
     const permissions = Object.values(template.findResources("AWS::Lambda::Permission")) as CloudFormationResource[];
+    const apiIds = Object.keys(template.findResources("AWS::ApiGatewayV2::Api"));
 
+    expect(apiIds).toHaveLength(1);
     expect(routes.map((route) => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
+    expect(routes).toHaveLength(96);
+    expect(routes.every((route) => route.Properties.RouteKey !== "$default" && !String(route.Properties.RouteKey).includes("/{proxy+}"))).toBe(true);
     expect(routes.every((route) => route.Properties.AuthorizationType === "NONE")).toBe(true);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
     expect(integrations).toHaveLength(1);
+    expect(routes.every((route) => JSON.stringify(route.Properties.Target).includes(integrationIds[0]))).toBe(true);
     expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).toContain(`aura-historia-api-${stage}:live`);
-    expect(permissions).toHaveLength(API_ROUTE_CATALOG.length + (stage === "ephemeral" ? 1 : 0));
-    expect(permissions.every((permission) => JSON.stringify(permission.Properties.FunctionName).includes(
-      `aura-historia-api-${stage}:live`,
-    ))).toBe(true);
+    expect(permissions).toHaveLength(1);
+    // A single scoped statement leaves ample headroom under Lambda's 20 KiB policy limit.
+    expect(Buffer.byteLength(JSON.stringify(permissions[0]))).toBeLessThan(10_000);
+    expect(permissions[0].Properties).toEqual({
+      Action: "lambda:InvokeFunction",
+      FunctionName: {
+        "Fn::Join": ["", [
+          "arn:", { Ref: "AWS::Partition" }, ":lambda:", { Ref: "AWS::Region" }, ":",
+          { Ref: "AWS::AccountId" }, `:function/aura-historia-api-${stage}:live`,
+        ]],
+      },
+      Principal: "apigateway.amazonaws.com",
+      SourceArn: {
+        "Fn::Join": ["", [
+          "arn:", { Ref: "AWS::Partition" }, ":execute-api:", { Ref: "AWS::Region" }, ":",
+          { Ref: "AWS::AccountId" }, ":", { Ref: apiIds[0] }, "/*/*/*",
+        ]],
+      },
+    });
   });
 
   test.each(["dev", "prod"] as const)("retains the %s custom domain, CloudFront and WAF while disabling shared API caching", (stage) => {

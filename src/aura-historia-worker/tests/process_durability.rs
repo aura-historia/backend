@@ -47,7 +47,7 @@ async fn should_persist_accepted_work_after_process_dies_before_handler_commit_t
 
         let mut restarted = WorkerProcess::start(&pool, &sqs, address).await?;
         assert_ne!(original_pid, restarted.id());
-        // Let the original production 60s visibility expire naturally: no republish/receive
+        // Let the original production 270s visibility expire naturally: no republish/receive
         // by the test and no recreation of the source queue, DLQ, DB, or Sequin containers.
         let redelivery = observations.received(&message_id, 2).await?;
         assert_eq!(body, redelivery.body);

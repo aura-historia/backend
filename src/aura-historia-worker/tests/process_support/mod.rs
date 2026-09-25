@@ -20,8 +20,9 @@ use std::{
 use test_api::{WorkerSqs, get_sqs_client};
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-pub const WORKER_SQS: WorkerSqs = WorkerSqs::new("product-content-assessment", 60);
-const BOUNDARY_TIMEOUT: Duration = Duration::from_secs(100);
+pub const WORKER_SQS: WorkerSqs = WorkerSqs::new("product-content-assessment", 270);
+// A killed worker leaves an owned receipt invisible for the full 270s queue visibility.
+const BOUNDARY_TIMEOUT: Duration = Duration::from_secs(360);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub async fn eventually<T>(
@@ -35,7 +36,7 @@ pub async fn eventually<T>(
 
 pub async fn case(future: impl Future<Output = TestResult>) {
     // A failed boundary unwinds owned children before the macro tears down queues/DB.
-    let result = tokio::time::timeout(Duration::from_secs(240), future).await;
+    let result = tokio::time::timeout(Duration::from_secs(480), future).await;
     assert!(
         matches!(&result, Ok(Ok(()))),
         "process acceptance failed: {result:?}"

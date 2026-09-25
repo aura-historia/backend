@@ -8,6 +8,7 @@ import * as sns from "aws-cdk-lib/aws-sns";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
+import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
 import type { WorkerQueueCatalog } from "./worker-queues";
@@ -116,6 +117,15 @@ export class Observability extends Construct {
       cdcRouterFunctionName,
       1,
     ).addAlarmAction(alarmAction);
+
+    const routerMappingId = cdk.Fn.importValue(cdcRouterEventSourceMappingIdExportName(props.config.stage));
+    for (const [id, metricName] of [
+      ["CdcRouterArchiveDeliveredAlarm", "OnFailureDestinationDeliveredEventCount"],
+      ["CdcRouterDroppedEventAlarm", "DroppedEventCount"],
+    ] as const) {
+      cdcMetricAlarm(this, props.stageName, id, "AWS/Lambda", metricName, { EventSourceMappingUUID: routerMappingId }, 1, "Sum")
+        .addAlarmAction(alarmAction);
+    }
 
     cdcDmsAlarms(this, props.stageName, alarmAction);
     cdcDmsTaskStateNotifications(this, props.stageName, this.alarmTopic);

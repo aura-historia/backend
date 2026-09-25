@@ -62,6 +62,10 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   NOTIFICATION_DELIVERY: "notification-delivery",
 } as const satisfies Record<string, WorkerScope>;
 
+export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
+  return `aura-historia-cdc-router-event-source-mapping-id-${stage}`;
+}
+
 export class Eventing extends Construct {
   readonly stripeEventBus: events.IEventBus;
   readonly shopifyEventBus: events.IEventBus;
@@ -398,7 +402,7 @@ function createDmsCdcRouterEventSource(
     resources: [failureArchive.arnForObjects("*")],
   }));
 
-  new lambda.CfnEventSourceMapping(scope, "DmsCdcRouterEventSource", {
+  const mapping = new lambda.CfnEventSourceMapping(scope, "DmsCdcRouterEventSource", {
     batchSize: 100,
     bisectBatchOnFunctionError: true,
     destinationConfig: {
@@ -413,7 +417,12 @@ function createDmsCdcRouterEventSource(
     maximumBatchingWindowInSeconds: 1,
     maximumRecordAgeInSeconds: 3600,
     maximumRetryAttempts: 3,
+    metricsConfig: { metrics: ["EventCount"] },
     startingPosition: lambda.StartingPosition.TRIM_HORIZON,
+  });
+  new cdk.CfnOutput(scope, "DmsCdcRouterEventSourceMappingId", {
+    value: mapping.attrId,
+    exportName: cdcRouterEventSourceMappingIdExportName(config.stage),
   });
 }
 
