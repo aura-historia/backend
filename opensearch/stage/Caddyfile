@@ -1,11 +1,11 @@
-# Certificate is supplied by the host operator; Caddy does not request or renew it.
+# Certbot obtains and renews this certificate during short, operator-controlled port-80 windows.
 # The internal OpenSearch HTTPS certificate is the image's self-signed node certificate.
 {
     auto_https disable_redirects
 }
 
 opensearch.stage.aura-historia.com:9443 {
-    tls /certs/fullchain.pem /certs/privkey.pem
+    tls /certs/live/opensearch.stage.aura-historia.com/fullchain.pem /certs/live/opensearch.stage.aura-historia.com/privkey.pem
 
     # Only the application search, projection and percolation routes are public.
     @runtime path /product-listings/_search /product-listings/_doc/* /user_search_filters/_search /user_search_filters/_doc/* /user_search_filters/_search/point_in_time /_search /_search/point_in_time

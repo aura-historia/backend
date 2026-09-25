@@ -25,6 +25,16 @@ services:
     networks:
       - search
 
+  # Run only for issuance/renewal: the HTTP-01 challenge temporarily owns port 80.
+  certbot:
+    image: certbot/certbot:latest@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
+    profiles: [cert]
+    ports:
+      - 80:80
+    volumes:
+      - ./certs:/etc/letsencrypt
+    command: ["renew", "--non-interactive", "--config-dir", "/etc/letsencrypt", "--work-dir", "/etc/letsencrypt/work", "--logs-dir", "/etc/letsencrypt/logs"]
+
   gateway:
     image: caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
     profiles: [public]
@@ -33,7 +43,7 @@ services:
       - opensearch
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${OPENSEARCH_CERT_DIR:-/etc/letsencrypt/live/opensearch.stage.aura-historia.com}:/certs:ro
+      - ${OPENSEARCH_CERT_DIR:-./certs}:/certs:ro
     ports:
       - 9443:9443
     networks:
