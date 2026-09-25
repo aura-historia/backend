@@ -35,7 +35,7 @@ info:
     \ process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. Events that map to raw capture are durably captured; `product.created` and `product.updated` events with missing or unsupported status are acknowledged as ignored. A capture `204` acknowledges a changed, unchanged, duplicate, or stale outcome—not necessarily a new raw revision; canonical normalization is asynchronous, while partner Product batch writes remain synchronous\n\n## Environment\
-    \ endpoints\n\n- **Development:** `https://api.dev.aura-historia.com`\n- **Production:** `https://api.aura-historia.com`\n\
+    \ endpoints\n\n- **Development:** `https://api.stage.aura-historia.com`\n- **Production:** `https://api.aura-historia.com`\n\
     \n## Notes for integrators\n\n- Treat Aura Historia identifiers such as `listingSourceId`, `productListingId`, `eventId`,\
     \ `userSearchFilterId`,\n  and `partnershipApplicationId` as opaque values\n- For partner product ingestion, `sourceListingId`\
     \ is the partner-controlled identifier and should\n  remain stable within a listing source\n- Endpoints marked `deprecated`\
@@ -48,7 +48,7 @@ info:
     name: License
     url: https://github.com/aura-historia/backend/blob/develop/LICENSE
 servers:
-  - url: https://api.dev.aura-historia.com
+  - url: https://api.stage.aura-historia.com
     description: Development environment
   - url: https://api.aura-historia.com
     description: Production environment

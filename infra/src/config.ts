@@ -110,8 +110,8 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
   const isProd = stage === "prod";
   const isEphemeral = stage === "ephemeral";
 
-  const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.dev.aura-historia.com" : undefined;
-  const apiCloudFrontAliases = stage === "prod" ? ["api.aura-historia.com"] : stage === "dev" ? ["*.dev.aura-historia.com"] : [];
+  const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.stage.aura-historia.com" : undefined;
+  const apiCloudFrontAliases = apiDomainName ? [apiDomainName] : [];
 
   return {
     stage,

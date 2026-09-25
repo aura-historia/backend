@@ -93,9 +93,17 @@ npm run cdk -- deploy application-prod-network -c stage=prod -c account=12345678
 
 The app rejects a non-12-digit account context and an explicitly selected real-stage region other than `eu-central-1`. Template-only synth without an account ignores an ambient CI runner region and uses `eu-central-1`; a deployment must select the approved account explicitly. Deploy network, then data, then compute; data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
 
-Dev CloudFront owns the wildcard alias `*.dev.aura-historia.com`; the API URL stays
-`api.dev.aura-historia.com`. This avoids stale exact DNS targets blocking distribution
-creation. Prod uses the exact alias `api.aura-historia.com`.
+The `dev` AWS environment is configured to serve the staging API at `https://api.stage.aura-historia.com`
+with only the exact CloudFront alias `api.stage.aura-historia.com`; it does not own
+`*.stage.aura-historia.com` (including the independently hosted OpenSearch endpoint).
+Prod retains the exact alias `api.aura-historia.com`; ephemeral has no custom domain.
+This is not an AWS stage rename: stack names, artifact prefixes, and `/.../dev/...`
+SSM paths remain `dev`. Both dev certificate references remain under
+`/certificates/dev/`: the regional API Gateway certificate must cover the new host
+in `eu-central-1`, and the CloudFront viewer certificate must cover it in `us-east-1`.
+Neither synth nor this README verifies live certificates, alias ownership, or DNS.
+See [HTTP API front door](../docs/http-api-front-door.md#deployment-cutover-and-rollback)
+for the approval, cutover, consumer handoff, smoke-check, and rollback gates.
 
 Deployments should use `cdk deploy --all` without hotswap. CI uses
 CloudFormation change sets (`--method change-set`) so stack updates keep
