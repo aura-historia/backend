@@ -3,7 +3,14 @@ import { Template } from "aws-cdk-lib/assertions";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
-import { API_ROUTE_CATALOG, RouteAuthPolicy, type RouteDefinition } from "../src/constructs/api";
+import {
+  API_ROUTE_CATALOG,
+  OAuthCredentialRequirement,
+  ProviderProofRequirement,
+  RouteAuthPolicy,
+  RouteAuthorizationClass,
+  type RouteDefinition,
+} from "../src/constructs/api";
 import { STAGES, type StageName } from "../src/config";
 
 type CloudFormationResource = {
@@ -96,14 +103,43 @@ describe("HTTP API route policy matrix", () => {
     expect(catalog).not.toContain("ANY /{proxy+}");
   });
 
-  test("keeps authentication that accepts non-Cognito credentials in Axum", () => {
+  test("models the application-owned authorization and compound credential contracts", () => {
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.OptionalBearer)).not.toHaveLength(0);
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.ApplicationBearer)).not.toHaveLength(0);
     expect(API_ROUTE_CATALOG.filter((route) => route.auth === RouteAuthPolicy.OAuth)).not.toHaveLength(0);
+
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/")))
+      .toEqual(expect.arrayContaining([expect.objectContaining({
+        policy: expect.objectContaining({
+          bearer: "REQUIRED",
+          authorization: RouteAuthorizationClass.Administrator,
+        }),
+      })]));
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/")))
+      .toHaveLength(API_ROUTE_CATALOG.filter((route) => route.policy.authorization === RouteAuthorizationClass.Administrator).length);
+
     expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
       path: "/api/v1/webhooks/woocommerce/{listing_source_id}",
-      auth: RouteAuthPolicy.ProviderSignature,
+      policy: expect.objectContaining({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.Partner,
+        providerProof: ProviderProofRequirement.WooCommerceSignature,
+      }),
     }));
+    expect(API_ROUTE_CATALOG.filter((route) => ["/health", "/ready"].includes(route.path)))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ policy: expect.objectContaining({ bearer: "NONE" }) })]));
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/me/")))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ policy: expect.objectContaining({ bearer: "REQUIRED", authorization: RouteAuthorizationClass.AuthenticatedUser }) })]));
+    expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
+      path: "/api/v1/oauth/authorize",
+      policy: expect.objectContaining({ bearer: "REQUIRED", oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce }),
+    }));
+    for (const path of ["/api/v1/oauth/token", "/api/v1/oauth/revoke", "/api/v1/oauth/introspect"]) {
+      expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
+        path,
+        policy: expect.objectContaining({ bearer: "NONE", oauthCredentials: OAuthCredentialRequirement.ClientCredentials }),
+      }));
+    }
   });
 
   test.each(STAGES)("synthesizes the complete %s route matrix to one live API alias", (stage) => {

@@ -18,7 +18,7 @@ use tracing::{info, warn};
 
 /// Bounded per-invocation stream drain shared by native and Lambda SQS adapters.
 pub const MAX_REVISIONS_PER_STREAM: u32 = 32;
-/// Bounded authoritative reconciliation page size for the scheduler-facing use case.
+/// Bounded authoritative reconciliation page size for the legacy native worker.
 pub const PENDING_STREAM_LIMIT: u32 = 100;
 const MAX_PENDING_STREAM_CONTINUATIONS: usize = PENDING_STREAM_LIMIT as usize * 2;
 const RECONCILIATION_INTERVAL: Duration = Duration::from_secs(30);

@@ -91,8 +91,9 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       Runtime: "provided.al2023",
       Timeout: 30,
     });
+    expect(environment.STAGE).toBe(stage);
     expect(Object.keys(environment).sort()).toEqual(
-      Object.keys(ROUTER_QUEUES).map((scope) => `AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`).sort(),
+      ["STAGE", ...Object.keys(ROUTER_QUEUES).map((scope) => `AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`)].sort(),
     );
     for (const [scope, workerScope] of Object.entries(ROUTER_QUEUES)) {
       expect(JSON.stringify(environment[`AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`]))
@@ -115,6 +116,9 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       "FunctionName",
       `cdc-router-lambda-${stage}`,
     );
+    const routerVersionLogicalId = Object.keys(compute.findResources("AWS::Lambda::Version"))
+      .find((logicalId) => logicalId.includes("CdcRouterVersion"));
+    expect(routerVersionLogicalId).toBeDefined();
     const [archiveLogicalId] = namedResource(
       compute,
       "AWS::S3::Bucket",
@@ -122,7 +126,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
       `aura-historia-cdc-router-failures-${stage}`,
     );
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping") as Record<string, Resource>);
-    const mapping = mappings.find((resource) => JSON.stringify(resource.Properties.FunctionName).includes(routerLogicalId));
+    const mapping = mappings.find((resource) => JSON.stringify(resource.Properties.FunctionName).includes(routerVersionLogicalId!));
 
     expect(Object.values(data.findResources("AWS::Kinesis::Stream"))).toHaveLength(1);
     expect(mapping).toBeDefined();
@@ -148,7 +152,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
         },
       },
       Enabled: { "Fn::If": ["CdcRouterActivation", true, false] },
-      FunctionName: { "Fn::GetAtt": [routerLogicalId, "Arn"] },
+      FunctionName: { Ref: routerVersionLogicalId },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
       MaximumBatchingWindowInSeconds: 1,
       MaximumRecordAgeInSeconds: 3600,

@@ -277,6 +277,7 @@ export class Lambdas extends Construct {
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
+  readonly cdcRouterVersion: lambda.Version | undefined;
   readonly fxRateSyncVersion: lambda.Version | undefined;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
@@ -378,16 +379,22 @@ export class Lambdas extends Construct {
     });
     if (props.config.isEphemeral) {
       this.backendCleanupVersion = undefined;
+      this.cdcRouterVersion = undefined;
       this.fxRateSyncVersion = undefined;
     } else {
       const backendCleanup = this.functions.backendCleanup;
+      const cdcRouter = this.functions.cdcRouter;
       const fxRateSync = this.functions.fxRateSync;
-      if (!backendCleanup || !fxRateSync) {
-        throw new Error("Real stages require backend cleanup and FX refresh Lambdas.");
+      if (!backendCleanup || !cdcRouter || !fxRateSync) {
+        throw new Error("Real stages require backend cleanup, CDC router, and FX refresh Lambdas.");
       }
       this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
         lambda: backendCleanup,
         description: `backend-cleanup-${props.parameters.commitSha}`,
+      });
+      this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
+        lambda: cdcRouter,
+        description: `cdc-router-${props.parameters.commitSha}`,
       });
       this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
         lambda: fxRateSync,

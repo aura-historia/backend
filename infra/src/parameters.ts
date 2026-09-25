@@ -56,7 +56,7 @@ export function applicationParameters(
     type: "String",
     default: "false",
     allowedValues: ["true", "false"],
-    description: "Enable the dedicated ProductListing raw-normalization SQS Lambda after native-consumer and scheduled-reconciliation cutover gates.",
+    description: "Enable the dedicated ProductListing raw-normalization SQS Lambda after native-consumer handoff and CDC/SQS delivery readiness gates.",
   });
   const productListingNormalizationConsumerActivation = new cdk.CfnCondition(scope, "ProductListingNormalizationConsumerActivation", {
     expression: cdk.Fn.conditionEquals(productListingNormalizationConsumerEnabled.valueAsString, "true"),

@@ -256,7 +256,7 @@ async fn should_pin_sqs_settings_preserve_credentials_and_request_only_safe_attr
         assert_eq!(server.config.queue_url().as_str(), request["QueueUrl"]);
         assert_eq!(1, request["MaxNumberOfMessages"]);
         assert_eq!(20, request["WaitTimeSeconds"]);
-        assert_eq!(360, request["VisibilityTimeout"]);
+        assert_eq!(330, request["VisibilityTimeout"]);
         assert_eq!(
             json!([
                 "ApproximateReceiveCount",

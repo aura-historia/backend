@@ -665,7 +665,12 @@ impl CdcFanout {
 fn parse_cdc_batch(body: &str) -> Result<CdcBatch, serde_json::Error> {
     let value: Value = serde_json::from_str(body)?;
 
-    if value.get("data").is_some_and(Value::is_object) && value.get("metadata").is_some() {
+    if value
+        .get("metadata")
+        .and_then(Value::as_object)
+        .and_then(|metadata| metadata.get("record-type"))
+        .is_some()
+    {
         return serde_json::from_value::<DmsKinesisRecord>(value)?.try_into();
     }
 
@@ -686,7 +691,10 @@ fn parse_dms_kinesis_record(body: &[u8]) -> Result<CdcBatch, serde_json::Error> 
 
 #[derive(Debug, Deserialize)]
 struct DmsKinesisRecord {
-    data: Value,
+    #[serde(default)]
+    data: Option<Value>,
+    #[serde(default)]
+    control: Option<Value>,
     metadata: DmsKinesisMetadata,
 }
 
@@ -694,17 +702,27 @@ struct DmsKinesisRecord {
 struct DmsKinesisMetadata {
     #[serde(rename = "record-type")]
     record_type: String,
-    operation: String,
-    #[serde(rename = "schema-name")]
-    schema_name: String,
-    #[serde(rename = "table-name")]
-    table_name: String,
+    #[serde(default)]
+    operation: Option<String>,
+    #[serde(default, rename = "schema-name")]
+    schema_name: Option<String>,
+    #[serde(default, rename = "table-name")]
+    table_name: Option<String>,
     #[serde(default)]
     timestamp: Option<Value>,
     #[serde(default, rename = "transaction-id")]
     transaction_id: Option<Value>,
     #[serde(default, rename = "transaction-record-id")]
     transaction_record_id: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DmsControl {
+    operation: String,
+    #[serde(default, rename = "schema-name")]
+    schema_name: Option<String>,
+    #[serde(default, rename = "table-name")]
+    table_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -720,95 +738,139 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
     type Error = serde_json::Error;
 
     fn try_from(record: DmsKinesisRecord) -> Result<Self, Self::Error> {
-        let DmsKinesisRecord { data, metadata } = record;
-        let classification = classify_dms_record(&data, &metadata);
-        match classification {
-            DmsKinesisRecordClassification::IncompatibleSchemaControl => {
-                return Err(dms_record_error("schema control"));
-            }
-            DmsKinesisRecordClassification::Invalid(reason) => {
-                return Err(dms_record_error(reason));
-            }
-            DmsKinesisRecordClassification::Trigger
-            | DmsKinesisRecordClassification::Noop
-            | DmsKinesisRecordClassification::InformationalControl => {}
-        }
-        let transaction_id = dms_metadata_value(metadata.transaction_id);
-        let transaction_record_id = dms_metadata_value(metadata.transaction_record_id);
-        let delivery_id = match (transaction_id, transaction_record_id) {
-            (Some(transaction_id), Some(transaction_record_id)) => {
-                Some(format!("dms:{transaction_id}:{transaction_record_id}"))
-            }
-            (Some(transaction_id), None) => Some(format!("dms:{transaction_id}")),
-            (None, Some(transaction_record_id)) => {
-                Some(format!("dms:record:{transaction_record_id}"))
-            }
-            (None, None) => None,
-        };
-        let commit_timestamp = dms_metadata_value(metadata.timestamp);
-        let changes = if classification == DmsKinesisRecordClassification::Trigger {
-            let operation = dms_operation(&metadata.operation)
-                .ok_or_else(|| dms_record_error("DMS Kinesis operation is unsupported"))?;
-            let (record, old_record) = match operation {
-                CdcOperation::Insert | CdcOperation::Update => (Some(data), None),
-                CdcOperation::Delete => (None, Some(data)),
-            };
-            vec![CdcChange {
-                schema: Some(metadata.schema_name),
-                table: metadata.table_name,
-                operation,
-                primary_key: BTreeMap::new(),
-                record,
-                old_record,
-                changed_columns: Vec::new(),
-                commit_lsn: None,
-                commit_timestamp,
-            }]
-        } else {
-            Vec::new()
-        };
+        let DmsKinesisRecord {
+            data,
+            control,
+            metadata,
+        } = record;
+        let delivery_id = dms_delivery_id(&metadata);
+        let commit_timestamp = dms_metadata_value(metadata.timestamp.clone());
 
-        Ok(Self {
-            delivery_id,
-            source: Some(DMS_KINESIS_SOURCE.to_owned()),
-            changes,
-        })
+        match metadata.record_type.as_str() {
+            "data" => {
+                if control.is_some() {
+                    return Err(dms_record_error("data/control payload"));
+                }
+                let data = data.ok_or_else(|| dms_record_error("data object"))?;
+                let classification = classify_dms_data(&data, &metadata);
+                match classification {
+                    DmsKinesisRecordClassification::IncompatibleSchemaControl => {
+                        return Err(dms_record_error("schema control"));
+                    }
+                    DmsKinesisRecordClassification::Invalid(reason) => {
+                        return Err(dms_record_error(reason));
+                    }
+                    DmsKinesisRecordClassification::InformationalControl => {
+                        return Err(dms_record_error("data classification"));
+                    }
+                    DmsKinesisRecordClassification::Noop => {
+                        return Ok(Self {
+                            delivery_id,
+                            source: Some(DMS_KINESIS_SOURCE.to_owned()),
+                            changes: Vec::new(),
+                        });
+                    }
+                    DmsKinesisRecordClassification::Trigger => {}
+                }
+                let operation = metadata
+                    .operation
+                    .as_deref()
+                    .and_then(dms_operation)
+                    .ok_or_else(|| dms_record_error("operation"))?;
+                let (record, old_record) = match operation {
+                    CdcOperation::Insert | CdcOperation::Update => (Some(data), None),
+                    CdcOperation::Delete => (None, Some(data)),
+                };
+                Ok(Self {
+                    delivery_id,
+                    source: Some(DMS_KINESIS_SOURCE.to_owned()),
+                    changes: vec![CdcChange {
+                        schema: Some("public".to_owned()),
+                        table: metadata
+                            .table_name
+                            .ok_or_else(|| dms_record_error("table"))?,
+                        operation,
+                        primary_key: BTreeMap::new(),
+                        record,
+                        old_record,
+                        changed_columns: Vec::new(),
+                        commit_lsn: None,
+                        commit_timestamp,
+                    }],
+                })
+            }
+            "control" => {
+                if data.is_some() {
+                    return Err(dms_record_error("data/control payload"));
+                }
+                let control = control.ok_or_else(|| dms_record_error("control object"))?;
+                let control: DmsControl = serde_json::from_value(control)
+                    .map_err(|_| dms_record_error("control object"))?;
+                match classify_dms_control(&control) {
+                    DmsKinesisRecordClassification::InformationalControl => Ok(Self {
+                        delivery_id,
+                        source: Some(DMS_KINESIS_SOURCE.to_owned()),
+                        changes: Vec::new(),
+                    }),
+                    DmsKinesisRecordClassification::IncompatibleSchemaControl => {
+                        Err(dms_record_error("schema control"))
+                    }
+                    DmsKinesisRecordClassification::Invalid(reason) => {
+                        Err(dms_record_error(reason))
+                    }
+                    DmsKinesisRecordClassification::Trigger
+                    | DmsKinesisRecordClassification::Noop => {
+                        Err(dms_record_error("control classification"))
+                    }
+                }
+            }
+            _ => Err(dms_record_error("record type")),
+        }
     }
 }
 
-fn classify_dms_record(
+fn dms_delivery_id(metadata: &DmsKinesisMetadata) -> Option<String> {
+    let transaction_id = dms_metadata_value(metadata.transaction_id.clone());
+    let transaction_record_id = dms_metadata_value(metadata.transaction_record_id.clone());
+    match (transaction_id, transaction_record_id) {
+        (Some(transaction_id), Some(transaction_record_id)) => {
+            Some(format!("dms:{transaction_id}:{transaction_record_id}"))
+        }
+        (Some(transaction_id), None) => Some(format!("dms:{transaction_id}")),
+        (None, Some(transaction_record_id)) => Some(format!("dms:record:{transaction_record_id}")),
+        (None, None) => None,
+    }
+}
+
+fn classify_dms_data(
     data: &Value,
     metadata: &DmsKinesisMetadata,
 ) -> DmsKinesisRecordClassification {
     if !data.is_object() {
         return DmsKinesisRecordClassification::Invalid("data object");
     }
-
-    match metadata.record_type.as_str() {
-        "data" => {
-            if metadata.schema_name != "public" {
-                return DmsKinesisRecordClassification::Invalid("schema");
-            }
-            let Some(operation) = dms_operation(&metadata.operation) else {
-                return DmsKinesisRecordClassification::Invalid("operation");
-            };
-            classify_dms_table_operation(&metadata.table_name, operation)
-        }
-        "control" => classify_dms_control(metadata),
-        _ => DmsKinesisRecordClassification::Invalid("record type"),
+    if metadata.schema_name.as_deref() != Some("public") {
+        return DmsKinesisRecordClassification::Invalid("schema");
     }
+    let Some(operation) = metadata.operation.as_deref().and_then(dms_operation) else {
+        return DmsKinesisRecordClassification::Invalid("operation");
+    };
+    let Some(table_name) = metadata.table_name.as_deref() else {
+        return DmsKinesisRecordClassification::Invalid("table");
+    };
+    classify_dms_table_operation(table_name, operation)
 }
 
-fn classify_dms_control(metadata: &DmsKinesisMetadata) -> DmsKinesisRecordClassification {
-    if metadata.schema_name != "public" || !dms_table_is_selected(&metadata.table_name) {
-        return DmsKinesisRecordClassification::IncompatibleSchemaControl;
-    }
-
-    match metadata.operation.as_str() {
-        // DMS emits both a create-table marker and an insert-shaped selected-table
-        // description when a stream starts. Neither carries a committed row or changes
-        // the explicit source-column mapping.
-        "create-table" | "insert" => DmsKinesisRecordClassification::InformationalControl,
+fn classify_dms_control(control: &DmsControl) -> DmsKinesisRecordClassification {
+    match control.operation.as_str() {
+        "create-table" => match (&control.schema_name, &control.table_name) {
+            // Task-level controls are not table scoped and do not alter a selected schema mapping.
+            (None, None) => DmsKinesisRecordClassification::InformationalControl,
+            (Some(schema), Some(table)) if schema == "public" && dms_table_is_selected(table) => {
+                DmsKinesisRecordClassification::InformationalControl
+            }
+            _ => DmsKinesisRecordClassification::IncompatibleSchemaControl,
+        },
         "rename-table" | "drop-table" | "change-columns" | "add-column" | "drop-column"
         | "rename-column" | "column-type-change" => {
             DmsKinesisRecordClassification::IncompatibleSchemaControl
@@ -4169,16 +4231,10 @@ mod tests {
     #[tokio::test]
     async fn should_ack_dms_information_and_noops_then_route_a_later_trigger()
     -> Result<(), Box<dyn std::error::Error>> {
-        let information = [
-            parse_cdc_batch(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/dms-kinesis/synthetic-control-create-table.json"
-            )))?,
-            parse_cdc_batch(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/fixtures/dms-kinesis/synthetic-control-table-description.json"
-            )))?,
-        ];
+        let information = [parse_cdc_batch(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/dms-kinesis/synthetic-control-create-table.json"
+        )))?];
         let noops = [
             parse_cdc_batch(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -4239,13 +4295,12 @@ mod tests {
             assert!(
                 parse_cdc_batch(
                     serde_json::json!({
-                        "data": {},
-                        "metadata": {
-                            "record-type": "control",
+                        "control": {
                             "operation": operation,
                             "schema-name": "public",
                             "table-name": "search_filters"
-                        }
+                        },
+                        "metadata": {"record-type": "control"}
                     })
                     .to_string()
                     .as_str()
@@ -4290,6 +4345,15 @@ mod tests {
                     "schema-name": "public",
                     "table-name": "notification_deliveries"
                 }
+            }),
+            serde_json::json!({
+                "data": {},
+                "control": {"operation": "create-table"},
+                "metadata": {"record-type": "control"}
+            }),
+            serde_json::json!({
+                "control": {"operation": "unknown-control"},
+                "metadata": {"record-type": "control"}
             }),
         ] {
             assert!(parse_cdc_batch(&record.to_string()).is_err());

@@ -262,26 +262,41 @@ fn clean_url(url: &Url) -> Result<(), QueueError> {
     Ok(())
 }
 
+/// Source-queue visibility deployed by `infra/src/worker-queue-config.ts`.
+///
+/// This is a storage contract used by the router when it validates its destinations. It is
+/// deliberately independent of the native worker budget: Lambda adapters own their own deadline
+/// budgets and the remaining native consumers retain their established execution limits during
+/// cutover.
 pub(super) fn visibility(scope: WorkerScope) -> Duration {
     Duration::from_secs(match scope {
-        WorkerScope::NotificationDelivery => 360,
-        WorkerScope::SearchFilterPercolator
+        WorkerScope::ProductListingOpenSearch
+        | WorkerScope::SearchFilterProjection
+        | WorkerScope::SearchFilterPercolator
+        | WorkerScope::SearchFilterMatchNotification
+        | WorkerScope::WatchlistNotification
+        | WorkerScope::ProductListingTranslation => 300,
+        WorkerScope::ProductListingContentAssessment
+        | WorkerScope::ProductListingRawNormalization => 270,
+        WorkerScope::ProductListingEmbedding => 360,
+        WorkerScope::NotificationDelivery => 330,
+    })
+}
+
+/// Legacy/native-worker execution budget retained through consumer cutover.
+pub(super) fn execution_budget(scope: WorkerScope) -> Duration {
+    // Notification's service-owned lease lasts five minutes. Leave finalization/drain headroom.
+    Duration::from_secs(match scope {
+        WorkerScope::NotificationDelivery
+        | WorkerScope::SearchFilterPercolator
         | WorkerScope::ProductListingTranslation
         | WorkerScope::ProductListingEmbedding
         | WorkerScope::ProductListingOpenSearch
-        | WorkerScope::ProductListingRawNormalization => 300,
+        | WorkerScope::ProductListingRawNormalization => 240,
         WorkerScope::SearchFilterProjection
         | WorkerScope::SearchFilterMatchNotification
         | WorkerScope::WatchlistNotification
-        | WorkerScope::ProductListingContentAssessment => 60,
-    })
-}
-pub(super) fn execution_budget(scope: WorkerScope) -> Duration {
-    // Notification's service-owned lease lasts five minutes. Leave finalization/drain headroom.
-    Duration::from_secs(if visibility(scope).as_secs() >= 300 {
-        240
-    } else {
-        45
+        | WorkerScope::ProductListingContentAssessment => 45,
     })
 }
 

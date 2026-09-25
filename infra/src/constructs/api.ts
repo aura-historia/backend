@@ -20,12 +20,43 @@ export enum RouteAuthPolicy {
   ProviderSignature = "PROVIDER_SIGNATURE",
 }
 
+export enum RouteAuthorizationClass {
+  Public = "PUBLIC",
+  AuthenticatedUser = "AUTHENTICATED_USER",
+  Administrator = "ADMINISTRATOR",
+  Partner = "PARTNER",
+}
+
+export enum OAuthCredentialRequirement {
+  None = "NONE",
+  AuthorizationCodePkce = "AUTHORIZATION_CODE_PKCE",
+  ClientCredentials = "CLIENT_CREDENTIALS",
+  ThirdPartyExchangeCode = "THIRD_PARTY_EXCHANGE_CODE",
+}
+
+export enum ProviderProofRequirement {
+  None = "NONE",
+  WooCommerceSignature = "WOOCOMMERCE_SIGNATURE",
+}
+
+/**
+ * Application-owned route requirements. API Gateway intentionally keeps `AuthorizationType.NONE`:
+ * Axum validates Aura/Cognito bearers, OAuth protocol credentials, and provider proofs.
+ */
+export interface ApplicationRouteAuthPolicy {
+  readonly bearer: "NONE" | "OPTIONAL" | "REQUIRED";
+  readonly authorization: RouteAuthorizationClass;
+  readonly oauthCredentials: OAuthCredentialRequirement;
+  readonly providerProof: ProviderProofRequirement;
+}
+
 export interface RouteDefinition {
   readonly method: apigwv2.HttpMethod;
   readonly path: string;
   readonly lambda: LambdaKey;
-  /** The application owns these policies because routes accept Aura opaque tokens and provider credentials. */
+  /** Legacy category retained for compact catalog declarations. Use `policy` for the full contract. */
   readonly auth: RouteAuthPolicy;
+  readonly policy: ApplicationRouteAuthPolicy;
 }
 
 const CLOUDFRONT_CACHING_DISABLED_POLICY_ID = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad";
@@ -413,6 +444,61 @@ function resourceCode(fileName: string): string {
   return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
 }
 
+function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): ApplicationRouteAuthPolicy {
+  if (path.startsWith("/api/v1/admin/")) {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.Administrator,
+      oauthCredentials: OAuthCredentialRequirement.None,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path === "/api/v1/listing-sources/{listing_source_id}/product-listings") {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.Partner,
+      oauthCredentials: OAuthCredentialRequirement.None,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path === "/api/v1/oauth/authorize") {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.AuthenticatedUser,
+      oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path === "/api/v1/oauth/token" || path === "/api/v1/oauth/revoke" || path === "/api/v1/oauth/introspect") {
+    return {
+      bearer: "NONE",
+      authorization: RouteAuthorizationClass.Public,
+      oauthCredentials: OAuthCredentialRequirement.ClientCredentials,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path === "/api/v1/oauth/tokens/by-third-party-code/{third_party_code}") {
+    return {
+      bearer: "NONE",
+      authorization: RouteAuthorizationClass.Public,
+      oauthCredentials: OAuthCredentialRequirement.ThirdPartyExchangeCode,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  switch (category) {
+    case RouteAuthPolicy.Anonymous:
+      return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
+    case RouteAuthPolicy.OptionalBearer:
+      return { bearer: "OPTIONAL", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
+    case RouteAuthPolicy.ApplicationBearer:
+      return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.AuthenticatedUser, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
+    case RouteAuthPolicy.ProviderSignature:
+      return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.Partner, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.WooCommerceSignature };
+    case RouteAuthPolicy.OAuth:
+      throw new Error(`OAuth route '${path}' has no explicit credential policy.`);
+  }
+}
+
 function route(
   method: keyof typeof apigwv2.HttpMethod,
   path: string,
@@ -424,5 +510,6 @@ function route(
     path,
     lambda: lambdaKey,
     auth,
+    policy: applicationRouteAuthPolicy(path, auth),
   };
 }

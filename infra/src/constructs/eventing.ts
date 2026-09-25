@@ -31,6 +31,7 @@ export interface EventingProps {
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
+  readonly cdcRouterVersion: lambda.IVersion | undefined;
   readonly fxRateSyncVersion: lambda.IVersion | undefined;
   readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
   readonly partnerIntegrationActivation: cdk.CfnCondition;
@@ -104,13 +105,14 @@ export class Eventing extends Construct {
         props.fxRateRefreshActivation,
       );
 
-      if (!props.functions.cdcRouter || !props.dmsCdc || !props.cdcRouterActivation) {
-        throw new Error("Real eventing requires the DMS CDC router Lambda, stream, and activation condition.");
+      if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
+        throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
       }
       createDmsCdcRouterEventSource(
         this,
         props.config,
         props.functions.cdcRouter,
+        props.cdcRouterVersion,
         props.dmsCdc,
         props.workerQueues,
         props.cdcRouterActivation,
@@ -336,6 +338,7 @@ function createDmsCdcRouterEventSource(
   scope: Construct,
   config: StageConfig,
   router: lambda.Function,
+  routerVersion: lambda.IVersion,
   dmsCdc: DmsCdc,
   workerQueues: WorkerQueueCatalog,
   activation: cdk.CfnCondition,
@@ -352,6 +355,7 @@ function createDmsCdcRouterEventSource(
     removalPolicy: cdk.RemovalPolicy.RETAIN,
   });
 
+  router.addEnvironment("STAGE", config.stage);
   const sourceQueueArns: string[] = [];
   const deadLetterQueueArns: string[] = [];
   for (const [environmentScope, workerScope] of Object.entries(CDC_ROUTER_QUEUE_SCOPES) as [
@@ -404,7 +408,7 @@ function createDmsCdcRouterEventSource(
     },
     enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
     eventSourceArn: dmsCdc.stream.streamArn,
-    functionName: router.functionArn,
+    functionName: routerVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
     maximumBatchingWindowInSeconds: 1,
     maximumRecordAgeInSeconds: 3600,

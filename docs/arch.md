@@ -1725,7 +1725,9 @@ Authoritative PostgreSQL writes MUST commit according to the transaction rules a
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes current Sequin/runtime declarations from the agreed DMS/Kinesis/Lambda target.
+CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The checked-in migration baseline, survivor inventory, ownership, and cutover gates are in [Migration F1 inventory](migration-f1-inventory.md); it distinguishes the current legacy Sequin/runtime declarations from the agreed DMS/Kinesis/Lambda target.
+
+**Current legacy transport (not target):**
 
 ```text
 PostgreSQL commit
@@ -1735,6 +1737,8 @@ PostgreSQL commit
     -> scoped Standard SQS source queues / DLQs
     -> service handlers and projection adapters
 ```
+
+**Target transport after approved cutover:** `PostgreSQL commit -> DMS -> Kinesis -> immutable router Lambda version -> scoped Standard SQS source queues / DLQs -> worker Lambdas -> service handlers and projection adapters`.
 
 ### 12.1 Storage ownership
 
@@ -1763,7 +1767,7 @@ Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry
 
 OpenSearch contains rebuildable search projections only.
 
-`product_listing_events` is a transactional ProductListing domain/enrichment journal and direct Sequin CDC source. It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
+`product_listing_events` is a transactional ProductListing domain/enrichment journal and selected CDC source (Sequin in the current legacy path; DMS in the target path). It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
 
 Additional stores MUST be classified as one of:
 
@@ -1790,13 +1794,13 @@ update key-value projection
 COMMIT PostgreSQL
 ```
 
-Required:
+Required (target transport after approved cutover):
 
 ```text
 commit PostgreSQL
-    -> Sequin observes committed product_listing_events INSERT
-    -> worker validates and routes CDC
-    -> update projections asynchronously
+    -> DMS observes selected committed product_listing_events INSERT
+    -> Kinesis -> router Lambda -> durable SQS job
+    -> worker Lambda updates projections asynchronously
 ```
 
 Domain invariants MUST NOT depend on projections being current.
@@ -1816,13 +1820,13 @@ source change
 
 The router MUST fully prevalidate the batch before publishing anything: source/schema/table/operation, typed payloads, stable domain keys, every destination, and serialized job bounds. Invalid later changes MUST NOT cause partial publication.
 
-Return Sequin `202` only after SQS confirms publication of **every** required job for this scoped delivery. Validation, publication failure, timeout, or ambiguous send outcome MUST NOT acknowledge. Network failure can still leave partial fanout; Sequin redelivery intentionally republishes the same logical jobs. Valid scope-irrelevant events may produce zero jobs and acknowledge normally.
+**Current legacy Sequin router only:** return Sequin `202` only after SQS confirms publication of **every** required job for this scoped delivery. Validation, publication failure, timeout, or ambiguous send outcome MUST NOT acknowledge. Network failure can still leave partial fanout; Sequin redelivery intentionally republishes the same logical jobs. Valid scope-irrelevant events may produce zero jobs and acknowledge normally.
 
-Ingress is bounded: 1 MiB body, 100 changes, 500 derived jobs, 8s total publication deadline inside a 10s HTTP request deadline. Sequin's operational delivery timeout MUST exceed 10s (15s recommended), with batches at most 100 and within byte limits. Deployment configuration belongs to the external Sequin owner, not the repository's test fixtures. Socket/header limits and exact configuration are in the [durable-worker runbook](durable-worker-runbook.md).
+**Current legacy Sequin router only:** ingress is bounded: 1 MiB body, 100 changes, 500 derived jobs, 8s total publication deadline inside a 10s HTTP request deadline. Sequin's operational delivery timeout MUST exceed 10s (15s recommended), with batches at most 100 and within byte limits. Deployment configuration belongs to the external Sequin owner, not the repository's test fixtures. Socket/header limits and exact configuration are in the [durable-worker runbook](durable-worker-runbook.md).
 
 #### DMS/Kinesis router transport
 
-The target real-stage router is a thin non-VPC Lambda with no PostgreSQL or provider credentials. It accepts only native Kinesis records with an unmodified usable sequence number and a strict DMS `{ data, metadata }` payload; it never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
+The target real-stage router is a thin non-VPC Lambda with no PostgreSQL or provider credentials. It accepts only native Kinesis records with an unmodified usable sequence number and strict DMS data (`{ data, metadata }`) or control (`{ control, metadata }`) payloads; it never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
 
 The handler reserves response headroom from its actual Lambda deadline, processes records in stream order, and returns only the earliest unconfirmed Kinesis sequence number with `ReportBatchItemFailures`; it then stops. Records after that checkpoint are unprocessed, never successful. A missing sequence number fails the whole invocation because Lambda cannot receive a truthful partial failure. Expired budget, malformed/unsupported input, incompatible schema control, failed/lost SQS confirmation, and partial fanout are failures. Valid DMS non-trigger operations and selected informational controls are acknowledged no-ops. SQS IDs, DMS delivery metadata, and Kinesis sequence numbers are transport correlation only, never business identity.
 
@@ -1950,7 +1954,7 @@ The initial business schema defines `completed_lease_token` and `completed_at`. 
 
 Transient failures use bounded 30–900s exponential visibility backoff with jitter; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain undeleted for the DLQ. Malformed upstream CDC never reaches SQS: Sequin delivery stays unacknowledged; the DMS/Kinesis router instead returns the earliest Kinesis failure and its configured retry/age policy sends the complete invocation to the retained S3 archive. Neither is worker-DLQ redrive.
 
-Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the unchanged `requestPayload`, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
+Operators MUST repair the cause before small controlled native redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the documented unchanged outer `payload` JSON string, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
 
 Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the native worker's four-minute attempt budget and Lambda's 35-second attempt budget each include claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. Lambda timeout never cancels an SES request. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
 

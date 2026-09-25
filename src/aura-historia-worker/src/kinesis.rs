@@ -33,16 +33,19 @@ pub fn decode_failure_archive(body: &[u8]) -> Result<KinesisEvent, FailureArchiv
     }
     let archive: FailureArchive =
         serde_json::from_slice(body).map_err(|_| FailureArchiveDecodeError::Invalid)?;
-    if archive.request_payload.records.is_empty()
-        || archive
-            .request_payload
+    // Lambda's S3 on-failure destination stores the original invocation in `payload` as an
+    // escaped JSON string, not as a nested `requestPayload` object.
+    let event: KinesisEvent =
+        serde_json::from_str(&archive.payload).map_err(|_| FailureArchiveDecodeError::Invalid)?;
+    if event.records.is_empty()
+        || event
             .records
             .iter()
             .any(|record| !valid_sequence_number(&record.kinesis.sequence_number))
     {
         return Err(FailureArchiveDecodeError::Invalid);
     }
-    Ok(archive.request_payload)
+    Ok(event)
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -54,9 +57,8 @@ pub enum FailureArchiveDecodeError {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct FailureArchive {
-    request_payload: KinesisEvent,
+    payload: String,
 }
 
 /// Derives a bounded router budget from Lambda's actual deadline and reserves time to serialize
@@ -184,7 +186,10 @@ fn validate_kinesis_record(record: &KinesisEventRecord) -> Result<(), KinesisRec
     {
         return Err(KinesisRecordError::InvalidEnvelope);
     }
-    if record.kinesis.encryption_type != KinesisEncryptionType::None {
+    if !matches!(
+        record.kinesis.encryption_type,
+        KinesisEncryptionType::None | KinesisEncryptionType::Kms
+    ) {
         return Err(KinesisRecordError::UnsupportedEncryption);
     }
     Ok(())
@@ -430,9 +435,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_non_dms_and_encrypted_kinesis_records_without_logging_source_data() {
+    async fn should_route_a_kms_encrypted_kinesis_record() {
+        let (fanout, mut receivers) = fanout();
+        let mut encrypted = record("100", PRODUCT_EVENT.as_bytes());
+        encrypted.kinesis.encryption_type = KinesisEncryptionType::Kms;
+
+        let response = handler(event([encrypted]), &fanout)
+            .await
+            .expect("valid Kinesis batch");
+
+        assert!(response.batch_item_failures.is_empty());
+        assert_eq!(
+            Some(WorkerQueue::ProductListingOpenSearch),
+            receivers
+                .recv(WorkerQueue::ProductListingOpenSearch)
+                .await
+                .map(|job| job.target_queue)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_malformed_kinesis_envelopes_independently_of_encryption() {
         let (fanout, _) = fanout();
-        let mut malformed = record("100", br#"{"data":"not-a-dms-envelope"}"#);
+        let mut malformed = record("100", PRODUCT_EVENT.as_bytes());
+        malformed.event_source = Some("not-kinesis".to_owned());
         malformed.kinesis.encryption_type = KinesisEncryptionType::Kms;
 
         let response = handler(event([malformed]), &fanout)
@@ -446,6 +472,7 @@ mod tests {
     fn should_decode_the_original_kinesis_event_from_a_failure_archive_for_safe_replay() {
         let invocation = event([record("100", PRODUCT_EVENT.as_bytes())]);
         let archive = serde_json::json!({
+            "version": "1.0",
             "timestamp": "2026-09-22T12:00:00Z",
             "requestContext": {
                 "requestId": "safe-correlation-id",
@@ -453,8 +480,9 @@ mod tests {
                 "condition": "RetryAttemptsExhausted",
                 "approximateInvokeCount": 4
             },
-            "requestPayload": invocation.payload,
-            "responseContext": {"statusCode": 200}
+            "responseContext": {"statusCode": 200},
+            "KinesisBatchInfo": {"shardId": "shardId-000000000000", "startSequenceNumber": "100", "endSequenceNumber": "100"},
+            "payload": serde_json::to_string(&invocation.payload).expect("serialized invocation")
         });
 
         let decoded = decode_failure_archive(&serde_json::to_vec(&archive).expect("archive JSON"))
@@ -472,7 +500,19 @@ mod tests {
     fn should_reject_missing_or_unusable_failure_archive_payloads() {
         assert_eq!(
             Err(FailureArchiveDecodeError::Invalid),
-            decode_failure_archive(br#"{"requestPayload":{"Records":[]}}"#)
+            decode_failure_archive(br#"{"payload":"not-json"}"#)
+        );
+        assert_eq!(
+            Err(FailureArchiveDecodeError::Invalid),
+            decode_failure_archive(br#"{"payload": {}}"#)
+        );
+        assert_eq!(
+            Err(FailureArchiveDecodeError::Invalid),
+            decode_failure_archive(br#"{"payload":"{\"Records\":[]}"}"#)
+        );
+        assert_eq!(
+            Err(FailureArchiveDecodeError::Invalid),
+            decode_failure_archive(br#"{"payload":"{\"Records\":[{\"kinesis\":{\"sequenceNumber\":\"not-a-sequence\"}}]}"}"#)
         );
         assert_eq!(
             Err(FailureArchiveDecodeError::LimitExceeded),

@@ -276,9 +276,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    // The API's stable HTTP integration and the two real-stage maintenance targets
+    // The API's stable HTTP integration, real-stage CDC router, and two maintenance targets
     // each use immutable versions; all ten queue workers retain their own versions.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 13);
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 14);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({

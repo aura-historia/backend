@@ -417,7 +417,7 @@ async fn should_keep_poll_and_heartbeat_reserved_receipt_during_reconciliation_t
     assert!(fake.receive_dropped.load(Ordering::SeqCst));
     tokio::time::advance(Duration::from_secs(30)).await;
     yield_tasks().await;
-    assert_eq!(vec![Call::Receive, Call::Visibility(300)], fake.calls());
+    assert_eq!(vec![Call::Receive, Call::Visibility(270)], fake.calls());
     assert!(commands.try_recv().is_err());
     use_case.reconciliation_release.notify_one();
     assert!(matches!(
@@ -427,7 +427,7 @@ async fn should_keep_poll_and_heartbeat_reserved_receipt_during_reconciliation_t
     assert_eq!(1, fake.count(Call::Receive));
     tokio::time::advance(Duration::from_secs(30)).await;
     yield_tasks().await;
-    assert_eq!(2, fake.count(Call::Visibility(300)));
+    assert_eq!(2, fake.count(Call::Visibility(270)));
     assert_eq!(1, fake.count(Call::Receive));
     assert_eq!(0, fake.count(Call::Delete));
     use_case.cdc_release.notify_one();
@@ -528,7 +528,7 @@ async fn should_join_held_heartbeat_before_handoff_execution_and_delete_without_
     polling.ready().await;
     tokio::time::advance(Duration::from_secs(30)).await;
     yield_tasks().await;
-    assert_eq!(vec![Call::Receive, Call::Visibility(360)], fake.calls());
+    assert_eq!(vec![Call::Receive, Call::Visibility(330)], fake.calls());
     let observed = fake.clone();
     let handoff = tokio::spawn(async move {
         let (mut receiver, delivery) = polling.take().await.unwrap();
@@ -549,7 +549,7 @@ async fn should_join_held_heartbeat_before_handoff_execution_and_delete_without_
     handoff.await.unwrap();
     let calls = fake.calls();
     assert_eq!(
-        vec![Call::Receive, Call::Visibility(360), Call::Delete],
+        vec![Call::Receive, Call::Visibility(330), Call::Delete],
         calls
     );
     assert_eq!(1, fake.messages.lock().unwrap().len());
@@ -619,7 +619,7 @@ async fn should_bound_held_receipt_lifetime_without_immortal_heartbeat_or_execut
         tokio::time::advance(Duration::from_secs(30)).await;
         yield_tasks().await;
     }
-    assert_eq!(8, fake.count(Call::Visibility(360)));
+    assert_eq!(8, fake.count(Call::Visibility(330)));
     tokio::time::advance(API_TIMEOUT).await;
     yield_tasks().await;
     assert!(!control.ready());
@@ -663,7 +663,7 @@ async fn should_join_pending_or_held_receive_on_shutdown_without_releasing_or_de
         polling.ready().await;
         tokio::time::advance(Duration::from_secs(30)).await;
         yield_tasks().await;
-        assert_eq!(1, fake.count(Call::Visibility(360)));
+        assert_eq!(1, fake.count(Call::Visibility(330)));
     }
     let started = Instant::now();
     polling.stop().await;
@@ -701,7 +701,7 @@ async fn should_abort_pending_receive_children_when_scheduler_owner_is_dropped(#
         polling.ready().await;
         tokio::time::advance(Duration::from_secs(30)).await;
         yield_tasks().await;
-        assert_eq!(1, fake.count(Call::Visibility(360)));
+        assert_eq!(1, fake.count(Call::Visibility(330)));
     }
     drop(polling);
     yield_tasks().await;
@@ -1286,7 +1286,7 @@ async fn should_recover_on_empty_receive_after_heartbeat_failure_only_without_pr
         .await;
     assert_eq!(usize::from(!held), invocations.load(Ordering::SeqCst));
     assert_eq!(!held, dropped.load(Ordering::SeqCst));
-    assert_eq!(1, fake.count(Call::Visibility(360)));
+    assert_eq!(1, fake.count(Call::Visibility(330)));
     assert_eq!(0, fake.visibility_failures.load(Ordering::SeqCst));
     assert_eq!(
         1 + usize::from(prior_service_outage),
@@ -1351,7 +1351,7 @@ async fn should_preserve_service_failure_completed_during_a_failing_heartbeat_ca
     started_rx.await.unwrap();
     tokio::time::advance(Duration::from_secs(30)).await;
     yield_tasks().await;
-    assert_eq!(1, fake.count(Call::Visibility(360)));
+    assert_eq!(1, fake.count(Call::Visibility(330)));
     release.send(()).unwrap();
     yield_tasks().await;
     assert!(!attempt.is_finished());

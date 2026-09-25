@@ -29,7 +29,7 @@ describe.each(STAGES)("%s compute eventing", (stage) => {
     const schedules = resources(template, "AWS::Scheduler::Schedule");
     const openSearchActivation = { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] };
     const partnerIntegrationActivation = { "Fn::If": ["PartnerIntegrationActivation", true, false] };
-    const fxRateRefreshActivation = { "Fn::If": ["FxRateRefreshActivation", true, false] };
+
     const normalizationActivation = { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] };
     const contentAssessmentActivation = { "Fn::If": ["ProductContentAssessmentConsumerActivation", true, false] };
     const embeddingActivation = { "Fn::If": ["ProductEmbeddingConsumerActivation", true, false] };

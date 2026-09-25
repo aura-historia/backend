@@ -90,6 +90,12 @@ fn should_require_one_distinct_router_queue_url_for_every_production_scope() {
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>()
     );
 
+    values.remove("STAGE");
+    assert_eq!(
+        Err(QueueError::MissingConfig("STAGE")),
+        CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned()).map(|_| ())
+    );
+    values.insert("STAGE", "prod".to_owned());
     values.remove(WorkerScope::NotificationDelivery.router_queue_url_env());
     assert_eq!(
         Err(QueueError::MissingConfig(
@@ -114,27 +120,32 @@ fn should_validate_exact_ten_scope_queue_and_dlq_contracts() {
             );
         }
         assert_eq!(
-            if config.visibility_timeout().as_secs() >= 300 {
-                240
-            } else {
-                45
+            match scope {
+                WorkerScope::NotificationDelivery
+                | WorkerScope::SearchFilterPercolator
+                | WorkerScope::ProductListingTranslation
+                | WorkerScope::ProductListingEmbedding
+                | WorkerScope::ProductListingOpenSearch
+                | WorkerScope::ProductListingRawNormalization => 240,
+                WorkerScope::SearchFilterProjection
+                | WorkerScope::SearchFilterMatchNotification
+                | WorkerScope::WatchlistNotification
+                | WorkerScope::ProductListingContentAssessment => 45,
             },
             config.execution_budget().as_secs()
         );
         assert_eq!(
-            if scope == WorkerScope::NotificationDelivery {
-                360
-            } else if matches!(
-                scope,
-                WorkerScope::SearchFilterPercolator
-                    | WorkerScope::ProductListingEmbedding
-                    | WorkerScope::ProductListingOpenSearch
-                    | WorkerScope::ProductListingTranslation
-                    | WorkerScope::ProductListingRawNormalization
-            ) {
-                300
-            } else {
-                60
+            match scope {
+                WorkerScope::ProductListingOpenSearch
+                | WorkerScope::SearchFilterProjection
+                | WorkerScope::SearchFilterPercolator
+                | WorkerScope::SearchFilterMatchNotification
+                | WorkerScope::WatchlistNotification
+                | WorkerScope::ProductListingTranslation => 300,
+                WorkerScope::ProductListingContentAssessment
+                | WorkerScope::ProductListingRawNormalization => 270,
+                WorkerScope::ProductListingEmbedding => 360,
+                WorkerScope::NotificationDelivery => 330,
             },
             config.visibility_timeout().as_secs()
         );
