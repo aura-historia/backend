@@ -321,6 +321,9 @@ export class Lambdas extends Construct {
           props.artifactBucket,
           `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
         ),
+        currentVersionOptions: key === "auraHistoriaApi"
+          ? { description: `aura-historia-api-${props.parameters.commitSha}` }
+          : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
@@ -659,6 +662,7 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
             service: "lambda",
             resource: "function",
             resourceName: `${lambdaFunctionName(key, config.stage)}:${API_LAMBDA_ALIAS_NAME}`,
+            arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
           }),
           sameEnvironment: true,
         },

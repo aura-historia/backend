@@ -90,6 +90,21 @@ function apiTemplate(stage: StageName): Template {
   return Template.fromStack(createApplicationStacks(app, { stage }).api);
 }
 
+function resolveConcreteArn(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  const join = (value as { "Fn::Join": [string, unknown[]] })["Fn::Join"];
+  expect(join[0]).toBe("");
+  return join[1].map((part) => {
+    if (typeof part === "string") {
+      return part;
+    }
+    expect(part).toEqual({ Ref: "AWS::Partition" });
+    return "aws";
+  }).join("");
+}
+
 describe("HTTP API route policy matrix", () => {
   test("covers the declared Axum and OpenAPI operations without a catch-all", () => {
     const catalog = catalogRouteKeys();
@@ -186,8 +201,10 @@ describe("HTTP API route policy matrix", () => {
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
     expect(integrations).toHaveLength(1);
     expect(routes.every((route) => JSON.stringify(route.Properties.Target).includes(integrationIds[0]))).toBe(true);
-    expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).toContain(`aura-historia-api-${stage}:live`);
+    expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).toContain(`:function:aura-historia-api-${stage}:live`);
+    expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).not.toContain(":function/");
     expect(permissions).toHaveLength(1);
+    expect(integrations[0].Properties.IntegrationUri).toEqual(permissions[0].Properties.FunctionName);
     // A single scoped statement leaves ample headroom under Lambda's 20 KiB policy limit.
     expect(Buffer.byteLength(JSON.stringify(permissions[0]))).toBeLessThan(10_000);
     expect(permissions[0].Properties).toEqual({
@@ -195,7 +212,7 @@ describe("HTTP API route policy matrix", () => {
       FunctionName: {
         "Fn::Join": ["", [
           "arn:", { Ref: "AWS::Partition" }, ":lambda:", { Ref: "AWS::Region" }, ":",
-          { Ref: "AWS::AccountId" }, `:function/aura-historia-api-${stage}:live`,
+          { Ref: "AWS::AccountId" }, `:function:aura-historia-api-${stage}:live`,
         ]],
       },
       Principal: "apigateway.amazonaws.com",
@@ -206,6 +223,29 @@ describe("HTTP API route policy matrix", () => {
         ]],
       },
     });
+  });
+
+  test.each(["dev", "prod"] as const)("imports the %s compute alias ARN for integration and permission", (stage) => {
+    const app = new cdk.App({ analyticsReporting: false });
+    const stacks = createApplicationStacks(app, {
+      stage,
+      env: { account: "123456789012", region: "eu-central-1" },
+    });
+    const compute = Template.fromStack(stacks.compute);
+    const api = Template.fromStack(stacks.api);
+    const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias")) as CloudFormationResource[];
+    const functionId = (alias.Properties.FunctionName as { Ref: string }).Ref;
+    const functionResource = compute.findResources("AWS::Lambda::Function")[functionId] as CloudFormationResource;
+    const qualifiedArn = `arn:aws:lambda:eu-central-1:123456789012:function:${functionResource.Properties.FunctionName}:${alias.Properties.Name}`;
+    const [integration] = Object.values(api.findResources("AWS::ApiGatewayV2::Integration")) as CloudFormationResource[];
+    const [permission] = Object.values(api.findResources("AWS::Lambda::Permission")) as CloudFormationResource[];
+
+    expect(alias.Properties.Name).toBe("live");
+    expect(functionResource.Properties.FunctionName).toBe(`aura-historia-api-${stage}`);
+    expect(qualifiedArn).toBe(`arn:aws:lambda:eu-central-1:123456789012:function:aura-historia-api-${stage}:live`);
+    expect(resolveConcreteArn(integration.Properties.IntegrationUri)).toBe(qualifiedArn);
+    expect(resolveConcreteArn(permission.Properties.FunctionName)).toBe(qualifiedArn);
+    expect(qualifiedArn).not.toContain(":function/");
   });
 
   test.each(["dev", "prod"] as const)("retains the %s custom domain, CloudFront and WAF while disabling shared API caching", (stage) => {
