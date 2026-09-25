@@ -250,7 +250,7 @@ async fn composition(
     invalid_template: bool,
 ) -> Result<Arc<dyn DeliverNotificationUseCase>, Box<dyn std::error::Error + Send + Sync>> {
     let (s3, ses, email) = provider(invalid_template).await?;
-    Ok(compose_delivery_use_case(pool, s3, ses, email)?)
+    compose_delivery_use_case(pool, s3, ses, email)
 }
 
 async fn provider(
