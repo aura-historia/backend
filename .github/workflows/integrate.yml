@@ -92,7 +92,7 @@ jobs:
           while IFS= read -r -d '' template; do
             mjml/node_modules/.bin/mjml "$template" --output /dev/null
             template_count=$((template_count + 1))
-          done < <(find mjml -type f -name '*.mjml' -print0)
+          done < <(git ls-files -z -- 'mjml/**/*.mjml')
           test "$template_count" -gt 0
 
   lint:

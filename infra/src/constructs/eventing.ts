@@ -32,7 +32,6 @@ export interface EventingProps {
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
-  readonly fxRateSyncVersion: lambda.IVersion | undefined;
   readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
@@ -85,15 +84,10 @@ export class Eventing extends Construct {
     );
 
     if (!props.config.isEphemeral) {
-      if (!props.backendCleanupVersion || !props.fxRateSyncVersion) {
-        throw new Error("Real eventing requires cleanup and FX Lambda versions.");
+      if (!props.backendCleanupVersion) {
+        throw new Error("Real eventing requires a cleanup Lambda version.");
       }
-      createMaintenanceSchedules(
-        this,
-        props.config,
-        props.backendCleanupVersion,
-        props.fxRateSyncVersion,
-      );
+      createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
 
       if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
         throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
@@ -153,8 +147,12 @@ function createMaintenanceSchedules(
   scope: Construct,
   config: StageConfig,
   cleanupVersion: lambda.IVersion,
-  fxRateSyncVersion: lambda.IVersion,
 ): void {
+  const fxRateSyncArn = cdk.Stack.of(scope).formatArn({
+    service: "lambda",
+    resource: "function",
+    resourceName: `fxrate-lambda-${config.stage}`,
+  });
   const deadLetterQueue = new sqs.Queue(scope, "MaintenanceSchedulerDeadLetterQueue", {
     queueName: maintenanceSchedulerDeadLetterQueueName(config.stage),
     encryption: sqs.QueueEncryption.SQS_MANAGED,
@@ -167,7 +165,7 @@ function createMaintenanceSchedules(
   });
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["lambda:InvokeFunction"],
-    resources: [cleanupVersion.functionArn, fxRateSyncVersion.functionArn],
+    resources: [cleanupVersion.functionArn, fxRateSyncArn],
   }));
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["sqs:SendMessage"],
@@ -199,7 +197,7 @@ function createMaintenanceSchedules(
     flexibleTimeWindow: { mode: "OFF" },
     state: "ENABLED",
     target: {
-      arn: fxRateSyncVersion.functionArn,
+      arn: fxRateSyncArn,
       roleArn: role.roleArn,
       input: fxRateSchedulerInput(),
       deadLetterConfig: { arn: deadLetterQueue.queueArn },

@@ -11,7 +11,7 @@ on:
           - dev
           - prod
       commit_sha:
-        description: "Full 40-character lowercase SHA of a published release inventory"
+        description: "Full 40-character lowercase SHA of artifacts uploaded for this stage"
         required: true
         type: string
 
@@ -84,7 +84,7 @@ jobs:
             fi
             status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
             case "$status" in
-              CREATE_COMPLETE|UPDATE_COMPLETE) ;;
+              CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
               *) echo "Foundation stack ${stack} is not complete: ${status:-missing}" >&2; exit 1 ;;
             esac
           done
@@ -92,6 +92,33 @@ jobs:
           if [ "$init_sha" != "$DEPLOY_COMMIT_SHA" ]; then
             echo 'Initialize stack CommitSHA does not match the selected release; run Deploy first.' >&2
             exit 1
+          fi
+
+          # A failed or partial first initialization can be retried, but never invoke
+          # migrations while an existing application stack is mid-update or failed.
+          for stack in compute api; do
+            if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-${stack}" \
+              --output json > "${stack}-stack.json" 2>error.txt; then
+              status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
+              case "$status" in
+                CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+                *) echo "${stack} stack is ${status:-missing}; repair it before Initialize." >&2; exit 1 ;;
+              esac
+            elif ! grep -Eq '\(ValidationError\).*does not exist' error.txt; then
+              cat error.txt >&2; exit 1
+            fi
+          done
+          if [ "$STAGE" = prod ]; then
+            if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-observability" \
+              --output json > observability-stack.json 2>error.txt; then
+              status="$(jq -r '.Stacks[0].StackStatus // empty' observability-stack.json)"
+              case "$status" in
+                CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+                *) echo "Observability stack is ${status:-missing}; repair it before Initialize." >&2; exit 1 ;;
+              esac
+            elif ! grep -Eq '\(ValidationError\).*does not exist' error.txt; then
+              cat error.txt >&2; exit 1
+            fi
           fi
 
       - name: Install CDK dependencies
@@ -167,6 +194,7 @@ jobs:
 
           # CDK uses defaults on creation and previous parameter values on updates (including CDC).
           deploy "${STACK_NAME_PREFIX}-compute" \
+            --previous-parameters \
             --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
 
           stacks=("${STACK_NAME_PREFIX}-api")
