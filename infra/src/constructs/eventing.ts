@@ -152,6 +152,7 @@ function createMaintenanceSchedules(
     service: "lambda",
     resource: "function",
     resourceName: `fxrate-lambda-${config.stage}`,
+    arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
   });
   const deadLetterQueue = new sqs.Queue(scope, "MaintenanceSchedulerDeadLetterQueue", {
     queueName: maintenanceSchedulerDeadLetterQueueName(config.stage),

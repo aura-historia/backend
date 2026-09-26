@@ -10,7 +10,7 @@ const initializeWorkflow = readFileSync(
   "utf8",
 );
 
-describe("release workflow boundary", () => {
+describe("deployment workflow boundary", () => {
   test("packages exactly the CDK Lambda artifacts, not the legacy native worker", () => {
     const matrix = deployWorkflow.split("  aws-push-lambda:")[1]?.split("    steps:")[0];
     expect(matrix).toBeDefined();
@@ -45,14 +45,11 @@ describe("release workflow boundary", () => {
     expect(artifacts.sort()).toEqual(binaries.sort());
     expect(deployWorkflow).toMatch(/working-directory: (?:src\/\$\{\{ matrix\.binary \}\}|\$\{\{ matrix\.crate \}\})/);
     expect(deployWorkflow).toContain('target/lambda/${BINARY}/bootstrap.zip');
-    const catalog = deployWorkflow.match(/LAMBDA_BINARIES: >-\n((?:    [a-z0-9- ]+\n)+)/)?.[1];
-    expect(catalog).toBeDefined();
-    expect(catalog!.trim().split(/\s+/).sort()).toEqual(binaries);
     expect(deployWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
     expect(initializeWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
   });
 
-  test("publishes SHA artifacts and admits only a checked and initialized deployment", () => {
+  test("publishes stage/SHA artifacts and deploys only after checks and uploads", () => {
     expect(deployWorkflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(deployWorkflow).toContain("cancel-in-progress: false");
     expect(deployWorkflow).toContain("stage:");
@@ -60,20 +57,17 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("database-migration-lambda");
     expect(deployWorkflow).toContain('--bin "${{ matrix.binary }}"');
     expect(deployWorkflow).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
-    expect(deployWorkflow).toContain("releases/${DEPLOY_COMMIT_SHA}/inventory.tsv");
-    expect(deployWorkflow).toContain("needs: [infra-test, release-inventory]");
-    expect(deployWorkflow).toContain("needs.release-inventory.result == 'success'");
+    expect(deployWorkflow).toContain('key="${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
+    expect(deployWorkflow).toContain("git ls-files -z -- 'mjml/**/*.mjml'");
+    expect(deployWorkflow).toContain('name="${template%.mjml}.html"');
+    expect(deployWorkflow).toContain('key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"');
+    expect(deployWorkflow).toContain('key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"');
+    expect(deployWorkflow).toContain('needs: [infra-test, aws-push-lambda, aws-push-mail-templates]');
     expect(deployWorkflow).toContain("needs.infra-test.result == 'success'");
-    expect(deployWorkflow).not.toContain('review-diff:');
-    expect(deployWorkflow).toContain('secrets.CI_UPLOAD_ROLE_ARN');
-
+    expect(deployWorkflow).toContain("needs.aws-push-lambda.result == 'success'");
+    expect(deployWorkflow).toContain("needs.aws-push-mail-templates.result == 'success'");
     expect(deployWorkflow).toContain('secrets.CI_DEPLOY_ROLE_ARN');
-    expect(deployWorkflow).toContain('release-bytes/${index}');
     expect(deployWorkflow).toContain('migration-result.json');
-    expect(deployWorkflow).toContain('source_key="${name}-${source}-${DEPLOY_COMMIT_SHA}.zip"');
-    expect(deployWorkflow).toContain('target_key="${name}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
-    expect(deployWorkflow).toContain('target_key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"');
-    expect(deployWorkflow).toContain("--if-none-match '*'");
     expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(deployWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-initialize"');
@@ -82,6 +76,22 @@ describe("release workflow boundary", () => {
     expect(deployWorkflow).toContain("Private migration failed; application admission is blocked.");
     expect(deployWorkflow).not.toContain("deployment_phase:");
     expect(deployWorkflow).not.toContain("dms_initial_cdc_start_position:");
+  });
+
+  test("manual rollback reuses deployed templates without invoking migrations", () => {
+    const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
+    expect(rollback).toBeDefined();
+    expect(rollback).toContain('--use-previous-template');
+    expect(rollback).toContain('for stack in initialize compute; do');
+    expect(rollback).not.toContain('database-migration-lambda');
+    expect(rollback).not.toMatch(/aws lambda invoke|invoke_function|npm --prefix infra run cdk -- deploy/);
+  });
+
+  test("does not restore inventory, sealing or promotion jobs", () => {
+    expect(deployWorkflow).not.toMatch(/^  [\w-]*(?:inventory|seal|promot)[\w-]*:/gm);
+    expect(deployWorkflow).not.toContain('inventory.tsv');
+    expect(deployWorkflow).not.toContain('LAMBDA_BINARIES');
+    expect(deployWorkflow).not.toContain('secrets.CI_UPLOAD_ROLE_ARN');
   });
 
   test("initializes foundation, schema and FX before deploying compute/API", () => {
@@ -96,8 +106,6 @@ describe("release workflow boundary", () => {
     expect(initializeWorkflow).toContain('invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json');
     expect(initializeWorkflow).toContain('invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json');
     expect(initializeWorkflow).toContain("--cli-read-timeout 900");
-    expect(initializeWorkflow).not.toContain('releases/${DEPLOY_COMMIT_SHA}/inventory.tsv');
-
 
     expect(initializeWorkflow).toContain('migration-result.json');
     expect(initializeWorkflow).toContain('fxrate-result.json');

@@ -18,9 +18,6 @@ function templates(stage: StageName, sha?: string) {
   return {
     compute: Template.fromStack(stacks.compute),
     initialize: Template.fromStack(stacks.initialization!),
-    fxArn: stacks.compute.resolve(stacks.compute.formatArn({
-      service: "lambda", resource: "function", resourceName: `fxrate-lambda-${stage}`,
-    })),
   };
 }
 
@@ -70,7 +67,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   });
 
   test("schedules cleanup version and the unqualified initialization FX function for real stages only", () => {
-    const { compute, initialize, fxArn } = templates(stage);
+    const { compute, initialize } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
     if (stage === "ephemeral") {
       expect(schedules).toHaveLength(0);
@@ -93,8 +90,8 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(fx?.Properties.Target.Input).toBe(
       '{"version":"0","id":"fxrate:<aws.scheduler.scheduled-time>","detail-type":"Scheduled Event","source":"aura-historia.scheduler","account":"000000000000","time":"<aws.scheduler.scheduled-time>","region":"eu-central-1","resources":["<aws.scheduler.schedule-arn>"],"detail":{}}',
     );
-    expect(fx?.Properties.Target.Arn).toEqual(fxArn);
-    expect(JSON.stringify(fxArn)).toContain(`fxrate-lambda-${stage}`);
+    const fxArn = fx?.Properties.Target.Arn;
+    expect(JSON.stringify(fxArn)).toContain(`:function:fxrate-lambda-${stage}`);
     expect(JSON.stringify(fxArn)).not.toContain("Fn::ImportValue");
     expect(JSON.stringify(initialize!.toJSON().Outputs ?? {})).not.toContain("FxRateSyncVersion");
     initialize!.resourceCountIs("AWS::Lambda::Version", 0);
@@ -105,6 +102,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(schedulerPolicy?.Properties.PolicyDocument.Statement).toEqual(expect.arrayContaining([
       expect.objectContaining({ Action: "lambda:InvokeFunction", Resource: expect.arrayContaining([fxArn]) }),
     ]));
+    expect(JSON.stringify(schedulerPolicy?.Properties.PolicyDocument.Statement)).toContain(`:function:fxrate-lambda-${stage}`);
     expect(JSON.stringify(compute.toJSON())).not.toContain("FxRateSyncVersion");
     expect(JSON.stringify(compute.toJSON())).not.toContain(`/fxratesapi/${stage}/api-token`);
     expect(JSON.stringify(initialize!.toJSON())).toContain(`/fxratesapi/${stage}/api-token`);
@@ -130,13 +128,15 @@ describe.each(["dev", "prod"] as const)("%s FX deployment boundary", (stage) => 
 
     const fxTarget = (template: Template) => resources(template, "AWS::Scheduler::Schedule")
       .find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)")?.Properties.Target.Arn;
-    expect(fxTarget(first.compute)).toEqual(first.fxArn);
-    expect(fxTarget(second.compute)).toEqual(first.fxArn);
-    expect(JSON.stringify(fxTarget(first.compute))).not.toMatch(/CommitSHA|Fn::ImportValue|FxRateSyncVersion/);
+    const fxArn = fxTarget(first.compute);
+    expect(JSON.stringify(fxArn)).toContain(`:function:fxrate-lambda-${stage}`);
+    expect(fxTarget(second.compute)).toEqual(fxArn);
+    expect(JSON.stringify(fxArn)).not.toMatch(/CommitSHA|Fn::ImportValue|FxRateSyncVersion/);
     const fxInvokeResources = (template: Template) => resources(template, "AWS::IAM::Policy")
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .find((statement: any) => JSON.stringify(statement.Resource).includes(`fxrate-lambda-${stage}`))?.Resource;
-    expect(fxInvokeResources(first.compute)).toEqual(expect.arrayContaining([first.fxArn]));
+    expect(fxInvokeResources(first.compute)).toEqual(expect.arrayContaining([fxArn]));
+    expect(JSON.stringify(fxInvokeResources(first.compute))).toContain(`:function:fxrate-lambda-${stage}`);
     expect(fxInvokeResources(second.compute)).toEqual(fxInvokeResources(first.compute));
     expect(resources(first.compute, "AWS::Lambda::Version").length).toBeGreaterThan(0);
     expect(JSON.stringify(first.compute.toJSON())).not.toContain("FxRateSyncVersion");
