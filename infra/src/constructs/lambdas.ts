@@ -56,17 +56,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     skipEphemeral: true,
     timeoutSeconds: 30,
   },
-  fxRateSync: {
-    id: "FxRateSyncLambda",
-    binaryName: "fxrate-lambda",
-    memorySize: 128,
-    postgres: true,
-    skipEphemeral: true,
-    timeoutSeconds: 10,
-    environment: (context) => ({
-      FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${context.config.stage}/api-token`),
-    }),
-  },
+
   backendCleanup: {
     id: "BackendCleanupLambda",
     binaryName: "backend-cleanup-lambda",
@@ -247,7 +237,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
-type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "fxRateSync";
+type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
@@ -278,7 +268,7 @@ export class Lambdas extends Construct {
   readonly notificationDeliveryVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
-  readonly fxRateSyncVersion: lambda.Version | undefined;
+
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -383,13 +373,12 @@ export class Lambdas extends Construct {
     if (props.config.isEphemeral) {
       this.backendCleanupVersion = undefined;
       this.cdcRouterVersion = undefined;
-      this.fxRateSyncVersion = undefined;
+
     } else {
       const backendCleanup = this.functions.backendCleanup;
       const cdcRouter = this.functions.cdcRouter;
-      const fxRateSync = this.functions.fxRateSync;
-      if (!backendCleanup || !cdcRouter || !fxRateSync) {
-        throw new Error("Real stages require backend cleanup, CDC router, and FX refresh Lambdas.");
+      if (!backendCleanup || !cdcRouter) {
+        throw new Error("Real stages require backend cleanup and CDC router Lambdas.");
       }
       this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
         lambda: backendCleanup,
@@ -399,10 +388,7 @@ export class Lambdas extends Construct {
         lambda: cdcRouter,
         description: `cdc-router-${props.parameters.commitSha}`,
       });
-      this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
-        lambda: fxRateSync,
-        description: `fxrate-sync-${props.parameters.commitSha}`,
-      });
+
     }
     grantRuntimeAccess(props, this.functions);
   }
@@ -413,12 +399,14 @@ export interface InitializationLambdasProps {
   readonly commitSha: string;
   readonly artifactBucket: s3.IBucket;
   readonly migrationPostgres: PostgresMigrationConnectionSettings;
+  readonly postgres: PostgresConnectionSettings;
   readonly network: Network;
 }
 
 /** Private migration runtime. It exists before normal compute and has no event source. */
 export class InitializationLambdas extends Construct {
   readonly databaseMigration: lambda.Function;
+  readonly fxRateSyncVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: InitializationLambdasProps) {
     super(scope, id);
@@ -462,6 +450,37 @@ export class InitializationLambdas extends Construct {
       }),
     );
 
+    const fxRateSync = new lambda.Function(this, "FxRateSyncLambda", {
+      vpc: props.network.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [props.network.applicationSecurityGroup],
+      functionName: `fxrate-lambda-${props.config.stage}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.X86_64,
+      handler: "lib.handler",
+      code: lambda.Code.fromBucket(
+        props.artifactBucket,
+        `fxrate-lambda-${props.config.stage}-${props.commitSha}.zip`,
+      ),
+      memorySize: 128,
+      timeout: cdk.Duration.seconds(10),
+      ephemeralStorageSize: cdk.Size.mebibytes(512),
+      environment: withPostgresEnvironment({ postgres: props.postgres }, {
+        FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${props.config.stage}/api-token`),
+      }),
+      layers: [postgresTlsRootCertificateLayer],
+    });
+    if (!props.postgres.secretArn) {
+      throw new Error("Initialization FX Lambda requires a PostgreSQL runtime secret.");
+    }
+    fxRateSync.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["secretsmanager:GetSecretValue"],
+      resources: [props.postgres.secretArn],
+    }));
+    this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
+      lambda: fxRateSync,
+      description: `fxrate-sync-${props.commitSha}`,
+    });
   }
 }
 

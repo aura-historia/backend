@@ -22,7 +22,7 @@ on:
           - dev
           - prod
       commit_sha:
-        description: "Full 40-character lowercase SHA for previously uploaded artifacts"
+        description: "Full 40-character lowercase SHA of a published release inventory"
         required: true
         type: string
 
@@ -37,11 +37,17 @@ env:
   STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
-  STAGE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.stage
-    || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'dev' }}
   STACK_NAME_PREFIX: application-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
   DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}
+  # Keep this in sync with the Lambda matrix and CDK's prebuilt Lambda definitions.
+  LAMBDA_BINARIES: >-
+    aura-historia-api shopify-lambda cognito-post-confirmation
+    cloudwatch-log-retention-lambda database-migration-lambda fxrate-lambda
+    backend-cleanup-lambda stripe-lambda product-listing-opensearch-lambda
+    product-listing-normalization-lambda product-content-assessment-lambda
+    product-embedding-lambda product-translation-lambda search-filter-projection-lambda
+    search-filter-percolator-lambda search-filter-match-notification-lambda
+    watchlist-notification-lambda notification-delivery-lambda cdc-router-lambda
 
 jobs:
   infra-test:
@@ -71,15 +77,51 @@ jobs:
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
 
+  release-check:
+    name: Look up SHA inventory
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    outputs:
+      exists: ${{ steps.lookup.outputs.exists }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_UPLOAD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Check for existing inventory
+        id: lookup
+        shell: bash
+        env:
+          BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+          key="releases/${DEPLOY_COMMIT_SHA}/inventory.tsv"
+          if aws s3api head-object --bucket "$BUCKET" --key "$key" >/dev/null 2>error.txt; then
+            aws s3api get-object --bucket "$BUCKET" --key "$key" inventory.tsv >/dev/null
+            if [ "$(sed -n '1p' inventory.tsv)" != "$(printf 'commit_sha\t%s' "$DEPLOY_COMMIT_SHA")" ]; then
+              echo 'Existing inventory does not identify the requested commit SHA.' >&2
+              exit 1
+            fi
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          elif grep -Eq '\((404|NoSuchKey|NotFound)\)' error.txt; then
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          else
+            cat error.txt >&2
+            exit 1
+          fi
+
   aws-push-lambda:
-    name: Push Lambda to S3 ${{ matrix.crate }}
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    needs: release-check
+    name: Publish Lambda ${{ matrix.binary }}
+    if: needs.release-check.outputs.exists == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     strategy:
-      # Lambda-only artifact catalog; native CDC ingress is an external handoff, not a deploy artifact.
+      # Lambda-only artifact catalog; native CDC ingress is an external handoff.
       matrix:
         include:
           - crate: src/aura-historia-api
@@ -155,64 +197,45 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
         run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip --bin "${{ matrix.binary }}"
 
-      - name: Copy Lambda zip artifact
-        run: |
-          BIN_NAME=${{ matrix.binary }}
-          OUT_DIR=$GITHUB_WORKSPACE/artifacts
-          mkdir -p $OUT_DIR
-          cp target/lambda/$BIN_NAME/bootstrap.zip $OUT_DIR/$BIN_NAME-${{ env.STAGE_NAME }}-${{ env.DEPLOY_COMMIT_SHA }}.zip
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.CI_UPLOAD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Upload Lambda to S3
+      - name: Publish immutable Lambda ZIP
+        shell: bash
+        env:
+          BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+          BINARY: ${{ matrix.binary }}
         run: |
-          BIN_NAME=${{ matrix.binary }}
-          aws s3api put-object \
-            --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
-            --key "$BIN_NAME-${{ env.STAGE_NAME }}-${{ env.DEPLOY_COMMIT_SHA }}.zip" \
-            --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${{ env.DEPLOY_COMMIT_SHA }}.zip" \
-            --tagging "stage=${{ env.STAGE }}"
+          set -euo pipefail
+          file="target/lambda/${BINARY}/bootstrap.zip"
+          key="${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"
+          test -s "$file"
+          hash="$(sha256sum "$file" | cut -d ' ' -f 1)"
+          if ! aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$file" \
+            --checksum-algorithm SHA256 --metadata "sha256=$hash" --if-none-match '*' \
+            --tagging "stage=${STAGE}" >/dev/null 2>error.txt; then
+            if ! grep -q '(PreconditionFailed)' error.txt; then
+              cat error.txt >&2
+              exit 1
+            fi
+            aws s3api get-object --bucket "$BUCKET" --key "$key" existing.zip >/dev/null
+            if [ "$(sha256sum existing.zip | cut -d ' ' -f 1)" != "$hash" ]; then
+              echo "Conflicting published Lambda ZIP: $key" >&2
+              exit 1
+            fi
+          fi
 
   aws-push-mail-templates:
-    name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    name: Compile and publish mail templates
+    needs: release-check
+    if: needs.release-check.outputs.exists == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-
-    strategy:
-      matrix:
-        resource:
-          - mjml/partnership-application/approval/de.mjml
-          - mjml/partnership-application/approval/en.mjml
-          - mjml/partnership-application/approval/es.mjml
-          - mjml/partnership-application/approval/fr.mjml
-          - mjml/partnership-application/approval/it.mjml
-          - mjml/partnership-application/rejection/de.mjml
-          - mjml/partnership-application/rejection/en.mjml
-          - mjml/partnership-application/rejection/es.mjml
-          - mjml/partnership-application/rejection/fr.mjml
-          - mjml/partnership-application/rejection/it.mjml
-          - mjml/search-filter/match/de.mjml
-          - mjml/search-filter/match/en.mjml
-          - mjml/search-filter/match/es.mjml
-          - mjml/search-filter/match/fr.mjml
-          - mjml/search-filter/match/it.mjml
-          - mjml/watchlist/product-update/availability/de.mjml
-          - mjml/watchlist/product-update/availability/en.mjml
-          - mjml/watchlist/product-update/availability/es.mjml
-          - mjml/watchlist/product-update/availability/fr.mjml
-          - mjml/watchlist/product-update/availability/it.mjml
-          - mjml/watchlist/product-update/price/de.mjml
-          - mjml/watchlist/product-update/price/en.mjml
-          - mjml/watchlist/product-update/price/es.mjml
-          - mjml/watchlist/product-update/price/fr.mjml
-          - mjml/watchlist/product-update/price/it.mjml
 
     steps:
       - uses: actions/checkout@v7
@@ -220,7 +243,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.CI_UPLOAD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Node.js
@@ -228,37 +251,113 @@ jobs:
         with:
           node-version: 26
 
-      - name: Install MJML
-        run: npm install -g mjml
+      - name: Install pinned MJML
+        run: npm --prefix mjml ci
 
-      - name: Compile MJML
+      - name: Compile and publish immutable templates
+        shell: bash
+        env:
+          BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
         run: |
-          output="dist/emails/${{ matrix.resource }}"
-          output="${output%.mjml}.html"
-          mkdir -p "$(dirname "$output")"
-          mjml "${{ matrix.resource }}" -o "$output"
+          set -euo pipefail
+          while IFS= read -r -d '' template; do
+            name="${template#mjml/}"
+            name="${name%.mjml}.html"
+            output="dist/emails/${name}"
+            mkdir -p "$(dirname "$output")"
+            mjml/node_modules/.bin/mjml "$template" -o "$output"
+            test -s "$output"
+            hash="$(sha256sum "$output" | cut -d ' ' -f 1)"
+            key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"
+            if ! aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$output" \
+              --checksum-algorithm SHA256 --metadata "sha256=$hash" --if-none-match '*' \
+              --tagging "stage=${STAGE}" >/dev/null 2>error.txt; then
+              if ! grep -q '(PreconditionFailed)' error.txt; then
+                cat error.txt >&2
+                exit 1
+              fi
+              aws s3api get-object --bucket "$BUCKET" --key "$key" existing.html >/dev/null
+              if [ "$(sha256sum existing.html | cut -d ' ' -f 1)" != "$hash" ]; then
+                echo "Conflicting published mail template: $key" >&2
+                exit 1
+              fi
+            fi
+          done < <(find mjml -type f -name '*.mjml' -print0 | sort -z)
 
-      - name: Upload compiled template to S3
+  release-inventory:
+    name: Seal SHA inventory
+    needs: [release-check, aws-push-lambda, aws-push-mail-templates]
+    if: >-
+      ${{ always() && github.event_name == 'push'
+          && needs.release-check.result == 'success'
+          && (needs.release-check.outputs.exists == 'true'
+              || (needs.aws-push-lambda.result == 'success' && needs.aws-push-mail-templates.result == 'success')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_UPLOAD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Seal published bytes and inventory
+        shell: bash
+        env:
+          BINARY_BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+          MAIL_BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
         run: |
-          output="dist/emails/${{ matrix.resource }}"
-          output="${output%.mjml}.html"
-          aws s3api put-object \
-            --bucket "${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}" \
-            --key "${{ env.STAGE_NAME }}/${{ env.DEPLOY_COMMIT_SHA }}/${output#dist/emails/}" \
-            --body "$output" \
-            --tagging "stage=${{ env.STAGE }}"
+          set -euo pipefail
+          key="releases/${DEPLOY_COMMIT_SHA}/inventory.tsv"
+          if [ '${{ needs.release-check.outputs.exists }}' = 'true' ]; then
+            # Deployment re-verifies every byte against this previously sealed inventory.
+            aws s3api get-object --bucket "$BINARY_BUCKET" --key "$key" inventory.tsv >/dev/null
+            if [ "$(sed -n '1p' inventory.tsv)" != "$(printf 'commit_sha\t%s' "$DEPLOY_COMMIT_SHA")" ]; then
+              echo 'Existing inventory does not identify the requested commit SHA.' >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          printf 'commit_sha\t%s\nsource_stage\t%s\n' "$DEPLOY_COMMIT_SHA" "$STAGE" > inventory.tsv
+          for binary in $LAMBDA_BINARIES; do
+            object="${binary}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"
+            aws s3api get-object --bucket "$BINARY_BUCKET" --key "$object" artifact >/dev/null
+            printf 'lambda\t%s\t%s\n' "$binary" "$(sha256sum artifact | cut -d ' ' -f 1)" >> inventory.tsv
+          done
+          while IFS= read -r -d '' template; do
+            name="${template#mjml/}"
+            name="${name%.mjml}.html"
+            aws s3api get-object --bucket "$MAIL_BUCKET" \
+              --key "${STAGE}/${DEPLOY_COMMIT_SHA}/${name}" artifact >/dev/null
+            printf 'mail\t%s\t%s\n' "$name" "$(sha256sum artifact | cut -d ' ' -f 1)" >> inventory.tsv
+          done < <(find mjml -type f -name '*.mjml' -print0 | sort -z)
+          while IFS= read -r -d '' template; do
+            test -s "$template"
+            printf 'template\t%s\t%s\n' "$template" "$(sha256sum "$template" | cut -d ' ' -f 1)" >> inventory.tsv
+          done < <(find mjml -type f -name '*.mjml' -print0 | sort -z)
+          ca='infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem'
+          test -s "$ca"
+          printf 'ca\t%s\t%s\n' "$ca" "$(sha256sum "$ca" | cut -d ' ' -f 1)" >> inventory.tsv
+          if ! aws s3api put-object --bucket "$BINARY_BUCKET" --key "$key" --body inventory.tsv \
+            --checksum-algorithm SHA256 --if-none-match '*' >/dev/null 2>error.txt; then
+            if ! grep -q '(PreconditionFailed)' error.txt; then
+              cat error.txt >&2
+              exit 1
+            fi
+            aws s3api get-object --bucket "$BINARY_BUCKET" --key "$key" existing.tsv >/dev/null
+            cmp inventory.tsv existing.tsv || { echo 'Conflicting SHA inventory' >&2; exit 1; }
+          fi
 
   aws-cdk-deploy:
-    name: Deploy normal CDK stacks
+    name: Deploy CDK stacks after environment approval
     if: >-
-      ${{
-        always()
-        && needs.infra-test.result == 'success'
-        && (needs.aws-push-lambda.result == 'success' || needs.aws-push-lambda.result == 'skipped')
-        && (needs.aws-push-mail-templates.result == 'success' || needs.aws-push-mail-templates.result == 'skipped')
-        && github.event_name == 'workflow_dispatch'
-      }}
-    needs: [infra-test, aws-push-lambda, aws-push-mail-templates]
+      ${{ always() && needs.infra-test.result == 'success'
+          && (needs.release-inventory.result == 'success'
+              || (github.event_name == 'workflow_dispatch' && needs.release-inventory.result == 'skipped')) }}
+    needs: [infra-test, release-inventory]
     environment:
       name: ${{ (github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev') == 'prod' && 'aws-prod' || 'aws-dev' }}
     runs-on: ubuntu-latest
@@ -277,7 +376,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ env.DEPLOY_COMMIT_SHA }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -294,44 +393,198 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Deploy normal CDK stacks via CloudFormation change sets
+      - name: Verify inventory and promote identical bytes to this stage
+        shell: bash
+        env:
+          BINARY_BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+          MAIL_BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOY_COMMIT_SHA"
+          aws s3api get-object --bucket "$BINARY_BUCKET" \
+            --key "releases/${DEPLOY_COMMIT_SHA}/inventory.tsv" inventory.tsv >/dev/null
+          if [ "$(sed -n '1p' inventory.tsv)" != "$(printf 'commit_sha\t%s' "$DEPLOY_COMMIT_SHA")" ]; then
+            echo 'Inventory SHA does not match checked-out source.' >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r label source < <(sed -n '2p' inventory.tsv)
+          if [ "$label" != source_stage ] || [[ ! "$source" =~ ^(dev|prod)$ ]]; then
+            echo 'Invalid release inventory source stage' >&2
+            exit 1
+          fi
+          # Reject missing, extra, duplicated, or malformed inventory entries.
+          : > expected
+          for binary in $LAMBDA_BINARIES; do
+            printf 'lambda\t%s\n' "$binary" >> expected
+          done
+          while IFS= read -r -d '' template; do
+            name="${template#mjml/}"
+            printf 'mail\t%s\n' "${name%.mjml}.html" >> expected
+            printf 'template\t%s\n' "$template" >> expected
+          done < <(find mjml -type f -name '*.mjml' -print0 | sort -z)
+          ca='infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem'
+          printf 'ca\t%s\n' "$ca" >> expected
+          sed '1,2d' inventory.tsv | cut -f1,2 | sort > actual
+          sort -o expected expected
+          diff -u expected actual
+
+          # Preflight all source bytes and any existing target objects before the first write.
+          mkdir -p release-bytes
+          : > promote.tsv
+          index=0
+          while IFS=$'\t' read -r kind name hash extra; do
+            [ -z "${extra:-}" ] && [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || {
+              echo 'Malformed inventory entry' >&2; exit 1;
+            }
+            case "$kind" in
+              template|ca)
+                if [ "$(sha256sum "$name" | cut -d ' ' -f 1)" != "$hash" ]; then
+                  echo "Changed source asset: $name" >&2; exit 1
+                fi
+                continue
+                ;;
+              lambda)
+                bucket="$BINARY_BUCKET"
+                source_key="${name}-${source}-${DEPLOY_COMMIT_SHA}.zip"
+                target_key="${name}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"
+                ;;
+              mail)
+                bucket="$MAIL_BUCKET"
+                source_key="${source}/${DEPLOY_COMMIT_SHA}/${name}"
+                target_key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"
+                ;;
+              *) echo 'Unknown artifact type' >&2; exit 1 ;;
+            esac
+            index=$((index + 1))
+            file="release-bytes/${index}"
+            aws s3api get-object --bucket "$bucket" --key "$source_key" "$file" >/dev/null
+            if [ "$(sha256sum "$file" | cut -d ' ' -f 1)" != "$hash" ]; then
+              echo "Missing or changed release artifact: $source_key" >&2
+              exit 1
+            fi
+            if [ "$source_key" != "$target_key" ]; then
+              if aws s3api head-object --bucket "$bucket" --key "$target_key" >/dev/null 2>error.txt; then
+                aws s3api get-object --bucket "$bucket" --key "$target_key" promoted >/dev/null
+                if [ "$(sha256sum promoted | cut -d ' ' -f 1)" != "$hash" ]; then
+                  echo "Conflicting promoted artifact: $target_key" >&2; exit 1
+                fi
+              elif grep -Eq '\((404|NoSuchKey|NotFound)\)' error.txt; then
+                printf '%s\t%s\t%s\t%s\n' "$bucket" "$target_key" "$hash" "$file" >> promote.tsv
+              else
+                cat error.txt >&2; exit 1
+              fi
+            fi
+          done < <(sed '1,2d' inventory.tsv)
+
+          while IFS=$'\t' read -r bucket target_key hash file; do
+            if ! aws s3api put-object --bucket "$bucket" --key "$target_key" --body "$file" \
+              --checksum-algorithm SHA256 --metadata "sha256=$hash" \
+              --tagging "stage=${STAGE}" --if-none-match '*' >/dev/null 2>error.txt; then
+              if ! grep -q '(PreconditionFailed)' error.txt; then
+                cat error.txt >&2; exit 1
+              fi
+            fi
+            aws s3api get-object --bucket "$bucket" --key "$target_key" promoted >/dev/null
+            if [ "$(sha256sum promoted | cut -d ' ' -f 1)" != "$hash" ]; then
+              echo "Conflicting promoted artifact: $target_key" >&2
+              exit 1
+            fi
+          done < promote.tsv
+
+      - name: Deploy foundation or migrate and update initialized application
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$(git rev-parse HEAD)" != "${DEPLOY_COMMIT_SHA}" ]; then
-            echo "checked-out release source does not match commit_sha" >&2
+          deploy() {
+            npm --prefix infra run cdk -- deploy "$@" \
+              --context stage="${STAGE}" \
+              --context stackNamePrefix="${STACK_NAME_PREFIX}" \
+              --require-approval never \
+              --method change-set \
+              --exclusively \
+              --no-path-metadata \
+              --no-asset-metadata \
+              --no-version-reporting \
+              --no-notices
+          }
+          stack_status() {
+            local stack="$1"
+            local status
+            if status="$(aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME_PREFIX}-${stack}" \
+              --query 'Stacks[0].StackStatus' --output text 2>error.txt)"; then
+              printf '%s\n' "$status"
+            elif grep -Eq '\(ValidationError\).*does not exist' error.txt; then
+              printf 'missing\n'
+            else
+              cat error.txt >&2
+              return 1
+            fi
+          }
+
+          # Stack existence is the handoff: Deploy creates foundation; Initialize creates compute/API.
+          compute_status="$(stack_status compute)"
+          api_status="$(stack_status api)"
+          if [ "$STAGE" = prod ]; then
+            observability_status="$(stack_status observability)"
+          fi
+          if [ "$compute_status" = missing ] && [ "$api_status" = missing ]; then
+            if [ "$STAGE" = prod ] && [ "$observability_status" != missing ]; then
+              echo 'Production observability exists without compute/API; rerun Initialize (CD).' >&2
+              exit 1
+            fi
+            foundation_only=true
+          else
+            if [ "$compute_status" != CREATE_COMPLETE ] && [ "$compute_status" != UPDATE_COMPLETE ]; then
+              echo "Compute stack is ${compute_status}; rerun Initialize (CD) before Deploy." >&2
+              exit 1
+            fi
+            if [ "$api_status" != CREATE_COMPLETE ] && [ "$api_status" != UPDATE_COMPLETE ]; then
+              echo "API stack is ${api_status}; rerun Initialize (CD) before Deploy." >&2
+              exit 1
+            fi
+            if [ "$STAGE" = prod ] && [ "$observability_status" != CREATE_COMPLETE ] \
+              && [ "$observability_status" != UPDATE_COMPLETE ]; then
+              echo "Production observability stack is ${observability_status}; rerun Initialize (CD) before Deploy." >&2
+              exit 1
+            fi
+            foundation_only=false
+          fi
+
+          deploy "${STACK_NAME_PREFIX}-network"
+          deploy "${STACK_NAME_PREFIX}-data"
+          deploy "${STACK_NAME_PREFIX}-initialize" \
+            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
+
+          if [ "$foundation_only" = true ]; then
+            echo 'Foundation deployed. Run Initialize (CD) with this stage and commit SHA to migrate and admit compute/API.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Only the initialization stack owns the private migration Lambda.
+          # Update it to this verified SHA before invoking the embedded migrations.
+          aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"
+          printf '{}' > migration-invocation.json
+          response="$(aws lambda invoke \
+            --function-name "database-migration-lambda-${STAGE}" \
+            --invocation-type RequestResponse \
+            --payload fileb://migration-invocation.json \
+            --cli-binary-format raw-in-base64-out \
+            --cli-connect-timeout 10 --cli-read-timeout 900 \
+            migration-result.json --query '{StatusCode: StatusCode, FunctionError: FunctionError}' \
+            --output json)" || { echo 'Private migration invocation failed.' >&2; exit 1; }
+          if [ "$(jq -r '.StatusCode // empty' <<< "$response")" != 200 ] \
+            || [ -n "$(jq -r '.FunctionError // empty' <<< "$response")" ] \
+            || ! jq -se 'length == 1 and .[0] == {"status":"ready"}' migration-result.json >/dev/null; then
+            echo 'Private migration failed; application admission is blocked.' >&2
             exit 1
           fi
 
-          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-data" >/dev/null 2>&1; then
-            echo "Data foundation is not initialized; run Initialize (CD) first." >&2
-            exit 1
-          fi
-          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-initialize" >/dev/null 2>&1; then
-            echo "Initialization runtime is not deployed; run Initialize (CD) first." >&2
-            exit 1
-          fi
-
-          stacks=(
-            "${STACK_NAME_PREFIX}-network"
-            "${STACK_NAME_PREFIX}-data"
-            "${STACK_NAME_PREFIX}-initialize"
-            "${STACK_NAME_PREFIX}-compute"
-            "${STACK_NAME_PREFIX}-api"
-          )
-          if [ "${STAGE}" = "prod" ]; then
+          stacks=("${STACK_NAME_PREFIX}-compute" "${STACK_NAME_PREFIX}-api")
+          if [ "$STAGE" = prod ]; then
             stacks+=("${STACK_NAME_PREFIX}-observability")
           fi
-
-          npm --prefix infra run cdk -- deploy "${stacks[@]}" \
-            --context stage="${STAGE}" \
-            --context stackNamePrefix="${STACK_NAME_PREFIX}" \
-            --require-approval never \
-            --method change-set \
-            --exclusively \
-            --no-path-metadata \
-            --no-asset-metadata \
-            --no-version-reporting \
-            --no-notices \
-            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}" \
+          # CDK retains existing activation parameters, including the approved CDC router value.
+          deploy "${stacks[@]}" \
+            --previous-parameters \
             --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"

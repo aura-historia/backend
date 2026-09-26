@@ -11,7 +11,7 @@ on:
           - dev
           - prod
       commit_sha:
-        description: "Full 40-character lowercase SHA for previously uploaded artifacts"
+        description: "Full 40-character lowercase SHA of a published release inventory"
         required: true
         type: string
 
@@ -57,6 +57,12 @@ jobs:
             exit 1
           fi
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: State required Lambda invoke access
         run: |
           echo "The CI deploy role must allow lambda:InvokeFunction on exactly database-migration-lambda-${STAGE} and fxrate-lambda-${STAGE}."
@@ -66,16 +72,32 @@ jobs:
         with:
           node-version: 26
 
+      - name: Require deployed foundation at the selected SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for stack in network data initialize; do
+            if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-${stack}" \
+              --output json > "${stack}-stack.json"; then
+              echo "Deploy the ${stack} foundation stack before Initialize." >&2
+              exit 1
+            fi
+            status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
+            case "$status" in
+              CREATE_COMPLETE|UPDATE_COMPLETE) ;;
+              *) echo "Foundation stack ${stack} is not complete: ${status:-missing}" >&2; exit 1 ;;
+            esac
+          done
+          init_sha="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "CommitSHA") | .ParameterValue' initialize-stack.json)"
+          if [ "$init_sha" != "$DEPLOY_COMMIT_SHA" ]; then
+            echo 'Initialize stack CommitSHA does not match the selected release; run Deploy first.' >&2
+            exit 1
+          fi
+
       - name: Install CDK dependencies
         run: npm --prefix infra ci
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Initialize foundation, schema, FX, and normal compute
+      - name: Migrate and capture FX before deploying compute and API
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +116,7 @@ jobs:
           invoke_function() {
             local function_name="$1"
             local payload="$2"
+            local result_file="$3"
             local response
             local status_code
             local function_error
@@ -105,7 +128,7 @@ jobs:
               --cli-binary-format raw-in-base64-out \
               --cli-connect-timeout 10 \
               --cli-read-timeout 900 \
-              /dev/null \
+              "${result_file}" \
               --query '{StatusCode: StatusCode, FunctionError: FunctionError}' \
               --output json 2>&1)"; then
               echo "Synchronous invocation failed for ${function_name}. The CI deploy role must allow lambda:InvokeFunction exactly on ${function_name}." >&2
@@ -122,36 +145,32 @@ jobs:
             fi
           }
 
-          deploy "${STACK_NAME_PREFIX}-network"
-          deploy "${STACK_NAME_PREFIX}-data"
-
-          deploy "${STACK_NAME_PREFIX}-initialize" \
-            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
-
-          stacks=(
-            "${STACK_NAME_PREFIX}-compute"
-            "${STACK_NAME_PREFIX}-api"
-          )
-          if [ "${STAGE}" = "prod" ]; then
-            stacks+=("${STACK_NAME_PREFIX}-observability")
-          fi
-          deploy "${stacks[@]}" \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
-            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=false" \
-            --parameters "${STACK_NAME_PREFIX}-compute:PartnerIntegrationEnabled=false" \
-            --parameters "${STACK_NAME_PREFIX}-compute:FxRateRefreshEnabled=false" \
-            --parameters "${STACK_NAME_PREFIX}-compute:CdcRouterEnabled=false"
+          aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"
+          aws lambda wait function-updated --function-name "fxrate-lambda-${STAGE}"
 
           printf '{}' > migration-invocation.json
           cat > fxrate-invocation.json <<EOF
           {"version":"0","id":"deployment:fxrate:initial:${STAGE}:v1","detail-type":"Scheduled Event","source":"aura-historia.deployment","account":"000000000000","time":"1970-01-01T00:00:00Z","region":"eu-central-1","resources":[],"detail":{}}
           EOF
-          invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json
-          invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json
+          invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json migration-result.json
+          if ! jq -se 'length == 1 and .[0] == {"status":"ready"}' migration-result.json >/dev/null; then
+            echo 'Private migration did not return ready.' >&2
+            exit 1
+          fi
 
+          invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json fxrate-result.json
+          # The FX handler returns JSON null on capture or idempotent duplicate; reject success-shaped errors.
+          if ! jq -se 'length == 1 and .[0] == null' fxrate-result.json >/dev/null; then
+            echo 'Initial FX capture did not return success.' >&2
+            exit 1
+          fi
+
+          # CDK uses defaults on creation and previous parameter values on updates (including CDC).
           deploy "${STACK_NAME_PREFIX}-compute" \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
-            --parameters "${STACK_NAME_PREFIX}-compute:ProductListingOpenSearchConsumerEnabled=true" \
-            --parameters "${STACK_NAME_PREFIX}-compute:PartnerIntegrationEnabled=true" \
-            --parameters "${STACK_NAME_PREFIX}-compute:FxRateRefreshEnabled=true" \
-            --parameters "${STACK_NAME_PREFIX}-compute:CdcRouterEnabled=false"
+            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
+
+          stacks=("${STACK_NAME_PREFIX}-api")
+          if [ "${STAGE}" = "prod" ]; then
+            stacks+=("${STACK_NAME_PREFIX}-observability")
+          fi
+          deploy "${stacks[@]}"

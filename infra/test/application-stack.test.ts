@@ -21,6 +21,10 @@ describe("Application stacks", () => {
     expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(1);
     expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(API_ROUTE_CATALOG.length);
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::StepFunctions::StateMachine"))).toHaveLength(0);
+    if (stacks.initialization) {
+      expect(stacks.compute.dependencies).toContain(stacks.initialization);
+      expect(stacks.initialization.dependencies).not.toContain(stacks.compute);
+    }
   });
 
   test.each(STAGES)("does not synthesize native worker or Sequin ingress in %s", (stage) => {

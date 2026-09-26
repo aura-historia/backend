@@ -113,13 +113,27 @@ Deployments do not require a full CDK bootstrap stack in the target account/regi
 Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
 templates and any future file assets under the stage prefix (`${stage}/`). Lambda
-ZIPs and scheduled Fargate images are still referenced as prebuilt S3/ECR
-artifacts keyed by `CommitSHA`, not as CDK-managed assets. The retired periodic
-matcher ECS image is no longer built or referenced by CDK.
+Lambda ZIPs are referenced as prebuilt S3 artifacts keyed by `CommitSHA`, not as
+CDK-managed assets. The periodic matcher Fargate image remains separate pending
+#1843; no crawler artifact is in this release.
 
-Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
-compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
-points compute resources back to the previously uploaded artifacts.
+A push publishes the 19 Lambda ZIPs and compiled templates once for a full source
+SHA. `releases/<sha>/inventory.tsv` records the SHA, source stage, and SHA-256 hashes
+of every ZIP, compiled template, MJML source and the public RDS CA bundle. MJML
+uses the checked-in `mjml/package-lock.json`. The protected Deploy job verifies
+inventory entries and bytes and promotes identical objects into stage-specific
+keys, rejecting missing or conflicting objects. Initialize checks the selected
+source SHA against the deployed foundation instead of duplicating promotion. The staging bucket's CDK template
+and public CA-layer asset paths are content-hashed by the synthesizer; the native
+release tests cover those paths. A sealed inventory is not a substitute for S3
+bucket-side denial of overwrites/deletes by other principals.
+
+For a compatible code rollback, manually deploy a previously published full
+`CommitSHA` and its verified inventory. Retain the newer, expand-only database
+schema; SQLx rejects missing/changed applied migrations rather than downgrading or
+rewriting checksums. Confirm older workers can consume retained schema-2 jobs and
+that template/provider contracts remain valid. Already committed writes, email,
+and provider effects are not undone by an artifact rollback.
 
 ## Rust Lambda artifact contract
 
@@ -234,7 +248,7 @@ Before an approved isolated-RDS smoke, use an RDS endpoint and DNS name covered 
 
 The data stack generates private Secrets Manager secrets for `aura_admin`, `aura_runtime`, `aura_migrator`, and `aura_replication`. It emits no secret ARN, value, password, username, or connection string as an output. Real application PostgreSQL Lambdas receive the runtime secret ARN only, with direct `GetSecretValue` permission on that one secret and through the dedicated application endpoint. They request `AWSCURRENT` at invocation start, key a full pool-and-handler/router composition cache by secret version ID, and do not close a leased old pool beneath active work. AWS secret rotation itself remains an operator-owned action; this code does not create or mutate a rotation schedule.
 
-Real stages also include `database-migration-lambda-<stage>`. It has no public URL, API route, schedule, or event source. It runs in private application subnets with `MigrationSecurityGroup`, reads exactly the four role-secret ARNs through the private endpoint, uses the committed RDS CA with `VerifyFull`, holds a PostgreSQL advisory lock, bootstraps roles/extensions as `aura_admin`, then applies embedded root SQLx migrations as `aura_migrator`. It returns only safe success/failure categories. It is invoked only by protected `Initialize (CD)`, never by CloudFormation or normal deploy. The CI deploy role needs exact `lambda:InvokeFunction` access to it and `fxrate-lambda-<stage>`; it never reads database secrets.
+Real stages also include `database-migration-lambda-<stage>`. It has no public URL, API route, schedule, or event source. It runs in private application subnets with `MigrationSecurityGroup`, reads exactly the four role-secret ARNs through the private endpoint, uses the committed RDS CA with `VerifyFull`, holds a PostgreSQL advisory lock, bootstraps roles/extensions as `aura_admin`, then applies embedded root SQLx migrations as `aura_migrator`. It returns only safe success/failure categories. Protected `Initialize (CD)` and each approved manual `Deploy (CD)` invoke it synchronously before new application admission; CloudFormation and runtime never invoke migrations. The CI deploy role needs exact `lambda:InvokeFunction` access to it and `fxrate-lambda-<stage>` (FX for Initialize only); it never reads database secrets.
 
 `sql/rds-bootstrap-roles.sql` remains a break-glass psql wrapper around the same static core SQL. Use approved secret injection, never command-line or shell-history passwords. The RDS administrator receives membership in `aura_migrator`, and `aura_migrator` receives database `CREATE`, before public-schema ownership changes. The core roles remain scoped: `aura_migrator` owns `public` and creates schema objects; `aura_runtime` has runtime DML and sequence privileges; `aura_replication` has source-table read privileges plus `rds_replication`, but no DDL. The initial migration uses standard RDS `pg_trgm` and `unaccent`; it does not require `pg_ttl_index`.
 
@@ -258,9 +272,10 @@ They do not deploy or exercise AWS. The AWS fixture procedure is documented/manu
 
 ## Target artifact boundary
 
-On pushes, `Deploy (CD)` builds and uploads only the Rust Lambda ZIP catalog
-referenced by CDK, including the ten scoped worker Lambdas and `cdc-router-lambda`.
-Normal manual deploy references those uploaded ZIPs by `CommitSHA`. Neither path
+On pushes, `Deploy (CD)` builds and publishes only the Rust Lambda ZIP catalog
+referenced by CDK, including the ten scoped worker Lambdas and `cdc-router-lambda`,
+and the compiled mail templates. The approved deploy job references those sealed
+artifacts by `CommitSHA`. Neither path
 builds, uploads, configures, or deploys the legacy native `aura-historia-worker`
 artifact or Sequin ingress. Native process deployment remains externally owned;
 this change does not pause consumers or activate the DMS/Kinesis path.
@@ -272,9 +287,9 @@ queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
 `product-listing-opensearch`, `product-listing-normalization`, `product-content-assessment`,
 `product-embedding`, `product-translation`, `search-filter-projection`,
 `search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`, and
-`notification-delivery` queues have retained Lambda mappings in every compute stack, each
-disabled by default until its independent explicit activation. This catalog remains separate
-from Shopify resources and wiring.
+`notification-delivery` queues have retained Lambda mappings in every compute stack.
+Compute is created only by Initialize after migration and initial FX; these mappings
+are active when created. This catalog remains separate from Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
@@ -312,10 +327,10 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
-with the mapping disabled, pause the corresponding native consumer and
-let in-flight work settle, then explicitly enable the mapping. Never run both
-consumers. To return control, disable the mapping first, then deliberately resume a
-compatible native consumer. Backlog remains durable in the retained source queue and
+only after pausing the corresponding native consumer and settling in-flight work:
+Initialize creates compute with the Lambda mappings already active. Never run both
+consumers. Returning control to native work needs an explicitly reviewed mapping
+change before resuming a compatible native consumer. Backlog remains durable in the retained source queue and
 uses its ordinary retry/DLQ rules. Standard SQS may duplicate/reorder messages; handlers
 must remain idempotent.
 
@@ -387,35 +402,67 @@ external. Synthesis alone does not establish durable delivery or AWS acceptance 
 
 ## Deployment inputs
 
-The compute stack exposes only:
+The compute stack exposes `CommitSHA` and the one independent default-false
+`CdcRouterEnabled` parameter. Initialize creates compute only after migrations and
+initial FX; its ten SQS consumers, partner rules and maintenance schedules then
+become active without a separate release flag. Before running Initialize, approve
+any external-provider/SES exposure and verify private dev OpenSearch connectivity
+(#1850), quotas and native-consumer handoff. The router remains off until the
+separately approved DMS slot/task-start and delivery gates. A router parameter
+change does not recreate queues, the DMS task, slot, stream or checkpoints.
 
-- `CommitSHA` — artifact version to deploy or roll back to.
-- `ProductListingOpenSearchConsumerEnabled` — `false` by default. It changes retained
-  resources between off and on; it does not add, remove, replace, purge, or rename
-  the ProductListing queue, mapping, Lambda, or FX resources.
-- `CdcRouterEnabled` — `false` by default. It independently enables only the existing
-  DMS/Kinesis router mapping after the approved slot/task-start and live-delivery gates;
-  it does not start, stop, reset, replace, or recreate DMS, the slot, stream, queues,
-  or checkpoints.
+`Deploy (CD)` builds and publishes artifacts on pushes to `develop`/`prod`, then
+waits for the protected `aws-dev`/`aws-prod` GitHub environment approval before
+upserting the stage stacks. A manual dispatch with `stage` and a previously
+published full `CommitSHA` remains available for a reviewed rollback. Configure
+required environment reviewers and branch restrictions before running. The
+workflow executes CDK change sets after environment approval; it does **not**
+provide a separate pre-execution inspection of actual change sets. For a change
+requiring that level of review, hold the run and use an operator-controlled
+CloudFormation review instead of treating approval alone as that evidence.
+Review the account, region, potential replacements, Lambda version/alias targets,
+queues, CDC router value, secret/endpoint references and DMS capture parameters.
+Use `CI_UPLOAD_ROLE_ARN` for push jobs (artifact-bucket scoped list/read/conditional
+write/tag, no CloudFormation or Lambda invoke) and environment-scoped
+`CI_DEPLOY_ROLE_ARN` for protected Deploy/Initialize (CloudFormation apply,
+artifact read/promotion and exact stage migration/FX invokes). Restrict OIDC
+trust to the repository, workflow refs and protected environments; deny
+out-of-band overwrites/deletes of sealed SHA objects. Account for staging-bucket
+and KMS permissions where applicable. No stored AWS keys are required.
 
-`Deploy (CD)` is the normal protected-environment release: its only inputs are `stage`
-and uploaded-artifact `CommitSHA`. Pushes only test and publish immutable artifacts.
-Normal deploy checks out that SHA for infrastructure validation and deployment, then deploys
-existing network, data, private initialization, compute, API, and prod observability stacks
-without starting or resetting DMS. It refuses an uninitialized data foundation.
+On the first approved push Deploy verifies the sealed SHA artifacts and creates only network,
+data and initialization stacks. The initialization stack contains the private
+migration Lambda **and** the FX Lambda. No compute/API, consumers or schedules are
+created yet. Run `Initialize (CD)` manually with the same `stage` and `CommitSHA`:
+it checks the foundation and SHA, synchronously migrates and captures initial FX,
+then deploys compute, API and prod observability. A failed migration/FX leaves the
+application uncreated; if compute succeeds but API fails, rerun Initialize to
+finish it. Do not mistake a foundation-only Deploy for an application release.
 
-`Initialize (CD)` is the separate protected manual first-run workflow. Its only inputs
-are `stage` and `CommitSHA`. It always applies the selected network/data revision before
-it deploys the importing private migration runtime and normal compute with event consumers
-off, invokes the private database migration Lambda, then invokes `fxrate-lambda` with its
-stable deployment source event ID. Only after both succeed does it enable the ProductListing
-mapping, partner event rules, and FX schedule; it keeps `CdcRouterEnabled=false`. Each step
-stops on failure; no workflow starts DMS.
-The separately approved first CDC start must use the actual source slot/LSN, and later
-recovery uses DMS `resume-processing`. Before Initialize, pause the native ProductListing
-OpenSearch consumer and allow active work to settle. Do not run native and Lambda consumers
-together. To return to native work, make an approved protected CloudFormation change to
-disable the mapping first, then resume a compatible native consumer.
+Later approved push Deploys recognize complete compute/API stacks (plus observability in
+prod), update the migration Lambda to the selected SHA, migrate before updating
+compute/API, and preserve the approved `CdcRouterEnabled` value. A partially
+created application must be completed with Initialize instead. There is no SSM
+readiness flag or separate worker/partner/maintenance activation flags. Migration
+failure does not undo work already in flight on the previous release; only approve
+schema changes compatible with running work and retained schema-2 jobs. Before
+first Initialize, verify native-consumer handoff, SES/provider consent and quotas,
+and the dev OpenSearch TCP 9443 private-workload/TLS gate; otherwise hold that run.
+Neither workflow starts/resets DMS, replaces RDS, purges queues or manages external
+OpenSearch host/index/security. #1843 owns periodic Fargate matching; a first CDC
+start needs the approved slot/LSN and later recovery uses `resume-processing` per
+[Migration F7](../docs/migration-f7-dms.md).
+
+For a dev handoff, record exact SHA, inventory hashes, workflow runs, operator and
+UTC approval, the reviewed changes and deployed function versions/alias targets,
+`api.stage.aura-historia.com` certificate/DNS state, four `/opensearch/dev/`
+role references, private-workload `/ready`/reader and relevant projector smoke,
+initial FX, mapping/rule states, queues and DMS checkpoint/WAL/retention. Record
+failed or waived checks explicitly; do not call synth, the host-only connectivity
+check, or a waived standalone NAT test live proof. On failure hold further
+activation, account for retained state and reconcile side effects before an
+approved compatible SHA rollback. Provider/SES smoke and live AWS spend require
+separate authorization.
 
 The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 
@@ -462,9 +509,9 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 ```
 
 The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
-`fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled sync.
-Protected manual `Initialize (CD)` invokes it after database initialization and before
-enabling the ProductListing mapping, with stable source ID
+The initialization-stack `fxrate-lambda` resolves `/fxratesapi/<stage>/api-token`.
+Protected manual `Initialize (CD)` invokes it after database migration and before
+creating active compute, with stable source ID
 `deployment:fxrate:initial:{stage}:v1`. This is not a CloudFormation custom resource;
 later normal deployments do not recapture it. `ephemeral` has no real FX initialization
 flow. The ephemeral stage uses local/mock values for third-party integrations where

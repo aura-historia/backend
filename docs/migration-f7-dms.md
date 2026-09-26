@@ -13,10 +13,10 @@ R6 selects committed rows from `public.product_listing_events`, `product_listing
 | DMS task | `aura-historia-cdc-<stage>` | CDC-only, initially stopped; no full load or target reload. |
 | DMS instance | `aura-historia-dms-cdc-<stage>` | Single-AZ `dms.t3.small`; a capacity alert requires investigation, not automatic replacement. |
 | Kinesis stream | `aura-historia-cdc-<stage>` | One provisioned shard, seven-day retention. |
-| Router mapping | `CdcRouterEnabled` in compute | Default off and independent of `ProductListingOpenSearchConsumerEnabled`. |
+| Router mapping | `CdcRouterEnabled` in compute | Default off; independent of the active-on-initialization SQS consumers. |
 | Router failure archive | `aura-historia-cdc-router-failures-<stage>` | Private, retained, 90-day S3 recovery input; it is not a worker DLQ. |
 
-Normal `Deploy (CD)` and `Initialize (CD)` must not call DMS start/stop/reset APIs, create/drop slots, or set a first-start LSN. `Initialize (CD)` explicitly keeps `CdcRouterEnabled=false`. Routine compute artifact promotion preserves the approved CloudFormation parameter values and must not replace DMS, Kinesis, RDS, source queues, or the journal.
+Normal `Deploy (CD)` and `Initialize (CD)` must not call DMS start/stop/reset APIs, create/drop slots, or set a first-start LSN. Initial compute creation defaults `CdcRouterEnabled=false`; routine updates preserve its approved parameter value. The ten SQS consumers are created during Initialize only after migrations and FX succeed. Routine releases must not replace DMS, Kinesis, RDS, source queues, or the journal.
 
 ## Preconditions and approval record
 
@@ -30,7 +30,7 @@ Confirm all of the following:
 4. The source role has an explicit approved disposition for its effective SQL privileges. The desired narrowed contract is the selected-table read scope plus `rds_replication`; do not silently broaden it during activation. Record any accepted broader read scope, approver, and expiry/review date.
 5. The DMS source TLS contract is separately verified: DMS uses PostgreSQL `sslMode=require`; it is not equivalent to the application Lambdas' `VerifyFull` RDS-CA path. Record the endpoint/certificate/trust compatibility result without recording certificate or secret material.
 6. DMS can use the existing account-level `dms-vpc-role`, its scoped source-secret role, Kinesis target role, private Kinesis endpoint, and private Secrets Manager endpoint. Perform an approved DMS endpoint connection test and record only outcome, resource identities, and timestamps.
-7. The ten router destination queue pairs exist. The scoped Lambda worker artifacts are compatible with retained schema-2 jobs. Verify the historical native consumers are stopped and in-flight work is settled before enabling each queue mapping; never run concurrent competing consumers of one queue.
+7. The ten router destination queue pairs exist. The scoped Lambda worker artifacts are compatible with retained schema-2 jobs. The worker mappings become active when Initialize creates compute; confirm any historical native consumers are stopped and in-flight work settled **before Initialize**. Never run concurrent competing consumers of one queue.
 8. The production CloudWatch alarms and DMS state-change notification are present before sustained capture.
 
 ## First start: slot and native PostgreSQL position
@@ -83,7 +83,7 @@ Keep `CdcRouterEnabled=false` until the initial DMS start is healthy and the str
 application-<stage>-compute:CdcRouterEnabled=true
 ```
 
-This change enables the existing mapping at `TRIM_HORIZON`; it does not start DMS. Preserve the current ProductListing consumer parameter value independently.
+This change enables the existing mapping at `TRIM_HORIZON`; it does not start DMS. ProductListing and the other SQS mappings are not tied to the router parameter.
 
 Before changing a running R5 task mapping, record its task checkpoint, slot `restart_lsn`/`confirmed_flush_lsn`, stream retention window, queued source-job age, mapping digest, and safe IDs/timestamps. Stop only under approval, apply the reviewed mapping without full load or target reload, then resume the existing task with `resume-processing`—never supply a new CDC start position, reset the task, recreate the slot, purge queues, or replay historical notifications. Confirm WAL and retained Kinesis/SQS windows cover the stop interval before proceeding.
 
