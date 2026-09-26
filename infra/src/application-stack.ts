@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import type * as lambda from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
@@ -94,6 +95,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     queues: data.queues,
     search: data.search,
     dmsCdc: data.dmsCdc,
+    fxRateSyncVersion: initialization?.initialization.fxRateSyncVersion,
     network: network?.network,
   });
   compute.addDependency(data);
@@ -230,6 +232,7 @@ export class ApplicationInitializationStack extends cdk.Stack {
       commitSha,
       artifactBucket,
       migrationPostgres: props.storage.migrationPostgres,
+      postgres: props.storage.postgres,
       network: props.network,
     });
   }
@@ -240,6 +243,7 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
   readonly queues: Queues;
   readonly search: Search;
   readonly dmsCdc?: DmsCdc;
+  readonly fxRateSyncVersion?: lambda.IVersion;
   readonly network?: Network;
 }
 
@@ -254,7 +258,7 @@ export class ApplicationComputeStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
-    const parameters = applicationParameters(this, !config.isEphemeral, !config.isEphemeral);
+    const parameters = applicationParameters(this, !config.isEphemeral);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -302,19 +306,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
       backendCleanupVersion: this.lambdas.backendCleanupVersion,
       cdcRouterVersion: this.lambdas.cdcRouterVersion,
-      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
-      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
-      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
-      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
-      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
-      productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
-      productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,
-      productTranslationConsumerActivation: parameters.productTranslationConsumerActivation,
-      searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
-      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
-      searchFilterMatchNotificationConsumerActivation: parameters.searchFilterMatchNotificationConsumerActivation,
-      watchlistNotificationConsumerActivation: parameters.watchlistNotificationConsumerActivation,
-      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
+      fxRateSyncVersion: props.fxRateSyncVersion,
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
@@ -437,19 +429,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
       backendCleanupVersion: this.lambdas.backendCleanupVersion,
       cdcRouterVersion: this.lambdas.cdcRouterVersion,
-      fxRateSyncVersion: this.lambdas.fxRateSyncVersion,
-      productListingOpenSearchConsumerActivation: parameters.productListingOpenSearchConsumerActivation,
-      partnerIntegrationActivation: parameters.partnerIntegrationActivation,
-      fxRateRefreshActivation: parameters.fxRateRefreshActivation,
-      productListingNormalizationConsumerActivation: parameters.productListingNormalizationConsumerActivation,
-      productContentAssessmentConsumerActivation: parameters.productContentAssessmentConsumerActivation,
-      productEmbeddingConsumerActivation: parameters.productEmbeddingConsumerActivation,
-      productTranslationConsumerActivation: parameters.productTranslationConsumerActivation,
-      searchFilterProjectionConsumerActivation: parameters.searchFilterProjectionConsumerActivation,
-      searchFilterPercolatorConsumerActivation: parameters.searchFilterPercolatorConsumerActivation,
-      searchFilterMatchNotificationConsumerActivation: parameters.searchFilterMatchNotificationConsumerActivation,
-      watchlistNotificationConsumerActivation: parameters.watchlistNotificationConsumerActivation,
-      notificationDeliveryConsumerActivation: parameters.notificationDeliveryConsumerActivation,
+      fxRateSyncVersion: undefined,
       cdcRouterActivation: parameters.cdcRouterActivation,
     });
 

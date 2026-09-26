@@ -222,6 +222,9 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     const migration = initializationFunctions.find((resource) =>
       resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
     );
+    const fx = initializationFunctions.find((resource) => resource.Properties.FunctionName === `fxrate-lambda-${stage}`);
+    expect(fx).toBeDefined();
+    expect(computeFunctions.some((resource) => resource.Properties.FunctionName === `fxrate-lambda-${stage}`)).toBe(false);
     const logRetention = computeFunctions.find((resource) => resource.Properties.FunctionName === `cloudwatch-log-retention-lambda-${stage}`);
     const groups = Object.entries(networkTemplate(stage).findResources("AWS::EC2::SecurityGroup"));
     const migrationSecurityGroup = groups

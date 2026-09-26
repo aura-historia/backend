@@ -244,14 +244,14 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(compute.toJSON().Resources.EventingShopifyEventRule401F6A4E).toBeDefined();
   });
 
-  test("retains the ProductListing OpenSearch handoff with its mapping disabled by default", () => {
+  test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
     expect(productListingMapping?.Properties).toMatchObject({
-      Enabled: { "Fn::If": ["ProductListingOpenSearchConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(productListingMapping?.Properties.EventSourceArn))
@@ -274,9 +274,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    // The API's stable HTTP integration, real-stage CDC router, and two maintenance targets
-    // each use immutable versions; all ten queue workers retain their own versions.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 14);
+    // The API's stable HTTP integration, real-stage CDC router and cleanup target,
+    // and all ten queue workers use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 13);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -293,14 +293,14 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
   });
 
-  test("retains the saved-filter projection handoff with only PostgreSQL, OpenSearch, and its source queue", () => {
+  test("starts saved-filter projection with only PostgreSQL, OpenSearch, and its source queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     const mapping = mappings.find((candidate) =>
       JSON.stringify(candidate.Properties.FunctionName).includes("SearchFilterProjectionVersion"),
     );
     expect(mapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["SearchFilterProjectionConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(mapping?.Properties.EventSourceArn))
@@ -331,7 +331,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     expect(normalizationMapping?.Properties).toMatchObject({
       BatchSize: 10,
-      Enabled: { "Fn::If": ["ProductListingNormalizationConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(normalizationMapping?.Properties.FunctionName))
@@ -361,7 +361,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     expect(mapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["ProductContentAssessmentConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(mapping?.Properties.EventSourceArn))
@@ -404,7 +404,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     expect(mapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["ProductEmbeddingConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(mapping?.Properties.EventSourceArn))
@@ -449,7 +449,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     expect(mapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["ProductTranslationConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(mapping?.Properties.EventSourceArn))
@@ -494,7 +494,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     );
     expect(mapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["NotificationDeliveryConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(mapping?.Properties.EventSourceArn))
@@ -531,14 +531,14 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(JSON.stringify(statements)).not.toContain("StartMessageMoveTask");
   });
 
-  test("deploys the dedicated saved-filter percolator Lambda with scoped dependencies and a cutover mapping", () => {
+  test("deploys the dedicated saved-filter percolator Lambda with scoped dependencies and an active mapping", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     const percolatorMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("SearchFilterPercolatorVersion"),
     );
     expect(percolatorMapping?.Properties).toMatchObject({
       BatchSize: 1,
-      Enabled: { "Fn::If": ["SearchFilterPercolatorConsumerActivation", true, false] },
+      Enabled: true,
       FunctionResponseTypes: ["ReportBatchItemFailures"],
     });
     expect(JSON.stringify(percolatorMapping?.Properties.EventSourceArn))
@@ -572,16 +572,16 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     ]);
   });
 
-  test("deploys separate PostgreSQL-only notification generators with isolated default-off mappings", () => {
+  test("deploys separate PostgreSQL-only notification generators with active mappings", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    for (const [version, activation, queue, binary] of [
-      ["SearchFilterMatchNotificationVersion", "SearchFilterMatchNotificationConsumerActivation", "search-filter-match-notification", "search-filter-match-notification-lambda"],
-      ["WatchlistNotificationVersion", "WatchlistNotificationConsumerActivation", "watchlist-notification", "watchlist-notification-lambda"],
+    for (const [version, queue, binary] of [
+      ["SearchFilterMatchNotificationVersion", "search-filter-match-notification", "search-filter-match-notification-lambda"],
+      ["WatchlistNotificationVersion", "watchlist-notification", "watchlist-notification-lambda"],
     ]) {
       const mapping = mappings.find((candidate) => JSON.stringify(candidate.Properties.FunctionName).includes(version));
       expect(mapping?.Properties).toMatchObject({
         BatchSize: 1,
-        Enabled: { "Fn::If": [activation, true, false] },
+        Enabled: true,
         FunctionResponseTypes: ["ReportBatchItemFailures"],
       });
       expect(JSON.stringify(mapping?.Properties.EventSourceArn)).toContain(`aura-worker-${queue}-${stage}`);
