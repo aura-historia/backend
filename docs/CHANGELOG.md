@@ -22,9 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- HTTP API traffic now uses one explicit API Gateway route matrix and the API Lambda `live` alias. The public method/path and authentication contracts are unchanged: optional Aura/Cognito authentication, application authorization, OAuth, and signed WooCommerce intake continue in Axum. API edge caching is disabled to prevent personalized responses from being shared; custom domains, CloudFront, WAF, CORS, and existing request limits remain in place.
+- The `dev` AWS API's public staging URL is changing to `https://api.stage.aura-historia.com` (exact CloudFront alias); production and `/api/v1` paths are unchanged. Stage frontend clients and any registered provider URLs using the old `api.dev.aura-historia.com` host must be coordinated at the approved cutover. The old host is not redirected or retired by this change; see the [front-door cutover and rollback guide](http-api-front-door.md#deployment-cutover-and-rollback).
 
-- Notification delivery now has a retained, default-disabled dedicated SQS Lambda mapping. It preserves PostgreSQL lease/send/finalize ownership and at-least-once delivery semantics; only durable terminal results acknowledge. SES acceptance followed by lost finalization can still duplicate email after lease expiry, so activation requires approved recipients and the documented handoff/recovery gates.
+- HTTP API traffic now uses one explicit API Gateway route matrix and the API Lambda `live` alias. The public method/path and authentication contracts are unchanged: optional Aura/Cognito authentication, application authorization, OAuth, and signed WooCommerce intake continue in Axum. API edge caching is disabled to prevent personalized responses from being shared; custom domains, CloudFront, WAF, CORS, and existing request limits remain in place.
+- `/ready` requires a real PostgreSQL query and a successful, bounded `product-listings` search with the API's reader credentials; a forbidden gateway root request, failed search or malformed search response returns `503`, not `204`. `/health` remains liveness.
+
+- Notification delivery now has a retained dedicated SQS Lambda mapping, activated when Initialize creates compute after schema migration and initial FX. It preserves PostgreSQL lease/send/finalize ownership and at-least-once delivery semantics; only durable terminal results acknowledge. SES acceptance followed by lost finalization can still duplicate email after lease expiry, so Initialize requires approved recipients and the documented handoff/recovery gates.
 
 - **Breaking:** Auction descriptions are removed from the Auction domain, persistence, events, and admin/public REST responses. Auction creation no longer accepts a description, and Auction updates no longer patch one.
 

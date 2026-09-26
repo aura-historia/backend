@@ -100,6 +100,52 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     }
   });
 
+  test("scopes stage OpenSearch TLS egress to the dev application group without exposing admin ports", () => {
+    const template = networkTemplate(stage);
+    const groups = Object.entries(template.findResources("AWS::EC2::SecurityGroup"));
+    const application = groups.find(([, group]) => group.Properties.GroupDescription === "Backend application workloads in private application subnets");
+    const egress = [
+      ...Object.values(template.findResources("AWS::EC2::SecurityGroupEgress")),
+      ...groups.flatMap(([id, group]) => (group.Properties.SecurityGroupEgress ?? [])
+        .map((rule: Record<string, unknown>) => ({ Properties: { ...rule, GroupId: id } }))),
+    ];
+    const ingress = [
+      ...Object.values(template.findResources("AWS::EC2::SecurityGroupIngress")),
+      ...groups.flatMap(([, group]) => (group.Properties.SecurityGroupIngress ?? [])
+        .map((rule: Record<string, unknown>) => ({ Properties: rule }))),
+    ];
+
+    expect(application).toBeDefined();
+    const applicationEgress = egress.filter((rule) => JSON.stringify(rule.Properties.GroupId).includes(application![0]));
+    expect(applicationEgress).toHaveLength(stage === "dev" ? 4 : 3);
+    expect(applicationEgress).toEqual(expect.arrayContaining([
+      expect.objectContaining({ Properties: expect.objectContaining({ CidrIp: "0.0.0.0/0", FromPort: 443, ToPort: 443 }) }),
+      expect.objectContaining({ Properties: expect.objectContaining({ DestinationSecurityGroupId: expect.anything(), FromPort: 443, ToPort: 443 }) }),
+      expect.objectContaining({ Properties: expect.objectContaining({ DestinationSecurityGroupId: expect.anything(), FromPort: 5432, ToPort: 5432 }) }),
+    ]));
+    const broadEgress = egress.filter((rule) => rule.Properties.CidrIp === "0.0.0.0/0");
+    expect(broadEgress).toHaveLength(1);
+    expect(broadEgress[0].Properties.FromPort).toBe(443);
+    expect(broadEgress[0].Properties.ToPort).toBe(443);
+    expect(JSON.stringify(broadEgress[0].Properties.GroupId)).toContain(application![0]);
+    const searchEgress = egress.filter((rule) => rule.Properties.FromPort === 9443 || rule.Properties.ToPort === 9443);
+    if (stage === "dev") {
+      expect(searchEgress).toHaveLength(1);
+      expect(searchEgress[0].Properties).toEqual(expect.objectContaining({
+        CidrIp: "148.251.91.20/32",
+        Description: "Stage OpenSearch HTTPS via NAT",
+        FromPort: 9443,
+        ToPort: 9443,
+        IpProtocol: "tcp",
+      }));
+      expect(JSON.stringify(searchEgress[0].Properties.GroupId)).toContain(application![0]);
+    } else {
+      expect(searchEgress).toHaveLength(0);
+    }
+    expect(egress.every((rule) => ![9300, 19200].includes(rule.Properties.FromPort))).toBe(true);
+    expect(ingress.every((rule) => ![9300, 9443, 19200].includes(rule.Properties.FromPort))).toBe(true);
+  });
+
   test("allows DMS egress only to PostgreSQL and its private AWS API endpoint boundary", () => {
     const template = networkTemplate(stage);
     const groups = Object.entries(template.findResources("AWS::EC2::SecurityGroup"));
@@ -176,6 +222,9 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     const migration = initializationFunctions.find((resource) =>
       resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
     );
+    const fx = initializationFunctions.find((resource) => resource.Properties.FunctionName === `fxrate-lambda-${stage}`);
+    expect(fx).toBeDefined();
+    expect(computeFunctions.some((resource) => resource.Properties.FunctionName === `fxrate-lambda-${stage}`)).toBe(false);
     const logRetention = computeFunctions.find((resource) => resource.Properties.FunctionName === `cloudwatch-log-retention-lambda-${stage}`);
     const groups = Object.entries(networkTemplate(stage).findResources("AWS::EC2::SecurityGroup"));
     const migrationSecurityGroup = groups

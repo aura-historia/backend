@@ -81,8 +81,8 @@ jobs:
         with:
           node-version: 26
 
-      - name: Install MJML
-        run: npm install --global mjml
+      - name: Install pinned MJML
+        run: npm --prefix mjml ci
 
       - name: Compile every MJML template
         shell: bash
@@ -90,9 +90,9 @@ jobs:
           set -euo pipefail
           template_count=0
           while IFS= read -r -d '' template; do
-            mjml "$template" --output /dev/null
+            mjml/node_modules/.bin/mjml "$template" --output /dev/null
             template_count=$((template_count + 1))
-          done < <(find mjml -type f -name '*.mjml' -print0)
+          done < <(git ls-files -z -- 'mjml/**/*.mjml')
           test "$template_count" -gt 0
 
   lint:

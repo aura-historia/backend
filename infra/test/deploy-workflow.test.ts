@@ -10,10 +10,17 @@ const initializeWorkflow = readFileSync(
   "utf8",
 );
 
-describe("release workflow boundary", () => {
+describe("deployment workflow boundary", () => {
   test("packages exactly the CDK Lambda artifacts, not the legacy native worker", () => {
-    const artifacts = [...deployWorkflow.matchAll(/^\s+- crate: src\/([a-z0-9-]+)\n\s+binary: ([a-z0-9-]+)$/gm)]
-      .map(([, crate, binary]) => ({ crate, binary }));
+    const matrix = deployWorkflow.split("  aws-push-lambda:")[1]?.split("    steps:")[0];
+    expect(matrix).toBeDefined();
+    const included = [...matrix!.matchAll(/^\s+- crate: src\/([a-z0-9-]+)\n\s+binary: ([a-z0-9-]+)$/gm)];
+    const artifacts = included.length
+      ? included.map(([, crate, binary]) => {
+          expect(crate).toBe(binary);
+          return binary;
+        })
+      : [...matrix!.matchAll(/^\s+- ([a-z0-9-]+)$/gm)].map(([, binary]) => binary);
     const binaries = [
       "aura-historia-api",
       "shopify-lambda",
@@ -35,84 +42,86 @@ describe("release workflow boundary", () => {
       "notification-delivery-lambda",
       "cdc-router-lambda",
     ];
-    expect(artifacts.map(({ binary }) => binary).sort()).toEqual(binaries.sort());
-    expect(artifacts.every(({ crate, binary }) => crate === binary)).toBe(true);
+    expect(artifacts.sort()).toEqual(binaries.sort());
+    expect(deployWorkflow).toMatch(/working-directory: (?:src\/\$\{\{ matrix\.binary \}\}|\$\{\{ matrix\.crate \}\})/);
+    expect(deployWorkflow).toContain('target/lambda/${BINARY}/bootstrap.zip');
     expect(deployWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
     expect(initializeWorkflow).not.toMatch(/aura-historia-worker|sequin|AURA_HISTORIA_WORKER_/i);
   });
 
-  test("keeps pushes artifact-only and normal deploy limited to stage plus immutable artifact source", () => {
+  test("publishes stage/SHA artifacts and deploys only after checks and uploads", () => {
     expect(deployWorkflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(deployWorkflow).toContain("cancel-in-progress: false");
     expect(deployWorkflow).toContain("stage:");
     expect(deployWorkflow).toContain("commit_sha:");
     expect(deployWorkflow).toContain("database-migration-lambda");
-    expect(deployWorkflow).toContain("crate: src/backend-cleanup-lambda");
-    expect(deployWorkflow).toContain("binary: backend-cleanup-lambda");
-    expect(deployWorkflow).toContain("crate: src/product-content-assessment-lambda");
-    expect(deployWorkflow).toContain("binary: product-content-assessment-lambda");
-    expect(deployWorkflow).toContain("crate: src/product-translation-lambda");
-    expect(deployWorkflow).toContain("binary: product-translation-lambda");
-    expect(deployWorkflow).toContain("crate: src/search-filter-match-notification-lambda");
-    expect(deployWorkflow).toContain("binary: search-filter-match-notification-lambda");
-    expect(deployWorkflow).toContain("crate: src/watchlist-notification-lambda");
-    expect(deployWorkflow).toContain("binary: watchlist-notification-lambda");
-    expect(deployWorkflow).toContain("crate: src/cdc-router-lambda");
-    expect(deployWorkflow).toContain("binary: cdc-router-lambda");
-    expect(deployWorkflow).toContain("--bin \"${{ matrix.binary }}\"");
-    expect(deployWorkflow).toContain("target/lambda/$BIN_NAME/bootstrap.zip");
+    expect(deployWorkflow).toContain('--bin "${{ matrix.binary }}"');
     expect(deployWorkflow).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
-    expect(deployWorkflow).toContain("DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}");
-    expect(deployWorkflow).toContain("Data foundation is not initialized; run Initialize (CD) first.");
-    expect(deployWorkflow).toContain("Initialization runtime is not deployed; run Initialize (CD) first.");
-    expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize"');
+    expect(deployWorkflow).toContain('key="${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
+    expect(deployWorkflow).toContain("git ls-files -z -- 'mjml/**/*.mjml'");
+    expect(deployWorkflow).toContain('name="${template%.mjml}.html"');
+    expect(deployWorkflow).toContain('key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"');
+    expect(deployWorkflow).toContain('key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"');
+    expect(deployWorkflow).toContain('needs: [infra-test, aws-push-lambda, aws-push-mail-templates]');
+    expect(deployWorkflow).toContain("needs.infra-test.result == 'success'");
+    expect(deployWorkflow).toContain("needs.aws-push-lambda.result == 'success'");
+    expect(deployWorkflow).toContain("needs.aws-push-mail-templates.result == 'success'");
+    expect(deployWorkflow).toContain('secrets.CI_DEPLOY_ROLE_ARN');
+    expect(deployWorkflow).toContain('migration-result.json');
     expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
     expect(deployWorkflow).toContain('"${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"');
+    expect(deployWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-initialize"');
+
+    expect(deployWorkflow).toContain('aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"');
+    expect(deployWorkflow).toContain("Private migration failed; application admission is blocked.");
     expect(deployWorkflow).not.toContain("deployment_phase:");
     expect(deployWorkflow).not.toContain("dms_initial_cdc_start_position:");
-    expect(deployWorkflow).not.toContain("ProductListingOpenSearchConsumerEnabled=");
   });
 
-  test("updates foundation, schema, FX, and consumer activation only from manual initialize", () => {
+  test("manual rollback reuses deployed templates without invoking migrations", () => {
+    const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
+    expect(rollback).toBeDefined();
+    expect(rollback).toContain('--use-previous-template');
+    expect(rollback).toContain('for stack in initialize compute; do');
+    expect(rollback).not.toContain('database-migration-lambda');
+    expect(rollback).not.toMatch(/aws lambda invoke|invoke_function|npm --prefix infra run cdk -- deploy/);
+  });
+
+  test("does not restore inventory, sealing or promotion jobs", () => {
+    expect(deployWorkflow).not.toMatch(/^  [\w-]*(?:inventory|seal|promot)[\w-]*:/gm);
+    expect(deployWorkflow).not.toContain('inventory.tsv');
+    expect(deployWorkflow).not.toContain('LAMBDA_BINARIES');
+    expect(deployWorkflow).not.toContain('secrets.CI_UPLOAD_ROLE_ARN');
+  });
+
+  test("initializes foundation, schema and FX before deploying compute/API", () => {
     expect(initializeWorkflow).not.toContain("dms_initial_cdc_start_position:");
     expect(initializeWorkflow).not.toContain("DMS_INITIAL_CDC_START_POSITION");
     expect(initializeWorkflow).not.toContain("DmsCdcInitialCdcStartPosition=");
     expect(initializeWorkflow).toContain("aws-deploy-${{ inputs.stage }}");
-    expect(initializeWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-network"');
-    expect(initializeWorkflow).toContain('deploy "${STACK_NAME_PREFIX}-data"');
-    expect(initializeWorkflow).toContain('"${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
-    expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=false');
-    expect(initializeWorkflow).toContain('ProductListingOpenSearchConsumerEnabled=true');
-    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=false');
-    expect(initializeWorkflow).toContain('PartnerIntegrationEnabled=true');
-    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=false');
-    expect(initializeWorkflow).toContain('FxRateRefreshEnabled=true');
-    expect(initializeWorkflow).toContain('CdcRouterEnabled=false');
-    expect(initializeWorkflow).not.toContain('CdcRouterEnabled=true');
+    expect(initializeWorkflow).toContain('for stack in network data initialize; do');
+    expect(initializeWorkflow).toContain('if [ "$init_sha" != "$DEPLOY_COMMIT_SHA" ]; then');
+    expect(initializeWorkflow).not.toMatch(/[A-Za-z]+Enabled=(?:true|false)/);
+
     expect(initializeWorkflow).toContain('invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json');
     expect(initializeWorkflow).toContain('invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json');
     expect(initializeWorkflow).toContain("--cli-read-timeout 900");
+
+    expect(initializeWorkflow).toContain('migration-result.json');
+    expect(initializeWorkflow).toContain('fxrate-result.json');
     expect(initializeWorkflow).toContain("FunctionError");
     expect(initializeWorkflow).not.toContain("aws dms start-replication-task");
     expect(initializeWorkflow).not.toContain("NATIVE_PAUSED_AND_SETTLED");
 
-    const networkDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-network"');
-    const dataDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-data"');
-    const initializationDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-initialize"');
-    const inactiveCompute = initializeWorkflow.indexOf('ProductListingOpenSearchConsumerEnabled=false');
+    const foundationCheck = initializeWorkflow.indexOf('for stack in network data initialize; do');
+    const computeDeploy = initializeWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-compute"');
     const migrationInvoke = initializeWorkflow.indexOf('invoke_function "database-migration-lambda-${STAGE}"');
     const fxInvoke = initializeWorkflow.indexOf('invoke_function "fxrate-lambda-${STAGE}"');
-    const activeCompute = initializeWorkflow.lastIndexOf('ProductListingOpenSearchConsumerEnabled=true');
-    const partnerIntegrationActivation = initializeWorkflow.lastIndexOf('PartnerIntegrationEnabled=true');
-    const fxRateRefreshActivation = initializeWorkflow.lastIndexOf('FxRateRefreshEnabled=true');
-    expect(networkDeploy).toBeGreaterThanOrEqual(0);
-    expect(dataDeploy).toBeGreaterThan(networkDeploy);
-    expect(initializationDeploy).toBeGreaterThan(dataDeploy);
-    expect(inactiveCompute).toBeGreaterThan(initializationDeploy);
-    expect(migrationInvoke).toBeGreaterThan(inactiveCompute);
+    const apiDeploy = initializeWorkflow.indexOf('stacks=("${STACK_NAME_PREFIX}-api")');
+    expect(foundationCheck).toBeGreaterThanOrEqual(0);
+    expect(migrationInvoke).toBeGreaterThan(foundationCheck);
     expect(fxInvoke).toBeGreaterThan(migrationInvoke);
-    expect(activeCompute).toBeGreaterThan(fxInvoke);
-    expect(partnerIntegrationActivation).toBeGreaterThan(fxInvoke);
-    expect(fxRateRefreshActivation).toBeGreaterThan(fxInvoke);
+    expect(computeDeploy).toBeGreaterThan(fxInvoke);
+    expect(apiDeploy).toBeGreaterThan(computeDeploy);
   });
 });

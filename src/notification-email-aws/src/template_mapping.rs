@@ -439,7 +439,14 @@ mod tests {
         source_listing_id::SourceListingId,
     };
     use rstest::rstest;
-    use std::collections::HashMap;
+    use std::{
+        collections::{BTreeSet, HashMap},
+        fs,
+        os::unix::fs::PermissionsExt,
+        path::PathBuf,
+        process::Command,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     use url::Url;
     use user_core::user_id::UserId;
 
@@ -481,6 +488,171 @@ mod tests {
             "test/commit/mjml/watchlist/product-update/availability/en.html",
             key
         );
+    }
+
+    #[test]
+    fn should_publish_workflow_templates_at_runtime_s3_keys()
+    -> Result<(), Box<dyn std::error::Error>> {
+        const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+        let workflow = include_str!("../../../.github/workflows/deploy.yml");
+        let publisher = workflow
+            .split_once("\n  aws-push-mail-templates:\n")
+            .expect("mail publisher job exists")
+            .1
+            .split_once("\n  aws-cdk-deploy:\n")
+            .expect("mail publisher job ends before CDK deploy")
+            .0;
+        let script = publisher
+            .split_once("      - name: Compile and upload templates\n")
+            .expect("mail publisher step exists")
+            .1
+            .split_once("        run: |\n")
+            .expect("mail publisher bash body exists")
+            .1
+            .lines()
+            .take_while(|line| line.is_empty() || line.starts_with("          "))
+            .map(|line| line.strip_prefix("          ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!script.is_empty());
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "notification-email-publisher-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        )));
+        fs::create_dir(&fixture.0)?;
+        let bin = fixture.0.join("bin");
+        fs::create_dir(&bin)?;
+        let mjml = fixture.0.join("mjml/node_modules/.bin/mjml");
+        fs::create_dir_all(mjml.parent().expect("MJML bin has parent"))?;
+        fs::write(
+            &mjml,
+            "#!/usr/bin/env bash\n[[ $2 == -o ]] || exit 1\nprintf '<html/>' > \"$3\"\n",
+        )?;
+        fs::set_permissions(&mjml, fs::Permissions::from_mode(0o755))?;
+        let aws = bin.join("aws");
+        fs::write(
+            &aws,
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$MOCK_UPLOADS\"\n",
+        )?;
+        fs::set_permissions(&aws, fs::Permissions::from_mode(0o755))?;
+
+        let families = [
+            (
+                EmailTemplateType::WatchlistUpdatePrice,
+                "watchlist/product-update/price",
+            ),
+            (
+                EmailTemplateType::WatchlistUpdateAvailability,
+                "watchlist/product-update/availability",
+            ),
+            (EmailTemplateType::SearchFilterMatch, "search-filter/match"),
+            (
+                EmailTemplateType::PartnershipApplicationApproval,
+                "partnership-application/approval",
+            ),
+            (
+                EmailTemplateType::PartnershipApplicationRejection,
+                "partnership-application/rejection",
+            ),
+        ];
+        let languages = [
+            (EmailLanguage::De, "de"),
+            (EmailLanguage::En, "en"),
+            (EmailLanguage::Fr, "fr"),
+            (EmailLanguage::Es, "es"),
+            (EmailLanguage::It, "it"),
+        ];
+        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mjml");
+        let mut expected = BTreeSet::new();
+        for (template_type, family) in families {
+            for (language, code) in languages {
+                let source = format!("mjml/{family}/{code}.mjml");
+                let output = format!("dist/emails/mjml/{family}/{code}.html");
+                let key = format!("dev/{SHA}/mjml/{family}/{code}.html");
+                assert_eq!(key, s3_template_key("dev", SHA, template_type, language));
+                let target = fixture.0.join(&source);
+                fs::create_dir_all(target.parent().expect("template has parent"))?;
+                fs::copy(
+                    source_root.join(family).join(format!("{code}.mjml")),
+                    target,
+                )?;
+                expected.insert(format!(
+                    "s3api put-object --bucket mail --key {key} --body {output} --tagging stage=dev"
+                ));
+            }
+        }
+        assert_eq!(expected.len(), 25);
+        let git_init = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&fixture.0)
+            .output()?;
+        assert!(
+            git_init.status.success(),
+            "git init: {}",
+            String::from_utf8_lossy(&git_init.stderr)
+        );
+        let git_add = Command::new("git")
+            .args(["add", "--", "mjml"])
+            .current_dir(&fixture.0)
+            .output()?;
+        assert!(
+            git_add.status.success(),
+            "git add: {}",
+            String::from_utf8_lossy(&git_add.stderr)
+        );
+
+        let uploads = fixture.0.join("uploads");
+        let result = Command::new("bash")
+            .args(["-c", &script])
+            .current_dir(&fixture.0)
+            .env("STAGE", "dev")
+            .env("DEPLOY_COMMIT_SHA", SHA)
+            .env("BUCKET", "mail")
+            .env("MOCK_UPLOADS", &uploads)
+            .env(
+                "PATH",
+                format!("{}:{}", bin.display(), std::env::var("PATH")?),
+            )
+            .output()?;
+        assert!(
+            result.status.success(),
+            "publisher: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let actual = fs::read_to_string(uploads)?;
+        assert_eq!(
+            actual.lines().count(),
+            25,
+            "publisher must upload exactly 25 templates: {actual}"
+        );
+        let published: BTreeSet<_> = actual.lines().collect();
+        assert_eq!(
+            published.len(),
+            25,
+            "publisher uploaded unexpected or duplicate keys: {actual}"
+        );
+        assert_eq!(published, expected.iter().map(String::as_str).collect());
+        assert!(
+            fixture
+                .0
+                .join("mjml/watchlist/product-update/price/en.mjml")
+                .is_file()
+        );
+        assert!(
+            fixture
+                .0
+                .join("dist/emails/mjml/watchlist/product-update/price/en.html")
+                .is_file()
+        );
+        Ok(())
     }
 
     #[rstest]

@@ -32,19 +32,6 @@ export interface EventingProps {
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
-  readonly fxRateSyncVersion: lambda.IVersion | undefined;
-  readonly productListingOpenSearchConsumerActivation: cdk.CfnCondition;
-  readonly partnerIntegrationActivation: cdk.CfnCondition;
-  readonly fxRateRefreshActivation?: cdk.CfnCondition;
-  readonly productListingNormalizationConsumerActivation: cdk.CfnCondition;
-  readonly productContentAssessmentConsumerActivation: cdk.CfnCondition;
-  readonly productEmbeddingConsumerActivation: cdk.CfnCondition;
-  readonly productTranslationConsumerActivation: cdk.CfnCondition;
-  readonly searchFilterProjectionConsumerActivation: cdk.CfnCondition;
-  readonly searchFilterPercolatorConsumerActivation: cdk.CfnCondition;
-  readonly searchFilterMatchNotificationConsumerActivation: cdk.CfnCondition;
-  readonly watchlistNotificationConsumerActivation: cdk.CfnCondition;
-  readonly notificationDeliveryConsumerActivation: cdk.CfnCondition;
   readonly cdcRouterActivation?: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
@@ -94,20 +81,13 @@ export class Eventing extends Construct {
       this.shopifyEventBus,
       props.functions,
       props.queues,
-      props.partnerIntegrationActivation,
     );
 
     if (!props.config.isEphemeral) {
-      if (!props.backendCleanupVersion || !props.fxRateSyncVersion || !props.fxRateRefreshActivation) {
-        throw new Error("Real eventing requires cleanup and FX Lambda versions plus the maintenance activation.");
+      if (!props.backendCleanupVersion) {
+        throw new Error("Real eventing requires a cleanup Lambda version.");
       }
-      createMaintenanceSchedules(
-        this,
-        props.config,
-        props.backendCleanupVersion,
-        props.fxRateSyncVersion,
-        props.fxRateRefreshActivation,
-      );
+      createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
 
       if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
         throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
@@ -138,17 +118,6 @@ export class Eventing extends Construct {
       props.searchFilterMatchNotificationVersion,
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
-      props.productListingOpenSearchConsumerActivation,
-      props.partnerIntegrationActivation,
-      props.productListingNormalizationConsumerActivation,
-      props.productContentAssessmentConsumerActivation,
-      props.productEmbeddingConsumerActivation,
-      props.productTranslationConsumerActivation,
-      props.searchFilterProjectionConsumerActivation,
-      props.searchFilterPercolatorConsumerActivation,
-      props.searchFilterMatchNotificationConsumerActivation,
-      props.watchlistNotificationConsumerActivation,
-      props.notificationDeliveryConsumerActivation,
     );
   }
 }
@@ -178,9 +147,13 @@ function createMaintenanceSchedules(
   scope: Construct,
   config: StageConfig,
   cleanupVersion: lambda.IVersion,
-  fxRateSyncVersion: lambda.IVersion,
-  activation: cdk.CfnCondition,
 ): void {
+  const fxRateSyncArn = cdk.Stack.of(scope).formatArn({
+    service: "lambda",
+    resource: "function",
+    resourceName: `fxrate-lambda-${config.stage}`,
+    arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+  });
   const deadLetterQueue = new sqs.Queue(scope, "MaintenanceSchedulerDeadLetterQueue", {
     queueName: maintenanceSchedulerDeadLetterQueueName(config.stage),
     encryption: sqs.QueueEncryption.SQS_MANAGED,
@@ -193,19 +166,19 @@ function createMaintenanceSchedules(
   });
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["lambda:InvokeFunction"],
-    resources: [cleanupVersion.functionArn, fxRateSyncVersion.functionArn],
+    resources: [cleanupVersion.functionArn, fxRateSyncArn],
   }));
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["sqs:SendMessage"],
     resources: [deadLetterQueue.queueArn],
   }));
 
-  const cleanupSchedule = new scheduler.CfnSchedule(scope, "ExpiredCredentialCleanupSchedule", {
+  new scheduler.CfnSchedule(scope, "ExpiredCredentialCleanupSchedule", {
     name: `aura-historia-expired-credential-cleanup-${config.stage}`,
     scheduleExpression: "cron(0 * * * ? *)",
     scheduleExpressionTimezone: "UTC",
     flexibleTimeWindow: { mode: "OFF" },
-    state: "DISABLED",
+    state: "ENABLED",
     target: {
       arn: cleanupVersion.functionArn,
       roleArn: role.roleArn,
@@ -217,16 +190,15 @@ function createMaintenanceSchedules(
       },
     },
   });
-  cleanupSchedule.state = maintenanceScheduleState(activation);
 
-  const fxRateSchedule = new scheduler.CfnSchedule(scope, "FxRateRefreshSchedule", {
+  new scheduler.CfnSchedule(scope, "FxRateRefreshSchedule", {
     name: `aura-historia-fxrate-refresh-${config.stage}`,
     scheduleExpression: "cron(0 6,18 * * ? *)",
     scheduleExpressionTimezone: "UTC",
     flexibleTimeWindow: { mode: "OFF" },
-    state: "DISABLED",
+    state: "ENABLED",
     target: {
-      arn: fxRateSyncVersion.functionArn,
+      arn: fxRateSyncArn,
       roleArn: role.roleArn,
       input: fxRateSchedulerInput(),
       deadLetterConfig: { arn: deadLetterQueue.queueArn },
@@ -236,11 +208,6 @@ function createMaintenanceSchedules(
       },
     },
   });
-  fxRateSchedule.state = maintenanceScheduleState(activation);
-}
-
-function maintenanceScheduleState(activation: cdk.CfnCondition): string {
-  return cdk.Fn.conditionIf(activation.logicalId, "ENABLED", "DISABLED") as unknown as string;
 }
 
 function fxRateSchedulerInput(): string {
@@ -263,7 +230,6 @@ function createPartnerEventRules(
   shopifyEventBus: events.IEventBus,
   functions: LambdaFunctions,
   queues: QueueCatalog,
-  activation: cdk.CfnCondition,
 ): void {
   const shopifyRule = new events.Rule(scope, "ShopifyEventRule", {
     eventBus: shopifyEventBus,
@@ -276,7 +242,7 @@ function createPartnerEventRules(
     },
     targets: [new targets.SqsQueue(queues.shopify.queue)],
   });
-  setRuleState(shopifyRule, activation);
+
   allowEventRuleToSendToQueue(scope, "ShopifyEventRuleQueuePolicy", shopifyRule, queues.shopify.queue);
 
   const stripeRule = new events.Rule(scope, "StripeEventRule", {
@@ -292,12 +258,6 @@ function createPartnerEventRules(
     },
     targets: [new targets.LambdaFunction(functions.stripe)],
   });
-  setRuleState(stripeRule, activation);
-}
-
-function setRuleState(rule: events.Rule, activation: cdk.CfnCondition): void {
-  const resource = rule.node.defaultChild as events.CfnRule;
-  resource.state = cdk.Fn.conditionIf(activation.logicalId, "ENABLED", "DISABLED") as unknown as string;
 }
 
 function allowEventRuleToSendToQueue(scope: Construct, id: string, rule: events.Rule, queue: sqs.IQueue): void {
@@ -441,19 +401,8 @@ function createSqsEventSources(
   searchFilterMatchNotificationVersion: lambda.IVersion,
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
-  activation: cdk.CfnCondition,
-  partnerIntegrationActivation: cdk.CfnCondition,
-  normalizationActivation: cdk.CfnCondition,
-  productContentAssessmentActivation: cdk.CfnCondition,
-  productEmbeddingActivation: cdk.CfnCondition,
-  productTranslationActivation: cdk.CfnCondition,
-  searchFilterProjectionActivation: cdk.CfnCondition,
-  percolatorActivation: cdk.CfnCondition,
-  searchFilterMatchNotificationActivation: cdk.CfnCondition,
-  watchlistNotificationActivation: cdk.CfnCondition,
-  notificationDeliveryActivation: cdk.CfnCondition,
 ): void {
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, partnerIntegrationActivation);
+  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
   const productListingOpenSearch = workerQueues["product-listing-opensearch"];
   if (!productListingOpenSearch) {
@@ -471,7 +420,7 @@ function createSqsEventSources(
   }));
   new lambda.CfnEventSourceMapping(scope, "ProductListingOpenSearchQueueEventSource", {
     batchSize: 1,
-    enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -493,7 +442,7 @@ function createSqsEventSources(
   }));
   new lambda.CfnEventSourceMapping(scope, "SearchFilterProjectionQueueEventSource", {
     batchSize: 1,
-    enabled: cdk.Fn.conditionIf(searchFilterProjectionActivation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: searchFilterProjection.queue.queueArn,
     functionName: searchFilterProjectionVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -515,7 +464,7 @@ function createSqsEventSources(
   }));
   new lambda.CfnEventSourceMapping(scope, "ProductListingNormalizationQueueEventSource", {
     batchSize: 10,
-    enabled: cdk.Fn.conditionIf(normalizationActivation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: productListingNormalization.queue.queueArn,
     functionName: productListingNormalizationVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -527,7 +476,7 @@ function createSqsEventSources(
     functions.productContentAssessment,
     workerQueues["product-content-assessment"],
     productContentAssessmentVersion,
-    productContentAssessmentActivation,
+
     "ProductListing content assessment",
   );
   addWorkerLambdaEventSource(
@@ -536,7 +485,7 @@ function createSqsEventSources(
     functions.productEmbedding,
     workerQueues["product-embedding"],
     productEmbeddingVersion,
-    productEmbeddingActivation,
+
     "ProductListing embedding",
   );
   addWorkerLambdaEventSource(
@@ -545,7 +494,7 @@ function createSqsEventSources(
     functions.productTranslation,
     workerQueues["product-translation"],
     productTranslationVersion,
-    productTranslationActivation,
+
     "ProductListing translation",
   );
 
@@ -565,7 +514,7 @@ function createSqsEventSources(
   }));
   new lambda.CfnEventSourceMapping(scope, "NotificationDeliveryQueueEventSource", {
     batchSize: 1,
-    enabled: cdk.Fn.conditionIf(notificationDeliveryActivation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: notificationDelivery.queue.queueArn,
     functionName: notificationDeliveryVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -587,7 +536,7 @@ function createSqsEventSources(
   }));
   new lambda.CfnEventSourceMapping(scope, "SearchFilterPercolatorQueueEventSource", {
     batchSize: 1,
-    enabled: cdk.Fn.conditionIf(percolatorActivation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: searchFilterPercolator.queue.queueArn,
     functionName: searchFilterPercolatorVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -599,7 +548,7 @@ function createSqsEventSources(
     functions.searchFilterMatchNotification,
     workerQueues["search-filter-match-notification"],
     searchFilterMatchNotificationVersion,
-    searchFilterMatchNotificationActivation,
+
     "Search-filter match notification",
   );
   addWorkerLambdaEventSource(
@@ -608,7 +557,7 @@ function createSqsEventSources(
     functions.watchlistNotification,
     workerQueues["watchlist-notification"],
     watchlistNotificationVersion,
-    watchlistNotificationActivation,
+
     "Watchlist notification",
   );
 }
@@ -619,7 +568,6 @@ function addWorkerLambdaEventSource(
   fn: lambda.Function,
   workerQueue: WorkerQueueCatalog[WorkerScope] | undefined,
   version: lambda.IVersion,
-  activation: cdk.CfnCondition,
   description: string,
 ): void {
   if (!workerQueue) {
@@ -637,7 +585,7 @@ function addWorkerLambdaEventSource(
   }));
   new lambda.CfnEventSourceMapping(scope, id, {
     batchSize: 1,
-    enabled: cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean,
+    enabled: true,
     eventSourceArn: workerQueue.queue.queueArn,
     functionName: version.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
@@ -650,14 +598,11 @@ function addSqsEventSource(
   batchSize: number,
   reportBatchItemFailures: boolean,
   maxBatchingWindowSeconds?: number,
-  activation?: cdk.CfnCondition,
 ): void {
   fn.addEventSource(
     new lambdaEventSources.SqsEventSource(queue, {
       batchSize,
-      enabled: activation
-        ? cdk.Fn.conditionIf(activation.logicalId, true, false) as unknown as boolean
-        : undefined,
+
       reportBatchItemFailures,
       maxBatchingWindow: maxBatchingWindowSeconds === undefined ? undefined : cdk.Duration.seconds(maxBatchingWindowSeconds),
     }),

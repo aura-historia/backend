@@ -153,11 +153,22 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `watchlist-notification-lambda-${stage}`,
     )).toBeDefined();
-    expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(1);
+    expect(Object.values(initialization.findResources("AWS::Lambda::Function"))).toHaveLength(2);
     initialization.resourceCountIs("AWS::Lambda::EventSourceMapping", 0);
     initialization.resourceCountIs("AWS::Events::Rule", 0);
     expect(JSON.stringify(compute.toJSON())).not.toContain(`database-migration-lambda-${stage}`);
-    expect(JSON.stringify(compute.toJSON())).toContain(`fxrate-lambda-${stage}`);
+    expect(JSON.stringify(compute.findResources("AWS::Lambda::Function"))).not.toContain(`fxrate-lambda-${stage}`);
+    expect(JSON.stringify(initialization.toJSON())).toContain(`fxrate-lambda-${stage}`);
+    const fx = Object.values(initialization.findResources("AWS::Lambda::Function")).find((resource) =>
+      resource.Properties.FunctionName === `fxrate-lambda-${stage}`,
+    );
+    expect(fx?.Properties).toMatchObject({ Runtime: "provided.al2023", Timeout: 10, MemorySize: 128 });
+    expect(fx?.Properties.Environment.Variables).toMatchObject({
+      FXRATES_API_TOKEN: `{{resolve:ssm:/fxratesapi/${stage}/api-token}}`,
+      POSTGRES_TLS_ROOT_CERT: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
+    });
+    expect(fx?.Properties.Environment.Variables.POSTGRES_ADMIN_SECRET_ARN).toBeUndefined();
+    expect(fx?.Properties.Environment.Variables.POSTGRES_MIGRATION_SECRET_ARN).toBeUndefined();
     expect(JSON.stringify(compute.toJSON())).toContain(`backend-cleanup-lambda-${stage}`);
     const runtimeSecretArn = runtimeFunctions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
     expect(runtimeSecretArn).toBeDefined();

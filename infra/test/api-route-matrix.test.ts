@@ -11,7 +11,7 @@ import {
   RouteAuthorizationClass,
   type RouteDefinition,
 } from "../src/constructs/api";
-import { STAGES, type StageName } from "../src/config";
+import { STAGES, stageConfig, type StageName } from "../src/config";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
@@ -246,6 +246,69 @@ describe("HTTP API route policy matrix", () => {
     expect(resolveConcreteArn(integration.Properties.IntegrationUri)).toBe(qualifiedArn);
     expect(resolveConcreteArn(permission.Properties.FunctionName)).toBe(qualifiedArn);
     expect(qualifiedArn).not.toContain(":function/");
+  });
+
+  test.each([
+    ["dev", "api.stage.aura-historia.com"],
+    ["prod", "api.aura-historia.com"],
+  ] as const)("serves %s on the exact public API host through the regional front door", (stage, host) => {
+    const config = stageConfig(stage);
+    const template = apiTemplate(stage);
+    const [[domainId, domain]] = Object.entries(template.findResources("AWS::ApiGatewayV2::DomainName")) as [string, CloudFormationResource][];
+    const [mapping] = Object.values(template.findResources("AWS::ApiGatewayV2::ApiMapping")) as CloudFormationResource[];
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution")) as CloudFormationResource[];
+    const [[apiId, api]] = Object.entries(template.findResources("AWS::ApiGatewayV2::Api")) as [string, CloudFormationResource][];
+
+    expect(config.stage).toBe(stage);
+    expect(config.apiDomainName).toBe(host);
+    expect(config.apiEndpointUrl).toBe(`https://${host}`);
+    expect(config.apiCloudFrontAliases).toEqual([host]);
+    expect(config.apiGatewayCertificateArn).toBe(`{{resolve:ssm:/certificates/${stage}/api-regional-certificate-arn}}`);
+    expect(config.apiCloudFrontCertificateArn).toBe(`{{resolve:ssm:/certificates/${stage}/api-cloudfront-certificate-arn}}`);
+    expect(template.toJSON().Outputs.ApiGatewayEndpointUrl.Value).toBe(`https://${host}`);
+    expect(api.Properties.DisableExecuteApiEndpoint).toBe(true);
+    expect(domain.Properties).toEqual(expect.objectContaining({
+      DomainName: host,
+      DomainNameConfigurations: [expect.objectContaining({
+        CertificateArn: config.apiGatewayCertificateArn,
+        EndpointType: "REGIONAL",
+        SecurityPolicy: "TLS_1_2",
+      })],
+    }));
+    expect(mapping.Properties).toEqual(expect.objectContaining({
+      ApiId: { Ref: apiId },
+      DomainName: { Ref: domainId },
+      Stage: stage,
+    }));
+    expect(distribution.Properties.DistributionConfig).toEqual(expect.objectContaining({
+      Aliases: [host],
+      Origins: [expect.objectContaining({
+        DomainName: { "Fn::GetAtt": [domainId, "RegionalDomainName"] },
+        CustomOriginConfig: expect.objectContaining({ OriginProtocolPolicy: "https-only" }),
+      })],
+      ViewerCertificate: expect.objectContaining({ AcmCertificateArn: config.apiCloudFrontCertificateArn }),
+      DefaultCacheBehavior: expect.objectContaining({ OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
+      CacheBehaviors: [expect.objectContaining({ OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" })],
+    }));
+  });
+
+  test("keeps ephemeral without a custom domain or CloudFront alias", () => {
+    const config = stageConfig("ephemeral");
+    const template = apiTemplate("ephemeral");
+    expect(config.apiDomainName).toBeUndefined();
+    expect(config.apiEndpointUrl).toBeUndefined();
+    expect(config.apiCloudFrontAliases).toEqual([]);
+    expect(config.apiGatewayCertificateArn).toBeUndefined();
+    expect(config.apiCloudFrontCertificateArn).toBeUndefined();
+    expect(Object.values(template.findResources("AWS::ApiGatewayV2::DomainName"))).toHaveLength(0);
+    expect(Object.values(template.findResources("AWS::CloudFront::Distribution"))).toHaveLength(0);
+  });
+
+  test("OpenAPI advertises the stage API host without changing production", () => {
+    const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");
+    expect(swagger).toContain("url: https://api.stage.aura-historia.com");
+    expect(swagger).toContain("url: https://api.aura-historia.com");
+    expect(swagger).not.toContain("api.dev.aura-historia.com");
   });
 
   test.each(["dev", "prod"] as const)("retains the %s custom domain, CloudFront and WAF while disabling shared API caching", (stage) => {
