@@ -16,7 +16,7 @@ R6 selects committed rows from `public.product_listing_events`, `product_listing
 | Router mapping | `CdcRouterEnabled` in compute | Default off; independent of the active-on-initialization SQS consumers. |
 | Router failure archive | `aura-historia-cdc-router-failures-<stage>` | Private, retained, 90-day S3 recovery input; it is not a worker DLQ. |
 
-Normal `Deploy (CD)` and `Initialize (CD)` must not call DMS start/stop/reset APIs, create/drop slots, or set a first-start LSN. Initial compute creation defaults `CdcRouterEnabled=false`; routine updates preserve its approved parameter value. The ten SQS consumers are created during Initialize only after migrations and FX succeed. Routine releases must not replace DMS, Kinesis, RDS, source queues, or the journal.
+Normal `Deploy (CD)` and `Initialize (CD)` must not call DMS start/stop/reset APIs, create/drop slots, or set a first-start LSN. Initial compute creation defaults `CdcRouterEnabled=false`; routine pushes and artifact-only manual Deploy preserve its approved parameter value. The ten active SQS consumers are created during Initialize only after migrations and FX succeed. Compute creation is not an inactive preview; pause old consumers and approve producer/provider handoff before Initialize. Routine releases must not replace DMS, Kinesis, RDS, source queues, or the journal.
 
 ## Preconditions and approval record
 

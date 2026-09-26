@@ -406,7 +406,6 @@ export interface InitializationLambdasProps {
 /** Private migration runtime. It exists before normal compute and has no event source. */
 export class InitializationLambdas extends Construct {
   readonly databaseMigration: lambda.Function;
-  readonly fxRateSyncVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: InitializationLambdasProps) {
     super(scope, id);
@@ -477,10 +476,6 @@ export class InitializationLambdas extends Construct {
       actions: ["secretsmanager:GetSecretValue"],
       resources: [props.postgres.secretArn],
     }));
-    this.fxRateSyncVersion = new lambda.Version(this, "FxRateSyncVersion", {
-      lambda: fxRateSync,
-      description: `fxrate-sync-${props.commitSha}`,
-    });
   }
 }
 

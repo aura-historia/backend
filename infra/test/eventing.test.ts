@@ -5,13 +5,23 @@ import { STAGES, type StageName } from "../src/config";
 
 type Resource = { Properties: Record<string, any> };
 
-function templates(stage: StageName) {
+function templates(stage: StageName, sha?: string) {
   const app = new cdk.App({ analyticsReporting: false });
   if (stage === "ephemeral") {
     return { compute: Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage })) };
   }
   const stacks = createApplicationStacks(app, { stage });
-  return { compute: Template.fromStack(stacks.compute), initialize: Template.fromStack(stacks.initialization!) };
+  if (sha) {
+    (stacks.initialization!.node.findChild("CommitSHA") as cdk.CfnParameter).default = sha;
+    (stacks.compute.node.findChild("CommitSHA") as cdk.CfnParameter).default = sha;
+  }
+  return {
+    compute: Template.fromStack(stacks.compute),
+    initialize: Template.fromStack(stacks.initialization!),
+    fxArn: stacks.compute.resolve(stacks.compute.formatArn({
+      service: "lambda", resource: "function", resourceName: `fxrate-lambda-${stage}`,
+    })),
+  };
 }
 
 function resources(template: Template, type: string): Resource[] {
@@ -59,8 +69,8 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(resources(compute, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
   });
 
-  test("schedules cleanup and the initialization FX version for real stages only", () => {
-    const { compute, initialize } = templates(stage);
+  test("schedules cleanup version and the unqualified initialization FX function for real stages only", () => {
+    const { compute, initialize, fxArn } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
     if (stage === "ephemeral") {
       expect(schedules).toHaveLength(0);
@@ -83,17 +93,69 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(fx?.Properties.Target.Input).toBe(
       '{"version":"0","id":"fxrate:<aws.scheduler.scheduled-time>","detail-type":"Scheduled Event","source":"aura-historia.scheduler","account":"000000000000","time":"<aws.scheduler.scheduled-time>","region":"eu-central-1","resources":["<aws.scheduler.schedule-arn>"],"detail":{}}',
     );
-    const importedVersion = fx?.Properties.Target.Arn;
-    expect(importedVersion).toEqual({ "Fn::ImportValue": expect.any(String) });
-    expect(Object.values(initialize!.toJSON().Outputs).some((output: any) =>
-      output.Export?.Name === importedVersion["Fn::ImportValue"] && JSON.stringify(output.Value).includes("FxRateSyncVersion"),
-    )).toBe(true);
+    expect(fx?.Properties.Target.Arn).toEqual(fxArn);
+    expect(JSON.stringify(fxArn)).toContain(`fxrate-lambda-${stage}`);
+    expect(JSON.stringify(fxArn)).not.toContain("Fn::ImportValue");
+    expect(JSON.stringify(initialize!.toJSON().Outputs ?? {})).not.toContain("FxRateSyncVersion");
+    initialize!.resourceCountIs("AWS::Lambda::Version", 0);
     const schedulerPolicy = resources(compute, "AWS::IAM::Policy").find((policy) =>
       JSON.stringify(policy.Properties).includes("lambda:InvokeFunction") && JSON.stringify(policy.Properties).includes("sqs:SendMessage"),
     );
     expect(JSON.stringify(schedulerPolicy?.Properties)).toContain("BackendCleanupVersion");
-    expect(JSON.stringify(schedulerPolicy?.Properties)).toContain(importedVersion["Fn::ImportValue"]);
+    expect(schedulerPolicy?.Properties.PolicyDocument.Statement).toEqual(expect.arrayContaining([
+      expect.objectContaining({ Action: "lambda:InvokeFunction", Resource: expect.arrayContaining([fxArn]) }),
+    ]));
+    expect(JSON.stringify(compute.toJSON())).not.toContain("FxRateSyncVersion");
     expect(JSON.stringify(compute.toJSON())).not.toContain(`/fxratesapi/${stage}/api-token`);
     expect(JSON.stringify(initialize!.toJSON())).toContain(`/fxratesapi/${stage}/api-token`);
+  });
+});
+
+
+describe.each(["dev", "prod"] as const)("%s FX deployment boundary", (stage) => {
+  test("has one initialization FX function, no FX version export/import, and a stable target across SHAs", () => {
+    const first = templates(stage, "first-sha");
+    const second = templates(stage, "second-sha");
+    const fxFunctions = [first.initialize!, first.compute].flatMap((template) =>
+      resources(template, "AWS::Lambda::Function").filter((resource) =>
+        resource.Properties.FunctionName === `fxrate-lambda-${stage}`,
+      ),
+    );
+    expect(fxFunctions).toHaveLength(1);
+    expect(JSON.stringify(fxFunctions[0].Properties.Code)).toContain("CommitSHA");
+    expect(first.initialize!.toJSON().Parameters.CommitSHA.Default).toBe("first-sha");
+    expect(second.initialize!.toJSON().Parameters.CommitSHA.Default).toBe("second-sha");
+    first.initialize!.resourceCountIs("AWS::Lambda::Version", 0);
+    expect(JSON.stringify(first.initialize!.toJSON().Outputs ?? {})).not.toContain("FxRateSync");
+
+    const fxTarget = (template: Template) => resources(template, "AWS::Scheduler::Schedule")
+      .find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)")?.Properties.Target.Arn;
+    expect(fxTarget(first.compute)).toEqual(first.fxArn);
+    expect(fxTarget(second.compute)).toEqual(first.fxArn);
+    expect(JSON.stringify(fxTarget(first.compute))).not.toMatch(/CommitSHA|Fn::ImportValue|FxRateSyncVersion/);
+    const fxInvokeResources = (template: Template) => resources(template, "AWS::IAM::Policy")
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .find((statement: any) => JSON.stringify(statement.Resource).includes(`fxrate-lambda-${stage}`))?.Resource;
+    expect(fxInvokeResources(first.compute)).toEqual(expect.arrayContaining([first.fxArn]));
+    expect(fxInvokeResources(second.compute)).toEqual(fxInvokeResources(first.compute));
+    expect(resources(first.compute, "AWS::Lambda::Version").length).toBeGreaterThan(0);
+    expect(JSON.stringify(first.compute.toJSON())).not.toContain("FxRateSyncVersion");
+    expect(JSON.stringify(second.compute.toJSON())).not.toContain("FxRateSyncVersion");
+  });
+
+  test("orders compute after initialization without a reverse dependency cycle", () => {
+    const app = new cdk.App({ analyticsReporting: false });
+    const stacks = createApplicationStacks(app, { stage });
+    expect(stacks.compute.dependencies).toContain(stacks.initialization);
+    const predecessors = new Set<cdk.Stack>();
+    const visit = (stack: cdk.Stack): void => {
+      if (predecessors.has(stack)) return;
+      predecessors.add(stack);
+      stack.dependencies.forEach(visit);
+    };
+    visit(stacks.initialization!);
+    expect(predecessors.has(stacks.compute)).toBe(false);
+    Template.fromStack(stacks.compute);
+    Template.fromStack(stacks.initialization!);
   });
 });
