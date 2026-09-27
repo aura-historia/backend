@@ -86,7 +86,7 @@ members = [
     "src/user-service",
     "src/user-cognito",
     "src/user-postgres",
-    "src/user-zoho",
+    "src/user-loops",
     "src/notification-core",
     "src/notification-email",
     "src/notification-email-aws",
@@ -251,7 +251,7 @@ user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
 user-cognito = { path = "src/user-cognito" }
 user-postgres = { path = "src/user-postgres" }
-user-zoho = { path = "src/user-zoho" }
+user-loops = { path = "src/user-loops" }
 serde-email = "4.0.0"
 handlebars = "6.4.1"
 once_cell = "1.21.4"

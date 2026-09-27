@@ -630,12 +630,9 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
       STRIPE_API_KEY: "sk_test_ephemeral",
       VERTEX_AI_LOCATION: "eu",
       VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
-      ZOHO_ACCOUNTS_URL: "https://accounts.zoho.test",
-      ZOHO_CAMPAIGNS_URL: "https://campaigns.zoho.test",
-      ZOHO_CLIENT_ID: "ephemeral-client-id",
-      ZOHO_CLIENT_SECRET: "ephemeral-client-secret",
-      ZOHO_LIST_KEY: "ephemeral-list-key",
-      ZOHO_REFRESH_TOKEN: "ephemeral-refresh-token",
+      LOOPS_API_BASE_URL: "https://loops.test/api",
+      LOOPS_API_KEY: "ephemeral-loops-api-key",
+      LOOPS_NEWSLETTER_LIST_ID: "ephemeral-newsletter-list",
     };
   }
 
@@ -649,12 +646,9 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
-    ZOHO_ACCOUNTS_URL: ssmValue(`/zoho/${config.stage}/accounts-url`),
-    ZOHO_CAMPAIGNS_URL: ssmValue(`/zoho/${config.stage}/campaigns-url`),
-    ZOHO_CLIENT_ID: ssmValue(`/zoho/${config.stage}/client-id`),
-    ZOHO_CLIENT_SECRET: ssmValue(`/zoho/${config.stage}/client-secret`),
-    ZOHO_LIST_KEY: ssmValue(`/zoho/${config.stage}/list-key`),
-    ZOHO_REFRESH_TOKEN: ssmValue(`/zoho/${config.stage}/refresh-token`),
+    LOOPS_API_BASE_URL: "https://app.loops.so/api",
+    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
+    LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
   };
 }
 

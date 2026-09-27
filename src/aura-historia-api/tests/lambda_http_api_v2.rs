@@ -472,23 +472,13 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
             "price_ultimate_yearly",
         ),
-        (aura_historia_api::ZOHO_LIST_KEY_ENV, "lambda-test-list"),
-        (aura_historia_api::ZOHO_CLIENT_ID_ENV, "lambda-test-client"),
         (
-            aura_historia_api::ZOHO_CLIENT_SECRET_ENV,
-            "lambda-test-secret",
+            aura_historia_api::LOOPS_API_KEY_ENV,
+            "lambda-test-loops-key",
         ),
         (
-            aura_historia_api::ZOHO_REFRESH_TOKEN_ENV,
-            "lambda-test-refresh",
-        ),
-        (
-            aura_historia_api::ZOHO_ACCOUNTS_URL_ENV,
-            "https://accounts.example.test",
-        ),
-        (
-            aura_historia_api::ZOHO_CAMPAIGNS_URL_ENV,
-            "https://campaigns.example.test",
+            aura_historia_api::LOOPS_NEWSLETTER_LIST_ID_ENV,
+            "lambda-test-newsletter-list",
         ),
     ]);
     ApiConfig::from_getter(|name| values.get(name).map(ToString::to_string))

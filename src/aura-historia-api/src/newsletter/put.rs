@@ -83,8 +83,15 @@ mod tests {
     use axum::routing::put;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
+    use user_loops::{LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter};
+    use user_service::ports::{NewsletterProfileReadError, NewsletterProfileReader};
     use user_service::use_cases::commands::upsert_newsletter_subscription::{
-        UpsertNewsletterSubscriptionError, UpsertNewsletterSubscriptionUseCase,
+        UpsertNewsletterSubscriptionError, UpsertNewsletterSubscriptionHandler,
+        UpsertNewsletterSubscriptionUseCase,
+    };
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{body_json, method, path},
     };
 
     #[derive(Clone)]
@@ -109,6 +116,20 @@ mod tests {
                 AuthenticationResult::Principal(principal) => Ok(principal.clone()),
                 AuthenticationResult::InvalidCredentials => Err(AuthError::InvalidCredentials),
             }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct EmptyNewsletterProfileReader;
+
+    #[async_trait::async_trait]
+    impl NewsletterProfileReader for EmptyNewsletterProfileReader {
+        async fn find_by_user_id(
+            &self,
+            _user_id: user_core::user_id::UserId,
+        ) -> Result<Option<user_service::ports::NewsletterProfile>, NewsletterProfileReadError>
+        {
+            Ok(None)
         }
     }
 
@@ -168,6 +189,34 @@ mod tests {
             .with_state(NewsletterState::new(
                 Arc::new(use_case),
                 Arc::new(authenticator),
+            ))
+    }
+
+    fn loops_router(server: &MockServer, auth_result: AuthenticationResult) -> axum::Router {
+        let config = LoopsNewsletterConfig::new(
+            "test-loops-api-key".into(),
+            "test-newsletter-list".into(),
+            format!("{}/api", server.uri()),
+        )
+        .unwrap_or_else(|error| panic!("invalid test Loops config: {error}"));
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_else(|error| panic!("failed to build test Loops client: {error}"));
+        let writer = LoopsNewsletterSubscriptionWriter::new(config, client);
+        let handler =
+            UpsertNewsletterSubscriptionHandler::new(EmptyNewsletterProfileReader, writer);
+
+        axum::Router::new()
+            .route(
+                "/api/v1/newsletter-subscriptions",
+                put(put_newsletter_subscription),
+            )
+            .with_state(NewsletterState::new(
+                Arc::new(handler),
+                Arc::new(StaticAuthenticator {
+                    result: auth_result,
+                }),
             ))
     }
 
@@ -259,13 +308,22 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_subscription_errors_to_stable_http_statuses() {
-        for (result, status) in [
-            (UseCaseResult::InvalidEmail, StatusCode::BAD_REQUEST),
+        for (result, status, error_code) in [
+            (
+                UseCaseResult::InvalidEmail,
+                StatusCode::BAD_REQUEST,
+                "INVALID_EMAIL",
+            ),
             (
                 UseCaseResult::TemporarilyUnavailable,
                 StatusCode::SERVICE_UNAVAILABLE,
+                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
             ),
-            (UseCaseResult::Internal, StatusCode::INTERNAL_SERVER_ERROR),
+            (
+                UseCaseResult::Internal,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "NEWSLETTER_INTERNAL_ERROR",
+            ),
         ] {
             let use_case = RecordingUseCase::default();
             *lock(&use_case.result) = Some(result);
@@ -280,6 +338,114 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to call router: {error}"));
 
             assert_eq!(status, response.status());
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap_or_else(|error| panic!("failed to read error response: {error}"));
+            let problem: serde_json::Value = serde_json::from_slice(&body)
+                .unwrap_or_else(|error| panic!("invalid problem response: {error}"));
+            assert_eq!(error_code, problem["error"]);
         }
+    }
+
+    #[tokio::test]
+    async fn should_compose_real_loops_writer_through_http_endpoint_and_return_empty_204() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .and(body_json(serde_json::json!({
+                "email": "ada@example.com",
+                "source": "aura-historia-newsletter-api",
+                "mailingLists": {"test-newsletter-list": true}
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "id": "test-contact-id"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let app = loops_router(
+            &server,
+            AuthenticationResult::Principal(TransportPrincipal::Anonymous),
+        );
+
+        let response = app
+            .oneshot(request(r#"{"email":"ada@example.com"}"#))
+            .await
+            .unwrap_or_else(|error| panic!("failed to call composed router: {error}"));
+        assert_eq!(StatusCode::NO_CONTENT, response.status());
+        let response_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read response: {error}"));
+        assert!(response_body.is_empty());
+        assert_eq!(
+            1,
+            server
+                .received_requests()
+                .await
+                .unwrap_or_else(|| panic!("request recording unavailable"))
+                .len()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_map_loops_service_unavailable_to_public_503() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let app = loops_router(
+            &server,
+            AuthenticationResult::Principal(TransportPrincipal::Anonymous),
+        );
+
+        let response = app
+            .oneshot(request(r#"{"email":"ada@example.com"}"#))
+            .await
+            .unwrap_or_else(|error| panic!("failed to call composed router: {error}"));
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read error response: {error}"));
+        let problem: serde_json::Value = serde_json::from_slice(&body)
+            .unwrap_or_else(|error| panic!("invalid problem response: {error}"));
+        assert_eq!("NEWSLETTER_TEMPORARILY_UNAVAILABLE", problem["error"]);
+    }
+
+    #[tokio::test]
+    async fn should_not_call_loops_for_invalid_authentication_or_request_body() {
+        let server = MockServer::start().await;
+        let app = loops_router(&server, AuthenticationResult::InvalidCredentials);
+
+        let invalid_auth = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/newsletter-subscriptions")
+                    .header(header::AUTHORIZATION, "Bearer invalid")
+                    .body(Body::from(r#"{"email":"ada@example.com"}"#))
+                    .unwrap_or_else(|error| panic!("failed to create request: {error}")),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+        assert_eq!(StatusCode::UNAUTHORIZED, invalid_auth.status());
+
+        let invalid_body = app
+            .oneshot(request("not-json"))
+            .await
+            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+        assert_eq!(StatusCode::BAD_REQUEST, invalid_body.status());
+
+        assert!(
+            server
+                .received_requests()
+                .await
+                .unwrap_or_else(|| panic!("request recording unavailable"))
+                .is_empty()
+        );
     }
 }

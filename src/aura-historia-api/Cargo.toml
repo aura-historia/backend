@@ -77,7 +77,7 @@ user-core = { workspace = true }
 user-cognito = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
-user-zoho = { workspace = true }
+user-loops = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 watchlist-core = { workspace = true }
 watchlist-postgres = { workspace = true }
@@ -96,3 +96,4 @@ serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["aura-historia-api", "opensearch", "postgres"] }
 time = { workspace = true }
+wiremock = "0.6"

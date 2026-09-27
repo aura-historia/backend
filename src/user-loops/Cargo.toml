@@ -1,5 +1,5 @@
 [package]
-name = "user-zoho"
+name = "user-loops"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,13 +10,12 @@ reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+url = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
 
 [dev-dependencies]
 localization = { workspace = true }
 money = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
-url = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time"] }
 wiremock = "0.6"
