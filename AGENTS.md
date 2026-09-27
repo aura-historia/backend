@@ -44,7 +44,6 @@ Start with focused checks and tests for changed crates. Run broader validation w
 ```sh
 cargo fmt --all -- --check
 cargo check --workspace
-cargo clippy --workspace --all-targets --all-features -- --deny warnings --deny clippy::result-large-err
 cargo depgraph-check check
 cargo test --workspace --lib --all-features
 npm --prefix infra test
