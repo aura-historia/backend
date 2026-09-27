@@ -1,6 +1,7 @@
+use reqwest::header::HeaderValue;
 use std::{
     net::{IpAddr, SocketAddr},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use url::Url;
 
@@ -22,6 +23,54 @@ pub enum PublicTargetError {
     UnsafeResolution,
     #[error("redirect target is invalid")]
     InvalidRedirect,
+}
+
+/// Stable, scraper-specific health categories persisted on crawler domains.
+///
+/// This is intentionally separate from [`NetworkErrorKind`]: the latter also
+/// contains URL-scoped and security outcomes which must not open a domain
+/// circuit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DomainFailureKind {
+    Timeout,
+    Connect,
+    DnsTimeout,
+    DnsResolution,
+    Http408,
+    Http429,
+    Http503,
+    Http504,
+    Http5xxBurst,
+}
+
+impl DomainFailureKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "TIMEOUT",
+            Self::Connect => "CONNECT",
+            Self::DnsTimeout => "DNS_TIMEOUT",
+            Self::DnsResolution => "DNS_RESOLUTION",
+            Self::Http408 => "HTTP_408",
+            Self::Http429 => "HTTP_429",
+            Self::Http503 => "HTTP_503",
+            Self::Http504 => "HTTP_504",
+            Self::Http5xxBurst => "HTTP_5XX_BURST",
+        }
+    }
+
+    pub const fn base_cooldown(self) -> Duration {
+        match self {
+            Self::Http429 => Duration::from_secs(10 * 60),
+            Self::Http503 => Duration::from_secs(15 * 60),
+            Self::Http504 => Duration::from_secs(10 * 60),
+            Self::Http408
+            | Self::Timeout
+            | Self::Connect
+            | Self::DnsTimeout
+            | Self::Http5xxBurst => Duration::from_secs(5 * 60),
+            Self::DnsResolution => Duration::from_secs(10 * 60),
+        }
+    }
 }
 
 /// A DNS target resolved immediately before an outbound request.
@@ -150,6 +199,8 @@ pub enum NetworkErrorKind {
     UnsafeTarget,
     Timeout,
     Connect,
+    DnsTimeout,
+    DnsResolution,
     Request,
     HttpStatus(u16),
     Unknown,
@@ -160,6 +211,67 @@ pub enum NetworkAction {
     Retry,
     TerminalRemoved,
     Terminal,
+}
+
+pub fn domain_failure_kind(kind: NetworkErrorKind) -> Option<DomainFailureKind> {
+    match kind {
+        NetworkErrorKind::Timeout => Some(DomainFailureKind::Timeout),
+        NetworkErrorKind::Connect => Some(DomainFailureKind::Connect),
+        NetworkErrorKind::DnsTimeout => Some(DomainFailureKind::DnsTimeout),
+        NetworkErrorKind::DnsResolution => Some(DomainFailureKind::DnsResolution),
+        NetworkErrorKind::HttpStatus(408) => Some(DomainFailureKind::Http408),
+        NetworkErrorKind::HttpStatus(429) => Some(DomainFailureKind::Http429),
+        NetworkErrorKind::HttpStatus(503) => Some(DomainFailureKind::Http503),
+        NetworkErrorKind::HttpStatus(504) => Some(DomainFailureKind::Http504),
+        _ => None,
+    }
+}
+
+pub fn network_error_kind_for_public_target_error(error: PublicTargetError) -> NetworkErrorKind {
+    match error {
+        PublicTargetError::ResolutionTimeout => NetworkErrorKind::DnsTimeout,
+        PublicTargetError::Resolution => NetworkErrorKind::DnsResolution,
+        PublicTargetError::InvalidUrl
+        | PublicTargetError::IpLiteral
+        | PublicTargetError::InvalidPort
+        | PublicTargetError::UnsafeResolution
+        | PublicTargetError::InvalidRedirect => NetworkErrorKind::UnsafeTarget,
+    }
+}
+
+pub fn parse_retry_after(value: &HeaderValue) -> Option<Duration> {
+    parse_retry_after_at(value, SystemTime::now())
+}
+
+pub fn parse_retry_after_at(value: &HeaderValue, now: SystemTime) -> Option<Duration> {
+    const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+    let value = value.to_str().ok()?.trim();
+
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER));
+    }
+
+    let date = httpdate::parse_http_date(value).ok()?;
+    let delay = date.duration_since(now).ok()?;
+    Some(delay.min(MAX_RETRY_AFTER))
+}
+
+pub fn domain_cooldown(
+    kind: DomainFailureKind,
+    failure_streak: u32,
+    retry_after: Option<Duration>,
+) -> Duration {
+    const MAX_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+    let exponent = failure_streak.saturating_sub(1).min(31);
+    let multiplier = 1_u32 << exponent;
+    let local = kind
+        .base_cooldown()
+        .saturating_mul(multiplier)
+        .min(MAX_COOLDOWN);
+    retry_after
+        .unwrap_or(Duration::ZERO)
+        .max(local)
+        .min(MAX_COOLDOWN)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -210,6 +322,8 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::HttpStatus(504)
         | NetworkErrorKind::Timeout
         | NetworkErrorKind::Connect
+        | NetworkErrorKind::DnsTimeout
+        | NetworkErrorKind::DnsResolution
         | NetworkErrorKind::Request => NetworkAction::Retry,
         NetworkErrorKind::UnsafeTarget
         | NetworkErrorKind::HttpStatus(_)
@@ -230,6 +344,8 @@ pub fn should_adapt_domain_delay(kind: NetworkErrorKind) -> bool {
             | NetworkErrorKind::HttpStatus(504)
             | NetworkErrorKind::Timeout
             | NetworkErrorKind::Connect
+            | NetworkErrorKind::DnsTimeout
+            | NetworkErrorKind::DnsResolution
     )
 }
 
@@ -254,7 +370,7 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
         NetworkErrorKind::UnsafeTarget => Duration::from_secs(24 * 60 * 60),
-        NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10),
+        NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10 * 60),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)
         }
@@ -265,6 +381,8 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         | NetworkErrorKind::HttpStatus(502)
         | NetworkErrorKind::Timeout
         | NetworkErrorKind::Connect
+        | NetworkErrorKind::DnsTimeout
+        | NetworkErrorKind::DnsResolution
         | NetworkErrorKind::Request
         | NetworkErrorKind::Unknown => Duration::from_secs(5 * 60),
         NetworkErrorKind::HttpStatus(_) => Duration::from_secs(24 * 60 * 60),
@@ -344,6 +462,71 @@ mod tests {
         assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(429)));
         assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(503)));
         assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(504)));
+    }
+
+    #[test]
+    fn should_classify_dns_failures_without_treating_server_errors_as_domain_failures() {
+        assert_eq!(
+            network_error_kind_for_public_target_error(PublicTargetError::ResolutionTimeout),
+            NetworkErrorKind::DnsTimeout
+        );
+        assert_eq!(
+            network_error_kind_for_public_target_error(PublicTargetError::Resolution),
+            NetworkErrorKind::DnsResolution
+        );
+        assert_eq!(domain_failure_kind(NetworkErrorKind::HttpStatus(500)), None);
+        assert_eq!(
+            domain_failure_kind(NetworkErrorKind::HttpStatus(503)),
+            Some(DomainFailureKind::Http503)
+        );
+    }
+
+    #[test]
+    fn should_parse_delta_and_http_date_retry_after_values() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        assert_eq!(
+            parse_retry_after_at(&HeaderValue::from_static("120"), now),
+            Some(Duration::from_secs(120))
+        );
+
+        let future = httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + Duration::from_secs(1_090));
+        let future = HeaderValue::from_str(&future).expect("valid HTTP date header");
+        assert_eq!(
+            parse_retry_after_at(&future, now),
+            Some(Duration::from_secs(90))
+        );
+        assert_eq!(
+            parse_retry_after_at(&HeaderValue::from_static("not-a-delay"), now),
+            None
+        );
+    }
+
+    #[test]
+    fn should_exponentially_backoff_domain_circuits_and_cap_retry_after() {
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::Http429, 1, None),
+            Duration::from_secs(10 * 60)
+        );
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::Http429, 2, None),
+            Duration::from_secs(20 * 60)
+        );
+        assert_eq!(
+            domain_cooldown(
+                DomainFailureKind::Http429,
+                1,
+                Some(Duration::from_secs(2 * 60 * 60))
+            ),
+            Duration::from_secs(2 * 60 * 60)
+        );
+        assert_eq!(
+            domain_cooldown(
+                DomainFailureKind::Http429,
+                99,
+                Some(Duration::from_secs(48 * 60 * 60))
+            ),
+            Duration::from_secs(24 * 60 * 60)
+        );
     }
 
     #[test]

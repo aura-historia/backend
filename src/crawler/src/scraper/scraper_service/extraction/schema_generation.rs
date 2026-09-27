@@ -5,6 +5,7 @@ use crate::review::schema_evaluation::{
 use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::domain::product::ScrapeMode;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
@@ -46,6 +47,7 @@ impl ScraperServiceImpl {
         url: &Url,
         product_url_pattern: Option<&str>,
         html: &str,
+        mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
         debug!("Obtaining product CSS selector schemas");
         if let Some(existing) = self
@@ -67,8 +69,8 @@ impl ScraperServiceImpl {
             }
 
             let seed_pages = self
-                .collect_schema_seed_pages(listing_source_id, url, product_url_pattern, html)
-                .await;
+                .collect_schema_seed_pages(listing_source_id, url, product_url_pattern, html, mode)
+                .await?;
             if self.review_repository.is_some() {
                 if let Some(existing) = self
                     .schema_service

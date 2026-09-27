@@ -3,7 +3,10 @@ use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
+use crate::scraper::scraper_service::domain::product::{
+    DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapedProduct, ScraperService,
+    domain_health_for_scraper_error,
+};
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
@@ -121,6 +124,16 @@ impl ScraperServiceImpl {
     }
 }
 
+tokio::task_local! {
+    static SCRAPE_MODE: ScrapeMode;
+}
+
+pub(crate) fn current_scrape_mode() -> ScrapeMode {
+    SCRAPE_MODE
+        .try_with(|mode| *mode)
+        .unwrap_or(ScrapeMode::Normal)
+}
+
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, last_scraped_hash, last_scraped_schema_fingerprint, expected_last_captured_raw_input_sha256), fields(listing_source_id = %listing_source_id, url = %url))]
@@ -176,6 +189,11 @@ impl ScraperService for ScraperServiceImpl {
             Err(FetchError::Network {
                 kind: NetworkErrorKind::HttpStatus(404 | 410),
                 details,
+            })
+            | Err(FetchError::NetworkWithMetadata {
+                kind: NetworkErrorKind::HttpStatus(404 | 410),
+                details,
+                ..
             }) => {
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
@@ -186,6 +204,20 @@ impl ScraperService for ScraperServiceImpl {
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind,
+                    details,
+                });
+            }
+            Err(FetchError::NetworkWithMetadata {
+                kind,
+                status,
+                retry_after,
+                details,
+            }) => {
+                return Err(ScraperError::HttpErrorWithMetadata {
+                    url: url.clone(),
+                    kind,
+                    status_code: status,
+                    retry_after,
                     details,
                 });
             }
@@ -224,7 +256,13 @@ impl ScraperService for ScraperServiceImpl {
         // Obtain the effective schema set before the fast path. Selector or raw-attribute
         // changes must force extraction even when the page fragment is byte-identical.
         let listing_source_product_schemas = self
-            .obtain_schemas(listing_source_id, url, product_url_pattern, &html)
+            .obtain_schemas(
+                listing_source_id,
+                url,
+                product_url_pattern,
+                &html,
+                current_scrape_mode(),
+            )
             .await?;
         let stored_schema_fingerprint = fingerprint_scraper_context(
             &listing_source_product_schemas.product_schemas,
@@ -325,5 +363,41 @@ impl ScraperService for ScraperServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
         }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn scrape_with_mode(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        product_url_pattern: Option<&str>,
+        last_scraped_hash: Option<&str>,
+        last_scraped_schema_fingerprint: Option<&str>,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        fallback_currency: Option<money::Currency>,
+        mode: ScrapeMode,
+    ) -> ScrapeOutcome {
+        let result = SCRAPE_MODE
+            .scope(
+                mode,
+                self.scrape_with_fallback_currency(
+                    listing_source_id,
+                    url,
+                    product_url_pattern,
+                    last_scraped_hash,
+                    last_scraped_schema_fingerprint,
+                    expected_last_captured_raw_input_sha256,
+                    fallback_currency,
+                ),
+            )
+            .await;
+        let domain_health = match &result {
+            Ok(_) => DomainFetchHealth::Responsive,
+            Err(error) => domain_health_for_scraper_error(error),
+        };
+        ScrapeOutcome {
+            result,
+            domain_health,
+        }
     }
 }

@@ -14,6 +14,14 @@ A scraper request receives up to three inline attempts. Backoff begins at one se
 
 After final failure, the crawler records retry metadata and a future `next_retry_at`; it does not hold a worker open. HTTP 404 and 410 are terminal removals. Unsafe targets and other terminal outcomes are not retried immediately. Retryable transport and selected HTTP failures receive a durable cooldown.
 
+## Scraper domain circuits
+
+URL retry state and domain health are separate. Timeouts, connection failures, transient DNS failures, HTTP 408, 429, 503, and 504 open the `listing_source_domains` scraper circuit. The domain stores a monotonic `scrape_failure_streak`, stable `last_scrape_error_kind`/status diagnostics, and `next_scrape_at`; cooldowns grow exponentially from the failure kind's base and are capped at 24 hours. A `Retry-After` value is retained as structured fetch metadata and can extend the durable domain cooldown without blocking the worker.
+
+An open domain is excluded before candidate selection. When its cooldown expires, selection returns exactly one probe URL and the scraper uses `DomainProbe` mode, which suppresses schema-seed fan-out. A responsive HTTP result, including 404/410 or a schema/normalization result after a successful fetch, closes the circuit on the next fenced state update. A probe transport failure increments the same streak and reopens the circuit. A single 500/502 remains URL-scoped; three distinct 500/502 failures in one domain batch open the short `HTTP_5XX_BURST` circuit and stop the remaining URLs for that domain.
+
+Opening and closing updates are fenced by the candidate's domain snapshot. The URL failure and circuit opening share one transaction, so stale URL work cannot change current domain health. A local `DomainLock` coordinates scraper and spider work for the same crawler domain, while unrelated domains continue independently.
+
 Spider failures use the same durable principle. Repeated failures of the same kind increase the domain cooldown. Access blocks, JavaScript-only sites, and similar durable blockers receive longer cooling than transient connection, rate-limit, or server failures.
 
 ## Scrape completion fences

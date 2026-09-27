@@ -1,5 +1,8 @@
+use crate::network::policy::domain_failure_kind;
+use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::domain::product::ScrapeMode;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
-use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use tracing::warn;
@@ -13,8 +16,8 @@ pub(crate) struct SchemaSeedPage {
 impl ScraperServiceImpl {
     /// Fetches up to `schema_seed_pages` HTML pages to use as context when
     /// generating a schema for the first time.  Always includes `primary_html`
-    /// as the first entry.  Best-effort: any fetch failure is logged and
-    /// skipped.
+    /// as the first entry. URL-scoped failures are best effort, but
+    /// circuit-opening transport failures are returned immediately.
     #[tracing::instrument(
         skip(self, primary_html),
         fields(listing_source_id = %listing_source_id, url = %url, schema_seed_pages = self.schema_seed_pages)
@@ -25,13 +28,14 @@ impl ScraperServiceImpl {
         url: &Url,
         product_url_pattern: Option<&str>,
         primary_html: &str,
-    ) -> Vec<SchemaSeedPage> {
+        mode: ScrapeMode,
+    ) -> Result<Vec<SchemaSeedPage>, ScraperError> {
         let mut pages = vec![SchemaSeedPage {
             url: url.clone(),
             raw_html: primary_html.to_string(),
         }];
-        if self.schema_seed_pages <= 1 {
-            return pages;
+        if self.schema_seed_pages <= 1 || mode == ScrapeMode::DomainProbe {
+            return Ok(pages);
         }
 
         let extra_limit = (self.schema_seed_pages - 1) as i64;
@@ -46,7 +50,7 @@ impl ScraperServiceImpl {
                     error = ?err,
                     "Failed to load random schema-seed URLs; falling back to current page only"
                 );
-                return pages;
+                return Ok(pages);
             }
         };
 
@@ -84,6 +88,9 @@ impl ScraperServiceImpl {
                     });
                 }
                 Err(err) => {
+                    if let Some(error) = domain_failure_error(&sample_url, err.clone()) {
+                        return Err(error);
+                    }
                     warn!(
                         error = ?err,
                         sample_url = %sample_url,
@@ -93,6 +100,31 @@ impl ScraperServiceImpl {
             }
         }
 
-        pages
+        Ok(pages)
+    }
+}
+
+fn domain_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
+    match error {
+        FetchError::Network { kind, details } if domain_failure_kind(kind).is_some() => {
+            Some(ScraperError::HttpError {
+                url: url.clone(),
+                kind,
+                details,
+            })
+        }
+        FetchError::NetworkWithMetadata {
+            kind,
+            status,
+            retry_after,
+            details,
+        } if domain_failure_kind(kind).is_some() => Some(ScraperError::HttpErrorWithMetadata {
+            url: url.clone(),
+            kind,
+            status_code: status,
+            retry_after,
+            details,
+        }),
+        _ => None,
     }
 }

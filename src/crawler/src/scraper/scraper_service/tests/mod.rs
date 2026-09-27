@@ -72,11 +72,11 @@ pub(super) fn sample_html() -> String {
 }
 
 pub(super) fn fetch_result(html: String) -> FetchedHtml {
-    FetchedHtml::new(html, product_url())
+    FetchedHtml::new(html, product_url(), reqwest::StatusCode::OK)
 }
 
 pub(super) fn fetch_result_for(html: String, final_url: Url) -> FetchedHtml {
-    FetchedHtml::new(html, final_url)
+    FetchedHtml::new(html, final_url, reqwest::StatusCode::OK)
 }
 
 pub(super) fn minimal_schema() -> ProductCssSelectorSchema {

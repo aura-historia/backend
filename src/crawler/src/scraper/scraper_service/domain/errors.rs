@@ -16,6 +16,15 @@ pub enum ScraperError {
         details: String,
     },
 
+    #[error("HTTP error while fetching '{url}': {details}")]
+    HttpErrorWithMetadata {
+        url: Url,
+        kind: NetworkErrorKind,
+        status_code: Option<u16>,
+        retry_after: Option<std::time::Duration>,
+        details: String,
+    },
+
     #[error("ProductListing URL removed while fetching '{url}': {details}")]
     ProductListingRemoved { url: Url, details: String },
 

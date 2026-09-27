@@ -1,12 +1,16 @@
 use super::job::CrawlerCronJob;
-use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
+use crate::network::policy::{
+    NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
+};
 use crate::scraper::candidate_service::{ScraperCandidate, ScraperCandidateService};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
-use crate::scraper::scraper_service::{ScraperError, ScraperService};
+use crate::scraper::scraper_service::{
+    DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScraperError, ScraperService,
+};
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
 };
-use crate::spider::advisory_lock::{ListingSourceLock, LocalLockManager, UrlLock};
+use crate::spider::advisory_lock::{DomainLock, ListingSourceLock, LocalLockManager, UrlLock};
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
 use listing_source_core::ListingSourceId;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -25,6 +29,7 @@ struct ScrapeDomainContext {
     command_tx: mpsc::Sender<QueuedRawCapture>,
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     schema_pending_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
+    domain_id: crate::CrawlerDomainId,
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -78,10 +83,13 @@ struct QueuedRawCapture {
     enqueued_at: tokio::time::Instant,
 }
 
+#[derive(Default)]
 struct ScrapeCandidateOutcome {
     capture: Option<RawCaptureRequest>,
     errored: bool,
     skipped: bool,
+    domain_health: DomainFetchHealth,
+    server_failure_status: Option<u16>,
 }
 
 struct ScrapeDomainOutcome {
@@ -91,7 +99,7 @@ struct ScrapeDomainOutcome {
 }
 
 struct ScheduledScrapeDomainOutcome {
-    domain: String,
+    domain_id: crate::CrawlerDomainId,
     outcome: ScrapeDomainOutcome,
 }
 
@@ -338,6 +346,7 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
                 capture: None,
                 errored: true,
                 skipped: false,
+                ..Default::default()
             };
         }
     };
@@ -349,6 +358,7 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
                 capture: None,
                 errored: true,
                 skipped: false,
+                ..Default::default()
             };
         }
     };
@@ -360,6 +370,7 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
                 capture: None,
                 errored: true,
                 skipped: false,
+                ..Default::default()
             };
         }
     };
@@ -390,12 +401,22 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
         }),
         errored: false,
         skipped: false,
+        ..Default::default()
     }
 }
 
+#[cfg(test)]
 async fn scrape_candidate(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
+) -> ScrapeCandidateOutcome {
+    scrape_candidate_with_options(candidate, ctx, false).await
+}
+
+async fn scrape_candidate_with_options(
+    candidate: ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    open_5xx_burst: bool,
 ) -> ScrapeCandidateOutcome {
     // Skip URLs from listing_sources with already-exhausted budgets
     {
@@ -406,6 +427,7 @@ async fn scrape_candidate(
                 capture: None,
                 errored: false,
                 skipped: true,
+                ..Default::default()
             };
         }
     }
@@ -418,6 +440,7 @@ async fn scrape_candidate(
                 capture: None,
                 errored: false,
                 skipped: true,
+                ..Default::default()
             };
         }
     }
@@ -428,6 +451,7 @@ async fn scrape_candidate(
             capture: None,
             errored: false,
             skipped: true,
+            ..Default::default()
         };
     };
 
@@ -439,38 +463,71 @@ async fn scrape_candidate(
             capture: None,
             errored: false,
             skipped: true,
+            ..Default::default()
         };
     };
 
-    let scrape_result = match candidate.fallback_currency {
-        Some(fallback_currency) => {
-            ctx.scraper
-                .scrape_with_fallback_currency(
-                    &candidate.listing_source_id,
-                    &candidate.url,
-                    candidate.url_pattern.as_deref(),
-                    candidate.last_scraped_hash.as_deref(),
-                    candidate.last_scraped_schema_fingerprint.as_deref(),
-                    candidate.last_captured_raw_input_sha256.as_deref(),
-                    Some(fallback_currency),
+    let scrape_outcome = if candidate.is_domain_probe {
+        ctx.scraper
+            .scrape_with_mode(
+                &candidate.listing_source_id,
+                &candidate.url,
+                candidate.url_pattern.as_deref(),
+                candidate.last_scraped_hash.as_deref(),
+                candidate.last_scraped_schema_fingerprint.as_deref(),
+                candidate.last_captured_raw_input_sha256.as_deref(),
+                candidate.fallback_currency,
+                ScrapeMode::DomainProbe,
+            )
+            .await
+    } else {
+        // Preserve the established normal scrape call path. Probe mode is the
+        // only mode that requires the extended outcome contract.
+        let result = match candidate.fallback_currency {
+            Some(fallback_currency) => {
+                ctx.scraper
+                    .scrape_with_fallback_currency(
+                        &candidate.listing_source_id,
+                        &candidate.url,
+                        candidate.url_pattern.as_deref(),
+                        candidate.last_scraped_hash.as_deref(),
+                        candidate.last_scraped_schema_fingerprint.as_deref(),
+                        candidate.last_captured_raw_input_sha256.as_deref(),
+                        Some(fallback_currency),
+                    )
+                    .await
+            }
+            None => {
+                ctx.scraper
+                    .scrape(
+                        &candidate.listing_source_id,
+                        &candidate.url,
+                        candidate.url_pattern.as_deref(),
+                        candidate.last_scraped_hash.as_deref(),
+                        candidate.last_scraped_schema_fingerprint.as_deref(),
+                        candidate.last_captured_raw_input_sha256.as_deref(),
+                    )
+                    .await
+            }
+        };
+        let domain_health = match &result {
+            Ok(_) => DomainFetchHealth::Responsive,
+            Err(error) => {
+                crate::scraper::scraper_service::domain::product::domain_health_for_scraper_error(
+                    error,
                 )
-                .await
-        }
-        None => {
-            ctx.scraper
-                .scrape(
-                    &candidate.listing_source_id,
-                    &candidate.url,
-                    candidate.url_pattern.as_deref(),
-                    candidate.last_scraped_hash.as_deref(),
-                    candidate.last_scraped_schema_fingerprint.as_deref(),
-                    candidate.last_captured_raw_input_sha256.as_deref(),
-                )
-                .await
+            }
+        };
+        ScrapeOutcome {
+            result,
+            domain_health,
         }
     };
+    let mut domain_health = scrape_outcome.domain_health;
+    let scrape_result = scrape_outcome.result;
+    let mut server_failure_status = None;
 
-    match scrape_result {
+    let mut outcome = match scrape_result {
         Ok(Some(scraped)) => {
             let disposition = match &scraped.availability {
                 product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
@@ -493,6 +550,7 @@ async fn scrape_candidate(
                         capture: None,
                         errored: true,
                         skipped: false,
+                        ..Default::default()
                     };
                 }
             };
@@ -529,6 +587,7 @@ async fn scrape_candidate(
                         capture: None,
                         errored: false,
                         skipped: false,
+                        ..Default::default()
                     },
                     Ok(CrawlerUrlWriteOutcome::NoopStale) => {
                         debug!(
@@ -541,6 +600,7 @@ async fn scrape_candidate(
                             capture: None,
                             errored: false,
                             skipped: true,
+                            ..Default::default()
                         }
                     }
                     Err(error) => {
@@ -549,6 +609,7 @@ async fn scrape_candidate(
                             capture: None,
                             errored: true,
                             skipped: false,
+                            ..Default::default()
                         }
                     }
                 }
@@ -566,6 +627,7 @@ async fn scrape_candidate(
                     }),
                     errored: false,
                     skipped: false,
+                    ..Default::default()
                 }
             }
         }
@@ -573,6 +635,7 @@ async fn scrape_candidate(
             capture: None,
             errored: false,
             skipped: true,
+            ..Default::default()
         },
         Err(ScraperError::ProductListingRemoved { .. }) => handle_verified_removal(&candidate),
         Err(e) => {
@@ -580,27 +643,83 @@ async fn scrape_candidate(
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
             let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
 
-            if let ScraperError::HttpError { kind, .. } = &e {
-                let cooldown = durable_retry_cooldown_for(*kind);
+            let http_failure = match &e {
+                ScraperError::HttpError { kind, .. } => Some((*kind, None, None)),
+                ScraperError::HttpErrorWithMetadata {
+                    kind,
+                    status_code,
+                    retry_after,
+                    ..
+                } => Some((*kind, *status_code, *retry_after)),
+                _ => None,
+            };
+
+            if let Some((kind, metadata_status_code, retry_after)) = http_failure {
+                let cooldown = durable_retry_cooldown_for(kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
                     + time::Duration::seconds(cooldown.as_secs() as i64);
                 let status_code = match kind {
-                    NetworkErrorKind::HttpStatus(code) => Some(*code as i32),
+                    NetworkErrorKind::HttpStatus(code) => Some(code as i32),
                     _ => None,
+                }
+                .or(metadata_status_code.map(i32::from));
+                server_failure_status = status_code
+                    .filter(|status| matches!(*status, 500 | 502))
+                    .and_then(|status| u16::try_from(status).ok());
+                let domain_kind = domain_failure_kind(kind).or_else(|| {
+                    (open_5xx_burst && server_failure_status.is_some())
+                        .then_some(crate::network::policy::DomainFailureKind::Http5xxBurst)
+                });
+                let (mark_result, domain_next_scrape_at) = if let Some(domain_kind) = domain_kind {
+                    let failure_streak = candidate
+                        .domain_health
+                        .scrape_failure_streak
+                        .max(0)
+                        .saturating_add(1) as u32;
+                    let domain_cooldown = domain_cooldown(domain_kind, failure_streak, retry_after);
+                    let next_scrape_at = time::OffsetDateTime::now_utc()
+                        + time::Duration::seconds(domain_cooldown.as_secs() as i64);
+                    if domain_kind == crate::network::policy::DomainFailureKind::Http5xxBurst {
+                        domain_health = DomainFetchHealth::CircuitFailure {
+                            kind: domain_kind,
+                            status_code: status_code.and_then(|value| u16::try_from(value).ok()),
+                            retry_after,
+                        };
+                    }
+                    let result = ctx
+                        .scraper_candidates
+                        .mark_fetch_failure_and_open_domain_circuit(
+                            &candidate.listing_source_id,
+                            &candidate.url,
+                            domain_kind.as_str(),
+                            &error_message,
+                            status_code,
+                            next_retry_at,
+                            candidate.last_captured_raw_input_sha256.as_deref(),
+                            &candidate.domain_id,
+                            &candidate.domain_health,
+                            domain_kind,
+                            status_code,
+                            next_scrape_at,
+                        )
+                        .await;
+                    (result, Some((domain_kind, next_scrape_at)))
+                } else {
+                    let result = ctx
+                        .scraper_candidates
+                        .mark_fetch_failure(
+                            &candidate.listing_source_id,
+                            &candidate.url,
+                            &format!("{kind:?}"),
+                            &error_message,
+                            status_code,
+                            next_retry_at,
+                            candidate.last_captured_raw_input_sha256.as_deref(),
+                        )
+                        .await;
+                    (result, None)
                 };
-                match ctx
-                    .scraper_candidates
-                    .mark_fetch_failure(
-                        &candidate.listing_source_id,
-                        &candidate.url,
-                        &format!("{kind:?}"),
-                        &error_message,
-                        status_code,
-                        next_retry_at,
-                        candidate.last_captured_raw_input_sha256.as_deref(),
-                    )
-                    .await
-                {
+                match mark_result {
                     Ok(CrawlerUrlWriteOutcome::Applied) => {}
                     Ok(CrawlerUrlWriteOutcome::NoopStale) => {
                         debug!(
@@ -616,6 +735,20 @@ async fn scrape_candidate(
                             "Failed to persist scraper fetch failure metadata"
                         );
                     }
+                }
+
+                if let Some((domain_kind, next_scrape_at)) = domain_next_scrape_at {
+                    warn!(
+                        event = "crawler.scraper.domain_circuit_opened",
+                        domain_id = %candidate.domain_id,
+                        listing_source_domain = %candidate.listing_source_domain,
+                        error_kind = %domain_kind.as_str(),
+                        status_code = ?status_code,
+                        failure_streak = candidate.domain_health.scrape_failure_streak.saturating_add(1),
+                        retry_after_seconds = retry_after.map(|value| value.as_secs()),
+                        next_scrape_at = %next_scrape_at,
+                        "Opened scraper domain circuit"
+                    );
                 }
             } else {
                 // Non-HTTP errors: schema failures, normalization errors, etc.
@@ -731,9 +864,13 @@ async fn scrape_candidate(
                 capture: None,
                 errored: true,
                 skipped: false,
+                ..Default::default()
             }
         }
-    }
+    };
+    outcome.domain_health = domain_health;
+    outcome.server_failure_status = server_failure_status;
+    outcome
 }
 
 /// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
@@ -744,7 +881,7 @@ async fn scrape_candidate(
 /// even though the caller currently only invokes this helper for non-HTTP errors.
 fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
-        ScraperError::HttpError { .. } => "HttpError",
+        ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata { .. } => "HttpError",
         ScraperError::ProductListingRemoved { .. } => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
@@ -776,8 +913,19 @@ async fn scrape_domain_candidates(
         skipped: 0,
     };
 
+    let Some(_domain_lock) = DomainLock::try_acquire(&ctx.lock_manager, ctx.domain_id) else {
+        warn!(domain_id = %ctx.domain_id, "Skipping scraper domain - lock held by another worker");
+        outcome.skipped = candidates.len();
+        return outcome;
+    };
+
+    let mut server_failure_urls = HashSet::new();
     for candidate in candidates {
-        let candidate_outcome = scrape_candidate(candidate, &ctx).await;
+        let candidate_url = candidate.url.clone();
+        let open_5xx_burst = server_failure_urls.len() >= 2;
+        let expected_domain_health = candidate.domain_health.clone();
+        let candidate_outcome =
+            scrape_candidate_with_options(candidate, &ctx, open_5xx_burst).await;
 
         if candidate_outcome.errored {
             outcome.failed += 1;
@@ -803,6 +951,60 @@ async fn scrape_domain_candidates(
             outcome.skipped += 1;
         } else {
             outcome.succeeded += 1;
+        }
+
+        match candidate_outcome.server_failure_status {
+            Some(500 | 502) => {
+                server_failure_urls.insert(candidate_url);
+            }
+            Some(_) => {}
+            None if matches!(
+                &candidate_outcome.domain_health,
+                DomainFetchHealth::Responsive
+            ) =>
+            {
+                server_failure_urls.clear();
+            }
+            None => {}
+        }
+
+        if matches!(
+            candidate_outcome.domain_health,
+            DomainFetchHealth::Responsive
+        ) && expected_domain_health.scrape_failure_streak > 0
+        {
+            match ctx
+                .scraper_candidates
+                .close_domain_circuit(&ctx.domain_id, &expected_domain_health)
+                .await
+            {
+                Ok(CrawlerUrlWriteOutcome::Applied) => info!(
+                    event = "crawler.scraper.domain_circuit_closed",
+                    domain_id = %ctx.domain_id,
+                    previous_failure_streak = expected_domain_health.scrape_failure_streak,
+                    last_error_kind = ?expected_domain_health.last_scrape_error_kind,
+                    "Closed scraper domain circuit after responsive fetch"
+                ),
+                Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+                    event = "crawler.scraper.domain_circuit_close_stale",
+                    domain_id = %ctx.domain_id,
+                    "Skipped stale scraper domain circuit close"
+                ),
+                Err(error) => warn!(
+                    error = %error,
+                    domain_id = %ctx.domain_id,
+                    "Failed to close scraper domain circuit"
+                ),
+            }
+        }
+
+        if let DomainFetchHealth::CircuitFailure { .. } = &candidate_outcome.domain_health {
+            warn!(
+                event = "crawler.scraper.domain_circuit_batch_stopped",
+                domain_id = %ctx.domain_id,
+                "Stopping remaining scraper URLs after a domain circuit failure"
+            );
+            break;
         }
     }
 
@@ -899,9 +1101,10 @@ impl CrawlerCronJob {
             push_max_concurrency = self.config.effective_push_max_concurrency(),
             "Scraper scheduler pass starting"
         );
-        let mut seen_domains: HashSet<String> = HashSet::new();
-        let mut active_domains: HashSet<String> = HashSet::new();
-        let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
+        let mut seen_domains: HashSet<crate::CrawlerDomainId> = HashSet::new();
+        let mut active_domains: HashSet<crate::CrawlerDomainId> = HashSet::new();
+        let mut pending_domains: VecDeque<(crate::CrawlerDomainId, Vec<ScraperCandidate>)> =
+            VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, command_rx) =
             mpsc::channel::<QueuedRawCapture>(self.config.effective_push_queue_capacity());
@@ -940,7 +1143,7 @@ impl CrawlerCronJob {
                         Arc::clone(&budget_exhausted_listing_sources);
                     let schema_pending_listing_sources =
                         Arc::clone(&schema_pending_listing_sources);
-                    let span = tracing::info_span!("scrape_domain", domain = %domain);
+                    let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain.clone());
                     total += candidates.len();
 
@@ -953,10 +1156,11 @@ impl CrawlerCronJob {
                                 command_tx: domain_tx,
                                 budget_exhausted_listing_sources,
                                 schema_pending_listing_sources,
+                                domain_id: domain,
                             };
 
                             ScheduledScrapeDomainOutcome {
-                                domain,
+                                domain_id: domain,
                                 outcome: scrape_domain_candidates(candidates, ctx).await,
                             }
                         }
@@ -969,13 +1173,11 @@ impl CrawlerCronJob {
                     break;
                 }
 
-                let mut excluded_domains: HashSet<String> = seen_domains.clone();
-                excluded_domains.extend(active_domains.iter().cloned());
-                excluded_domains.extend(
-                    pending_domains
-                        .iter()
-                        .map(|(domain, _)| domain.to_ascii_lowercase()),
-                );
+                let mut excluded_domains: HashSet<String> =
+                    seen_domains.iter().map(ToString::to_string).collect();
+                excluded_domains.extend(active_domains.iter().map(ToString::to_string));
+                excluded_domains
+                    .extend(pending_domains.iter().map(|(domain, _)| domain.to_string()));
                 let excluded_domains: Vec<String> = excluded_domains.into_iter().collect();
                 let candidates = match self
                     .scraper_candidates
@@ -1011,11 +1213,12 @@ impl CrawlerCronJob {
                     started = true;
                 }
 
-                let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
+                let mut by_domain: HashMap<crate::CrawlerDomainId, Vec<ScraperCandidate>> =
+                    HashMap::new();
                 for candidate in candidates {
                     unique_listing_source_ids.insert(candidate.listing_source_id);
-                    let domain = candidate.url.host_str().unwrap_or("").to_ascii_lowercase();
-                    seen_domains.insert(domain.clone());
+                    let domain = candidate.domain_id;
+                    seen_domains.insert(domain);
                     by_domain.entry(domain).or_default().push(candidate);
                 }
 
@@ -1034,7 +1237,7 @@ impl CrawlerCronJob {
 
             match join_set.join_next().await {
                 Some(Ok(scheduled)) => {
-                    active_domains.remove(&scheduled.domain);
+                    active_domains.remove(&scheduled.domain_id);
                     succeeded += scheduled.outcome.succeeded;
                     failed += scheduled.outcome.failed;
                     skipped += scheduled.outcome.skipped;
@@ -1500,11 +1703,7 @@ mod tests {
                 Ok(candidates
                     .into_iter()
                     .filter(|candidate| {
-                        candidate
-                            .url
-                            .host_str()
-                            .map(|domain| !excluded_domains.contains(&domain.to_ascii_lowercase()))
-                            .unwrap_or(false)
+                        !excluded_domains.contains(&candidate.domain_id.to_string())
                     })
                     .collect())
             })
@@ -1543,6 +1742,7 @@ mod tests {
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            domain_id: crate::CrawlerDomainId::new(),
         }
     }
 
@@ -1618,10 +1818,21 @@ mod tests {
                 )]
             }));
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
             .withf(
-                move |_, _, _, _, status_code, next_retry_at, expected_raw_input_sha256| {
+                move |_,
+                      _,
+                      _,
+                      _,
+                      status_code,
+                      next_retry_at,
+                      expected_raw_input_sha256,
+                      _,
+                      expected_domain_health,
+                      domain_error_kind,
+                      domain_status_code,
+                      _| {
                     let expected_cooldown = durable_retry_cooldown_for(NetworkErrorKind::Timeout);
                     let expected_from =
                         before + time::Duration::seconds(expected_cooldown.as_secs() as i64);
@@ -1632,9 +1843,12 @@ mod tests {
                         && *next_retry_at >= expected_from
                         && *next_retry_at <= expected_until
                         && expected_raw_input_sha256.is_none()
+                        && expected_domain_health.scrape_failure_streak == 0
+                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Timeout
+                        && domain_status_code.is_none()
                 },
             )
-            .returning(|_, _, _, _, _, _, _| {
+            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
                 Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
             });
 
@@ -1857,23 +2071,32 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
             .withf(
                 move |received_listing_source_id,
                       received_url,
-                      _,
+                      error_kind,
                       _,
                       status_code,
                       _,
-                      expected_raw_input_sha256| {
+                      expected_raw_input_sha256,
+                      _,
+                      expected_domain_health,
+                      domain_error_kind,
+                      domain_status_code,
+                      _| {
                     *received_listing_source_id == listing_source_id
                         && received_url == &url
+                        && error_kind == "HTTP_429"
                         && *status_code == Some(429)
                         && expected_raw_input_sha256.is_none()
+                        && expected_domain_health.scrape_failure_streak == 0
+                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Http429
+                        && *domain_status_code == Some(429)
                 },
             )
-            .returning(|_, _, _, _, _, _, _| {
+            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
                 Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
             });
 
@@ -1968,6 +2191,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_open_a_circuit_after_three_distinct_server_failures() {
+        let urls = (1..=4)
+            .map(|index| {
+                url::Url::parse(&format!("https://same-domain.com/product/{index}"))
+                    .expect("test URL")
+            })
+            .collect::<Vec<_>>();
+        let candidate_urls = urls.clone();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(move || {
+                candidate_urls
+                    .iter()
+                    .cloned()
+                    .map(|url| scraper_candidate("ListingSource", url))
+                    .collect()
+            }));
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .times(2)
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_domain_circuit()
+            .once()
+            .withf(
+                |_, _, error_kind, _, status_code, _, _, _, _, domain_error_kind, _, _| {
+                    error_kind == "HTTP_5XX_BURST"
+                        && *status_code == Some(500)
+                        && *domain_error_kind
+                            == crate::network::policy::DomainFailureKind::Http5xxBurst
+                },
+            )
+            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+
+        let scrape_count = Arc::new(AtomicUsize::new(0));
+        let scrape_count_for_mock = Arc::clone(&scrape_count);
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(3)
+            .returning(move |_, url, _, _, _, _| {
+                let url = url.clone();
+                scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::HttpStatus(500),
+                        details: "internal server error".to_owned(),
+                    })
+                })
+            });
+
+        let job = scraper_job(
+            CrawlerCronConfig {
+                scraper_domain_delay: Duration::ZERO,
+                ..CrawlerCronConfig::default()
+            },
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+
+        assert_eq!(scrape_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
     async fn should_continue_same_domain_after_retryable_network_failure() {
         let first_url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let second_url = url::Url::parse("https://same-domain.com/product/2").unwrap();
@@ -1986,16 +2282,30 @@ mod tests {
                 ]
             }));
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
             .withf(
-                move |_, received_url, _, _, status_code, _, expected_raw_input_sha256| {
+                move |_,
+                      received_url,
+                      error_kind,
+                      _,
+                      status_code,
+                      _,
+                      expected_raw_input_sha256,
+                      _,
+                      _,
+                      domain_error_kind,
+                      domain_status_code,
+                      _| {
                     received_url == &first_url
+                        && error_kind == "HTTP_429"
                         && *status_code == Some(429)
                         && expected_raw_input_sha256.is_none()
+                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Http429
+                        && *domain_status_code == Some(429)
                 },
             )
-            .returning(|_, _, _, _, _, _, _| {
+            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
                 Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
             });
 
@@ -2004,7 +2314,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .times(2)
+            .times(1)
             .returning(move |_, url, _, _, _, _| {
                 let url = url.clone();
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
@@ -2031,7 +2341,7 @@ mod tests {
         );
 
         job.run_scraper_once().await;
-        assert_eq!(scrape_count.load(Ordering::SeqCst), 2);
+        assert_eq!(scrape_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -2286,6 +2596,15 @@ mod tests {
         let slow_url_for_candidates = slow_url.clone();
         let fast_url_for_candidates = fast_url.clone();
         let refill_url_for_candidates = refill_url.clone();
+        let slow_domain_id = scraper_candidate("Slow", slow_url.clone())
+            .domain_id
+            .to_string();
+        let fast_domain_id = scraper_candidate("Fast", fast_url.clone())
+            .domain_id
+            .to_string();
+        let refill_domain_id = scraper_candidate("Refill", refill_url.clone())
+            .domain_id
+            .to_string();
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -2294,15 +2613,18 @@ mod tests {
                 let slow_url = slow_url_for_candidates.clone();
                 let fast_url = fast_url_for_candidates.clone();
                 let refill_url = refill_url_for_candidates.clone();
+                let slow_domain_id = slow_domain_id.clone();
+                let fast_domain_id = fast_domain_id.clone();
+                let refill_domain_id = refill_domain_id.clone();
                 Box::pin(async move {
                     if excluded_domains.is_empty() {
                         Ok(vec![
                             scraper_candidate("Slow", slow_url),
                             scraper_candidate("Fast", fast_url),
                         ])
-                    } else if excluded_domains.contains(&"domain-a.com".to_string())
-                        && excluded_domains.contains(&"domain-b.com".to_string())
-                        && !excluded_domains.contains(&"domain-c.com".to_string())
+                    } else if excluded_domains.contains(&slow_domain_id)
+                        && excluded_domains.contains(&fast_domain_id)
+                        && !excluded_domains.contains(&refill_domain_id)
                     {
                         Ok(vec![scraper_candidate("Refill", refill_url)])
                     } else {

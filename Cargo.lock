@@ -1960,6 +1960,7 @@ dependencies = [
  "futures",
  "fxrate-postgres",
  "google-cloud-auth",
+ "httpdate",
  "imagesize",
  "indexmap 2.14.2",
  "kuchiki",
