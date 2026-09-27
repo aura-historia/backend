@@ -78,6 +78,16 @@ describe("deployment workflow boundary", () => {
     expect(deployWorkflow).not.toContain("dms_initial_cdc_start_position:");
   });
 
+  test("bootstraps the account-wide DMS VPC role before deploying the data stack, without changing manual rollback", () => {
+    const bootstrap = deployWorkflow.indexOf("bash infra/scripts/ensure-dms-vpc-role.sh");
+    const network = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-network"');
+    const data = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-data"');
+    expect(bootstrap).toBeGreaterThanOrEqual(0);
+    expect(network).toBeGreaterThan(bootstrap);
+    expect(data).toBeGreaterThan(network);
+    expect(deployWorkflow).toMatch(/name: Ensure account-level DMS VPC role\n\s+if: github.event_name == 'push'/);
+  });
+
   test("manual rollback reuses deployed templates without invoking migrations", () => {
     const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
     expect(rollback).toBeDefined();

@@ -277,7 +277,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis plus shared Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Neither deployment workflow starts, resets, creates, or recreates a task, slot, or checkpoint. The AWS account must already provide the global `dms-vpc-role` with `service-role/AmazonDMSVPCManagementRole`; this per-stage CDK app does not create that collision-prone account role. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Neither deployment workflow starts, resets, creates, or recreates a task, slot, or checkpoint. Before push deployment of the data stack, the protected Deploy workflow bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
 
 From `infra/`, the existing configuration checks are:
 
@@ -443,7 +443,12 @@ Review the account, region, potential replacements, Lambda version/alias targets
 queues, CDC router value, secret/endpoint references and DMS capture parameters.
 Configure existing OIDC `CI_DEPLOY_ROLE_ARN` for uploads and the protected
 Deploy/Initialize jobs, with required stage-bucket upload/read, CloudFormation/CDK
-and exact stage migration/FX invoke permissions. The protected jobs select
+and exact stage migration/FX invoke permissions. Push Deploy additionally needs
+`iam:GetRole`, `iam:ListAttachedRolePolicies`, `iam:CreateRole` and
+`iam:AttachRolePolicy` for the account-level `dms-vpc-role` (attach only
+`arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole`). A permission
+failure or unexpected role trust blocks data deployment; an operator must repair
+trust out of band rather than let CI overwrite it. The protected jobs select
 `aws-dev` or `aws-prod` with required reviewers; configure the existing GitHub
 secrets and variables so the push upload jobs can assume the role as well. Scope
 OIDC trust and IAM to approved repository/workflows/stages, including staging-bucket
@@ -467,7 +472,7 @@ update. Then Initialize with that SHA performs migration/initial-FX checks and
 completes creation. A stack in `UPDATE_ROLLBACK_COMPLETE` can be retried; in-progress,
 `UPDATE_ROLLBACK_FAILED` or failed `ROLLBACK_COMPLETE` stacks require operator-owned
 CloudFormation recovery (failed creation cannot simply be updated). No workflow
-automatically deletes retained resources. There is no SSM readiness flag or separate
+automatically deletes retained resources. After a failed initial data-stack creation, inspect retained resources and have an operator delete the `ROLLBACK_COMPLETE` stack before retrying Deploy; CDK cannot update it. There is no SSM readiness flag or separate
 worker/partner/maintenance activation flag. Migration
 failure does not undo work already in flight on the previous release; only approve
 schema changes compatible with running work and retained schema-2 jobs. Before
