@@ -7771,7 +7771,14 @@ paths:
     put:
       summary: Upsert newsletter subscription
       description:
-        "Subscribes an email address to the Aura Historia newsletter mailing list.
+        "Upserts an email address and its supplied profile fields in the Aura Historia Loops newsletter list.
+
+
+        Existing Loops opt-out state is preserved; this operation does not clear an opt-out or guarantee that the
+
+        contact is eligible to receive marketing messages. A successful response means the provider accepted the
+
+        subscription write only; it does not mean a message or campaign was sent or delivered.
 
 
         The endpoint accepts anonymous requests.
@@ -7811,7 +7818,7 @@ paths:
                   currency: EUR
       responses:
         "204":
-          description: Newsletter subscription synced successfully
+          description: Newsletter subscription write accepted by the provider. This does not confirm message or campaign delivery; existing Loops opt-out state is preserved.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header

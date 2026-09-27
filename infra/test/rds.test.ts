@@ -178,7 +178,16 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       expect(environment.POSTGRES_SECRET_ARN).toEqual(runtimeSecretArn);
       expect(environment.POSTGRES_USERNAME).toBeUndefined();
       expect(environment.POSTGRES_PASSWORD).toBeUndefined();
-      expect(JSON.stringify(environment)).not.toContain("resolve:secretsmanager:");
+      const secretsManagerEnvironmentKeys = Object.entries(environment)
+        .filter(([, value]) => typeof value === "string" && value.includes("resolve:secretsmanager:"))
+        .map(([name]) => name);
+      const isApiFunction = functionResource.Properties.FunctionName === `aura-historia-api-${stage}`;
+      expect(secretsManagerEnvironmentKeys).toEqual(isApiFunction ? ["LOOPS_API_KEY"] : []);
+      if (isApiFunction) {
+        expect(String(environment.LOOPS_API_KEY)).toMatch(
+          new RegExp(`^\\{\\{resolve:secretsmanager:/loops/${stage}/api-key:SecretString(?::[^}]*)*\\}\\}$`),
+        );
+      }
       expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
       expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
       expect(functionResource.Properties.Layers).toHaveLength(1);

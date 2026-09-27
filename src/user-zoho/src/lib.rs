@@ -1,3 +1,0 @@
-mod newsletter_subscription_writer;
-
-pub use newsletter_subscription_writer::ZohoNewsletterSubscriptionWriter;
