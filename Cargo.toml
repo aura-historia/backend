@@ -132,8 +132,6 @@ aws-smithy-types = "1.6.1"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
-cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
-
 credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
 localization = { path = "src/localization" }

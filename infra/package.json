@@ -3,7 +3,8 @@
     "version": "0.1.0",
     "private": true,
     "bin": {
-        "aura-historia-infra": "bin/app.ts"
+        "aura-historia-infra": "bin/app.ts",
+        "aura-historia-artifacts": "bin/artifacts.ts"
     },
     "scripts": {
         "build": "tsc --noEmit",

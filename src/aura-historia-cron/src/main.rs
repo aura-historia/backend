@@ -1,17 +1,36 @@
-use aura_historia_cron::scheduled_job::{
-    ActiveExecutionTracker, CronJobExecutionError, CronJobExecutionOutcome, ScheduledJobRunner,
-};
-use aura_historia_cron::wiring::{WiringError, build_from_env};
-use aura_historia_cron::{
-    CRON_ENABLED_JOBS_ENV, CronRuntimeConfig, JobRegistration, run_until_shutdown,
-};
+mod execution;
+mod google_adc;
+mod wiring;
+
+use execution::{ExecutionError, STARTUP_LIMIT};
 use platform_observability::{LogLevel, LoggingConfig, init};
-use std::sync::Arc;
+use std::time::Instant;
+use tokio::signal::unix::{SignalKind, signal};
 
-const SEARCH_FILTER_PERIODIC_MATCH_JOB: &str = "search-filter-periodic-match";
+fn accept_arguments(
+    args: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<(), &'static str> {
+    if args.into_iter().next().is_some() {
+        Err("aura-historia-cron accepts no arguments")
+    } else {
+        Ok(())
+    }
+}
 
-#[tokio::main]
-async fn main() -> Result<(), MainError> {
+fn main() -> Result<(), &'static str> {
+    accept_arguments(std::env::args_os().skip(1))?;
+    // Tokio's default panic hook includes the payload; do not print provider or credential data.
+    std::panic::set_hook(Box::new(|_| eprintln!("periodic matching task panicked")));
+    google_adc::materialize_google_application_credentials_from_env()
+        .map_err(|_| "failed to prepare Google application credentials")?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "failed to start async runtime")?;
+    runtime.block_on(async_main())
+}
+
+async fn async_main() -> Result<(), &'static str> {
     init(LoggingConfig::new(
         std::env::var("LOG_LEVEL")
             .ok()
@@ -19,132 +38,58 @@ async fn main() -> Result<(), MainError> {
             .and_then(LogLevel::parse)
             .unwrap_or_default(),
     ));
-    let run_once = parse_run_once()?;
-    let config = CronRuntimeConfig::from_env(&[SEARCH_FILTER_PERIODIC_MATCH_JOB])?;
-    let (job, schedule, max_run_duration) = build_from_env().await?;
-    if run_once {
-        let runner = ScheduledJobRunner::new(
-            job,
-            Arc::new(ActiveExecutionTracker::new()),
-            schedule.clone(),
-            Some(max_run_duration),
-        );
-        return run_once_result(runner.execute_once().await);
-    }
-    if !config
-        .enabled_jobs()
-        .iter()
-        .any(|name| name == SEARCH_FILTER_PERIODIC_MATCH_JOB)
-    {
-        return Err(MainError::NoJobsWired {
-            env: CRON_ENABLED_JOBS_ENV,
-        });
-    }
-    run_until_shutdown(
-        config,
-        vec![JobRegistration {
-            name: SEARCH_FILTER_PERIODIC_MATCH_JOB,
-            schedule,
-            max_run_duration: Some(max_run_duration),
-            job,
-        }],
-        shutdown_signal(),
-    )
-    .await?;
-    Ok(())
-}
-fn parse_run_once() -> Result<bool, MainError> {
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if args.is_empty() {
-        return Ok(false);
-    }
-    if args == ["--run-once", SEARCH_FILTER_PERIODIC_MATCH_JOB] {
-        return Ok(true);
-    }
-    Err(MainError::InvalidArguments)
-}
-fn run_once_result(outcome: CronJobExecutionOutcome) -> Result<(), MainError> {
-    match outcome {
-        CronJobExecutionOutcome::Succeeded | CronJobExecutionOutcome::SkippedLocalOverlap => Ok(()),
-        CronJobExecutionOutcome::Failed(error) => Err(MainError::Job(error)),
-        CronJobExecutionOutcome::Panicked => Err(MainError::JobPanicked),
-        CronJobExecutionOutcome::TimedOut => Err(MainError::JobTimedOut),
-        CronJobExecutionOutcome::SkippedShutdown => Err(MainError::JobSkippedShutdown),
-    }
-}
-
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut terminate) => {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = terminate.recv() => {}
-                }
-            }
-            Err(error) => {
-                tracing::error!(error = %error, "cron.shutdown.sigterm_setup_failed");
-                let _ = tokio::signal::ctrl_c().await;
-            }
+    // Register both signal handlers before async provider startup. A setup failure is fatal.
+    let mut term = signal(SignalKind::terminate()).map_err(|_| "failed to register SIGTERM")?;
+    let mut interrupt = signal(SignalKind::interrupt()).map_err(|_| "failed to register SIGINT")?;
+    let shutdown = async move {
+        tokio::select! {
+            _ = term.recv() => {},
+            _ = interrupt.recv() => {},
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
-    }
-}
-#[derive(Debug, thiserror::Error)]
-enum MainError {
-    #[error(transparent)]
-    Config(#[from] aura_historia_cron::CronRuntimeConfigError),
-    #[error(transparent)]
-    Wiring(#[from] WiringError),
-    #[error(transparent)]
-    Runtime(#[from] aura_historia_cron::CronRuntimeError),
-    #[error("no cron jobs are wired; configure {env}")]
-    NoJobsWired { env: &'static str },
-    #[error("usage: aura-historia-cron [--run-once search-filter-periodic-match]")]
-    InvalidArguments,
-    #[error("cron job failed")]
-    Job(#[source] CronJobExecutionError),
-    #[error("cron job panicked")]
-    JobPanicked,
-    #[error("cron job timed out")]
-    JobTimedOut,
-    #[error("cron job was skipped during shutdown")]
-    JobSkippedShutdown,
+    };
+    let stage = std::env::var("STAGE").unwrap_or_default();
+    let stage = match stage.as_str() {
+        "dev" => "dev",
+        "prod" => "prod",
+        "local" => "local",
+        "test" => "test",
+        "ephemeral" => "ephemeral",
+        _ => "unknown",
+    };
+    let revision = std::env::var("AURA_HISTORIA_SOURCE_REVISION").unwrap_or_default();
+    let revision = if revision.len() == 40 && revision.bytes().all(|b| b.is_ascii_hexdigit()) {
+        revision.as_str()
+    } else {
+        "unknown"
+    };
+    let started = Instant::now();
+    tracing::info!(job = "search-filter-periodic-match", stage, revision,
+        started_at = %time::OffsetDateTime::now_utc(), "cron.matching.started");
+    let result = execution::run(wiring::build_from_env(), shutdown, STARTUP_LIMIT).await;
+    let outcome = match &result {
+        Ok(()) => "success",
+        Err(ExecutionError::StartupFailed) => "startup_failed",
+        Err(ExecutionError::StartupTimedOut) => "startup_timed_out",
+        Err(ExecutionError::Cancelled) => "cancelled",
+        Err(ExecutionError::MatchingTimedOut) => "matching_timed_out",
+        Err(ExecutionError::FailedFilters(_)) => "incomplete",
+        Err(ExecutionError::ServiceFailed) => "service_failed",
+        Err(ExecutionError::Panicked) => "panicked",
+        Err(ExecutionError::TaskFailed) => "task_failed",
+    };
+    tracing::info!(job = "search-filter-periodic-match", stage, revision, outcome,
+        finished_at = %time::OffsetDateTime::now_utc(), duration_ms = started.elapsed().as_millis(),
+        "cron.matching.terminal");
+    result.map_err(|_| "periodic matching did not complete successfully")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("test job failure")]
-    struct TestJobError;
-
     #[test]
-    fn should_succeed_for_success_or_local_overlap_run_once_outcomes() {
-        assert!(run_once_result(CronJobExecutionOutcome::Succeeded).is_ok());
-        assert!(run_once_result(CronJobExecutionOutcome::SkippedLocalOverlap).is_ok());
-    }
-
-    #[test]
-    fn should_fail_for_terminal_run_once_failure_outcomes() {
-        assert!(matches!(
-            run_once_result(CronJobExecutionOutcome::Failed(
-                CronJobExecutionError::from_source(TestJobError)
-            )),
-            Err(MainError::Job(_))
-        ));
-        assert!(matches!(
-            run_once_result(CronJobExecutionOutcome::Panicked),
-            Err(MainError::JobPanicked)
-        ));
-        assert!(matches!(
-            run_once_result(CronJobExecutionOutcome::TimedOut),
-            Err(MainError::JobTimedOut)
-        ));
+    fn rejects_any_arguments_without_accessing_providers() {
+        assert!(accept_arguments(std::iter::empty()).is_ok());
+        assert!(accept_arguments(["--run-once".into()]).is_err());
+        assert!(accept_arguments(["search-filter-periodic-match".into()]).is_err());
     }
 }

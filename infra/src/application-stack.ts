@@ -22,6 +22,9 @@ import {
   Lambdas,
 } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
+import { PeriodicMatcher } from "./constructs/periodic-matcher";
+import { periodicMatcherNames } from "./periodic-matcher-config";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
@@ -249,6 +252,7 @@ export class ApplicationComputeStack extends cdk.Stack {
   readonly lambdas: Lambdas;
   readonly identity: Identity;
   readonly eventing: Eventing;
+  readonly periodicMatcher?: PeriodicMatcher;
 
   constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
     super(scope, id, stackProps(props));
@@ -307,6 +311,24 @@ export class ApplicationComputeStack extends cdk.Stack {
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
+
+    if (!config.isEphemeral) {
+      if (!props.network) throw new Error("Periodic matcher requires the application network.");
+      const imageDigest = new cdk.CfnParameter(this, "PeriodicMatcherImageDigest", {
+        type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
+        description: "Verified immutable ECR image manifest digest for this release.",
+      });
+      const enabled = new cdk.CfnParameter(this, "PeriodicMatcherEnabled", {
+        type: "String", allowedValues: ["true", "false"], default: "false",
+      });
+      const activation = new cdk.CfnCondition(this, "PeriodicMatcherActivation", {
+        expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
+      });
+      this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
+        config, network: props.network, postgres: props.storage.postgres,
+        imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
+      });
+    }
 
     computeOutputs(this, {
       identity: this.identity,
@@ -472,6 +494,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       api: props.api.api,
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
+      periodicMatcherDeliveryDlq: sqs.Queue.fromQueueArn(this, "PeriodicMatcherDeliveryDlqImport", this.formatArn({ service: "sqs", resource: periodicMatcherNames(stageName).dlq })),
       maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
         this,
         "MaintenanceSchedulerDeadLetterQueueAlarmImport",

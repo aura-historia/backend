@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-axum = { workspace = true }
-chrono = { workspace = true }
-cron_tab = { workspace = true }
+
 fxrate-postgres = { workspace = true }
 google-cloud-auth = { workspace = true }
+libc = { workspace = true }
+serde_json = { workspace = true }
 large-language-model = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
@@ -22,5 +22,5 @@ thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
 tracing = { workspace = true }

@@ -8,6 +8,7 @@ import * as sns from "aws-cdk-lib/aws-sns";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
+import { matcherTaskEventPattern, PERIODIC_MATCHER_CONTAINER, periodicMatcherNames } from "../periodic-matcher-config";
 import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
@@ -20,6 +21,7 @@ export interface ObservabilityProps {
   readonly functions: LambdaCatalog;
   readonly workerQueues: WorkerQueueCatalog;
   readonly maintenanceSchedulerDeadLetterQueue: sqs.IQueue;
+  readonly periodicMatcherDeliveryDlq: sqs.IQueue;
 }
 
 export class Observability extends Construct {
@@ -51,6 +53,34 @@ export class Observability extends Construct {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(alarmAction);
+
+    new cloudwatch.Alarm(this, "PeriodicMatcherDeliveryDlqAlarm", {
+      alarmName: `${props.stageName}-periodic-matcher-delivery-dlq-visible`,
+      metric: props.periodicMatcherDeliveryDlq.metricApproximateNumberOfMessagesVisible({ statistic: "Maximum", period: cdk.Duration.minutes(5) }),
+      threshold: 1, evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
+    const names = periodicMatcherNames(props.config.stage);
+    const stack = cdk.Stack.of(this);
+    const clusterArn = stack.formatArn({ service: "ecs", resource: "cluster", resourceName: names.cluster, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
+    const familyPrefix = stack.formatArn({ service: "ecs", resource: "task-definition", resourceName: `${names.family}:`, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
+    for (const failure of ["exit", "interruption"] as const) {
+      const safeTaskFields = events.RuleTargetInput.fromObject({
+        classification: failure === "exit" ? "application-container-nonzero" : "interruption",
+        taskArn: events.EventField.fromPath("$.detail.taskArn"),
+        taskDefinitionArn: events.EventField.fromPath("$.detail.taskDefinitionArn"),
+        clusterArn: events.EventField.fromPath("$.detail.clusterArn"),
+        lastStatus: events.EventField.fromPath("$.detail.lastStatus"),
+        ...(failure === "exit"
+          ? { containerName: PERIODIC_MATCHER_CONTAINER }
+          : { stopCode: events.EventField.fromPath("$.detail.stopCode") }),
+      });
+      new events.Rule(this, `PeriodicMatcher${failure}Failure`, {
+        eventPattern: matcherTaskEventPattern(clusterArn, familyPrefix, failure) as events.EventPattern,
+        targets: [new targets.SnsTopic(this.alarmTopic, { message: safeTaskFields })],
+      });
+    }
 
     for (const workerScope of props.config.workerQueues.enabledScopes) {
       const queues = props.workerQueues[workerScope];

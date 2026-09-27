@@ -1,6 +1,3 @@
-use crate::scheduled_job::CronJob;
-use chrono::Utc;
-use cron_tab::Cron;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
@@ -37,7 +34,8 @@ use std::{
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MAX_HYBRID_SCAN_LIMIT: usize = 100;
 
-pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), WiringError> {
+pub async fn build_from_env()
+-> Result<(Arc<dyn RunPeriodicSearchFilterMatchingUseCase>, Duration), WiringError> {
     let config = PeriodicMatchConfig::from_env()?;
     let pool = config
         .postgres
@@ -49,9 +47,7 @@ pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), Wi
     let credentials = GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
         .build_access_token_credentials()
-        .map_err(|error| WiringError::VertexCredentials {
-            detail: error.to_string(),
-        })?;
+        .map_err(|_| WiringError::VertexCredentials)?;
     let evaluator = VertexAiGemini::new(
         VertexAiConfig::new(
             config.vertex_project_id,
@@ -78,11 +74,7 @@ pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), Wi
         )
         .map_err(WiringError::Handler)?,
     );
-    Ok((
-        Arc::new(crate::jobs::SearchFilterPeriodicMatchJob::new(handler)),
-        config.schedule,
-        config.max_run_duration,
-    ))
+    Ok((handler, config.max_run_duration))
 }
 
 struct PeriodicMatchConfig {
@@ -92,7 +84,7 @@ struct PeriodicMatchConfig {
     vertex_project_id: String,
     vertex_location: String,
     vertex_model: String,
-    schedule: String,
+
     max_run_duration: Duration,
     policy: PeriodicSearchFilterMatchingPolicy,
 }
@@ -136,8 +128,7 @@ impl PeriodicMatchConfig {
             PathBuf::from(required("POSTGRES_TLS_ROOT_CERT")?),
         )
         .map_err(WiringError::PostgresConfig)?;
-        let schedule = optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *");
-        validate_schedule(&schedule)?;
+
         Ok(Self {
             postgres,
             endpoint,
@@ -145,7 +136,7 @@ impl PeriodicMatchConfig {
             vertex_project_id: required("VERTEX_AI_PROJECT_ID")?,
             vertex_location: required("VERTEX_AI_LOCATION")?,
             vertex_model: required("VERTEX_AI_MODEL")?,
-            schedule,
+
             max_run_duration: positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?,
             policy: PeriodicSearchFilterMatchingPolicy {
                 filter_page_size,
@@ -170,13 +161,6 @@ fn required(name: &'static str) -> Result<String, WiringError> {
         .ok()
         .and_then(trimmed_non_empty)
         .ok_or(WiringError::MissingEnv { name })
-}
-
-fn optional(name: &'static str, default: &str) -> String {
-    std::env::var(name)
-        .ok()
-        .and_then(trimmed_non_empty)
-        .unwrap_or_else(|| default.to_owned())
 }
 
 fn trimmed_non_empty(value: String) -> Option<String> {
@@ -222,18 +206,12 @@ fn periodic_duration(name: &'static str, seconds: u64) -> Result<time::Duration,
 
 fn positive_duration(name: &'static str, default: u64) -> Result<Duration, WiringError> {
     let seconds = NonZeroU64::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)?;
+    if seconds.get() > 7200 {
+        return Err(WiringError::InvalidPolicy);
+    }
     Ok(Duration::from_secs(seconds.get()))
 }
 
-fn validate_schedule(schedule: &str) -> Result<(), WiringError> {
-    let mut cron = Cron::new(Utc);
-    cron.add_fn(schedule, || {})
-        .map(|_| ())
-        .map_err(|error| WiringError::InvalidSchedule {
-            value: schedule.to_owned(),
-            detail: error.to_string(),
-        })
-}
 fn opensearch_client(config: &PeriodicMatchConfig) -> Result<OpenSearch, WiringError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint.clone());
     let builder = TransportBuilder::new(pool);
@@ -261,8 +239,6 @@ pub enum WiringError {
     },
     #[error("invalid periodic matching policy")]
     InvalidPolicy,
-    #[error("invalid SEARCH_FILTER_PERIODIC_MATCH_CRON {value}: {detail}")]
-    InvalidSchedule { value: String, detail: String },
     #[error("invalid PostgreSQL configuration")]
     PostgresConfig(#[source] PostgresPoolConfigError),
     #[error("invalid OpenSearch endpoint")]
@@ -271,8 +247,8 @@ pub enum WiringError {
     Postgres(#[source] PostgresConnectError),
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
-    #[error("failed to initialize Vertex AI credentials: {detail}")]
-    VertexCredentials { detail: String },
+    #[error("failed to initialize Vertex AI credentials")]
+    VertexCredentials,
     #[error("failed to build Vertex AI client")]
     VertexClient(#[source] reqwest::Error),
     #[error("failed to build periodic matching handler")]
@@ -290,14 +266,15 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_invalid_periodic_match_cron() {
-        let result = validate_schedule("invalid");
-        assert!(matches!(result, Err(WiringError::InvalidSchedule { .. })));
-    }
-
-    #[test]
-    fn should_accept_valid_seven_field_periodic_match_cron() {
-        assert!(validate_schedule("0 0 15 * * * *").is_ok());
+    fn should_enforce_two_hour_matching_cap() {
+        assert_eq!(
+            positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200).unwrap(),
+            Duration::from_secs(7200)
+        );
+        assert!(matches!(
+            positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7201),
+            Err(WiringError::InvalidPolicy)
+        ));
     }
 
     #[test]
