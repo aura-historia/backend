@@ -1059,9 +1059,9 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
     )
     .await;
 
-    let excluded_domains = vec!["scraper-blocked.example.com".to_string()];
+    let excluded_domain_ids = vec![blocked_domain];
     let candidates = service
-        .get_candidates(10, 100, &excluded_domains)
+        .get_candidates(10, 100, &excluded_domain_ids)
         .await
         .unwrap();
 

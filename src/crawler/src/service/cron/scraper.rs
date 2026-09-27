@@ -645,12 +645,9 @@ async fn scrape_candidate_with_options(
 
             let http_failure = match &e {
                 ScraperError::HttpError { kind, .. } => Some((*kind, None, None)),
-                ScraperError::HttpErrorWithMetadata {
-                    kind,
-                    status_code,
-                    retry_after,
-                    ..
-                } => Some((*kind, *status_code, *retry_after)),
+                ScraperError::HttpErrorWithMetadata(metadata) => {
+                    Some((metadata.kind, metadata.status_code, metadata.retry_after))
+                }
                 _ => None,
             };
 
@@ -881,7 +878,7 @@ async fn scrape_candidate_with_options(
 /// even though the caller currently only invokes this helper for non-HTTP errors.
 fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
-        ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata { .. } => "HttpError",
+        ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata(_) => "HttpError",
         ScraperError::ProductListingRemoved { .. } => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
@@ -1144,7 +1141,7 @@ impl CrawlerCronJob {
                     let schema_pending_listing_sources =
                         Arc::clone(&schema_pending_listing_sources);
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
-                    active_domains.insert(domain.clone());
+                    active_domains.insert(domain);
                     total += candidates.len();
 
                     join_set.spawn(
@@ -1173,18 +1170,17 @@ impl CrawlerCronJob {
                     break;
                 }
 
-                let mut excluded_domains: HashSet<String> =
-                    seen_domains.iter().map(ToString::to_string).collect();
-                excluded_domains.extend(active_domains.iter().map(ToString::to_string));
-                excluded_domains
-                    .extend(pending_domains.iter().map(|(domain, _)| domain.to_string()));
-                let excluded_domains: Vec<String> = excluded_domains.into_iter().collect();
+                let mut excluded_domain_ids = seen_domains.clone();
+                excluded_domain_ids.extend(active_domains.iter().copied());
+                excluded_domain_ids.extend(pending_domains.iter().map(|(domain, _)| *domain));
+                let excluded_domain_ids: Vec<crate::CrawlerDomainId> =
+                    excluded_domain_ids.into_iter().collect();
                 let candidates = match self
                     .scraper_candidates
                     .get_candidates(
                         self.config.effective_scraper_domain_batch_size() as i64,
                         self.config.scraper_urls_per_domain.max(1),
-                        &excluded_domains,
+                        &excluded_domain_ids,
                     )
                     .await
                 {
@@ -1692,19 +1688,21 @@ mod tests {
 
     fn get_candidates_once_by_domain<F>(
         build_candidates: F,
-    ) -> impl Fn(i64, i64, &[String]) -> ScraperCandidateResultFuture + Send + Sync + 'static
+    ) -> impl Fn(i64, i64, &[crate::CrawlerDomainId]) -> ScraperCandidateResultFuture
+    + Send
+    + Sync
+    + 'static
     where
         F: Fn() -> Vec<ScraperCandidate> + Send + Sync + 'static,
     {
         move |_, _, excluded_domains| {
-            let excluded_domains: HashSet<String> = excluded_domains.iter().cloned().collect();
+            let excluded_domains: HashSet<crate::CrawlerDomainId> =
+                excluded_domains.iter().copied().collect();
             let candidates = build_candidates();
             Box::pin(async move {
                 Ok(candidates
                     .into_iter()
-                    .filter(|candidate| {
-                        !excluded_domains.contains(&candidate.domain_id.to_string())
-                    })
+                    .filter(|candidate| !excluded_domains.contains(&candidate.domain_id))
                     .collect())
             })
         }
@@ -2596,15 +2594,9 @@ mod tests {
         let slow_url_for_candidates = slow_url.clone();
         let fast_url_for_candidates = fast_url.clone();
         let refill_url_for_candidates = refill_url.clone();
-        let slow_domain_id = scraper_candidate("Slow", slow_url.clone())
-            .domain_id
-            .to_string();
-        let fast_domain_id = scraper_candidate("Fast", fast_url.clone())
-            .domain_id
-            .to_string();
-        let refill_domain_id = scraper_candidate("Refill", refill_url.clone())
-            .domain_id
-            .to_string();
+        let slow_domain_id = scraper_candidate("Slow", slow_url.clone()).domain_id;
+        let fast_domain_id = scraper_candidate("Fast", fast_url.clone()).domain_id;
+        let refill_domain_id = scraper_candidate("Refill", refill_url.clone()).domain_id;
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -2613,9 +2605,9 @@ mod tests {
                 let slow_url = slow_url_for_candidates.clone();
                 let fast_url = fast_url_for_candidates.clone();
                 let refill_url = refill_url_for_candidates.clone();
-                let slow_domain_id = slow_domain_id.clone();
-                let fast_domain_id = fast_domain_id.clone();
-                let refill_domain_id = refill_domain_id.clone();
+                let slow_domain_id = slow_domain_id;
+                let fast_domain_id = fast_domain_id;
+                let refill_domain_id = refill_domain_id;
                 Box::pin(async move {
                     if excluded_domains.is_empty() {
                         Ok(vec![

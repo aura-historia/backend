@@ -30,8 +30,9 @@ pub enum ScrapeMode {
     DomainProbe,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum DomainFetchHealth {
+    #[default]
     NotObserved,
     Responsive,
     CircuitFailure {
@@ -39,12 +40,6 @@ pub enum DomainFetchHealth {
         status_code: Option<u16>,
         retry_after: Option<std::time::Duration>,
     },
-}
-
-impl Default for DomainFetchHealth {
-    fn default() -> Self {
-        Self::NotObserved
-    }
 }
 
 pub struct ScrapeOutcome {
@@ -68,16 +63,11 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
             },
             None => DomainFetchHealth::Responsive,
         },
-        ScraperError::HttpErrorWithMetadata {
-            kind,
-            status_code,
-            retry_after,
-            ..
-        } => match domain_failure_kind(*kind) {
+        ScraperError::HttpErrorWithMetadata(metadata) => match domain_failure_kind(metadata.kind) {
             Some(kind) => DomainFetchHealth::CircuitFailure {
                 kind,
-                status_code: *status_code,
-                retry_after: *retry_after,
+                status_code: metadata.status_code,
+                retry_after: metadata.retry_after,
             },
             None => DomainFetchHealth::Responsive,
         },

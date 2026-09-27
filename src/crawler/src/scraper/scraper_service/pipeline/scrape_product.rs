@@ -2,7 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::crawler_raw_input;
-use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapedProduct, ScraperService,
     domain_health_for_scraper_error,
@@ -213,13 +213,15 @@ impl ScraperService for ScraperServiceImpl {
                 retry_after,
                 details,
             }) => {
-                return Err(ScraperError::HttpErrorWithMetadata {
-                    url: url.clone(),
-                    kind,
-                    status_code: status,
-                    retry_after,
-                    details,
-                });
+                return Err(ScraperError::HttpErrorWithMetadata(Box::new(
+                    HttpErrorMetadata {
+                        url: url.clone(),
+                        kind,
+                        status_code: status,
+                        retry_after,
+                        details,
+                    },
+                )));
             }
         };
         if !is_same_logical_host(url, &fetched.final_url) {

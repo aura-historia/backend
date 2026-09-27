@@ -1,5 +1,5 @@
 use crate::network::policy::domain_failure_kind;
-use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::ScrapeMode;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
@@ -118,13 +118,15 @@ fn domain_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
             status,
             retry_after,
             details,
-        } if domain_failure_kind(kind).is_some() => Some(ScraperError::HttpErrorWithMetadata {
-            url: url.clone(),
-            kind,
-            status_code: status,
-            retry_after,
-            details,
-        }),
+        } if domain_failure_kind(kind).is_some() => Some(ScraperError::HttpErrorWithMetadata(
+            Box::new(HttpErrorMetadata {
+                url: url.clone(),
+                kind,
+                status_code: status,
+                retry_after,
+                details,
+            }),
+        )),
         _ => None,
     }
 }

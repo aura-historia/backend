@@ -64,7 +64,7 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         domain_limit: i64,
         urls_per_domain: i64,
-        excluded_domains: &[String],
+        excluded_domain_ids: &[CrawlerDomainId],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource (excluding the current
     /// URL) to seed first-time schema generation with additional page layouts.
@@ -309,7 +309,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
                 AND cr.artifact_type = 'PRODUCT_SCHEMA'
                 AND cr.status = 'PENDING_REVIEW'
           )
-          AND NOT (sd.domain_id::text = ANY($4))
+          AND NOT (sd.domain_id = ANY($4))
     ),
     selected_domains AS (
         SELECT domain_id
@@ -347,13 +347,17 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         &self,
         domain_limit: i64,
         urls_per_domain: i64,
-        excluded_domains: &[String],
+        excluded_domain_ids: &[CrawlerDomainId],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
+        let excluded_domain_uuids: Vec<uuid::Uuid> = excluded_domain_ids
+            .iter()
+            .map(|domain_id| *domain_id.as_uuid())
+            .collect();
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
             .bind(domain_limit)
             .bind(urls_per_domain)
             .bind(self.max_llm_calls_per_listing_source)
-            .bind(excluded_domains)
+            .bind(excluded_domain_uuids)
             .fetch_all(&self.pool)
             .await?;
 
@@ -950,7 +954,7 @@ mod candidate_query_tests {
 
     #[test]
     fn should_select_by_persisted_domain_and_return_one_probe() {
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.domain_id::text = ANY($4)"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.domain_id = ANY($4)"));
         assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.scrape_failure_streak = 0"));
         assert!(
             SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_domain_probe AND domain_url_rank = 1)")
