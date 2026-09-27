@@ -26,6 +26,15 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsUseCase,
 };
 
+pub use commands::product_listing_ingestion::{
+    ProductListingIngestionActor, ProductListingIngestionCommandId,
+    ProductListingIngestionIdempotencyKey, ProductListingIngestionIdempotencyKeyError,
+    ProductListingIngestionIntent, ProductListingIngestionItemOutcome,
+    ProductListingIngestionMessage, ProductListingIngestionMetadata,
+    ProductListingIngestionNotAttemptedReason, ProductListingIngestionOperation,
+    ProductListingIngestionOutcome, ProductListingIngestionRejectionReason,
+    ProductListingIngestionSubmissionId,
+};
 pub use commands::project_product_listing::{
     ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,
     ProjectProductListingOutcome, ProjectProductListingResult, ProjectProductListingUseCase,
@@ -34,6 +43,12 @@ pub use commands::record_product_listing_sale_observation::{
     RecordProductListingSaleObservationCommand, RecordProductListingSaleObservationError,
     RecordProductListingSaleObservationHandler, RecordProductListingSaleObservationResult,
     RecordProductListingSaleObservationUseCase,
+};
+pub use commands::submit_product_listing_ingestion::{
+    IndexedProductListingIngestionIntent, ProductListingIngestionSubmission,
+    ProductListingIngestionSubmissionError, ProductListingIngestionSubmissionResult,
+    SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
+    SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
 };
 pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,

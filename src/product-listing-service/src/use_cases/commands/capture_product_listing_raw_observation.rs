@@ -378,21 +378,38 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SourceRecordKeyValidationError {
+    TooLong { len: usize, max: usize },
+    EmbeddedNul,
+}
+
+pub(crate) fn validate_source_record_key_value(
+    source_record_key: &str,
+) -> Result<(), SourceRecordKeyValidationError> {
+    if source_record_key.len() > MAX_SOURCE_RECORD_KEY_UTF8_BYTES {
+        return Err(SourceRecordKeyValidationError::TooLong {
+            len: source_record_key.len(),
+            max: MAX_SOURCE_RECORD_KEY_UTF8_BYTES,
+        });
+    }
+    if source_record_key.contains('\0') {
+        return Err(SourceRecordKeyValidationError::EmbeddedNul);
+    }
+    Ok(())
+}
+
 fn validate_source_record_key(
     source_record_key: &str,
 ) -> Result<(), CaptureProductListingRawObservationError> {
-    if source_record_key.len() > MAX_SOURCE_RECORD_KEY_UTF8_BYTES {
-        return Err(
-            CaptureProductListingRawObservationError::SourceRecordKeyTooLong {
-                len: source_record_key.len(),
-                max: MAX_SOURCE_RECORD_KEY_UTF8_BYTES,
-            },
-        );
-    }
-    if source_record_key.contains('\0') {
-        return Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul);
-    }
-    Ok(())
+    validate_source_record_key_value(source_record_key).map_err(|error| match error {
+        SourceRecordKeyValidationError::TooLong { len, max } => {
+            CaptureProductListingRawObservationError::SourceRecordKeyTooLong { len, max }
+        }
+        SourceRecordKeyValidationError::EmbeddedNul => {
+            CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul
+        }
+    })
 }
 
 fn capture_error_code(error: &CaptureProductListingRawObservationError) -> &'static str {
