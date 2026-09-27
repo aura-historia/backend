@@ -8,7 +8,7 @@ import * as sns from "aws-cdk-lib/aws-sns";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import { matcherTaskEventPattern, PERIODIC_MATCHER_CONTAINER, periodicMatcherNames } from "../periodic-matcher-config";
+import { matcherTaskL2EventPattern, PERIODIC_MATCHER_CONTAINER, periodicMatcherNames } from "../periodic-matcher-config";
 import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
@@ -77,7 +77,7 @@ export class Observability extends Construct {
           : { stopCode: events.EventField.fromPath("$.detail.stopCode") }),
       });
       new events.Rule(this, `PeriodicMatcher${failure}Failure`, {
-        eventPattern: matcherTaskEventPattern(clusterArn, familyPrefix, failure) as events.EventPattern,
+        eventPattern: matcherTaskL2EventPattern(clusterArn, familyPrefix, failure),
         targets: [new targets.SnsTopic(this.alarmTopic, { message: safeTaskFields })],
       });
     }

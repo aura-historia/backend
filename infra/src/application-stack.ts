@@ -23,7 +23,7 @@ import {
 } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { PeriodicMatcher } from "./constructs/periodic-matcher";
-import { periodicMatcherNames } from "./periodic-matcher-config";
+import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
@@ -314,7 +314,7 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     if (!config.isEphemeral) {
       if (!props.network) throw new Error("Periodic matcher requires the application network.");
-      const imageDigest = new cdk.CfnParameter(this, "PeriodicMatcherImageDigest", {
+      const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
         type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
         description: "Verified immutable ECR image manifest digest for this release.",
       });
@@ -327,6 +327,9 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
         config, network: props.network, postgres: props.storage.postgres,
         imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
+      });
+      new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
+        value: this.periodicMatcher.taskDefinitionArn,
       });
     }
 

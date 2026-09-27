@@ -15,7 +15,7 @@ members = [
     "src/cdc-router-lambda",
     "src/platform-lambda-sqs",
     "src/platform-worker-queue-contract",
-    "src/aura-historia-cron",
+    "src/search-filter-periodic-match",
     "src/backend-cleanup-lambda",
     "src/product-listing-opensearch-lambda",
     "src/product-listing-normalization-lambda",

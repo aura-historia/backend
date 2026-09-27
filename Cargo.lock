@@ -389,31 +389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura-historia-cron"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "fxrate-postgres",
- "google-cloud-auth",
- "large-language-model",
- "libc",
- "opensearch",
- "platform-observability",
- "platform-postgres",
- "product-listing-opensearch",
- "product-listing-postgres",
- "reqwest 0.12.28",
- "search-filter-postgres",
- "search-filter-service",
- "serde_json",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "aura-historia-jobs"
 version = "0.1.0"
 dependencies = [
@@ -7173,6 +7148,31 @@ dependencies = [
  "url",
  "user-core",
  "uuid",
+]
+
+[[package]]
+name = "search-filter-periodic-match"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fxrate-postgres",
+ "google-cloud-auth",
+ "large-language-model",
+ "libc",
+ "opensearch",
+ "platform-observability",
+ "platform-postgres",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "reqwest 0.12.28",
+ "search-filter-postgres",
+ "search-filter-service",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

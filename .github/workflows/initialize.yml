@@ -30,9 +30,7 @@ jobs:
     environment:
       name: ${{ inputs.stage == 'prod' && 'aws-prod' || 'aws-dev' }}
     runs-on: ubuntu-latest
-    concurrency:
-      group: aws-periodic-matcher-artifact-apply
-      cancel-in-progress: false
+
     permissions:
       contents: read
       id-token: write
@@ -75,80 +73,16 @@ jobs:
         with:
           node-version: 26
 
-      - name: Preflight existing periodic matcher image
-        shell: bash
-        run: |
-          set -euo pipefail
-          repository=aura-historia-periodic-matcher
-          tag="git-${DEPLOY_COMMIT_SHA}"
-          dockerfile="$(git show "${DEPLOY_COMMIT_SHA}:src/aura-historia-cron/Dockerfile")"
-          builder_base="$(sed -nE 's/^FROM rust:[^[:space:]@]+@(sha256:[0-9a-f]{64}) AS build$/\1/p' <<< "$dockerfile")"
-          runtime_base="$(sed -nE 's/^FROM debian:[^[:space:]@]+@(sha256:[0-9a-f]{64})$/\1/p' <<< "$dockerfile")"
-          [[ "$builder_base" =~ ^sha256:[0-9a-f]{64}$ && "$runtime_base" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
-          image="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$tag" --output json)"
-          PERIODIC_MATCHER_IMAGE_DIGEST="$(jq -r '.imageDetails | if length == 1 then .[0].imageDigest else empty end' <<< "$image")"
-          [[ "$PERIODIC_MATCHER_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
-          account="$(aws sts get-caller-identity --query Account --output text)"
-          uri="${account}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${repository}"
-          aws ecr get-login-password | docker login --username AWS --password-stdin "${uri%/*}"
-          docker pull --platform linux/amd64 "${uri}@${PERIODIC_MATCHER_IMAGE_DIGEST}"
-          docker image inspect "${uri}@${PERIODIC_MATCHER_IMAGE_DIGEST}" > inspected.json
-          jq -e --arg sha "$DEPLOY_COMMIT_SHA" --arg builder "$builder_base" --arg runtime "$runtime_base" \
-            'length == 1 and .[0].Os == "linux" and .[0].Architecture == "amd64" and
-             .[0].Config.Labels["org.opencontainers.image.revision"] == $sha and
-             .[0].Config.Labels["org.opencontainers.image.source"] == "https://github.com/aura-historia/backend" and
-             (.[0].Config.Labels["com.aura-historia.build-workflow"] | type == "string" and test("^https://github\\.com/aura-historia/backend/actions/runs/[0-9]+/attempts/[0-9]+$")) and
-             .[0].Config.Labels["com.aura-historia.builder-base.digest"] == $builder and
-             .[0].Config.Labels["org.opencontainers.image.base.digest"] == $runtime and
-             .[0].Config.User == "10001:10001" and
-             (.[0].Config.ExposedPorts // {} | length == 0) and
-             (.[0].Config.Volumes // {} | keys == ["/tmp"]) and
-             .[0].Config.Entrypoint == ["/usr/local/bin/aura-historia-cron"] and
-             (.[0].Config.Cmd // []) == []' inspected.json >/dev/null || {
-            echo 'Image source, platform or runtime provenance mismatch' >&2; exit 1;
-          }
-          image_ref="${uri}@${PERIODIC_MATCHER_IMAGE_DIGEST}"
-          volume="matcher-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}-${RANDOM}"
-          container="${volume}-task"
-          docker volume create "$volume" >/dev/null
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || :; docker volume rm -f "$volume" >/dev/null' EXIT
-          status=0
-          timeout 20s docker run --rm --name "$container" --network none --read-only "$image_ref" --run-once >smoke-args.log 2>&1 || status=$?
-          test "$status" -eq 1 && grep -q 'accepts no arguments' smoke-args.log || {
-            echo 'Argument rejection smoke test failed or timed out' >&2; exit 1;
-          }
-          status=0
-          timeout 20s docker run --rm --name "$container" --network none --read-only \
-            --mount "type=volume,src=${volume},dst=/tmp" \
-            -e 'AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON={"type":"authorized_user"}' \
-            "$image_ref" >smoke-startup.log 2>&1 || status=$?
-          test "$status" -eq 1 && grep -q 'startup_failed' smoke-startup.log || {
-            echo 'Expected config failure not reached or timed out' >&2; exit 1;
-          }
-          adc_dir=/tmp/aura-historia-google-adc
-          adc_file="${adc_dir}/application_default_credentials.json"
-          dir_mode="$(docker run --rm --network none --read-only --user 10001:10001 \
-            --mount "type=volume,src=${volume},dst=/tmp" --entrypoint /usr/bin/stat \
-            "$image_ref" -c '%a:%u:%g' "$adc_dir")"
-          file_mode="$(docker run --rm --network none --read-only --user 10001:10001 \
-            --mount "type=volume,src=${volume},dst=/tmp" --entrypoint /usr/bin/stat \
-            "$image_ref" -c '%a:%u:%g' "$adc_file")"
-          test "$dir_mode" = '700:10001:10001'
-          test "$file_mode" = '600:10001:10001'
-          test "$(docker run --rm --network none --read-only --user 10001:10001 \
-            --mount "type=volume,src=${volume},dst=/tmp" --entrypoint /usr/bin/cat \
-            "$image_ref" "$adc_file")" = '{"type":"authorized_user"}'
-          docker rm -f "$container" >/dev/null 2>&1 || :
-          docker volume rm -f "$volume" >/dev/null
-          trap - EXIT
-          rds_ca_sha="$(docker run --rm --network none --read-only --entrypoint /usr/bin/sha256sum \
-            "$image_ref" /opt/aura-historia/rds-ca/global-bundle.pem | cut -d ' ' -f 1)"
-          expected_ca="$(sha256sum infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem | cut -d ' ' -f 1)"
-          test "$rds_ca_sha" = "$expected_ca" || { echo 'Public RDS CA differs from selected source' >&2; exit 1; }
-          echo "PERIODIC_MATCHER_IMAGE_DIGEST=$PERIODIC_MATCHER_IMAGE_DIGEST" >> "$GITHUB_ENV"
+      - name: Resolve immutable release images
+        id: container-images
+        uses: ./.github/actions/resolve-container-images
+        with:
+          commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
 
       - name: Require deployed foundation at the selected SHA
         shell: bash
+        env:
+          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
         run: |
           set -euo pipefail
           for stack in network data initialize; do
@@ -183,14 +117,10 @@ jobs:
               cat error.txt >&2; exit 1
             fi
           done
-          if [ -s compute-stack.json ]; then
-            for parameter in PeriodicMatcherEnabled PeriodicMatcherImageDigest; do
-              if ! jq -e --arg key "$parameter" '[.Stacks[0].Parameters[]? | select(.ParameterKey == $key)] | length == 1' compute-stack.json >/dev/null; then
-                echo "Unsupported historical compute template: missing $parameter" >&2; exit 1
-              fi
-            done
-            jq -e '[.Stacks[0].Parameters[] | select(.ParameterKey == "PeriodicMatcherEnabled") | .ParameterValue] | . == ["true"] or . == ["false"]' compute-stack.json >/dev/null || exit 1
-          fi
+          printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
+          node ci/container-images.cjs initialize-update \
+            --stack-file compute-stack.json --commit-sha "$DEPLOY_COMMIT_SHA" \
+            --digests container-image-digests.json > initialize-compute-update.json
           if [ "$STAGE" = prod ]; then
             if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-observability" \
               --output json > observability-stack.json 2>error.txt; then
@@ -275,22 +205,27 @@ jobs:
             exit 1
           fi
 
-          # CDK uses defaults on creation and previous values on updates, including deliberate activation.
-          deploy "${STACK_NAME_PREFIX}-compute" \
-            --previous-parameters \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}" \
-                         "${STACK_NAME_PREFIX}-compute:PeriodicMatcherImageDigest=${PERIODIC_MATCHER_IMAGE_DIGEST}"
+          # The parameter selector omits activation settings; CDK preserves existing values and applies template defaults to new parameters.
+          compute_parameters=()
+          while IFS= read -r assignment; do
+            compute_parameters+=("${STACK_NAME_PREFIX}-compute:${assignment}")
+          done < <(jq -r '.parameters | to_entries[] | "\(.key)=\(.value)"' initialize-compute-update.json)
+          deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters --parameters "${compute_parameters[@]}"
 
           stacks=("${STACK_NAME_PREFIX}-api")
           if [ "${STAGE}" = "prod" ]; then
             stacks+=("${STACK_NAME_PREFIX}-observability")
           fi
           deploy "${stacks[@]}"
-          task_definition_arn="$(aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json | jq -er '.Stacks[0].Outputs[] | select(.OutputKey == "TaskDefinitionArn") | .OutputValue')"
+          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json > compute-stack.json; then
+            echo 'Post-deployment output lookup failed. Compute deployment may already have completed; inspect the existing compute stack before rerunning, and do not rerun migrations or launch another task.' >&2
+            exit 1
+          fi
+          task_definition_outputs="$(node ci/container-images.cjs task-outputs --stack-file compute-stack.json --stack-name "${STACK_NAME_PREFIX}-compute")" || exit 1
           {
-            echo '## Initialized periodic matcher release'
+            echo '## Initialized container image release'
             echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
-            echo "- Registry digest: ${PERIODIC_MATCHER_IMAGE_DIGEST}"
-            echo "- Task-definition revision: ${task_definition_arn}"
-            echo '- Matcher activation retains its previous CloudFormation parameter (new stack default: disabled).'
+            echo "- Image digests: \`$(jq -cS . container-image-digests.json)\`"
+            echo "$task_definition_outputs"
+            echo '- Existing matcher activation is preserved; a newly introduced activation parameter defaults to disabled.'
           } >> "$GITHUB_STEP_SUMMARY"

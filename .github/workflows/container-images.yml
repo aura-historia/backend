@@ -1,0 +1,84 @@
+name: Container image checks
+
+on:
+  pull_request:
+    paths:
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "src/**"
+      - "infra/assets/rds-ca-layer/**"
+      - "ci/container-images.json"
+      - "ci/container-images.cjs"
+      - "ci/container-images.test.cjs"
+      - "ci/container-images/**"
+      - ".github/actions/resolve-container-images/**"
+      - ".github/workflows/container-images.yml"
+  push:
+    branches: [prod, develop]
+    paths:
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "src/**"
+      - "infra/assets/rds-ca-layer/**"
+      - "ci/container-images.json"
+      - "ci/container-images.cjs"
+      - "ci/container-images.test.cjs"
+      - "ci/container-images/**"
+      - ".github/actions/resolve-container-images/**"
+      - ".github/workflows/container-images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    name: Validate image catalog
+    runs-on: ubuntu-latest
+    outputs:
+      container_matrix: ${{ steps.catalog.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate catalog and fixture logic
+        run: |
+          node ci/container-images.cjs validate
+          node --test ci/container-images.test.cjs
+      - name: Read container image catalog
+        id: catalog
+        run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Build and test ${{ matrix.id }}
+    needs: [catalog]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.catalog.outputs.container_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Build local image
+        shell: bash
+        env:
+          IMAGE_ID: ${{ matrix.id }}
+          IMAGE_BINARY: ${{ matrix.binary }}
+          IMAGE_PLATFORM: ${{ matrix.platform }}
+          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          build_identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          docker build --platform "$IMAGE_PLATFORM" -f "$IMAGE_DOCKERFILE" \
+            --build-arg "SOURCE_REVISION=${GITHUB_SHA}" \
+            --build-arg "BUILD_WORKFLOW_IDENTITY=${build_identity}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.title=${IMAGE_BINARY}" \
+            --label "com.aura-historia.build-workflow=${build_identity}" \
+            -t "local/${IMAGE_ID}:${GITHUB_SHA}" .
+          test -x "ci/container-images/${IMAGE_ID}/smoke.sh"
+          bash "ci/container-images/${IMAGE_ID}/smoke.sh" "local/${IMAGE_ID}:${GITHUB_SHA}"

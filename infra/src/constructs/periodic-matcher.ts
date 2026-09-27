@@ -13,8 +13,11 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { WORKLOAD_REGION, ssmValue } from "../config";
 import { matcherTaskEventPattern, PERIODIC_MATCHER_CONTAINER, PERIODIC_MATCHER_REPOSITORY, periodicMatcherNames } from "../periodic-matcher-config";
+import type { RawEventBridgePattern } from "../periodic-matcher-config";
 import type { Network } from "./network";
 import type { PostgresConnectionSettings } from "./storage";
+
+type LifecycleClassification = "stopped" | "application-container-nonzero" | "interruption";
 
 export interface PeriodicMatcherProps {
   readonly config: StageConfig;
@@ -27,6 +30,7 @@ export interface PeriodicMatcherProps {
 
 export class PeriodicMatcher extends Construct {
   readonly deliveryDlq: sqs.Queue;
+  readonly taskDefinitionArn: string;
 
   constructor(scope: Construct, id: string, props: PeriodicMatcherProps) {
     super(scope, id);
@@ -70,6 +74,7 @@ export class PeriodicMatcher extends Construct {
       runtimePlatform: { operatingSystemFamily: ecs.OperatingSystemFamily.LINUX, cpuArchitecture: ecs.CpuArchitecture.X86_64 },
       executionRole, taskRole,
     });
+    this.taskDefinitionArn = task.taskDefinitionArn;
     const linuxParameters = new ecs.LinuxParameters(this, "LinuxParameters");
     linuxParameters.dropCapabilities(ecs.Capability.ALL);
     task.addVolume({ name: "tmp" });
@@ -144,7 +149,7 @@ export class PeriodicMatcher extends Construct {
         conditions: { ArnEquals: { "aws:SourceArn": lifecycleRuleArns }, StringEquals: { "aws:SourceAccount": stack.account } },
       })] }).toJSON()),
     });
-    const lifecycleRule = (logicalId: string, name: string, eventPattern: events.EventPattern, inputTransformer: events.CfnRule.InputTransformerProperty) => {
+    const lifecycleRule = (logicalId: string, name: string, eventPattern: RawEventBridgePattern, inputTransformer: events.CfnRule.InputTransformerProperty) => {
       const rule = new events.CfnRule(this, logicalId, {
         name, eventPattern,
         targets: [{ id: "LifecycleLog", arn: lifecycleLogArn, inputTransformer }],
@@ -156,21 +161,31 @@ export class PeriodicMatcher extends Construct {
       time: "$.time", taskArn: "$.detail.taskArn", taskDefinitionArn: "$.detail.taskDefinitionArn",
       clusterArn: "$.detail.clusterArn", status: "$.detail.lastStatus",
     };
-    const lifecycleInput = (classification: string, stopCode = false): events.CfnRule.InputTransformerProperty => ({
-      inputPathsMap: stopCode ? { ...lifecyclePaths, stopCode: "$.detail.stopCode" } : lifecyclePaths,
-      inputTemplate: stopCode
-        ? `{"timestamp":<time>,"classification":"${classification}","taskArn":<taskArn>,"taskDefinitionArn":<taskDefinitionArn>,"clusterArn":<clusterArn>,"status":<status>,"stopCode":<stopCode>}`
-        : `{"timestamp":<time>,"classification":"${classification}","taskArn":<taskArn>,"taskDefinitionArn":<taskDefinitionArn>,"clusterArn":<clusterArn>,"status":<status>}`,
-    });
-    const stoppedRule = lifecycleRule("StoppedTasks", names.lifecycleRule, {
-      source: ["aws.ecs"], detailType: ["ECS Task State Change"],
+    const lifecycleInput = (classification: LifecycleClassification, includeStopCode = false): events.CfnRule.InputTransformerProperty => {
+      const message = [
+        `classification=${classification}`,
+        "taskArn=<taskArn>",
+        "taskDefinitionArn=<taskDefinitionArn>",
+        "clusterArn=<clusterArn>",
+        "status=<status>",
+        ...(includeStopCode ? ["stopCode=<stopCode>"] : []),
+      ].join(" ");
+      return {
+        inputPathsMap: includeStopCode ? { ...lifecyclePaths, stopCode: "$.detail.stopCode" } : lifecyclePaths,
+        inputTemplate: `{"timestamp":<time>,"message":${JSON.stringify(message)}}`,
+      };
+    };
+    const stoppedPattern: RawEventBridgePattern = {
+      source: ["aws.ecs"],
+      "detail-type": ["ECS Task State Change"],
       detail: { clusterArn: [cluster.clusterArn], taskDefinitionArn: [{ prefix: familyPrefix }], lastStatus: ["STOPPED"] },
-    }, lifecycleInput("stopped"));
+    };
+    const stoppedRule = lifecycleRule("StoppedTasks", names.lifecycleRule, stoppedPattern, lifecycleInput("stopped"));
     const exitFailureRule = lifecycleRule("FailedTasks", names.exitFailureRule,
-      matcherTaskEventPattern(cluster.clusterArn, familyPrefix, "exit") as events.EventPattern,
+      matcherTaskEventPattern(cluster.clusterArn, familyPrefix, "exit"),
       lifecycleInput("application-container-nonzero"));
     const interruptionRule = lifecycleRule("InterruptedTasks", names.interruptionRule,
-      matcherTaskEventPattern(cluster.clusterArn, familyPrefix, "interruption") as events.EventPattern,
+      matcherTaskEventPattern(cluster.clusterArn, familyPrefix, "interruption"),
       lifecycleInput("interruption", true));
     schedule.node.addDependency(schedulerRole);
     const schedulerPolicy = schedulerRole.node.tryFindChild("DefaultPolicy");

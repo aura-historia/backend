@@ -11,6 +11,9 @@
 !infra/assets/rds-ca-layer/aura-historia
 !infra/assets/rds-ca-layer/aura-historia/rds-ca
 !infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem
+/target
+/infra/node_modules
+/infra/cdk.out
 **/target
 **/validation
 **/certs

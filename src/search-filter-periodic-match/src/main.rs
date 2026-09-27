@@ -11,7 +11,7 @@ fn accept_arguments(
     args: impl IntoIterator<Item = std::ffi::OsString>,
 ) -> Result<(), &'static str> {
     if args.into_iter().next().is_some() {
-        Err("aura-historia-cron accepts no arguments")
+        Err("search-filter-periodic-match accepts no arguments")
     } else {
         Ok(())
     }
