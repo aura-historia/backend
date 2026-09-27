@@ -59,6 +59,7 @@ oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
 product-listing-core = ["auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros"]
 product-listing-normalization = ["lingua", "localization", "money", "product-listing-core", "regex", "serde", "serde_json", "sha2", "strum", "strum_macros", "time", "url"]
+product-listing-ingestion-sqs = ["application", "async-trait", "aws-sdk-sqs", "indexmap", "listing-source-core", "localization", "money", "product-listing-core", "product-listing-normalization", "product-listing-service", "serde", "serde_json", "sha2", "thiserror", "time", "tokio", "url", "user-core"]
 product-service = ["application", "domain-primitives", "indexmap", "listing-source-core", "product-listing-core", "product-listing-normalization", "product-listing-service"]
 
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]

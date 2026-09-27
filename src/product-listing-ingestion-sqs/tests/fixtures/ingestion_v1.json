@@ -1,0 +1,155 @@
+[
+  {
+    "schemaVersion": 1,
+    "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandId": "plic1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "index": 0,
+    "inputCount": 5,
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+    "actor": { "kind": "SERVICE", "id": "fixture-intake" },
+    "requestId": "fixture-request",
+    "correlationId": "fixture-correlation",
+    "preparedAt": "2026-01-01T00:00:00Z",
+    "semanticFingerprint": "ba0b7d1f9f08850df49a466552672fb45c760fdf7a0f41a2ca2af20f44d59715",
+    "payload": {
+      "operation": "CREATE",
+      "command": {
+        "key": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" },
+        "title": { "language": "en", "value": "Blue vase" },
+        "description": { "language": "fr", "value": "Vase émaillé" },
+        "pricing": {
+          "price": { "kind": "ON_REQUEST" },
+          "priceEstimateMin": { "currency": "EUR", "amount": 1200 },
+          "priceEstimateMax": { "currency": "EUR", "amount": 1800 }
+        },
+        "availability": "IN_STOCK",
+        "url": "https://example.test/ceramics/42",
+        "images": ["https://example.test/image/first.jpg", "https://example.test/image/second.jpg"],
+        "auction": {
+          "auctionId": { "state": "SET", "value": "auc_01h455vb4pex5vy7enb1p677vn" },
+          "lotNumber": { "state": "SET", "value": "Lot 7A" },
+          "cataloguePosition": { "state": "SET", "value": 7 },
+          "biddingOpens": { "state": "SET", "value": "2026-02-01T09:00:00Z" },
+          "scheduledCloses": { "state": "SET", "value": "2026-02-02T09:00:00Z" },
+          "reportedClosedAt": { "state": "UNCHANGED" }
+        }
+      }
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandId": "plic1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "index": 1,
+    "inputCount": 5,
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+    "actor": { "kind": "SERVICE", "id": "fixture-intake" },
+    "requestId": "fixture-request",
+    "correlationId": "fixture-correlation",
+    "preparedAt": "2026-01-01T00:00:00Z",
+    "semanticFingerprint": "43f4b0fef5c8ee468bd2e40cacfe9b6e300e9fdfda22c728c1008ebe300280c3",
+    "payload": {
+      "operation": "UPDATE",
+      "command": {
+        "key": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" },
+        "price": { "state": "SET", "value": { "kind": "MONETARY", "currency": "USD", "amount": 2525 } },
+        "priceEstimateMin": { "state": "CLEAR" },
+        "priceEstimateMax": { "state": "UNCHANGED" },
+        "availability": { "state": "CLEAR" },
+        "url": { "state": "UNCHANGED" },
+        "images": { "state": "SET", "value": ["https://example.test/image/second.jpg", "https://example.test/image/first.jpg"] },
+        "auction": { "state": "SET", "value": {
+          "auctionId": { "state": "UNCHANGED" },
+          "lotNumber": { "state": "CLEAR" },
+          "cataloguePosition": { "state": "SET", "value": 12 },
+          "biddingOpens": { "state": "UNCHANGED" },
+          "scheduledCloses": { "state": "CLEAR" },
+          "reportedClosedAt": { "state": "SET", "value": "2026-02-03T10:00:00Z" }
+        } }
+      }
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandId": "plic1_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "index": 2,
+    "inputCount": 5,
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+    "actor": { "kind": "SERVICE", "id": "fixture-intake" },
+    "requestId": "fixture-request",
+    "correlationId": "fixture-correlation",
+    "preparedAt": "2026-01-01T00:00:00Z",
+    "semanticFingerprint": "cb07b03b03033b527fc2c25d8c3913352fdb7ea2ee0b80040c48637ea1214d3b",
+    "payload": {
+      "operation": "UPSERT",
+      "command": {
+        "key": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" },
+        "title": null,
+        "description": null,
+        "price": { "state": "UNCHANGED" },
+        "priceEstimateMin": { "state": "SET", "value": { "currency": "JPY", "amount": 1200 } },
+        "priceEstimateMax": { "state": "CLEAR" },
+        "availability": { "state": "SET", "value": "SOLD_OUT" },
+        "url": "https://example.test/ceramics/42-relisted",
+        "images": { "state": "CLEAR" },
+        "auction": { "state": "UNCHANGED" }
+      }
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandId": "plic1_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "index": 3,
+    "inputCount": 5,
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+    "actor": { "kind": "SERVICE", "id": "fixture-intake" },
+    "requestId": "fixture-request",
+    "correlationId": "fixture-correlation",
+    "preparedAt": "2026-01-01T00:00:00Z",
+    "semanticFingerprint": "b5cb06a48a67a4db23822113c2722b787326b6a46a5821064c5d00bba445b85d",
+    "payload": {
+      "operation": "WITHDRAW",
+      "command": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" }
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandId": "plic1_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "index": 4,
+    "inputCount": 5,
+    "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+    "actor": { "kind": "SERVICE", "id": "fixture-intake" },
+    "requestId": "fixture-request",
+    "correlationId": "fixture-correlation",
+    "preparedAt": "2026-01-01T00:00:00Z",
+    "semanticFingerprint": "2f012e232e46de1be5462122f04eb7dc9cff3f5ed829509ca762d7b98b432505",
+    "payload": {
+      "operation": "CAPTURE_RAW",
+      "command": {
+        "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn",
+        "ingestionMethod": "SHOPIFY",
+        "sourceRecordKey": "陶器 🏺 / SKU-42",
+        "input": {
+          "operation": "UPSERT",
+          "payloadFormat": "SHOPIFY_PRODUCT",
+          "payloadSchemaVersion": 1,
+          "rawValuesSchemaVersion": 1,
+          "sourcePayload": { "id": 42, "variants": [{ "sku": "青い花瓶", "price": "25.25" }], "attributes": { "β": "été" } },
+          "rawValues": { "priceFormat": "MACHINE_DECIMAL", "price": { "kind": "SET", "value": "25.25" } },
+          "normalizationContext": { "fallbackCurrency": "USD", "baseUrl": "https://example.test" }
+        },
+        "provenance": { "provider": "shopify", "delivery": "webhook-42", "trace": ["first", "second"] },
+        "sourceEventId": "provider-event-42",
+        "sourceOccurredAt": "2026-01-01T01:23:45Z",
+        "providerReceipt": {
+          "scope": "shopify-webhook",
+          "deliveryId": "webhook-42",
+          "sourceEvidenceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    }
+  }
+]
