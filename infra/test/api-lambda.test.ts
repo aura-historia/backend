@@ -136,11 +136,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     if (stage === "ephemeral") {
       expect(environment.Variables.LOOPS_API_KEY).toBe("ephemeral-loops-api-key");
     } else {
-      const apiKeyReference = String(environment.Variables.LOOPS_API_KEY);
-      expect(apiKeyReference).toMatch(
-        new RegExp(`^\\{\\{resolve:secretsmanager:/loops/${stage}/api-key:SecretString(?::[^}]*)*\\}\\}$`),
-      );
-      expect(apiKeyReference).not.toContain("resolve:ssm:");
+      expect(environment.Variables.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
     }
     expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(
       stage === "ephemeral"
