@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
+import { ScheduledEcsJob } from "../src/constructs/scheduled-ecs-job";
 import { matcherTaskEventPattern, periodicMatcherNames, PERIODIC_MATCHER_IMAGE } from "../src/periodic-matcher-config";
 
 function stacks(stage: "dev" | "prod" | "ephemeral") {
@@ -252,6 +253,46 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(stack.compute.periodicMatcher).toBeDefined();
     expect(JSON.stringify(Template.fromStack(stack.network!).toJSON())).toContain("starport-layer-bucket/*");
   });
+});
+
+test("synthesized lifecycle log targets emit a timestamp and string message, never a detail wrapper", () => {
+  const template = Template.fromStack(stacks("dev").compute).toJSON();
+  const rules = Object.values(template.Resources as Record<string, { Type: string; Properties: Record<string, any> }>)
+    .filter((resource) => resource.Type === "AWS::Events::Rule" && resource.Properties.Name?.includes("periodic-matcher"));
+  expect(rules).toHaveLength(3);
+  for (const rule of rules) {
+    const transformer = rule.Properties.Targets[0].InputTransformer as Transformer;
+    expect(transformer.InputTemplate).toMatch(/^\{"timestamp":<time>,"message":"classification=/);
+    expect(transformer.InputTemplate).not.toMatch(/"detail"|"message":\{|"message":<detail>/);
+    const event = fixtureTaskEvent("dev", { stopCode: "TaskFailedToStart" });
+    const payload = renderInputTransformer(transformer, event);
+    expect(Object.keys(payload).sort()).toEqual(["message", "timestamp"]);
+    expect(payload.timestamp).toBe(event.time);
+    expect(typeof payload.message).toBe("string");
+  }
+});
+
+test("two scheduled ECS jobs synthesize independent private tasks and lifecycle targets", () => {
+  const app = stacks("dev");
+  const names = periodicMatcherNames("dev");
+  const secondNames = Object.fromEntries(Object.entries(names).map(([key, value]) => [key, value.replaceAll("periodic-matcher", "example-job").replaceAll("search-filter-periodic-match", "example-job")])) as unknown as typeof names;
+  new ScheduledEcsJob(app.compute, "ExampleJob", {
+    network: app.network!.network, names: { ...secondNames, cluster: "aura-historia-example-job-dev", lifecyclePolicy: "example-job-events-dev" },
+    imageRepository: "example-job", imageDigest: `sha256:${"a".repeat(64)}`,
+    containerName: "example-job", environment: { STAGE: "dev" }, secrets: () => ({}),
+    scheduleExpression: "cron(0 12 * * ? *)",
+    enabled: new cdk.CfnCondition(app.compute, "ExampleJobActivation", { expression: cdk.Fn.conditionEquals("true", "false") }),
+    retention: cdk.aws_logs.RetentionDays.ONE_MONTH, removalPolicy: cdk.RemovalPolicy.RETAIN,
+  });
+  const template = Template.fromStack(app.compute);
+  template.resourceCountIs("AWS::ECS::TaskDefinition", 2);
+  template.hasResourceProperties("AWS::Scheduler::Schedule", { Name: names.schedule });
+  template.hasResourceProperties("AWS::Scheduler::Schedule", { Name: secondNames.schedule });
+  template.hasResourceProperties("AWS::SQS::Queue", { QueueName: secondNames.dlq });
+  const exampleRules = Object.values(template.findResources("AWS::Events::Rule"))
+    .filter((rule) => rule.Properties.Name?.includes("example-job"));
+  expect(exampleRules).toHaveLength(3);
+  expect(exampleRules.find((rule) => rule.Properties.Name === secondNames.exitFailureRule)?.Properties.EventPattern.detail.containers.name).toEqual(["example-job"]);
 });
 
 test("ephemeral stages do not create the matcher or digest parameters", () => {

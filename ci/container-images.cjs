@@ -8,7 +8,8 @@ const { execFileSync } = require('node:child_process');
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const ALLOWED_PLATFORMS = new Set(['linux/amd64', 'linux/arm64']);
-const ACTIVATION_PARAMETERS = ['PeriodicMatcherEnabled', 'CdcRouterEnabled'];
+const NON_IMAGE_ACTIVATION_PARAMETERS = ['CdcRouterEnabled'];
+const activationParameters = (catalog) => [...NON_IMAGE_ACTIVATION_PARAMETERS, ...catalog.map((image) => image.activationParameter).filter(Boolean)];
 
 function requireString(value, label, pattern) {
   if (typeof value !== 'string' || value.length === 0 || (pattern && !pattern.test(value))) {
@@ -55,6 +56,7 @@ function validateCatalog(catalog, rootDir = path.resolve(__dirname, '..')) {
   const keys = ['id', 'repository', 'digestParameter', 'taskDefinitionOutput'];
   const seen = Object.fromEntries(keys.map((key) => [key, new Set()]));
   const ids = new Set();
+  const activationNames = new Set(NON_IMAGE_ACTIVATION_PARAMETERS);
   const validated = catalog.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`Container image catalog entry ${index} must be an object.`);
@@ -66,6 +68,7 @@ function validateCatalog(catalog, rootDir = path.resolve(__dirname, '..')) {
     requireString(entry.repository, `${entry.id} ECR repository`, /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/);
     requireString(entry.digestParameter, `${entry.id} digest parameter`, /^[A-Za-z][A-Za-z0-9]*$/);
     requireString(entry.taskDefinitionOutput, `${entry.id} task-definition output`, /^[A-Za-z][A-Za-z0-9]*$/);
+    if (entry.activationParameter !== undefined) requireString(entry.activationParameter, `${entry.id} activation parameter`, /^[A-Za-z][A-Za-z0-9]*$/);
     if (!ALLOWED_PLATFORMS.has(entry.platform)) {
       throw new Error(`Container image '${entry.id}' uses unsupported platform '${entry.platform}'.`);
     }
@@ -73,6 +76,13 @@ function validateCatalog(catalog, rootDir = path.resolve(__dirname, '..')) {
       if (seen[key].has(entry[key])) throw new Error(`Container image catalog has duplicate ${key} '${entry[key]}'.`);
       seen[key].add(entry[key]);
     }
+    if (entry.activationParameter) {
+      if (activationNames.has(entry.activationParameter) || seen.digestParameter.has(entry.activationParameter)) {
+        throw new Error(`Container image catalog has duplicate activation parameter '${entry.activationParameter}'.`);
+      }
+      activationNames.add(entry.activationParameter);
+    }
+    if (activationNames.has(entry.digestParameter)) throw new Error(`Container image catalog digest parameter '${entry.digestParameter}' overlaps an activation parameter.`);
     if (ids.has(entry.id)) throw new Error(`Container image catalog has duplicate id '${entry.id}'.`);
     ids.add(entry.id);
 
@@ -199,7 +209,8 @@ function parameterValues(parameters, key) {
 function validateNewTemplateParameters(parameters, catalog) {
   if (!Array.isArray(parameters)) throw new Error('CloudFormation stack has no valid Parameters array.');
   const values = new Map();
-  const keys = [...new Set([...catalog.map((image) => image.digestParameter), ...ACTIVATION_PARAMETERS])];
+  const activations = activationParameters(catalog);
+  const keys = [...new Set([...catalog.map((image) => image.digestParameter), ...activations])];
   for (const key of keys) {
     const matches = parameterValues(parameters, key);
     if (matches.length > 1) throw new Error(`Compute stack has duplicate ${key} parameter entries.`);
@@ -209,7 +220,7 @@ function validateNewTemplateParameters(parameters, catalog) {
     if (catalog.some((image) => image.digestParameter === key) && !DIGEST_PATTERN.test(value)) {
       throw new Error(`Compute stack ${key} parameter is malformed; expected a sha256 digest.`);
     }
-    if (ACTIVATION_PARAMETERS.includes(key) && value !== 'true' && value !== 'false') {
+    if (activations.includes(key) && value !== 'true' && value !== 'false') {
       throw new Error(`Compute stack ${key} parameter is malformed; expected true or false.`);
     }
     values.set(key, value);
@@ -248,7 +259,7 @@ function preparePreviousTemplateUpdate(stackDocument, sha, digestByParameter, ca
   if (commitSha.length !== 1 || typeof commitSha[0].ParameterValue !== 'string' || !SHA_PATTERN.test(commitSha[0].ParameterValue)) {
     throw new Error('Compute stack must have exactly one valid CommitSHA parameter.');
   }
-  for (const key of ACTIVATION_PARAMETERS) {
+  for (const key of activationParameters(catalog)) {
     if (!present.has(key)) throw new Error(`Unsupported historical compute template: missing ${key}; deploy an infrastructure-bearing release first.`);
   }
   for (const image of catalog) {
@@ -372,7 +383,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  ACTIVATION_PARAMETERS,
+
   DIGEST_PATTERN,
   SHA_PATTERN,
   awsDescribeImages,

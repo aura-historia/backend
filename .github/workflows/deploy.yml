@@ -10,10 +10,10 @@ on:
       - ".github/actions/resolve-container-images/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
-      - "ci/container-images.test.cjs"
+      - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
       - ".dockerignore"
-      - "src/search-filter-periodic-match/Dockerfile"
+
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -80,7 +80,7 @@ jobs:
         run: npm --prefix infra run synth:all
 
       - name: Test container catalog helpers
-        run: node --test ci/container-images.test.cjs
+        run: node --test ci/container-images*.test.cjs
 
       - name: Read container image catalog
         id: container-catalog

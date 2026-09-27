@@ -9,6 +9,7 @@ export interface ContainerImage {
   readonly repository: string;
   readonly platform: "linux/amd64" | "linux/arm64";
   readonly digestParameter: string;
+  readonly activationParameter?: string;
   readonly taskDefinitionOutput: string;
 }
 

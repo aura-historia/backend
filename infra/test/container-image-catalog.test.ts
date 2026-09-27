@@ -52,6 +52,7 @@ function createFixtureCatalog(): { root: string; catalog: any[]; cleanup: () => 
       repository: `aura-${id}`,
       platform: "linux/amd64",
       digestParameter: `${index === 0 ? "First" : "Second"}ImageDigest`,
+      activationParameter: `${index === 0 ? "First" : "Second"}Enabled`,
       taskDefinitionOutput: `${index === 0 ? "First" : "Second"}TaskDefinitionArn`,
     };
   });
@@ -212,6 +213,8 @@ describe("container image catalog and release preflight", () => {
         { ParameterKey: "CommitSHA", ParameterValue: SHA },
         { ParameterKey: "FirstImageDigest", ParameterValue: DIGEST_A },
         { ParameterKey: "SecondImageDigest", ParameterValue: DIGEST_B },
+        { ParameterKey: "FirstEnabled", ParameterValue: "true" },
+        { ParameterKey: "SecondEnabled", ParameterValue: "false" },
         { ParameterKey: "PeriodicMatcherEnabled", ParameterValue: "true" },
         { ParameterKey: "CdcRouterEnabled", ParameterValue: "false" },
         { ParameterKey: "OtherSetting", ParameterValue: "unchanged" },
@@ -224,7 +227,10 @@ describe("container image catalog and release preflight", () => {
       expect(oneChanged.unchanged).toBe(false);
       expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "FirstImageDigest").ParameterValue).toBe(DIGEST_A);
       expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "SecondImageDigest").ParameterValue).toBe(`sha256:${"c".repeat(64)}`);
+      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "FirstEnabled")).toEqual({ ParameterKey: "FirstEnabled", UsePreviousValue: true });
+      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "SecondEnabled")).toEqual({ ParameterKey: "SecondEnabled", UsePreviousValue: true });
       expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "CdcRouterEnabled")).toEqual({ ParameterKey: "CdcRouterEnabled", UsePreviousValue: true });
+      expect(() => preparePreviousTemplateUpdate(stack(parameters.filter((parameter) => parameter.ParameterKey !== "SecondEnabled"), outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/missing SecondEnabled/);
       expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "OtherSetting")).toEqual({ ParameterKey: "OtherSetting", UsePreviousValue: true });
       expect(() => preparePreviousTemplateUpdate(stack(parameters.filter((parameter) => parameter.ParameterKey !== "SecondImageDigest"), outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/infrastructure-bearing release first/);
       expect(() => preparePreviousTemplateUpdate(stack(parameters), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/missing or invalid .*TaskDefinitionArn.*infrastructure-bearing release first/);

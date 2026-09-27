@@ -7,6 +7,7 @@
     "repository": "aura-historia-periodic-matcher",
     "platform": "linux/amd64",
     "digestParameter": "PeriodicMatcherImageDigest",
+    "activationParameter": "PeriodicMatcherEnabled",
     "taskDefinitionOutput": "PeriodicMatcherTaskDefinitionArn"
   }
 ]

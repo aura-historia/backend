@@ -24,7 +24,7 @@ describe("container release workflow behavior", () => {
   });
 
   test("catalog, resolver, and image-test changes trigger release validation", () => {
-    for (const file of ["ci/container-images.json", "ci/container-images.cjs", "ci/container-images.test.cjs", "ci/container-images/**", ".github/actions/resolve-container-images/**"]) {
+    for (const file of ["ci/container-images.json", "ci/container-images.cjs", "ci/container-images*.test.cjs", "ci/container-images/**", ".github/actions/resolve-container-images/**"]) {
       expect(deployWorkflow).toContain(`"${file}"`);
       expect(imageWorkflow).toContain(`"${file}"`);
     }
@@ -67,9 +67,9 @@ describe("container release workflow behavior", () => {
     expect(imageWorkflow).toContain("pull_request:");
     expect(imageWorkflow).toContain("permissions:\n  contents: read");
     expect(imageWorkflow).not.toContain("id-token: write");
-    expect(imageWorkflow).toContain("node --test ci/container-images.test.cjs");
+    expect(imageWorkflow).toContain("node --test ci/container-images*.test.cjs");
     expect(imageWorkflow).toContain("docker build --platform \"$IMAGE_PLATFORM\"");
-    expect(imageWorkflow).toContain('bash "ci/container-images/${IMAGE_ID}/smoke.sh"');
+    expect(imageWorkflow).toContain('bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"');
   });
 
   test("resolves the full digest map before deployment, initialization, or rollback", () => {

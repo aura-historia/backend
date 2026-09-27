@@ -227,5 +227,5 @@ jobs:
             echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
             echo "- Image digests: \`$(jq -cS . container-image-digests.json)\`"
             echo "$task_definition_outputs"
-            echo '- Existing matcher activation is preserved; a newly introduced activation parameter defaults to disabled.'
+            echo '- Existing workload activation parameters are preserved; new activation parameters use their disabled defaults.'
           } >> "$GITHUB_STEP_SUMMARY"

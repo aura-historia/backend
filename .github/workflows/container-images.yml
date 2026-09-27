@@ -11,7 +11,7 @@ on:
       - "infra/assets/rds-ca-layer/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
-      - "ci/container-images.test.cjs"
+      - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
       - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
@@ -26,7 +26,7 @@ on:
       - "infra/assets/rds-ca-layer/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
-      - "ci/container-images.test.cjs"
+      - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
       - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
@@ -45,7 +45,7 @@ jobs:
       - name: Validate catalog and fixture logic
         run: |
           node ci/container-images.cjs validate
-          node --test ci/container-images.test.cjs
+          node --test ci/container-images*.test.cjs
       - name: Read container image catalog
         id: catalog
         run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           build_identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          IMAGE="local/${IMAGE_ID}:${GITHUB_SHA}"
           docker build --platform "$IMAGE_PLATFORM" -f "$IMAGE_DOCKERFILE" \
             --build-arg "SOURCE_REVISION=${GITHUB_SHA}" \
             --build-arg "BUILD_WORKFLOW_IDENTITY=${build_identity}" \
@@ -79,6 +80,6 @@ jobs:
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.title=${IMAGE_BINARY}" \
             --label "com.aura-historia.build-workflow=${build_identity}" \
-            -t "local/${IMAGE_ID}:${GITHUB_SHA}" .
+            -t "$IMAGE" .
           test -x "ci/container-images/${IMAGE_ID}/smoke.sh"
-          bash "ci/container-images/${IMAGE_ID}/smoke.sh" "local/${IMAGE_ID}:${GITHUB_SHA}"
+          bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"
