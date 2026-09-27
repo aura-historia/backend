@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- The newsletter endpoint now writes marketing contacts and explicit newsletter-list membership through Loops instead of Zoho, while preserving the existing endpoint, request, authentication, and error contracts. This development cut-off adds no confirmation step or transactional-email changes; repeated writes preserve Loops opt-outs, and `204` means provider acceptance rather than message delivery. API Lambda configuration now uses a stage-scoped Loops API key and newsletter-list ID.
 - The `dev` AWS API's public staging URL is changing to `https://api.stage.aura-historia.com` (exact CloudFront alias); production and `/api/v1` paths are unchanged. Stage frontend clients and any registered provider URLs using the old `api.dev.aura-historia.com` host must be coordinated at the approved cutover. The old host is not redirected or retired by this change; see the [front-door cutover and rollback guide](http-api-front-door.md#deployment-cutover-and-rollback).
 
 - HTTP API traffic now uses one explicit API Gateway route matrix and the API Lambda `live` alias. The public method/path and authentication contracts are unchanged: optional Aura/Cognito authentication, application authorization, OAuth, and signed WooCommerce intake continue in Axum. API edge caching is disabled to prevent personalized responses from being shared; custom domains, CloudFront, WAF, CORS, and existing request limits remain in place.

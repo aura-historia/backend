@@ -76,12 +76,9 @@ function expectedApiEnvironmentKeys(stage: StageName): string[] {
     "STRIPE_ULTIMATE_YEARLY_PRICE_ID",
     "VERTEX_AI_LOCATION",
     "VERTEX_AI_PROJECT_ID",
-    "ZOHO_ACCOUNTS_URL",
-    "ZOHO_CAMPAIGNS_URL",
-    "ZOHO_CLIENT_ID",
-    "ZOHO_CLIENT_SECRET",
-    "ZOHO_LIST_KEY",
-    "ZOHO_REFRESH_TOKEN",
+    "LOOPS_API_BASE_URL",
+    "LOOPS_API_KEY",
+    "LOOPS_NEWSLETTER_LIST_ID",
   ];
 
   if (stage === "ephemeral") {
@@ -133,6 +130,24 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.POSTGRES_PASSWORD === undefined).toBe(stage !== "ephemeral");
     expect(Object.keys(environment.Variables).sort()).toEqual(expectedApiEnvironmentKeys(stage));
     expect(environment.Variables).toMatchObject(expectedVertexEnvironment(stage));
+    expect(environment.Variables.LOOPS_API_BASE_URL).toBe(
+      stage === "ephemeral" ? "https://loops.test/api" : "https://app.loops.so/api",
+    );
+    if (stage === "ephemeral") {
+      expect(environment.Variables.LOOPS_API_KEY).toBe("ephemeral-loops-api-key");
+    } else {
+      const apiKeyReference = String(environment.Variables.LOOPS_API_KEY);
+      expect(apiKeyReference).toMatch(
+        new RegExp(`^\\{\\{resolve:secretsmanager:/loops/${stage}/api-key:SecretString(?::[^}]*)*\\}\\}$`),
+      );
+      expect(apiKeyReference).not.toContain("resolve:ssm:");
+    }
+    expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(
+      stage === "ephemeral"
+        ? "ephemeral-newsletter-list"
+        : `{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`,
+    );
+    expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
   });
@@ -171,6 +186,24 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [versionId, "Version"] });
     expect(version.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(version.Properties.ProvisionedConcurrencyConfig).toBeUndefined();
+  });
+
+  test("keeps Loops newsletter settings on the API Lambda only", () => {
+    const template = computeTemplate(stage);
+    const functions = Object.values(template.findResources("AWS::Lambda::Function")) as CloudFormationResource[];
+
+    for (const functionResource of functions) {
+      if (functionResource.Properties.FunctionName === `aura-historia-api-${stage}`) {
+        continue;
+      }
+      const environment = functionResource.Properties.Environment as
+        | { Variables?: Record<string, unknown> }
+        | undefined;
+      const variables = environment?.Variables ?? {};
+      expect(Object.keys(variables).filter((key) => key.startsWith("LOOPS_"))).toEqual([]);
+      expect(JSON.stringify(functionResource.Properties)).not.toContain("/loops/");
+      expect(JSON.stringify(functionResource.Properties)).not.toContain("loops.test");
+    }
   });
 
   test("keeps Vertex ADC configuration and permissions out of the projector", () => {

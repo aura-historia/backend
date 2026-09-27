@@ -187,13 +187,14 @@ it never logs event bodies, credentials, or provider errors.
 
 The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
 PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
-Stripe billing settings, Zoho settings, generated Cognito issuer/JWKS/client/pool settings,
+Stripe billing settings, Loops newsletter settings, generated Cognito issuer/JWKS/client/pool settings,
 Vertex project and location, and staged ADC credential JSON. Real-stage nonsecret and secret
 configuration uses the existing SSM dynamic-reference paths:
 `/opensearch/<stage>/endpoint-url`,
 `/opensearch/<stage>/reader/{username,password}`, `/stripe/<stage>/api-key`,
 `/vertex-ai/<stage>/{project-id,location}`, `/secrets/<stage>/google-application-credentials`, and
-`/zoho/<stage>/{accounts-url,campaigns-url,client-id,client-secret,list-key,refresh-token}`.
+`/loops/<stage>/newsletter-list-id`. `LOOPS_API_KEY` uses the Secrets Manager dynamic reference
+`/loops/<stage>/api-key`; `LOOPS_API_BASE_URL` is the literal `https://app.loops.so/api`.
 For AWS `dev`, `/opensearch/dev/endpoint-url` is
 `https://opensearch.stage.aura-historia.com:9443`; the API uses the `reader`
 pair and search workers use
@@ -209,6 +210,18 @@ use the execution-role credential chain. Every PostgreSQL Lambda reads that exac
 and a changed version builds one new full composition while an active invocation keeps its
 old pool lease. Real-stage templates never inject PostgreSQL username or password. Ephemeral
 uses only fixture username/password and has no Secrets Manager dependency.
+
+### Loops newsletter integration
+
+For the development cut-off, configure the existing dev Loops workspace only; no production workspace setup or audience transfer is required. In that workspace, an operator must create the public mailing list **Aura Historia Newsletter**, record its actual ID, and create the exact string contact properties `language`, `currency`, and `auraUserId`. Set **Settings → Sending → Double opt-in** to **OFF**. Verify the account's sending domain, sender/reply-to, branding, company/contact details, and preference-center/unsubscribe footer before any separately authorized marketing send. Keep workflows paused during setup and controlled acceptance checks. CDK never creates lists/properties, validates credentials, changes account settings, or sends mail.
+
+The API Lambda requires the list ID as an SSM `String` parameter at `/loops/<stage>/newsletter-list-id` and the raw API key as the `SecretString` of Secrets Manager secret `/loops/<stage>/api-key`. Provision `/loops/dev/newsletter-list-id` and `/loops/dev/api-key` securely for the intended dev workspace; do not put credentials in source, command transcripts, tests, or synthesized plaintext. The app's trusted endpoint base is `https://app.loops.so/api`; the adapter appends `/v1/contacts/update`. `ephemeral` uses `https://loops.test/api`, `ephemeral-newsletter-list`, and `ephemeral-loops-api-key`; these are isolated test values, not real credentials. The API Lambda alone receives Loops settings.
+
+The application endpoint `PUT /api/v1/newsletter-subscriptions` remains the website's integration surface. Never send a Loops API key to frontend code or call the authenticated Loops API directly from the browser. This integration writes only contacts submitted through that endpoint; it does not auto-subscribe account creation, profile changes, paying customers, watchlist/search notification preferences, or other application users. It adds no confirmation email or second consent step, and it does not use Loops for transactional messages. Loops owns marketing list membership and opt-outs; a successful `204` means the provider accepted the write, not that a campaign will be sent or delivered. Ordinary repeats omit global subscription state and do not clear an opt-out. For campaigns, use the Loops dashboard, explicitly choose **Aura Historia Newsletter** as the audience, and use language segments rather than separate lists. Review contacts with missing/unsupported language rather than excluding them by default or sending them multiple variants; do not target the whole workspace audience by default. Account email/profile changes do not constitute renewed marketing consent. Process marketing-data deletion through Loops' supported deletion process; deleting an application account does not authorize recreating or resubscribing its marketing contact.
+
+The identity CloudFormation uses to resolve dynamic references (the deployment principal or configured execution role) needs `secretsmanager:GetSecretValue` on this exact Loops secret and `ssm:GetParameters` for the list-ID parameter; a customer-managed KMS key also requires its corresponding decrypt permission. The Lambda execution role does not need runtime Loops access to Secrets Manager or SSM. The secret is resolved into the API Lambda environment, so principals able to read its Lambda configuration can read the API key; tightly restrict function-configuration and deployment access. This deploy-time reference is not runtime secret isolation.
+
+Changing the secret value alone does not refresh a running Lambda environment. For key rotation, update the secret and deploy an API Lambda version/configuration update that causes CloudFormation to re-resolve the dynamic reference; verify the new version with a controlled newsletter write, then revoke the old Loops key. For an immediate cut-off, an authorized Loops operator can disable or revoke the key; newsletter writes then fail until a replacement is deployed. This does not remove memberships or change opt-outs. Keep any future production marketing workspace/audience isolated from development contacts and workspace-level quota/state. There is no CDK-managed key rotation, provider fallback, or delivery control; campaigns and all remote-account actions require explicit operator authorization.
 
 ## Network foundation (F3)
 
@@ -511,13 +524,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /vertex-ai/{stage}/location
 /vertex-ai/{stage}/model
 /secrets/{stage}/google-application-credentials
-
-/secrets/{stage}/zoho-accounts-url
-/secrets/{stage}/zoho-campaigns-url
-/secrets/{stage}/zoho-client-id
-/secrets/{stage}/zoho-client-secret
-/secrets/{stage}/zoho-list-key
-/secrets/{stage}/zoho-refresh-token
+/loops/{stage}/newsletter-list-id
 ```
 
 The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.

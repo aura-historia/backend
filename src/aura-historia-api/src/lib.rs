@@ -184,6 +184,7 @@ use tokio::net::TcpListener;
 use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
+use user_loops::{LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter};
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
@@ -213,7 +214,6 @@ use user_service::use_cases::{
     AuthenticateAccessTokenHandler, AuthenticateUserHandler, ResolveCognitoUserHandler,
     RevokeUserSessionsHandler, SuspendUserHandler, UnsuspendUserHandler,
 };
-use user_zoho::ZohoNewsletterSubscriptionWriter;
 use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
@@ -235,12 +235,9 @@ pub const STRIPE_PRO_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_PRO_MONTHLY_PRICE_ID";
 pub const STRIPE_PRO_YEARLY_PRICE_ID_ENV: &str = "STRIPE_PRO_YEARLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_MONTHLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PRICE_ID";
-pub const ZOHO_LIST_KEY_ENV: &str = "ZOHO_LIST_KEY";
-pub const ZOHO_CLIENT_ID_ENV: &str = "ZOHO_CLIENT_ID";
-pub const ZOHO_CLIENT_SECRET_ENV: &str = "ZOHO_CLIENT_SECRET";
-pub const ZOHO_REFRESH_TOKEN_ENV: &str = "ZOHO_REFRESH_TOKEN";
-pub const ZOHO_ACCOUNTS_URL_ENV: &str = "ZOHO_ACCOUNTS_URL";
-pub const ZOHO_CAMPAIGNS_URL_ENV: &str = "ZOHO_CAMPAIGNS_URL";
+pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
+pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
+pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
     "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
@@ -280,6 +277,9 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const LOOPS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const LOOPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -292,7 +292,7 @@ pub struct ApiConfig {
     vertex_ai_embedding: VertexAiEmbeddingConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
-    zoho: ZohoConfig,
+    loops: LoopsNewsletterConfig,
     product_listing_search_parallel_enrichment_enabled: bool,
     product_listing_search_fx_cache: FxSearchCacheConfig,
     product_listing_search_source_cache: SourceSearchCacheConfig,
@@ -373,14 +373,12 @@ impl ApiConfig {
                 1,
                 5_000,
             )?);
-        let zoho = ZohoConfig {
-            list_key: required_config(&mut get, ZOHO_LIST_KEY_ENV)?,
-            client_id: required_config(&mut get, ZOHO_CLIENT_ID_ENV)?,
-            client_secret: required_config(&mut get, ZOHO_CLIENT_SECRET_ENV)?,
-            refresh_token: required_config(&mut get, ZOHO_REFRESH_TOKEN_ENV)?,
-            accounts_url: required_config(&mut get, ZOHO_ACCOUNTS_URL_ENV)?,
-            campaigns_url: required_config(&mut get, ZOHO_CAMPAIGNS_URL_ENV)?,
-        };
+        let loops = LoopsNewsletterConfig::new(
+            get(LOOPS_API_KEY_ENV).unwrap_or_default(),
+            get(LOOPS_NEWSLETTER_LIST_ID_ENV).unwrap_or_default(),
+            get(LOOPS_API_BASE_URL_ENV).unwrap_or_else(|| DEFAULT_LOOPS_API_BASE_URL.to_owned()),
+        )
+        .map_err(ApiConfigError::LoopsConfig)?;
 
         Ok(Self {
             bind_addr,
@@ -389,7 +387,7 @@ impl ApiConfig {
             vertex_ai_embedding,
             stripe_billing,
             billing_prices,
-            zoho,
+            loops,
             product_listing_search_parallel_enrichment_enabled,
             product_listing_search_fx_cache,
             product_listing_search_source_cache,
@@ -422,8 +420,8 @@ impl ApiConfig {
         &self.billing_prices
     }
 
-    fn zoho(&self) -> &ZohoConfig {
-        &self.zoho
+    fn loops(&self) -> &LoopsNewsletterConfig {
+        &self.loops
     }
 
     fn product_listing_search_fx_cache_config(&self) -> FxSearchCacheConfig {
@@ -451,16 +449,6 @@ impl ApiConfig {
             ProductListingSearchReadExecutionPolicy::Sequential
         }
     }
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct ZohoConfig {
-    list_key: String,
-    client_id: String,
-    client_secret: String,
-    refresh_token: String,
-    accounts_url: String,
-    campaigns_url: String,
 }
 
 fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, ApiConfigError>
@@ -647,6 +635,8 @@ pub enum ApiConfigError {
     SourceSearchCacheConfig(
         #[source] product_listing_service::readers::SourceSearchCacheConfigError,
     ),
+    #[error("invalid Loops newsletter configuration")]
+    LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
 }
 
 pub fn app(state: AppState) -> Router {
@@ -1212,15 +1202,14 @@ async fn app_state_from_config_and_pool(
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let newsletter_writer = ZohoNewsletterSubscriptionWriter::new(
-        config.zoho().list_key.clone(),
-        reqwest::Client::new(),
-        config.zoho().client_id.clone(),
-        config.zoho().client_secret.clone(),
-        config.zoho().refresh_token.clone(),
-        config.zoho().accounts_url.clone(),
-        config.zoho().campaigns_url.clone(),
-    );
+    let loops_client = reqwest::Client::builder()
+        .connect_timeout(LOOPS_CONNECT_TIMEOUT)
+        .timeout(LOOPS_REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| ApiStateError::LoopsClient)?;
+    let newsletter_writer =
+        LoopsNewsletterSubscriptionWriter::new(config.loops().clone(), loops_client);
     let upsert_newsletter_subscription = UpsertNewsletterSubscriptionHandler::new(
         SqlxNewsletterProfileReader::new(pool.clone()),
         newsletter_writer,
@@ -1961,6 +1950,8 @@ pub enum ApiStateError {
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
     JwksClient(reqwest::Error),
+    #[error("failed to configure Loops newsletter HTTP client")]
+    LoopsClient,
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
@@ -2016,7 +2007,96 @@ mod readiness_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn valid_api_config_values() -> HashMap<&'static str, String> {
+        HashMap::from([
+            (COGNITO_ISSUER_ENV, "https://issuer.test".to_owned()),
+            (
+                COGNITO_JWKS_URL_ENV,
+                "https://issuer.test/jwks.json".to_owned(),
+            ),
+            (COGNITO_APP_CLIENT_IDS_ENV, "api-client".to_owned()),
+            (COGNITO_USER_POOL_ID_ENV, "test-pool".to_owned()),
+            (STRIPE_API_KEY_ENV, "test-stripe-key".to_owned()),
+            (
+                STRIPE_CHECKOUT_SUCCESS_URL_ENV,
+                "https://client.test/success".to_owned(),
+            ),
+            (
+                STRIPE_CHECKOUT_CANCEL_URL_ENV,
+                "https://client.test/cancel".to_owned(),
+            ),
+            (
+                STRIPE_PORTAL_RETURN_URL_ENV,
+                "https://client.test/billing".to_owned(),
+            ),
+            (STRIPE_PRO_MONTHLY_PRICE_ID_ENV, "pro-monthly".to_owned()),
+            (STRIPE_PRO_YEARLY_PRICE_ID_ENV, "pro-yearly".to_owned()),
+            (
+                STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV,
+                "ultimate-monthly".to_owned(),
+            ),
+            (
+                STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
+                "ultimate-yearly".to_owned(),
+            ),
+            (LOOPS_API_KEY_ENV, "test-loops-key".to_owned()),
+            (
+                LOOPS_NEWSLETTER_LIST_ID_ENV,
+                "test-newsletter-list".to_owned(),
+            ),
+        ])
+    }
+
+    #[test]
+    fn should_require_loops_configuration_without_zoho_configuration_and_default_base_url() {
+        let values = valid_api_config_values();
+        assert!(!values.keys().any(|name| name.starts_with("ZOHO_")));
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned())
+            .unwrap_or_else(|error| panic!("valid API config rejected: {error}"));
+        let expected_loops = LoopsNewsletterConfig::new(
+            "test-loops-key".into(),
+            "test-newsletter-list".into(),
+            DEFAULT_LOOPS_API_BASE_URL.into(),
+        )
+        .expect("expected Loops config");
+
+        assert!(expected_loops == config.loops);
+    }
+
+    #[test]
+    fn should_reject_missing_or_blank_loops_key_and_list_configuration() {
+        for name in [LOOPS_API_KEY_ENV, LOOPS_NEWSLETTER_LIST_ID_ENV] {
+            let mut missing = valid_api_config_values();
+            missing.remove(name);
+            assert!(matches!(
+                ApiConfig::from_getter(|candidate| missing.get(candidate).cloned()),
+                Err(ApiConfigError::LoopsConfig(_))
+            ));
+
+            let mut blank = valid_api_config_values();
+            blank.insert(name, "   ".to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|candidate| blank.get(candidate).cloned()),
+                Err(ApiConfigError::LoopsConfig(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn should_not_reveal_loops_secret_in_api_configuration_errors() {
+        let sentinel = "loops-api-key-secret-sentinel";
+        let mut values = valid_api_config_values();
+        values.insert(LOOPS_API_KEY_ENV, format!("{sentinel}\ninvalid"));
+        let Err(error) = ApiConfig::from_getter(|name| values.get(name).cloned()) else {
+            panic!("invalid Loops API key unexpectedly accepted");
+        };
+
+        assert!(!error.to_string().contains(sentinel));
+        assert!(!format!("{error:?}").contains(sentinel));
+    }
 
     struct UnavailableGoogleAdcProvider {
         calls: AtomicUsize,
