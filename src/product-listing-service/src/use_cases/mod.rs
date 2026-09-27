@@ -28,12 +28,12 @@ pub use commands::generate_watchlist_notifications::{
 
 pub use commands::product_listing_ingestion::{
     ProductListingIngestionActor, ProductListingIngestionCommandId,
-    ProductListingIngestionIdempotencyKey, ProductListingIngestionIdempotencyKeyError,
-    ProductListingIngestionIntent, ProductListingIngestionItemOutcome,
-    ProductListingIngestionMessage, ProductListingIngestionMetadata,
-    ProductListingIngestionNotAttemptedReason, ProductListingIngestionOperation,
-    ProductListingIngestionOutcome, ProductListingIngestionRejectionReason,
-    ProductListingIngestionSubmissionId,
+    ProductListingIngestionFingerprint, ProductListingIngestionIdempotencyKey,
+    ProductListingIngestionIdempotencyKeyError, ProductListingIngestionIntent,
+    ProductListingIngestionItemOutcome, ProductListingIngestionMessage,
+    ProductListingIngestionMetadata, ProductListingIngestionNotAttemptedReason,
+    ProductListingIngestionOperation, ProductListingIngestionOutcome,
+    ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionId,
 };
 pub use commands::project_product_listing::{
     ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,

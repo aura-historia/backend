@@ -141,6 +141,22 @@ impl Display for ProductListingIngestionSubmissionId {
     }
 }
 
+/// Semantic SHA-256 digest supplied by the ingress codec to execution receipts.
+/// The transport must verify this digest against the actor and typed command before constructing
+/// it. The service does not depend on the transport's wire representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProductListingIngestionFingerprint([u8; 32]);
+
+impl ProductListingIngestionFingerprint {
+    pub const fn from_digest(digest: [u8; 32]) -> Self {
+        Self(digest)
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// Stable, opaque per-command identity used by downstream durable execution receipts.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProductListingIngestionCommandId(String);

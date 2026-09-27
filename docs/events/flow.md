@@ -84,7 +84,13 @@ sequenceDiagram
     Note over Router,Queue: Failed Kinesis sequences retry/archive; failed SQS jobs retry/DLQ
 ```
 
-No intermediate ProductListing command SQS queue. No `202 accepted because queued` behavior for migrated writes.
+No intermediate ProductListing command SQS queue in this deployed write flow. No `202 accepted because queued` behavior for migrated writes. The #1855 [asynchronous ingestion submission contract](../product-listing.md#asynchronous-ingestion-submission) defines a separate, service-owned v1 admission boundary for future partner/internal callers; it does not change these synchronous API/provider paths, install a publisher/consumer, or provide a public HTTP queue response contract.
+
+### V1 command admission versus CDC delivery
+
+A v1 command submission has an original source-scoped batch and per-index outcomes. For example, if indices `0` and `1` are in one logical FIFO group and `0` is `Unconfirmed`, `1` is `NotAttempted(BlockedByFifoPredecessor)`; an unrelated group can still be `Accepted`. Only confirmed `Accepted` items count as admitted, and none of these statuses reports business completion. Pure validation rejects before send do not take FIFO positions. After a partial/lost reply, retry the unchanged ordered logical batch with the same effective key, actor and source, not just the failures renumbered; IDs remain stable but there is no submission registry or exactly-once guarantee. The publisher gates same-group successors within each submission, while FIFO's ordering guarantee concerns per-group acceptance at the shared queue, not upstream chronology or synchronous writes. The v1 wire example, SQS batch/message limits and retry budget are in the [ProductListing contract](../product-listing.md#asynchronous-ingestion-submission); valid raw input is not necessarily a valid queue message.
+
+This command-admission boundary is distinct from the DMS/Kinesis → **Standard** SQS job fanout below. Its retry decisions and logical FIFO send discipline do not impose FIFO delivery on CDC worker queues, alter their retry/redrive policy, or replace PostgreSQL as business truth.
 
 ## Router fanout and custody
 

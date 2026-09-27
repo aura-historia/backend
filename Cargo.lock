@@ -6105,6 +6105,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-listing-ingestion-sqs"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-sdk-sqs",
+ "indexmap 2.14.2",
+ "listing-source-core",
+ "localization",
+ "money",
+ "product-listing-core",
+ "product-listing-normalization",
+ "product-listing-service",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "user-core",
+]
+
+[[package]]
 name = "product-listing-normalization"
 version = "0.1.0"
 dependencies = [
