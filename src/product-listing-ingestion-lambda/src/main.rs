@@ -12,6 +12,11 @@ use std::{sync::Arc, time::Instant};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // The default panic hook prints arbitrary payload text even when FIFO processing catches
+    // the panic. Keep diagnostics bounded for both setup and record execution.
+    std::panic::set_hook(Box::new(|_| {
+        eprintln!("product listing ingestion runtime panicked")
+    }));
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
