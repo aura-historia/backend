@@ -103,7 +103,8 @@ if (tool === 'aws') {
   }
   if (args[0] === 'lambda' && args[1] === 'wait') process.exit(0);
   if (args[0] === 'lambda' && args[1] === 'invoke') {
-    fs.writeFileSync('migration-result.json', '{"status":"ready"}');
+    const result = args.find((arg) => arg === 'migration-result.json' || arg === 'fxrate-result.json');
+    fs.writeFileSync(result, result === 'migration-result.json' ? '{"status":"ready"}' : 'null');
     console.log(JSON.stringify({ StatusCode: 200 }));
     process.exit(0);
   }
@@ -208,10 +209,18 @@ test('a second catalog image builds, publishes, resolves, and reaches deploy wit
     const commands = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
     const compute = commands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
     assert.equal(compute.length, 1);
-    for (const [parameter, value] of Object.entries(digests)) {
-      assert.ok(compute[0].args.includes(`application-dev-compute:${parameter}=${value}`));
-    }
+    const expectedParameters = [`application-dev-compute:CommitSHA=${sha}`, ...Object.entries(digests).map(([key, value]) => `application-dev-compute:${key}=${value}`)].sort();
+    const passedParameters = (args) => args.flatMap((arg, index) => arg === '--parameters' ? [args[index + 1]] : []).sort();
+    assert.deepEqual(passedParameters(compute[0].args), expectedParameters);
     assert.match(readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'), /second-image: arn:aws:ecs:/);
+
+    writeFileSync(path.join(directory, 'initialize-compute-update.json'), JSON.stringify(initialized));
+    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], directory, env);
+    const afterInitialize = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
+    const initializeCompute = afterInitialize.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
+    assert.equal(initializeCompute.length, 2);
+    assert.deepEqual(passedParameters(initializeCompute[1].args), expectedParameters);
+    assert.match(readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'), /Initialized container image release/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

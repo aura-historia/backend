@@ -208,9 +208,9 @@ jobs:
           # The parameter selector omits activation settings; CDK preserves existing values and applies template defaults to new parameters.
           compute_parameters=()
           while IFS= read -r assignment; do
-            compute_parameters+=("${STACK_NAME_PREFIX}-compute:${assignment}")
+            compute_parameters+=(--parameters "${STACK_NAME_PREFIX}-compute:${assignment}")
           done < <(jq -r '.parameters | to_entries[] | "\(.key)=\(.value)"' initialize-compute-update.json)
-          deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters --parameters "${compute_parameters[@]}"
+          deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters "${compute_parameters[@]}"
 
           stacks=("${STACK_NAME_PREFIX}-api")
           if [ "${STAGE}" = "prod" ]; then

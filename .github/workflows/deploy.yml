@@ -556,11 +556,11 @@ jobs:
             stacks+=("${STACK_NAME_PREFIX}-observability")
           fi
           # Previous values preserve every activation parameter; the selected catalog digest set is explicit.
-          compute_parameters=("${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}")
+          compute_parameters=(--parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}")
           while IFS= read -r assignment; do
-            compute_parameters+=("${STACK_NAME_PREFIX}-compute:${assignment}")
+            compute_parameters+=(--parameters "${STACK_NAME_PREFIX}-compute:${assignment}")
           done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' container-image-digests.json)
-          deploy "${stacks[@]}" --previous-parameters --parameters "${compute_parameters[@]}"
+          deploy "${stacks[@]}" --previous-parameters "${compute_parameters[@]}"
           if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json > compute-stack.json; then
             echo 'Post-deployment output lookup failed. The deployment may already have completed; inspect the existing compute stack before rerunning, and do not rerun migrations or launch another task.' >&2
             exit 1
