@@ -8,7 +8,7 @@ const account = app.node.tryGetContext("account") ?? process.env.CDK_DEFAULT_ACC
 const region = app.node.tryGetContext("region") ?? process.env.CDK_DEFAULT_REGION ?? WORKLOAD_REGION;
 if (account !== undefined && !/^\d{12}$/.test(account)) throw new Error("The account must be a 12-digit AWS account ID.");
 if (region !== WORKLOAD_REGION) throw new Error(`Artifact region must be ${WORKLOAD_REGION}.`);
-new ContainerArtifactStack(app, "aura-historia-periodic-matcher-artifacts", {
+new ContainerArtifactStack(app, "aura-historia-container-artifacts", {
   env: { account, region },
   synthesizer: new cdk.CliCredentialsStackSynthesizer(),
 });

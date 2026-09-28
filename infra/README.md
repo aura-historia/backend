@@ -74,7 +74,7 @@ npm run synth -- --context stage=dev
 npm run synth -- --context stage=prod
 npm run synth -- --context stage=ephemeral
 npm run synth:all
-npm run cdk -- synth aura-historia-periodic-matcher-artifacts \
+npm run cdk -- synth aura-historia-container-artifacts \
   --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts'
 ```
 
@@ -87,7 +87,7 @@ Synth creates these stacks per stage:
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and (real stages only) the periodic matcher task
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
-- `aura-historia-periodic-matcher-artifacts` — stage-neutral retained ECR owner, synthesized separately by `bin/artifacts.ts`
+- `aura-historia-container-artifacts` — stage-neutral retained ECR owner for the image catalog, synthesized separately by `bin/artifacts.ts`
 
 The network stack is absent for `ephemeral`: LocalStack synthesis does not declare a VPC, NAT, EIP, gateway endpoint, or workload security groups. Real-stage stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
 
@@ -134,8 +134,12 @@ not guarantee byte immutability.
 ECS images are described by the non-secret `ci/container-images.json` catalog. CDK
 validation exposes that catalog as the publishing matrix. Every Deploy (CD) run
 reconciles the independent retained ECR artifact stack after infrastructure tests,
-before publishing images (on push) or deploying the application. A failed artifact
-reconciliation blocks image publication and deployment.
+before publishing images (on push) or deploying the application. Manual
+`workflow_dispatch` updates and rollbacks skip image publication: they resolve
+already-published immutable SHA tags in the reconciled repositories and preflight
+stage mail artifacts. Stage-specific Lambda ZIPs must also have been uploaded for
+the selected SHA; the manual path does not build or upload them. A failed artifact
+reconciliation or missing registry image blocks deployment before compute changes.
 Each push publishes every catalog entry through the same generic job; immutable
 image publication itself does not select a protected deployment environment. For a
 new SHA tag, that job builds one local image, runs the image-owned `ci/container-images/<id>/smoke.sh`, and only then
@@ -173,7 +177,7 @@ effects are not undone.
 
 ## Periodic saved-filter matcher (#1843)
 
-The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the existing artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. The CloudFormation stack name `aura-historia-periodic-matcher-artifacts` is preserved as a stable infrastructure identity, not a matcher-specific design choice. Live-stack existence has not been verified; do not rename this stack without checking the target account and planning an explicit migration. The repository physical name, construct identity, retention, and export name also remain stable; renaming the stack without a migration could orphan retained resources or exports.
+The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the shared artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. The undeployed artifact stack uses the generic CloudFormation name `aura-historia-container-artifacts`. The matcher repository's physical name, construct identity, retention, and export name remain unchanged.
 
 The compute stack owns one named scheduled ECS cluster per real stage and injects it into each `ScheduledEcsJob`. The cluster's logical ID `PeriodicMatcherCluster207C1F86` is frozen to preserve the CloudFormation resource during the move from matcher-owned to shared cluster; removing the override requires a CloudFormation migration. This is a migration-specific exception, not a pattern for future scheduled ECS jobs. `infra/src/constructs/scheduled-ecs-job.ts` owns each job's private Fargate task, Scheduler, IAM, DLQ, lifecycle-log and output resources. Jobs select CPU/memory and the catalog image platform (amd64 or arm64), and may add task-role grants; the matcher retains its 1024 CPU / 2048 MiB amd64 task and empty task role. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
 

@@ -37,7 +37,7 @@ describe("container release workflow behavior", () => {
     expect(infra).toContain("container_matrix: ${{ steps.container-catalog.outputs.matrix }}");
     expect(infra).toContain("node ci/container-images.cjs matrix >> \"$GITHUB_OUTPUT\"");
     expect(artifacts).toContain("group: aws-container-artifact-stack");
-    expect(artifacts).toContain("aura-historia-periodic-matcher-artifacts");
+    expect(artifacts).toContain("aura-historia-container-artifacts");
     expect(publisher).toContain("needs: [infra-test, aws-container-artifacts]");
     expect(publisher).toContain("matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}");
     expect(publisher).not.toMatch(/outputs:\s*[\s\S]{0,100}image_digest/);

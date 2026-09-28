@@ -3,9 +3,9 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { ContainerArtifactStack } from "../src/artifact-stack";
 import { CONTAINER_IMAGE_CATALOG } from "../src/container-image-catalog";
 
-test("stage-neutral immutable matcher artifact owner has no compute or image dependency", () => {
+test("stage-neutral immutable container artifact owner has no compute or image dependency", () => {
   const app = new cdk.App();
-  const template = Template.fromStack(new ContainerArtifactStack(app, "aura-historia-periodic-matcher-artifacts"));
+  const template = Template.fromStack(new ContainerArtifactStack(app, "aura-historia-container-artifacts"));
   template.resourceCountIs("AWS::ECR::Repository", 1);
   template.hasResource("AWS::ECR::Repository", {
     DeletionPolicy: "Retain",

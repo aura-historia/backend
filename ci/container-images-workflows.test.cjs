@@ -129,9 +129,15 @@ test('every deployment reconciles artifact repositories before publishing and de
   assert.match(artifactJob, /needs: \[infra-test\]/);
   assert.doesNotMatch(artifactJob, /^    if:/m);
   assert.match(artifactJob, /github\.event_name == 'workflow_dispatch' && inputs\.stage/);
+  assert.match(publisherJob, /if: github\.event_name == 'push'/);
   assert.match(publisherJob, /needs: \[infra-test, aws-container-artifacts\]/);
   assert.match(deployJob, /needs\.aws-container-artifacts\.result == 'success'/);
+  assert.match(deployJob, /github\.event_name == 'workflow_dispatch'[\s\S]*needs\.aws-push-container-images\.result == 'skipped'/);
   assert.match(deployJob, /aws-push-container-images,/);
+  const resolve = deployJob.indexOf('uses: ./.github/actions/resolve-container-images');
+  const preflight = deployJob.indexOf('name: Preflight stage artifacts and deployed stack state');
+  const update = deployJob.indexOf('name: Update artifact SHA and image digests with previous CloudFormation templates');
+  assert.ok(resolve >= 0 && preflight > resolve && update > preflight);
 });
 
 test('a second catalog image builds, publishes, resolves, and reaches deploy without contacting AWS', () => {

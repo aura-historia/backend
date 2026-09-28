@@ -115,7 +115,7 @@ jobs:
       - name: Reconcile retained image repositories
         run: |
           set -euo pipefail
-          npm --prefix infra run cdk -- deploy aura-historia-periodic-matcher-artifacts \
+          npm --prefix infra run cdk -- deploy aura-historia-container-artifacts \
             --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts' \
             --require-approval never --method change-set --exclusively \
             --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices
