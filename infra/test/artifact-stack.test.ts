@@ -35,6 +35,7 @@ test("artifact app publishes its CloudFormation template to the shared staging b
       "--app", "npx ts-node --prefer-ts-exts bin/artifacts.ts",
       "--output", output,
       "-c", "account=123456789012",
+      "-c", `region=${WORKLOAD_REGION}`,
     ], { cwd: process.cwd(), encoding: "utf8", timeout: 60_000 });
     expect(result.error).toBeUndefined();
     if (result.status !== 0) throw new Error(`CDK synth failed: ${result.stderr}`);
