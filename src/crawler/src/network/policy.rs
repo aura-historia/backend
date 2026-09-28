@@ -62,7 +62,7 @@ impl DomainFailureKind {
         match self {
             Self::Http429 => Duration::from_secs(10 * 60),
             Self::Http503 => Duration::from_secs(15 * 60),
-            Self::Http504 => Duration::from_secs(10 * 60),
+            Self::Http504 => Duration::from_secs(15 * 60),
             Self::Http408
             | Self::Timeout
             | Self::Connect
@@ -526,6 +526,14 @@ mod tests {
                 Some(Duration::from_secs(48 * 60 * 60))
             ),
             Duration::from_secs(24 * 60 * 60)
+        );
+    }
+
+    #[test]
+    fn should_use_fifteen_minute_base_cooldown_for_http_504() {
+        assert_eq!(
+            DomainFailureKind::Http504.base_cooldown(),
+            Duration::from_secs(15 * 60)
         );
     }
 

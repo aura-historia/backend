@@ -1,5 +1,8 @@
 use crawler::CrawlerDomainId;
-use crawler::scraper::candidate_service::{ScraperCandidateService, ScraperCandidateServiceImpl};
+use crawler::network::policy::DomainFailureKind;
+use crawler::scraper::candidate_service::{
+    DomainHealthSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
+};
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -1903,4 +1906,235 @@ async fn scraper_seed_urls_should_respect_limit() {
         .unwrap();
 
     assert_eq!(sampled.len(), 3, "query should respect the requested LIMIT");
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-streak-semantics.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-streak-semantics.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+
+    let first_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_000).unwrap();
+    let second_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_100).unwrap();
+    let third_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_200).unwrap();
+    let initial = DomainHealthSnapshot {
+        scrape_failure_streak: 0,
+        last_scrape_error_kind: None,
+        next_scrape_at: None,
+    };
+
+    let first = service
+        .mark_fetch_failure_and_open_domain_circuit(
+            &listing_source_id,
+            &url,
+            "HTTP_429",
+            "rate limited",
+            Some(429),
+            first_next,
+            None,
+            &domain_id,
+            &initial,
+            DomainFailureKind::Http429,
+            Some(429),
+            first_next,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.url_failure, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(first.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(first.persisted_failure_streak, Some(1));
+
+    let after_first = DomainHealthSnapshot {
+        scrape_failure_streak: 1,
+        last_scrape_error_kind: Some("HTTP_429".to_owned()),
+        next_scrape_at: Some(first_next),
+    };
+    let second = service
+        .mark_fetch_failure_and_open_domain_circuit(
+            &listing_source_id,
+            &url,
+            "HTTP_429",
+            "rate limited again",
+            Some(429),
+            second_next,
+            None,
+            &domain_id,
+            &after_first,
+            DomainFailureKind::Http429,
+            Some(429),
+            second_next,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.persisted_failure_streak, Some(2));
+
+    let after_second = DomainHealthSnapshot {
+        scrape_failure_streak: 2,
+        last_scrape_error_kind: Some("HTTP_429".to_owned()),
+        next_scrape_at: Some(second_next),
+    };
+    let changed_kind = service
+        .mark_fetch_failure_and_open_domain_circuit(
+            &listing_source_id,
+            &url,
+            "Timeout",
+            "timed out",
+            None,
+            third_next,
+            None,
+            &domain_id,
+            &after_second,
+            DomainFailureKind::Timeout,
+            None,
+            third_next,
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed_kind.persisted_failure_streak, Some(1));
+
+    let recovering = DomainHealthSnapshot {
+        scrape_failure_streak: 1,
+        last_scrape_error_kind: Some("TIMEOUT".to_owned()),
+        next_scrape_at: Some(third_next),
+    };
+    assert_eq!(
+        service
+            .close_domain_circuit(&domain_id, &recovering)
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let row: (i32, Option<String>, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT scrape_failure_streak, last_scrape_error_kind, next_scrape_at
+         FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (0, None, None));
+
+    let after_recovery = DomainHealthSnapshot {
+        scrape_failure_streak: 0,
+        last_scrape_error_kind: None,
+        next_scrape_at: None,
+    };
+    let restarted = service
+        .mark_fetch_failure_and_open_domain_circuit(
+            &listing_source_id,
+            &url,
+            "HTTP_429",
+            "rate limited after recovery",
+            Some(429),
+            first_next,
+            None,
+            &domain_id,
+            &after_recovery,
+            DomainFailureKind::Http429,
+            Some(429),
+            first_next,
+        )
+        .await
+        .unwrap();
+    assert_eq!(restarted.persisted_failure_streak, Some(1));
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-stale-domain-fence.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-stale-domain-fence.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+
+    let observed_next = time::OffsetDateTime::from_unix_timestamp(2_100_000_000).unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains
+         SET scrape_failure_streak = 2,
+             last_scrape_error_kind = 'HTTP_429',
+             next_scrape_at = $2
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .bind(observed_next)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let expected = DomainHealthSnapshot {
+        scrape_failure_streak: 2,
+        last_scrape_error_kind: Some("HTTP_429".to_owned()),
+        next_scrape_at: Some(observed_next),
+    };
+    sqlx::query(
+        "UPDATE listing_source_domains
+         SET last_scrape_error_kind = 'HTTP_503'
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let outcome = service
+        .mark_fetch_failure_and_open_domain_circuit(
+            &listing_source_id,
+            &url,
+            "HTTP_429",
+            "stale worker",
+            Some(429),
+            observed_next,
+            None,
+            &domain_id,
+            &expected,
+            DomainFailureKind::Http429,
+            Some(429),
+            time::OffsetDateTime::from_unix_timestamp(2_100_000_100).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(outcome.persisted_failure_streak, None);
+
+    let domain_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT scrape_failure_streak, last_scrape_error_kind, next_scrape_at
+         FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(domain_row.0, 2);
+    assert_eq!(domain_row.1, "HTTP_503");
+    assert_eq!(domain_row.2, observed_next);
+
+    let url_row: (String, Option<i32>) = sqlx::query_as(
+        "SELECT last_error_kind, last_status_code
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(url_row, ("HTTP_429".to_owned(), Some(429)));
 }
