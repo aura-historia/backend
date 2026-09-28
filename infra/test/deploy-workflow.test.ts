@@ -32,6 +32,7 @@ describe("deployment workflow boundary", () => {
       "stripe-lambda",
       "product-listing-opensearch-lambda",
       "product-listing-normalization-lambda",
+      "product-listing-ingestion-lambda",
       "product-content-assessment-lambda",
       "product-embedding-lambda",
       "product-translation-lambda",

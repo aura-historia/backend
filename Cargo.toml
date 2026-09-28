@@ -19,6 +19,7 @@ members = [
     "src/backend-cleanup-lambda",
     "src/product-listing-opensearch-lambda",
     "src/product-listing-normalization-lambda",
+    "src/product-listing-ingestion-lambda",
     "src/product-content-assessment-lambda",
     "src/product-embedding-lambda",
     "src/product-translation-lambda",
@@ -109,6 +110,7 @@ cdc-router-lambda = { path = "src/cdc-router-lambda" }
 platform-lambda-sqs = { path = "src/platform-lambda-sqs" }
 product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lambda" }
 product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
+product-listing-ingestion-lambda = { path = "src/product-listing-ingestion-lambda" }
 product-content-assessment-lambda = { path = "src/product-content-assessment-lambda" }
 product-embedding-lambda = { path = "src/product-embedding-lambda" }
 product-translation-lambda = { path = "src/product-translation-lambda" }

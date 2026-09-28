@@ -149,7 +149,15 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(stacks.data.workerQueues.catalog)).toEqual(EXPECTED_SCOPES);
-    expect(QUEUE_DEFINITIONS).toEqual({ shopify: {
+    expect(QUEUE_DEFINITIONS).toEqual({ productListingIngestion: {
+      id: "ProductListingIngestion",
+      queueName: "product-listing-ingestion-queue.fifo",
+      deadLetterQueueName: "product-listing-ingestion-dlq.fifo",
+      visibilityTimeoutSeconds: 270,
+      maxReceiveCount: 5,
+      fifo: true,
+      managedSse: true,
+    }, shopify: {
       id: "ShopifyLambda",
       queueName: "shopify-lambda-queue",
       deadLetterQueueName: "shopify-lambda-dlq",
@@ -160,8 +168,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(names.sort()).toEqual([
       ...EXPECTED_SCOPES.flatMap((scope) => [`aura-worker-${scope}-${stage}`, `aura-worker-${scope}-dlq-${stage}`]),
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
+      `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(22);
+    expect(new Set(names).size).toBe(24);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -227,11 +236,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
       stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
     );
+    expect(JSON.stringify(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL))
+      .toContain(`product-listing-ingestion-queue-${stage}.fifo`);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -246,7 +257,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -275,8 +286,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration, real-stage CDC router and cleanup target,
-    // and all ten queue workers use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 13);
+    // and all ten queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 12 : 14);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -325,7 +336,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -642,12 +653,12 @@ test("single-stack ephemeral has the same queue and consumer contract", () => {
   for (const scope of EXPECTED_SCOPES) {
     expectWorkerPair(stack, template, "ephemeral", scope);
   }
-  template.resourceCountIs("AWS::SQS::Queue", 22);
+  template.resourceCountIs("AWS::SQS::Queue", 24);
   expect(workerPolicyNames(template)).toEqual(expectedWorkerPolicyNames("ephemeral", EXPECTED_SCOPES));
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 11);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 12);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
 });
 
@@ -680,7 +691,7 @@ test("queue names use stage, never a custom stack prefix, and reject names over 
   });
   const template = Template.fromStack(stacks.data);
   const names = Object.values(template.findResources("AWS::SQS::Queue")).map((resource) => resource.Properties.QueueName);
-  expect(names.every((name) => name.endsWith("-dev"))).toBe(true);
+  expect(names.every((name) => name.endsWith("-dev") || name.endsWith("-dev.fifo"))).toBe(true);
   expect(template.toJSON().Outputs.WorkerQueueAwsRegion.Value).toBe("eu-central-1");
   for (const stage of STAGES) {
     for (const scope of EXPECTED_SCOPES) {

@@ -5,6 +5,7 @@ use futures_util::FutureExt;
 use lambda_runtime::{Context, Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use std::{
+    collections::HashSet,
     future::Future,
     panic::AssertUnwindSafe,
     time::{Duration, Instant},
@@ -65,6 +66,24 @@ fn require_ids(event: &SqsEvent) -> Result<(), Error> {
         return Err(Error::from(
             "SQS event record has no message ID; fail whole invocation",
         ));
+    }
+    Ok(())
+}
+
+/// FIFO partial failures must identify each record uniquely. A malformed batch cannot be
+/// represented truthfully by a partial response, so it must fail before setup or execution.
+fn require_fifo_ids(event: &SqsEvent) -> Result<(), Error> {
+    require_ids(event)?;
+    if event.records.len() > 10 {
+        return Err(Error::from("FIFO SQS batch exceeds ten records"));
+    }
+    let mut seen = HashSet::with_capacity(event.records.len());
+    if event
+        .records
+        .iter()
+        .any(|record| !seen.insert(record.message_id.as_deref().expect("IDs validated")))
+    {
+        return Err(Error::from("FIFO SQS batch contains duplicate message IDs"));
     }
     Ok(())
 }
@@ -134,8 +153,59 @@ where
     H: FnOnce(LambdaEvent<SqsEvent>, T, LambdaInvocationBudget) -> HFut,
     HFut: Future<Output = Result<SqsBatchResponse, Error>>,
 {
+    handle_invocation_with_validation(
+        event,
+        component,
+        budget_from_context,
+        require_ids,
+        setup,
+        handle,
+    )
+    .await
+}
+
+/// FIFO-specific entry point: reject missing, blank, or duplicate IDs (and batches over ten)
+/// before credential refresh or composition. The Standard SQS entry point is unchanged.
+pub async fn handle_fifo_sqs_invocation<T, E, F, Fut, H, HFut>(
+    event: LambdaEvent<SqsEvent>,
+    component: &'static str,
+    budget_from_context: impl FnOnce(&Context) -> LambdaInvocationBudget,
+    setup: F,
+    handle: H,
+) -> Result<SqsBatchResponse, Error>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    H: FnOnce(LambdaEvent<SqsEvent>, T, LambdaInvocationBudget) -> HFut,
+    HFut: Future<Output = Result<SqsBatchResponse, Error>>,
+{
+    handle_invocation_with_validation(
+        event,
+        component,
+        budget_from_context,
+        require_fifo_ids,
+        setup,
+        handle,
+    )
+    .await
+}
+
+async fn handle_invocation_with_validation<T, E, F, Fut, H, HFut>(
+    event: LambdaEvent<SqsEvent>,
+    component: &'static str,
+    budget_from_context: impl FnOnce(&Context) -> LambdaInvocationBudget,
+    validate: impl FnOnce(&SqsEvent) -> Result<(), Error>,
+    setup: F,
+    handle: H,
+) -> Result<SqsBatchResponse, Error>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    H: FnOnce(LambdaEvent<SqsEvent>, T, LambdaInvocationBudget) -> HFut,
+    HFut: Future<Output = Result<SqsBatchResponse, Error>>,
+{
     let budget = budget_from_context(&event.context);
-    require_ids(&event.payload)?;
+    validate(&event.payload)?;
     let setup_outcome = run_setup_with_budget(&budget, setup).await;
     let outcome = match setup_outcome {
         SetupOutcome::Ready(value) => return handle(event, value, budget).await,
@@ -151,6 +221,60 @@ where
         failed_sqs_message_count = response.batch_item_failures.len(),
         "SQS Lambda setup retained every record for retry or redrive"
     );
+    Ok(response)
+}
+
+/// Process FIFO records one at a time. Once a record is not confirmed complete, retain its
+/// SQS message ID and every successor's ID without starting any successor. No group-based skip
+/// is safe: a partial response can checkpoint the entire FIFO batch prefix.
+pub async fn process_fifo_batch<T, F, Fut>(
+    event: LambdaEvent<SqsEvent>,
+    remaining: Duration,
+    per_record_cap: Duration,
+    mut process: F,
+    mut is_complete: impl FnMut(&RecordAttempt<T>) -> bool,
+) -> Result<SqsBatchResponse, Error>
+where
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = T>,
+{
+    require_fifo_ids(&event.payload)?;
+    let started_at = Instant::now();
+    let mut response = SqsBatchResponse::default();
+    let mut records = event.payload.records.into_iter();
+    while let Some(record) = records.next() {
+        let message_id = record.message_id.expect("IDs validated");
+        let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
+        let record_started_at = Instant::now();
+        let outcome = if budget.is_zero() {
+            RecordOutcome::InsufficientBudget
+        } else if let Some(body) = record.body {
+            match AssertUnwindSafe(async { tokio::time::timeout(budget, process(body)).await })
+                .catch_unwind()
+                .await
+            {
+                Ok(Ok(value)) => RecordOutcome::Completed(value),
+                Ok(Err(_)) => RecordOutcome::TimedOut,
+                Err(_) => RecordOutcome::Panicked,
+            }
+        } else {
+            RecordOutcome::MissingBody
+        };
+        let attempt = RecordAttempt {
+            message_id,
+            outcome,
+            duration: record_started_at.elapsed(),
+        };
+        if !is_complete(&attempt) {
+            response
+                .batch_item_failures
+                .push(failure(attempt.message_id));
+            response
+                .batch_item_failures
+                .extend(records.map(|record| failure(record.message_id.expect("IDs validated"))));
+            break;
+        }
+    }
     Ok(response)
 }
 
@@ -252,6 +376,139 @@ mod tests {
             .into_iter()
             .map(|f| f.item_identifier)
             .collect()
+    }
+
+    #[tokio::test]
+    async fn fifo_stops_at_first_unfinished_record_and_returns_the_whole_suffix() {
+        for (bad_body, expected_calls) in [(None, 1), (Some("retry"), 2)] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let observed = calls.clone();
+            let response = process_fifo_batch(
+                event(&[
+                    (Some("first"), Some("ok")),
+                    (Some("second"), bad_body),
+                    (Some("third"), Some("ok")),
+                ]),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+                move |body| {
+                    let calls = observed.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        body == "ok"
+                    }
+                },
+                |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(failed(response), ["second", "third"]);
+            assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
+        }
+    }
+
+    #[tokio::test]
+    async fn fifo_all_complete_and_empty_batches_acknowledge() {
+        for records in [
+            vec![],
+            vec![(Some("a"), Some("ok")), (Some("b"), Some("ok"))],
+        ] {
+            let response = process_fifo_batch(
+                event(&records),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+                |_| async { true },
+                |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+            )
+            .await
+            .unwrap();
+            assert!(failed(response).is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn fifo_timeout_panic_and_exhaustion_block_successors() {
+        for mode in ["wait", "panic", "expired"] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let observed = calls.clone();
+            let response = process_fifo_batch(
+                event(&[(Some("bad"), Some(mode)), (Some("next"), Some("ok"))]),
+                if mode == "expired" {
+                    Duration::ZERO
+                } else {
+                    Duration::from_secs(1)
+                },
+                Duration::from_millis(5),
+                move |body| {
+                    let calls = observed.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        match body.as_str() {
+                            "wait" => std::future::pending::<bool>().await,
+                            "panic" => panic!("private record detail"),
+                            _ => true,
+                        }
+                    }
+                },
+                |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+            )
+            .await
+            .unwrap();
+            assert_eq!(failed(response), ["bad", "next"], "{mode}");
+            assert_eq!(calls.load(Ordering::SeqCst), usize::from(mode != "expired"));
+        }
+    }
+
+    #[tokio::test]
+    async fn fifo_invalid_ids_and_oversized_batch_fail_before_setup_or_execution() {
+        let duplicate = [(Some("a"), Some("ok")), (Some("a"), Some("ok"))];
+        let missing = [(Some("a"), Some("ok")), (None, Some("ok"))];
+        let blank = [(Some("a"), Some("ok")), (Some("  "), Some("ok"))];
+        let oversized = vec![(Some("a"), Some("ok")); 11];
+        for records in [&duplicate[..], &missing[..], &blank[..], &oversized[..]] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let observed = calls.clone();
+            assert!(
+                handle_fifo_sqs_invocation(
+                    event(records),
+                    "test",
+                    |_| budget(Duration::from_secs(1)),
+                    move || {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        async { Ok::<_, ()>(()) }
+                    },
+                    |_, _, _| async { panic!("invalid batch must not reach records") },
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert!(
+                process_fifo_batch(
+                    event(records),
+                    Duration::from_secs(1),
+                    Duration::from_secs(1),
+                    |_| async { true },
+                    |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+                )
+                .await
+                .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fifo_setup_failure_retries_every_record() {
+        let response = handle_fifo_sqs_invocation(
+            event(&[(Some("a"), Some("ok")), (Some("b"), Some("ok"))]),
+            "test",
+            |_| budget(Duration::from_millis(10)),
+            || async { std::future::pending::<Result<(), ()>>().await },
+            |_, _, _| async { panic!("setup never completed") },
+        )
+        .await
+        .unwrap();
+        assert_eq!(failed(response), ["a", "b"]);
     }
 
     #[tokio::test]
