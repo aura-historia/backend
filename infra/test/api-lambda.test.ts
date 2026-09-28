@@ -215,7 +215,9 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
       expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
     }
-    expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("ssm:GetParameter");
+    const projectorPolicies = Object.entries(template.findResources("AWS::IAM::Policy"))
+      .filter(([id]) => id.includes("ProductListingOpenSearchLambda") || id.includes("SearchFilterProjectionLambda"));
+    expect(JSON.stringify(projectorPolicies)).not.toContain("ssm:GetParameter");
   });
 
   test("keeps the function private to its execution boundary", () => {

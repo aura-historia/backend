@@ -9,7 +9,7 @@ import {
   ProviderProofRequirement,
   RouteAuthPolicy,
   RouteAuthorizationClass,
-  type RouteDefinition,
+
 } from "../src/constructs/api";
 import { STAGES, stageConfig, type StageName } from "../src/config";
 

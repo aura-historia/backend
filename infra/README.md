@@ -31,9 +31,10 @@ src/constructs/            # focused infrastructure modules
   lambdas.ts               # Lambda definitions, env vars, IAM grants
   network.ts               # two-AZ VPC, one NAT/EIP, S3 endpoint, workload security groups
   observability.ts         # prod-only alarms and alarm topic
+  periodic-matcher.ts      # one-shot saved-filter matching task, Scheduler, DLQ, lifecycle evidence
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # existing Shopify Lambda queue and DLQ
-  worker-queues.ts          # scoped worker queues, unbound IAM policies, handoff outputs
+  worker-queues.ts          # scoped worker queue ownership, worker IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
 sql/
   rds-bootstrap-roles.sql      # break-glass psql wrapper for role bootstrap
@@ -73,6 +74,8 @@ npm run synth -- --context stage=dev
 npm run synth -- --context stage=prod
 npm run synth -- --context stage=ephemeral
 npm run synth:all
+npm run cdk -- synth aura-historia-container-artifacts \
+  --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts'
 ```
 
 These commands build, test, and synthesize only; they do not deploy.
@@ -81,9 +84,10 @@ Synth creates these stacks per stage:
 
 - `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
 - `application-{stage}-data` — private RDS PostgreSQL and DMS/Kinesis CDC in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
-- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
+- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and (real stages only) the periodic matcher task
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
+- `aura-historia-container-artifacts` — stage-neutral retained ECR owner for the image catalog, synthesized separately by `bin/artifacts.ts`
 
 The network stack is absent for `ephemeral`: LocalStack synthesis does not declare a VPC, NAT, EIP, gateway endpoint, or workload security groups. Real-stage stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
 
@@ -113,33 +117,84 @@ Deployments do not require a full CDK bootstrap stack in the target account/regi
 Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
 templates and any future file assets under the stage prefix (`${stage}/`). Lambda ZIPs are referenced as prebuilt S3 artifacts keyed by `CommitSHA`, not as
-CDK-managed assets. The periodic matcher Fargate image remains separate pending
-#1843; no crawler artifact is in this release.
+CDK-managed assets. The periodic matcher is a separate immutable ECR artifact,
+referenced by digest in each real-stage compute stack; it is not a Lambda ZIP or a
+CDK Docker asset. The stage-neutral ECR owner is independently synthesizable without
+compute parameters, Docker, AWS lookups, or secret values.
 
 A push builds and uploads 19 Lambda ZIPs as `<binary>-<stage>-<commit-sha>.zip`
 and the tracked MJML templates as `<stage>/<commit-sha>/mjml/<template-path>.html`
 (for example, `dev/<sha>/mjml/watchlist/product-update/price/en.html`).
 `CommitSHA` is the full Git commit SHA, not the PR head SHA. The compiler is installed
-with `npm --prefix mjml ci` from the checked-in lockfile. Artifacts are stage-local:
-manual Deploy selects keys already uploaded for that stage; it neither builds nor
-copies artifacts from another stage. Ordinary uploads can overwrite an existing
-SHA key and do not guarantee byte immutability. Missing required artifacts fail
-rather than triggering a cross-stage promotion.
+with `npm --prefix mjml ci` from the checked-in lockfile. These artifacts remain
+stage-local; manual Deploy selects existing keys and never builds or copies across
+stages. Ordinary S3 ZIP/template uploads can overwrite an existing SHA key and do
+not guarantee byte immutability.
+
+ECS images are described by the non-secret `ci/container-images.json` catalog. CDK
+validation exposes that catalog as the publishing matrix. Every Deploy (CD) run
+reconciles the independent retained ECR artifact stack after infrastructure tests,
+before publishing images (on push) or deploying the application. Manual
+`workflow_dispatch` updates and rollbacks skip image publication: they resolve
+already-published immutable SHA tags in the reconciled repositories and preflight
+stage mail artifacts. Stage-specific Lambda ZIPs must also have been uploaded for
+the selected SHA; the manual path does not build or upload them. A failed artifact
+reconciliation or missing registry image blocks deployment before compute changes.
+Each push publishes every catalog entry through the same generic job; immutable
+image publication itself does not select a protected deployment environment. For a
+new SHA tag, that job builds one local image, runs the image-owned `ci/container-images/<id>/smoke.sh`, and only then
+adds and pushes the immutable `git-<full-sha>` release tag. Existing tags are reused
+without rebuilding. The registry digest is resolved from ECR; it is not inferred
+from a local image ID. Deploy, Initialize, and manual artifact rollback use the
+shared resolver to query every required repository/SHA tag and pass a complete
+parameter-to-digest map. Matrix jobs do not publish a colliding shared digest job
+output. The container PR workflow builds and tests images without AWS credentials.
+All required artifacts must resolve before migration or compute/API admission.
 
 For a compatible artifact rollback, manually dispatch Deploy with `stage` and an
-older, already uploaded `commit_sha`. The current workflow definition and current
-source run the operation; the supplied SHA selects artifacts, not historical CDK
-code or workflow logic. It requires complete application stacks and uses their
-*previous CloudFormation templates*, updating only the `CommitSHA`
-parameter of initialization and compute and preserving every other parameter,
-including `CdcRouterEnabled`. It does not execute the older embedded migrator or
-initial FX, alter schema history, or roll back network, data, domain or API policy.
-SQLx 0.9.0 rejects migrations absent from or changed in the embedded migration set;
-normal forward migrations retain this validation. Choose artifacts compatible with
-the *current* templates, newer database schema, retained schema-2 jobs and
-provider/template contracts; arbitrary historical infrastructure rollback or old
-releases missing required binaries are not supported. This two-stack update is
-not atomic; already committed writes, email and provider effects are not undone.
+older, already uploaded `commit_sha`. The current workflow definition runs the
+operation; the supplied SHA selects artifacts, not historical CDK code or workflow
+logic. It requires complete application stacks and uses their *previous
+CloudFormation templates*, updating initialization `CommitSHA` and compute
+`CommitSHA` plus every digest parameter in the selected image catalog, while
+preserving every other compute parameter, including `PeriodicMatcherEnabled` and
+`CdcRouterEnabled`. The previous compute template must already support every catalog
+digest parameter and the stable task-definition output; otherwise Deploy stops with an
+infrastructure-upgrade instruction before changing either stack.
+The no-op check compares the source SHA and the complete digest map. Rollback does not
+execute the older embedded migrator or initial FX, alter schema history, or roll back
+network, data, domain or API policy. SQLx 0.9.0 rejects migrations absent from or
+changed in the embedded migration set; normal forward migrations retain this
+validation. Choose artifacts compatible with the current templates, newer database
+schema, retained schema-2 jobs and provider/template contracts; arbitrary historical
+infrastructure rollback or old releases missing required binaries are not supported.
+Adding a catalog image changes the compute release contract. Historical commits
+without a compatible retained image for every current catalog entry are not
+automatically rollback-compatible. Use a separately reviewed infrastructure/template
+compatibility path; never substitute `latest` or rebuild a missing historical artifact.
+This two-stack update is not atomic; already committed writes, email and provider
+effects are not undone.
+
+## Periodic saved-filter matcher (#1843)
+
+The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the shared artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. The undeployed artifact stack uses the generic CloudFormation name `aura-historia-container-artifacts`. The matcher repository's physical name, construct identity, retention, and export name remain unchanged.
+
+The compute stack owns one named scheduled ECS cluster per real stage and injects it into each `ScheduledEcsJob`. The cluster's logical ID `PeriodicMatcherCluster207C1F86` is frozen to preserve the CloudFormation resource during the move from matcher-owned to shared cluster; removing the override requires a CloudFormation migration. This is a migration-specific exception, not a pattern for future scheduled ECS jobs. `infra/src/constructs/scheduled-ecs-job.ts` owns each job's private Fargate task, Scheduler, IAM, DLQ, lifecycle-log and output resources. Jobs select CPU/memory and the catalog image platform (amd64 or arm64), and may add task-role grants; the matcher retains its 1024 CPU / 2048 MiB amd64 task and empty task role. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
+
+The matcher schedule is `cron(0 15 * * ? *)`, timezone `UTC`, flexible window `OFF`, task count one, Fargate platform `1.4.0`. The `PeriodicMatcherEnabled` compute parameter defaults to `false` on first creation. New-template push deploys and Initialize may introduce newly added digest parameters on an older valid compute stack; existing activation values are preserved, while a newly introduced matcher enablement parameter uses its `false` default. Manual artifact rollback changes `CommitSHA` and every catalog digest together while retaining all other parameters and using the deployed CloudFormation template. A pre-feature compute template that lacks a required digest parameter cannot use artifact-only rollback; it must first receive an infrastructure-bearing release. Push publication resolves/reuses an immutable artifact or builds and smoke-tests the selected source once before publishing its final tag. Initialize and manual Deploy only resolve existing registry artifacts and never rebuild, pull, or repeat application-specific image smoke tests. The shared resolver fails on missing or malformed artifacts before migration/admission; it never turns manual or initialization paths into a build.
+
+The image is a normal Linux/amd64 executable, not a Lambda runtime. ECS starts `search-filter-periodic-match` with no arguments; it matches once and exits. Do not set an ECS command override or use an automatic restart loop. The task starts at CPU 1024 / 2048 MiB, uses the existing private application subnets and exactly the existing `ApplicationSecurityGroup`, has no public IP, and has a separate empty task role. Its execution role retrieves only the staged runtime PostgreSQL secret and OpenSearch/Google parameters, pulls this ECR repository, and writes the named application log group. The application receives PostgreSQL JSON `username`/`password` from `/aura-historia/<stage>/postgres/runtime`; OpenSearch reader credentials and ADC are injected through ECS secret references, not plaintext CloudFormation environment values. It uses the committed public RDS CA at `/opt/aura-historia/rds-ca/global-bundle.pem`, read-only root filesystem, non-root UID/GID `10001`, and a task-local writable `/tmp` volume for private ADC materialization.
+
+The matcher preserves the existing bounded service policy and per-filter durable progress. A separate PostgreSQL advisory-lock connection excludes overlapping runs; task cancellation/timeout fails the process and does not reset committed matches or progress. PostgreSQL remains authoritative. Only committed `search_filter_matches` facts enter the existing CDC path; the matcher has no SQS, notification, SES, or schema-migration permission. The daily run is at-least-once scheduling with idempotent business writes, not an exactly-once trigger or exhaustive historical backfill.
+
+There are two independent failure channels:
+
+- Scheduler target-delivery failures go to `aura-historia-periodic-matcher-delivery-<stage>`, a dedicated encrypted Standard SQS DLQ with 14-day retention. Production alarms on visible messages through the existing `cloudwatch-alarms-prod` topic. The queue has no automatic consumer or replay.
+- ECS STOPPED events for the task-family prefix are written to `/aura-historia/<stage>/periodic-matcher-lifecycle`; production sends whitelisted nonzero-container and startup/interruption notifications through the existing alarm topic. Each EventBridge Logs target emits a JSON envelope with exactly a `timestamp` and a string `message`, for example `classification=interruption taskArn=... taskDefinitionArn=... clusterArn=... status=STOPPED stopCode=TaskFailedToStart`. The stopped and nonzero-exit rules omit `stopCode`; only the interruption rule includes it. The application log group is `/aura-historia/<stage>/periodic-matcher`. Retention is 30 days in dev and 90 days in prod. For lifecycle evidence use Logs Insights `fields @timestamp, @message | sort @timestamp desc`; filter with `@message like /classification=interruption/` or `@message like /classification=application-container-nonzero/`. Application logs are JSON; query `job = "search-filter-periodic-match"`, `stage`, `revision`, `outcome`, `duration_ms`, `window_end`, `filters_selected`, `filters_completed`, and `filters_failed`, and inspect the `message` field values `cron.matching.started`, `cron.matching.report`, `cron.matching.finished`, and `cron.matching.terminal`. A report with failed filters is incomplete and exits nonzero. `SkippedAlreadyRunning` exits successfully as an explicit exclusion, not a matched run.
+
+Neither a clear Scheduler DLQ nor these logs prove that the expected daily task completed; there is no missing-heartbeat detector or durable completion journal. Investigate a missing expected occurrence and inspect the named `periodic-matcher` container's exit/startup reason and task-definition revision. The compute stack exposes the stable `PeriodicMatcherTaskDefinitionArn` output consumed by Deploy, Initialize, and rollback summaries, alongside the matcher cluster/task/schedule/log details. Do not depend on generated nested-construct output keys for operator automation.
+
+Pause or enable future invocations only by updating `PeriodicMatcherEnabled` through the approved CloudFormation deployment path while preserving all other parameters. Do not issue `scheduler update-schedule` with a partial target. Pausing does not stop an accepted/in-flight task or retract a delivered invocation; inspect task state and retries before cutover or rollback. The planned rollout still requires separate owner approval for disabled infrastructure deployment, an approved manual task smoke, retirement/drain of any prior native trigger before enabling Scheduler, and inspection of the next daily result. Synthesis, image checks, and workflow completion are not live AWS acceptance evidence. Dev's standalone private-subnet connectivity test remains waived, not passed; the approved destination-CIDR, DNS and TLS review still applies (`docs/opensearch-stage.md`).
 
 ## Rust Lambda artifact contract
 
@@ -472,7 +527,12 @@ update. Then Initialize with that SHA performs migration/initial-FX checks and
 completes creation. A stack in `UPDATE_ROLLBACK_COMPLETE` can be retried; in-progress,
 `UPDATE_ROLLBACK_FAILED` or failed `ROLLBACK_COMPLETE` stacks require operator-owned
 CloudFormation recovery (failed creation cannot simply be updated). No workflow
-automatically deletes retained resources. After a failed initial data-stack creation, inspect retained resources and have an operator delete the `ROLLBACK_COMPLETE` stack before retrying Deploy; CDK cannot update it. There is no SSM readiness flag or separate
+automatically deletes retained resources. After a failed initial data-stack creation,
+inspect retained resources and have an operator delete the `ROLLBACK_COMPLETE` stack
+before retrying Deploy; CDK cannot update it. If CloudFormation deployment succeeds
+but post-deploy output resolution fails, do not rerun deployment blindly: inspect
+current stack parameters first and rerun only the missing output/verification step
+if possible. There is no SSM readiness flag or separate
 worker/partner/maintenance activation flag. Migration
 failure does not undo work already in flight on the previous release; only approve
 schema changes compatible with running work and retained schema-2 jobs. Before

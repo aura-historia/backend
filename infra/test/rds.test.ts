@@ -223,7 +223,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    expect(runtimeSecretReadStatements).toHaveLength(16);
+    // The additional reader is the matcher ECS execution role; the application task role has no secret grant.
+    expect(runtimeSecretReadStatements).toHaveLength(17);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",

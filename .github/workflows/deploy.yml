@@ -5,6 +5,15 @@ on:
     branches: [prod, develop]
     paths:
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/initialize.yml"
+      - ".github/workflows/container-images.yml"
+      - ".github/actions/resolve-container-images/**"
+      - "ci/container-images.json"
+      - "ci/container-images.cjs"
+      - "ci/container-images*.test.cjs"
+      - "ci/container-images/**"
+      - ".dockerignore"
+
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -43,6 +52,8 @@ env:
 jobs:
   infra-test:
     name: Test CDK infrastructure
+    outputs:
+      container_matrix: ${{ steps.container-catalog.outputs.matrix }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -68,6 +79,162 @@ jobs:
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
 
+      - name: Test container catalog helpers
+        run: node --test ci/container-images*.test.cjs
+
+      - name: Read container image catalog
+        id: container-catalog
+        run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
+
+  aws-container-artifacts:
+    name: Reconcile shared container artifact repositories
+    needs: [infra-test]
+    concurrency:
+      group: aws-container-artifact-stack
+      cancel-in-progress: false
+    environment:
+      name: ${{ (github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev') == 'prod' && 'aws-prod' || 'aws-dev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - name: Install CDK dependencies
+        run: npm --prefix infra ci
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Reconcile retained image repositories
+        run: |
+          set -euo pipefail
+          npm --prefix infra run cdk -- deploy aura-historia-container-artifacts \
+            --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts' \
+            --require-approval never --method change-set --exclusively \
+            --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices
+
+  aws-push-container-images:
+    name: Publish image ${{ matrix.id }}
+    if: github.event_name == 'push'
+    needs: [infra-test, aws-container-artifacts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_COMMIT_SHA }}
+      - name: Verify release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$DEPLOY_COMMIT_SHA"
+          node ci/container-images.cjs validate
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Publish tested image or reuse immutable SHA tag
+        shell: bash
+        env:
+          IMAGE_ID: ${{ matrix.id }}
+          IMAGE_BINARY: ${{ matrix.binary }}
+          IMAGE_REPOSITORY: ${{ matrix.repository }}
+          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          tag="git-${DEPLOY_COMMIT_SHA}"
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          uri="${account}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${IMAGE_REPOSITORY}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${uri%/*}"
+          resolve_tag() {
+            node ci/container-images.cjs resolve-one --id "$IMAGE_ID" --commit-sha "$DEPLOY_COMMIT_SHA" "$@"
+          }
+          verify_image() {
+            local image_ref="$1"
+            local inspect_file="$2"
+            docker image inspect "$image_ref" > "$inspect_file"
+            jq -e --arg sha "$DEPLOY_COMMIT_SHA" \
+              --arg source "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              --arg binary "$IMAGE_BINARY" \
+              --arg workflow_prefix "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/" \
+              --arg architecture "${IMAGE_PLATFORM##*/}" \
+              'length == 1 and .[0].Os == "linux" and .[0].Architecture == $architecture and
+               .[0].Config.Labels["org.opencontainers.image.revision"] == $sha and
+               .[0].Config.Labels["org.opencontainers.image.source"] == $source and
+               .[0].Config.Labels["org.opencontainers.image.title"] == $binary and
+               (.[0].Config.Labels["com.aura-historia.build-workflow"] | type == "string" and startswith($workflow_prefix) and test("/actions/runs/[0-9]+/attempts/[0-9]+$"))' \
+              "$inspect_file" >/dev/null || {
+                echo "Image metadata does not match source ${DEPLOY_COMMIT_SHA} and platform ${IMAGE_PLATFORM}." >&2
+                exit 1
+              }
+          }
+          initial="$(resolve_tag --allow-missing)"
+          if [ "$(jq -r '.status' <<< "$initial")" = existing ]; then
+            digest="$(jq -er '.digest' <<< "$initial")"
+            docker pull --platform "$IMAGE_PLATFORM" "${uri}@${digest}"
+            verify_image "${uri}@${digest}" reused-image.json
+            metadata_file=reused-image.json
+          else
+            build_identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+            local_ref="local/${IMAGE_ID}:${DEPLOY_COMMIT_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            docker build --platform "$IMAGE_PLATFORM" \
+              -f "$IMAGE_DOCKERFILE" \
+              --build-arg "SOURCE_REVISION=${DEPLOY_COMMIT_SHA}" \
+              --build-arg "BUILD_WORKFLOW_IDENTITY=${build_identity}" \
+              --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              --label "org.opencontainers.image.revision=${DEPLOY_COMMIT_SHA}" \
+              --label "org.opencontainers.image.title=${IMAGE_BINARY}" \
+              --label "com.aura-historia.build-workflow=${build_identity}" \
+              -t "$local_ref" .
+            verify_image "$local_ref" built-image.json
+            bash "ci/container-images/${IMAGE_ID}/smoke.sh" "$local_ref"
+            docker tag "$local_ref" "${uri}:${tag}"
+            push_succeeded=true
+            if ! docker push "${uri}:${tag}" > push.log 2>&1; then
+              push_succeeded=false
+              cat push.log >&2
+              echo "Push failed; checking once for a trusted immutable publication by a competing writer." >&2
+            fi
+            published="$(resolve_tag --allow-missing)"
+            if [ "$(jq -r '.status' <<< "$published")" != existing ]; then
+              echo "No trusted registry image is available at ${IMAGE_REPOSITORY}:${tag}; retry publication after inspecting the push failure." >&2
+              exit 1
+            fi
+            digest="$(jq -er '.digest' <<< "$published")"
+            docker pull --platform "$IMAGE_PLATFORM" "${uri}@${digest}"
+            verify_image "${uri}@${digest}" published-image.json
+            if [ "$push_succeeded" = false ]; then
+              echo 'Verifying the competing immutable publication with the image-owned smoke test.' >&2
+              bash "ci/container-images/${IMAGE_ID}/smoke.sh" "${uri}@${digest}"
+            fi
+            metadata_file=published-image.json
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid ECR registry digest.' >&2; exit 1; }
+          build_workflow="$(jq -er '.[0].Config.Labels["com.aura-historia.build-workflow"]' "$metadata_file")"
+          {
+            echo "### Container image: ${IMAGE_ID}"
+            echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
+            echo "- Repository: ${IMAGE_REPOSITORY}"
+            echo "- Platform: ${IMAGE_PLATFORM}"
+            echo "- Registry digest: ${digest}"
+            echo "- Build workflow identity: ${build_workflow}"
+            echo "- Publisher verification: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (attempt ${GITHUB_RUN_ATTEMPT})"
+          } >> "$GITHUB_STEP_SUMMARY"
   aws-push-lambda:
     name: Publish Lambda ${{ matrix.binary }}
     if: github.event_name == 'push'
@@ -224,12 +391,21 @@ jobs:
   aws-cdk-deploy:
     name: Deploy CDK stacks after environment approval
     if: >-
-      ${{ always() && needs.infra-test.result == 'success'
+      ${{ always() && needs.infra-test.result == 'success' && needs.aws-container-artifacts.result == 'success'
           && ((github.event_name == 'push' && needs.aws-push-lambda.result == 'success'
-               && needs.aws-push-mail-templates.result == 'success')
+               && needs.aws-push-mail-templates.result == 'success'
+               && needs.aws-push-container-images.result == 'success')
               || (github.event_name == 'workflow_dispatch' && needs.aws-push-lambda.result == 'skipped'
-                  && needs.aws-push-mail-templates.result == 'skipped')) }}
-    needs: [infra-test, aws-push-lambda, aws-push-mail-templates]
+                  && needs.aws-push-mail-templates.result == 'skipped'
+                  && needs.aws-push-container-images.result == 'skipped')) }}
+    needs:
+      [
+        infra-test,
+        aws-push-lambda,
+        aws-push-mail-templates,
+        aws-container-artifacts,
+        aws-push-container-images,
+      ]
     environment:
       name: ${{ (github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev') == 'prod' && 'aws-prod' || 'aws-dev' }}
     runs-on: ubuntu-latest
@@ -266,6 +442,12 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Resolve immutable release images
+        id: container-images
+        uses: ./.github/actions/resolve-container-images
+        with:
+          commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
+
       - name: Ensure account-level DMS VPC role
         if: github.event_name == 'push'
         run: bash infra/scripts/ensure-dms-vpc-role.sh
@@ -273,8 +455,14 @@ jobs:
       - name: Deploy foundation or migrate and update initialized application
         if: github.event_name == 'push'
         shell: bash
+        env:
+          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
         run: |
           set -euo pipefail
+          printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
+          jq -e 'type == "object" and length > 0 and all(.[]; test("^sha256:[0-9a-f]{64}$"))' container-image-digests.json >/dev/null || {
+            echo 'Resolved image digest map is missing or invalid.' >&2; exit 1;
+          }
           deploy() {
             npm --prefix infra run cdk -- deploy "$@" \
               --context stage="${STAGE}" \
@@ -367,18 +555,36 @@ jobs:
           if [ "$STAGE" = prod ]; then
             stacks+=("${STACK_NAME_PREFIX}-observability")
           fi
-          # CDK retains existing activation parameters, including the approved CDC router value.
-          deploy "${stacks[@]}" \
-            --previous-parameters \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
+          # Previous values preserve every activation parameter; the selected catalog digest set is explicit.
+          compute_parameters=("${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}")
+          while IFS= read -r assignment; do
+            compute_parameters+=("${STACK_NAME_PREFIX}-compute:${assignment}")
+          done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' container-image-digests.json)
+          deploy "${stacks[@]}" --previous-parameters --parameters "${compute_parameters[@]}"
+          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json > compute-stack.json; then
+            echo 'Post-deployment output lookup failed. The deployment may already have completed; inspect the existing compute stack before rerunning, and do not rerun migrations or launch another task.' >&2
+            exit 1
+          fi
+          task_definition_outputs="$(node ci/container-images.cjs task-outputs --stack-file compute-stack.json --stack-name "${STACK_NAME_PREFIX}-compute")" || exit 1
+          {
+            echo '## Container image deployment'
+            echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
+            echo "- Image digests: \`$(jq -cS . container-image-digests.json)\`"
+            echo "$task_definition_outputs"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Preflight stage artifacts and deployed stack state
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           MAIL_BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
+          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
         run: |
           set -euo pipefail
+          printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
+          jq -e 'type == "object" and length > 0 and all(.[]; test("^sha256:[0-9a-f]{64}$"))' container-image-digests.json >/dev/null || {
+            echo 'Resolved image digest map is missing or invalid.' >&2; exit 1;
+          }
           # Check tracked templates from the workflow source, not an older release tree.
           template_count=0
           while IFS= read -r -d '' template; do
@@ -412,31 +618,50 @@ jobs:
               echo "Stack $stack must have one valid CommitSHA parameter." >&2; exit 1
             fi
           done
-          if ! jq -e '[.Stacks[0].Parameters[]? | select(.ParameterKey == "CdcRouterEnabled") | .ParameterValue] | length == 1 and (.[0] == "true" or .[0] == "false")' compute-stack.json >/dev/null; then
-            echo 'Compute stack must have a valid CdcRouterEnabled parameter.' >&2; exit 1
-          fi
+          node ci/container-images.cjs previous-update \
+            --stack-file compute-stack.json --commit-sha "$DEPLOY_COMMIT_SHA" \
+            --digests container-image-digests.json > compute-previous-update.json
 
-      - name: Update only artifact SHA with previous CloudFormation templates
+      - name: Update artifact SHA and image digests with previous CloudFormation templates
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
-          for stack in initialize compute; do
-            name="${STACK_NAME_PREFIX}-${stack}"
-            current_sha="$(jq -r '.Stacks[0].Parameters[] | select(.ParameterKey == "CommitSHA") | .ParameterValue' "${stack}-stack.json")"
-            if [ "$current_sha" = "$DEPLOY_COMMIT_SHA" ]; then
-              echo "$name already selects the requested SHA."
-              continue
-            fi
-            # Supply every existing parameter with UsePreviousValue, including CdcRouterEnabled.
+          init_name="${STACK_NAME_PREFIX}-initialize"
+          init_sha="$(jq -r '.Stacks[0].Parameters[] | select(.ParameterKey == "CommitSHA") | .ParameterValue' initialize-stack.json)"
+          if [ "$init_sha" != "$DEPLOY_COMMIT_SHA" ]; then
             jq --arg sha "$DEPLOY_COMMIT_SHA" \
               '[.Stacks[0].Parameters[] | if .ParameterKey == "CommitSHA" then
                 {ParameterKey, ParameterValue: $sha}
               else {ParameterKey, UsePreviousValue: true} end]' \
-              "${stack}-stack.json" > "${stack}-parameters.json"
-            aws cloudformation update-stack --stack-name "$name" \
+              initialize-stack.json > initialize-parameters.json
+            aws cloudformation update-stack --stack-name "$init_name" \
               --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
-              --parameters "file://${stack}-parameters.json" >/dev/null
-            aws cloudformation wait stack-update-complete --stack-name "$name"
-          done
-          echo 'Only initialization and compute artifact parameters were changed; no migration was invoked.' >> "$GITHUB_STEP_SUMMARY"
+              --parameters file://initialize-parameters.json >/dev/null
+            aws cloudformation wait stack-update-complete --stack-name "$init_name"
+          else
+            echo "$init_name already selects the requested release."
+          fi
+
+          compute_name="${STACK_NAME_PREFIX}-compute"
+          if [ "$(jq -r '.unchanged' compute-previous-update.json)" = true ]; then
+            echo "$compute_name already selects the requested source SHA and complete image digest set."
+          else
+            jq '.parameters' compute-previous-update.json > compute-parameters.json
+            aws cloudformation update-stack --stack-name "$compute_name" \
+              --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
+              --parameters file://compute-parameters.json >/dev/null
+            aws cloudformation wait stack-update-complete --stack-name "$compute_name"
+          fi
+          if ! aws cloudformation describe-stacks --stack-name "$compute_name" --output json > compute-stack.json; then
+            echo 'Post-deployment output lookup failed. The artifact update may already have completed; inspect the existing compute stack before rerunning, and do not rerun migrations or launch another task.' >&2
+            exit 1
+          fi
+          task_definition_outputs="$(node ci/container-images.cjs task-outputs --stack-file compute-stack.json --stack-name "$compute_name")" || exit 1
+          {
+            echo '## Artifact rollback selection'
+            echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
+            echo "- Image digests: \`$(jq -cS . container-image-digests.json)\`"
+            echo "$task_definition_outputs"
+            echo '- Only initialization/compute artifact parameters were changed; no migration was invoked.'
+          } >> "$GITHUB_STEP_SUMMARY"
