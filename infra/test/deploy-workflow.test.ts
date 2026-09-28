@@ -46,6 +46,25 @@ describe("container release workflow behavior", () => {
     expect(deployWorkflow).not.toContain("aws-periodic-matcher-artifact-apply");
   });
 
+  test("bootstraps the account-wide DMS VPC role before deploying the data stack, without changing manual rollback", () => {
+    const bootstrap = deployWorkflow.indexOf("bash infra/scripts/ensure-dms-vpc-role.sh");
+    const network = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-network"');
+    const data = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-data"');
+    expect(bootstrap).toBeGreaterThanOrEqual(0);
+    expect(network).toBeGreaterThan(bootstrap);
+    expect(data).toBeGreaterThan(network);
+    expect(deployWorkflow).toMatch(/name: Ensure account-level DMS VPC role\n\s+if: github.event_name == 'push'/);
+  });
+
+  test("manual rollback reuses deployed templates without invoking migrations", () => {
+    const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
+    expect(rollback).toBeDefined();
+    expect(rollback).toContain('--use-previous-template');
+    expect(rollback).toContain('for stack in initialize compute; do');
+    expect(rollback).not.toContain('database-migration-lambda');
+    expect(rollback).not.toMatch(/aws lambda invoke|invoke_function|npm --prefix infra run cdk -- deploy/);
+  });
+
   test("tests a local image before adding its final immutable SHA tag", () => {
     const publisher = job(deployWorkflow, "aws-push-container-images", "aws-push-lambda");
     const smoke = publisher.indexOf('bash "ci/container-images/${IMAGE_ID}/smoke.sh" "$local_ref"');

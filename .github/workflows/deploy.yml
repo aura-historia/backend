@@ -453,6 +453,10 @@ jobs:
         with:
           commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
 
+      - name: Ensure account-level DMS VPC role
+        if: github.event_name == 'push'
+        run: bash infra/scripts/ensure-dms-vpc-role.sh
+
       - name: Deploy foundation or migrate and update initialized application
         if: github.event_name == 'push'
         shell: bash
