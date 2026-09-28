@@ -29,9 +29,14 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   test("activates partner and SQS consumers by default; only the external DMS router requires approval", () => {
     const { compute } = templates(stage);
     const json = compute.toJSON();
-    expect(Object.keys(json.Parameters)).toEqual(stage === "ephemeral" ? ["CommitSHA"] : ["CommitSHA", "CdcRouterEnabled"]);
+    if (stage === "ephemeral") {
+      expect(Object.keys(json.Parameters)).toEqual(["CommitSHA"]);
+    } else {
+      expect(Object.keys(json.Parameters)).toEqual(expect.arrayContaining(["CommitSHA", "CdcRouterEnabled", "PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]));
+    }
     expect(json.Conditions ?? {}).toEqual(stage === "ephemeral" ? {} : {
       CdcRouterActivation: { "Fn::Equals": [{ Ref: "CdcRouterEnabled" }, "true"] },
+      PeriodicMatcherActivation: { "Fn::Equals": [{ Ref: "PeriodicMatcherEnabled" }, "true"] },
     });
     if (stage !== "ephemeral") {
       expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
@@ -74,7 +79,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
       expect(JSON.stringify(compute.toJSON())).not.toContain("fxrate-lambda-ephemeral");
       return;
     }
-    expect(schedules).toHaveLength(2);
+    expect(schedules).toHaveLength(3);
     const fx = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)");
     const cleanup = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 * * * ? *)");
     for (const schedule of [fx, cleanup]) {

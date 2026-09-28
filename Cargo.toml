@@ -15,7 +15,7 @@ members = [
     "src/cdc-router-lambda",
     "src/platform-lambda-sqs",
     "src/platform-worker-queue-contract",
-    "src/aura-historia-cron",
+    "src/search-filter-periodic-match",
     "src/backend-cleanup-lambda",
     "src/product-listing-opensearch-lambda",
     "src/product-listing-normalization-lambda",
@@ -60,6 +60,7 @@ members = [
     "src/product-listing-translation-llm",
     "src/product-listing-postgres",
     "src/platform-observability",
+    "src/platform-google-adc",
     "src/platform-lambda-bootstrap",
     "src/platform-opensearch",
     "src/platform-postgres",
@@ -135,8 +136,6 @@ aws-smithy-types = "1.6.1"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
-cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
-
 credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
 localization = { path = "src/localization" }
@@ -155,6 +154,7 @@ auction-core = { path = "src/auction-core" }
 auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
+platform-google-adc = { path = "src/platform-google-adc" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }

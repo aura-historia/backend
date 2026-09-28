@@ -1,17 +1,16 @@
 [package]
-name = "aura-historia-cron"
+name = "search-filter-periodic-match"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-axum = { workspace = true }
-chrono = { workspace = true }
-cron_tab = { workspace = true }
+
 fxrate-postgres = { workspace = true }
 google-cloud-auth = { workspace = true }
 large-language-model = { workspace = true }
 opensearch = { workspace = true }
+platform-google-adc = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 product-listing-opensearch = { workspace = true }
@@ -22,5 +21,5 @@ thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
 tracing = { workspace = true }

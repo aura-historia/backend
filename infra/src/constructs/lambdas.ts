@@ -679,7 +679,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
     LOOPS_API_BASE_URL: "https://app.loops.so/api",
-    LOOPS_API_KEY: cdk.SecretValue.secretsManager(`/loops/${config.stage}/api-key`).unsafeUnwrap(),
+    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
     LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
   };
 }

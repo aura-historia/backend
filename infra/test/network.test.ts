@@ -72,6 +72,10 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
       "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*",
       "arn:aws:s3:::aura-historia-cfn-artifcats-eu-central-1/*",
     ]));
+    expect(endpoint.PolicyDocument.Statement[1]).toMatchObject({
+      Action: "s3:GetObject",
+      Resource: { "Fn::Join": ["", expect.arrayContaining([":s3:::prod-eu-central-1-starport-layer-bucket/*"])] },
+    });
   });
 
   test("allows PostgreSQL only from named application, DMS, and migration groups", () => {

@@ -61,8 +61,6 @@ export class Eventing extends Construct {
   constructor(scope: Construct, id: string, props: EventingProps) {
     super(scope, id);
 
-    const stageName = props.config.stage;
-
     this.stripeEventBus = props.config.isEphemeral
       ? new events.EventBus(this, "StripeEventBus", {
           eventBusName: props.config.stripeEventBusName,
@@ -247,7 +245,7 @@ function createPartnerEventRules(
 
   allowEventRuleToSendToQueue(scope, "ShopifyEventRuleQueuePolicy", shopifyRule, queues.shopify.queue);
 
-  const stripeRule = new events.Rule(scope, "StripeEventRule", {
+  new events.Rule(scope, "StripeEventRule", {
     eventBus: stripeEventBus,
     eventPattern: {
       detail: {

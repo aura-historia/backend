@@ -1084,7 +1084,7 @@ impl CrawlerCronJob {
             }
         }
 
-        self.scraper_perf.record(total as u64, duration_ms);
+        self.scraper_perf.record(succeeded as u64, duration_ms);
     }
 }
 
@@ -1603,6 +1603,8 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+
+        assert_eq!(job.scraper_perf.snapshot(), (0, 0));
     }
 
     #[tokio::test]
@@ -1659,6 +1661,8 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+
+        assert_eq!(job.scraper_perf.snapshot(), (0, 0));
     }
 
     #[tokio::test]
@@ -1930,6 +1934,12 @@ mod tests {
             .returning(|_, _, _, _, _, _, _| {
                 Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
             });
+        scraper_candidates
+            .expect_mark_as_scraped()
+            .once()
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
 
         let scrape_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let scrape_count_for_mock = Arc::clone(&scrape_count);
@@ -1948,23 +1958,49 @@ mod tests {
                             details: "internal server error".to_string(),
                         })
                     } else {
-                        Ok(None)
+                        let raw_input = crawler_verified_removal_input(&url)
+                            .unwrap_or_else(|error| panic!("test raw input: {error}"));
+                        Ok(Some(ScrapedProduct {
+                            raw_input,
+                            availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
+                                product_listing_core::listing_availability::ListingAvailability::SoldOut,
+                            ),
+                            hash: "success-hash".to_owned(),
+                            schema_fingerprint: "success-schema".to_owned(),
+                            raw_input_sha256: vec![2; 32],
+                        }))
                     }
                 })
             });
 
-        let job = scraper_job(
+        let mut raw_capture = MockProductListingRawCaptureService::new();
+        raw_capture
+            .expect_capture()
+            .once()
+            .returning(|observations| {
+                Box::pin(async move {
+                    vec![ProductListingRawCaptureOutcome::Persisted; observations.len()]
+                })
+            });
+        let (spider_candidates, spider_service) = empty_spider_dependencies();
+        let job = CrawlerCronJob::new(
             CrawlerCronConfig {
                 scraper_domain_delay: Duration::ZERO,
                 ..CrawlerCronConfig::default()
             },
-            scraper_candidates,
-            scraper_service,
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_listing_source_registration(),
+            Box::new(raw_capture),
         );
 
         job.run_scraper_once().await;
 
         assert_eq!(scrape_count.load(Ordering::SeqCst), 2);
+        assert_eq!(job.scraper_perf.snapshot().0, 1);
     }
 
     #[tokio::test]

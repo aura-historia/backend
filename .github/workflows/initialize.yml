@@ -30,6 +30,7 @@ jobs:
     environment:
       name: ${{ inputs.stage == 'prod' && 'aws-prod' || 'aws-dev' }}
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
@@ -72,8 +73,16 @@ jobs:
         with:
           node-version: 26
 
+      - name: Resolve immutable release images
+        id: container-images
+        uses: ./.github/actions/resolve-container-images
+        with:
+          commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
+
       - name: Require deployed foundation at the selected SHA
         shell: bash
+        env:
+          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
         run: |
           set -euo pipefail
           for stack in network data initialize; do
@@ -108,6 +117,10 @@ jobs:
               cat error.txt >&2; exit 1
             fi
           done
+          printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
+          node ci/container-images.cjs initialize-update \
+            --stack-file compute-stack.json --commit-sha "$DEPLOY_COMMIT_SHA" \
+            --digests container-image-digests.json > initialize-compute-update.json
           if [ "$STAGE" = prod ]; then
             if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-observability" \
               --output json > observability-stack.json 2>error.txt; then
@@ -192,13 +205,27 @@ jobs:
             exit 1
           fi
 
-          # CDK uses defaults on creation and previous parameter values on updates (including CDC).
-          deploy "${STACK_NAME_PREFIX}-compute" \
-            --previous-parameters \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
+          # The parameter selector omits activation settings; CDK preserves existing values and applies template defaults to new parameters.
+          compute_parameters=()
+          while IFS= read -r assignment; do
+            compute_parameters+=("${STACK_NAME_PREFIX}-compute:${assignment}")
+          done < <(jq -r '.parameters | to_entries[] | "\(.key)=\(.value)"' initialize-compute-update.json)
+          deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters --parameters "${compute_parameters[@]}"
 
           stacks=("${STACK_NAME_PREFIX}-api")
           if [ "${STAGE}" = "prod" ]; then
             stacks+=("${STACK_NAME_PREFIX}-observability")
           fi
           deploy "${stacks[@]}"
+          if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-compute" --output json > compute-stack.json; then
+            echo 'Post-deployment output lookup failed. Compute deployment may already have completed; inspect the existing compute stack before rerunning, and do not rerun migrations or launch another task.' >&2
+            exit 1
+          fi
+          task_definition_outputs="$(node ci/container-images.cjs task-outputs --stack-file compute-stack.json --stack-name "${STACK_NAME_PREFIX}-compute")" || exit 1
+          {
+            echo '## Initialized container image release'
+            echo "- Source SHA: ${DEPLOY_COMMIT_SHA}"
+            echo "- Image digests: \`$(jq -cS . container-image-digests.json)\`"
+            echo "$task_definition_outputs"
+            echo '- Existing workload activation parameters are preserved; new activation parameters use their disabled defaults.'
+          } >> "$GITHUB_STEP_SUMMARY"

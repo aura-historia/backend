@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as ecs from "aws-cdk-lib/aws-ecs";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
@@ -22,6 +23,10 @@ import {
   Lambdas,
 } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
+import { PeriodicMatcher } from "./constructs/periodic-matcher";
+import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
+import { scheduledEcsClusterName } from "./scheduled-ecs-config";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
@@ -249,6 +254,8 @@ export class ApplicationComputeStack extends cdk.Stack {
   readonly lambdas: Lambdas;
   readonly identity: Identity;
   readonly eventing: Eventing;
+  readonly periodicMatcher?: PeriodicMatcher;
+  readonly scheduledEcsCluster?: ecs.Cluster;
 
   constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
     super(scope, id, stackProps(props));
@@ -309,6 +316,33 @@ export class ApplicationComputeStack extends cdk.Stack {
       cdcRouterActivation: parameters.cdcRouterActivation,
       dmsCdc: props.dmsCdc,
     });
+
+    if (!config.isEphemeral) {
+      if (!props.network) throw new Error("Periodic matcher requires the application network.");
+      this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
+        vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
+      });
+      // Preserve the deployed cluster when ownership moves from PeriodicMatcher to the compute stack.
+      // Removing this override requires a CloudFormation migration; new scheduled jobs must not copy it.
+      (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
+      const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
+        type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
+        description: "Verified immutable ECR image manifest digest for this release.",
+      });
+      const enabled = new cdk.CfnParameter(this, "PeriodicMatcherEnabled", {
+        type: "String", allowedValues: ["true", "false"], default: "false",
+      });
+      const activation = new cdk.CfnCondition(this, "PeriodicMatcherActivation", {
+        expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
+      });
+      this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
+        config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
+        imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
+      });
+      new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
+        value: this.periodicMatcher.taskDefinitionArn,
+      });
+    }
 
     computeOutputs(this, {
       identity: this.identity,
@@ -477,6 +511,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
       ingestionQueues: importQueueCatalog(this, "IngestionQueueAlarmImports", stageName),
+      periodicMatcherDeliveryDlq: sqs.Queue.fromQueueArn(this, "PeriodicMatcherDeliveryDlqImport", this.formatArn({ service: "sqs", resource: periodicMatcherNames(stageName).dlq })),
       maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
         this,
         "MaintenanceSchedulerDeadLetterQueueAlarmImport",

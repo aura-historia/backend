@@ -1,0 +1,28 @@
+name: Resolve immutable container images
+
+description: Resolve every catalog image for one source SHA to verified ECR registry digests.
+
+inputs:
+  commit-sha:
+    description: Full lowercase source commit SHA whose immutable git-SHA tags are required.
+    required: true
+  catalog:
+    description: Catalog path relative to the repository root.
+    required: false
+    default: ci/container-images.json
+
+outputs:
+  digests:
+    description: JSON object mapping CloudFormation digest parameter names to registry digests.
+    value: ${{ steps.resolve.outputs.digests }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve ECR artifacts
+      id: resolve
+      shell: bash
+      env:
+        CONTAINER_COMMIT_SHA: ${{ inputs.commit-sha }}
+        CONTAINER_CATALOG: ${{ inputs.catalog }}
+      run: node "$GITHUB_ACTION_PATH/resolve.mjs"
