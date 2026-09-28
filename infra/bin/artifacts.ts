@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { ContainerArtifactStack } from "../src/artifact-stack";
-import { WORKLOAD_REGION } from "../src/config";
+import { CLOUDFORMATION_STAGING_BUCKET_NAME, WORKLOAD_REGION } from "../src/config";
 
 const app = new cdk.App({ analyticsReporting: false });
 const account = app.node.tryGetContext("account") ?? process.env.CDK_DEFAULT_ACCOUNT;
@@ -10,5 +10,7 @@ if (account !== undefined && !/^\d{12}$/.test(account)) throw new Error("The acc
 if (region !== WORKLOAD_REGION) throw new Error(`Artifact region must be ${WORKLOAD_REGION}.`);
 new ContainerArtifactStack(app, "aura-historia-container-artifacts", {
   env: { account, region },
-  synthesizer: new cdk.CliCredentialsStackSynthesizer(),
+  synthesizer: new cdk.CliCredentialsStackSynthesizer({
+    fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
+  }),
 });
