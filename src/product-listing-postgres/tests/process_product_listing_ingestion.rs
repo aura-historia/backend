@@ -97,6 +97,7 @@ fn handler(pool: &sqlx::PgPool) -> impl ProcessProductListingIngestionUseCase {
 
 // Only the first insert is intercepted; every other operation uses the real SQLx adapters.
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 enum InsertInterception {
     SlugCollision,
     CompetingCreate {
