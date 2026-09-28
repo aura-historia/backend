@@ -320,7 +320,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
         vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
       });
-      // Preserve the existing named cluster during the move out of PeriodicMatcher.
+      // Preserve the deployed cluster when ownership moves from PeriodicMatcher to the compute stack.
+      // Removing this override requires a CloudFormation migration; new scheduled jobs must not copy it.
       (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
       const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
         type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",

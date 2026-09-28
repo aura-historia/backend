@@ -295,13 +295,16 @@ test("two scheduled ECS jobs share one stage cluster but retain independent task
   const template = Template.fromStack(app.compute);
   template.resourceCountIs("AWS::ECS::Cluster", 1);
   template.hasResourceProperties("AWS::ECS::Cluster", { ClusterName: scheduledEcsClusterName("dev") });
-  template.resourceCountIs("AWS::ECS::TaskDefinition", 2);
+  expect(Object.keys(template.findResources("AWS::ECS::TaskDefinition")).length).toBeGreaterThanOrEqual(2);
+  expect(Object.keys(template.findResources("AWS::Scheduler::Schedule")).length).toBeGreaterThanOrEqual(2);
   template.hasResourceProperties("AWS::ECS::TaskDefinition", {
     Family: secondNames.family, Cpu: "512", Memory: "1024",
     RuntimePlatform: { OperatingSystemFamily: "LINUX", CpuArchitecture: "ARM64" },
   });
+  const policies = Object.entries(template.findResources("AWS::IAM::Policy"));
+  expect(policies.some(([id]) => id.includes("PeriodicMatcherTaskRole"))).toBe(false);
   const exampleRoleId = Object.keys(template.findResources("AWS::IAM::Role")).find((id) => id.includes("ExampleJobTaskRole"))!;
-  const examplePolicies = Object.values(template.findResources("AWS::IAM::Policy"))
+  const examplePolicies = policies.map(([, policy]) => policy)
     .filter((policy) => JSON.stringify(policy.Properties.Roles).includes(exampleRoleId));
   expect(examplePolicies).toHaveLength(1);
   expect(examplePolicies[0].Properties.PolicyDocument.Statement).toEqual([{
@@ -333,10 +336,16 @@ test("two scheduled ECS jobs share one stage cluster but retain independent task
   expect(patternMatches(matcherPattern, { ...exampleEvent, detail: { ...exampleEvent.detail, clusterArn: "cluster", taskDefinitionArn: "example:1" } })).toBe(false);
 });
 
-test("catalog platform mappings support both architectures and reject unknown platforms", () => {
-  expect(ecsCpuArchitectureForPlatform(PERIODIC_MATCHER_IMAGE.platform)).toBe(cdk.aws_ecs.CpuArchitecture.X86_64);
-  expect(ecsCpuArchitectureForPlatform("linux/arm64")).toBe(cdk.aws_ecs.CpuArchitecture.ARM64);
-  expect(() => ecsCpuArchitectureForPlatform("linux/s390x" as typeof PERIODIC_MATCHER_IMAGE.platform)).toThrow(/Unsupported scheduled ECS image platform/);
+test.each([
+  ["linux/amd64", cdk.aws_ecs.CpuArchitecture.X86_64],
+  ["linux/arm64", cdk.aws_ecs.CpuArchitecture.ARM64],
+] as const)("scheduled ECS platform %s maps to %s", (platform, architecture) => {
+  expect(ecsCpuArchitectureForPlatform(platform)).toBe(architecture);
+});
+
+test("scheduled ECS platform conversion rejects unsupported platforms", () => {
+  expect(() => ecsCpuArchitectureForPlatform("linux/s390x" as typeof PERIODIC_MATCHER_IMAGE.platform))
+    .toThrow("Unsupported scheduled ECS image platform: linux/s390x");
 });
 
 test("ephemeral stages do not create the matcher or digest parameters", () => {

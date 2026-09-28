@@ -54,7 +54,6 @@ jobs:
     name: Test CDK infrastructure
     outputs:
       container_matrix: ${{ steps.container-catalog.outputs.matrix }}
-      reconcile_artifact_stack: ${{ steps.artifact-changes.outputs.reconcile }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -87,34 +86,14 @@ jobs:
         id: container-catalog
         run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
 
-      - name: Detect repository definition changes
-        if: github.event_name == 'push'
-        id: artifact-changes
-        shell: bash
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            echo 'reconcile=true' >> "$GITHUB_OUTPUT"
-          else
-            git fetch --no-tags --depth=1 origin "$BEFORE_SHA"
-            if [[ -n "$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- ci/container-images.json infra/src/container-image-catalog.ts infra/src/artifact-stack.ts infra/bin/artifacts.ts)" ]]; then
-              echo 'reconcile=true' >> "$GITHUB_OUTPUT"
-            else
-              echo 'reconcile=false' >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
   aws-container-artifacts:
     name: Reconcile shared container artifact repositories
-    if: github.event_name == 'push' && needs.infra-test.outputs.reconcile_artifact_stack == 'true'
     needs: [infra-test]
     concurrency:
       group: aws-container-artifact-stack
       cancel-in-progress: false
     environment:
-      name: ${{ github.ref == 'refs/heads/prod' && 'aws-prod' || 'aws-dev' }}
+      name: ${{ (github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev') == 'prod' && 'aws-prod' || 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,9 +122,7 @@ jobs:
 
   aws-push-container-images:
     name: Publish image ${{ matrix.id }}
-    if: >-
-      ${{ always() && github.event_name == 'push' && needs.infra-test.result == 'success'
-          && (needs.aws-container-artifacts.result == 'success' || (needs.infra-test.outputs.reconcile_artifact_stack == 'false' && needs.aws-container-artifacts.result == 'skipped')) }}
+    if: github.event_name == 'push'
     needs: [infra-test, aws-container-artifacts]
     runs-on: ubuntu-latest
     permissions:
@@ -414,14 +391,12 @@ jobs:
   aws-cdk-deploy:
     name: Deploy CDK stacks after environment approval
     if: >-
-      ${{ always() && needs.infra-test.result == 'success'
+      ${{ always() && needs.infra-test.result == 'success' && needs.aws-container-artifacts.result == 'success'
           && ((github.event_name == 'push' && needs.aws-push-lambda.result == 'success'
                && needs.aws-push-mail-templates.result == 'success'
-               && (needs.aws-container-artifacts.result == 'success' || (needs.infra-test.outputs.reconcile_artifact_stack == 'false' && needs.aws-container-artifacts.result == 'skipped'))
                && needs.aws-push-container-images.result == 'success')
               || (github.event_name == 'workflow_dispatch' && needs.aws-push-lambda.result == 'skipped'
                   && needs.aws-push-mail-templates.result == 'skipped'
-                  && needs.aws-container-artifacts.result == 'skipped'
                   && needs.aws-push-container-images.result == 'skipped')) }}
     needs:
       [
