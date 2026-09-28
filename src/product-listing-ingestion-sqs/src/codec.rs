@@ -227,6 +227,14 @@ impl WireActor {
             id: actor.actor_id(),
         }
     }
+    // Credential transport kind stays on the wire; both ways of acting as the same user
+    // share the service's USER idempotency scope.
+    fn identity_kind(&self) -> &str {
+        match self.kind.as_str() {
+            "DELEGATED_USER" => "USER",
+            _ => &self.kind,
+        }
+    }
     fn to_actor(&self) -> Result<ProductListingIngestionActor> {
         match (self.kind.as_str(), self.id.as_deref()) {
             ("USER", Some(id)) => Ok(ProductListingIngestionActor::User(
@@ -656,7 +664,7 @@ fn fingerprint(actor: &WireActor, payload: &WirePayload) -> Result<String> {
     Ok(digest(
         FINGERPRINT_DOMAIN,
         &[
-            actor.kind.as_bytes(),
+            actor.identity_kind().as_bytes(),
             actor.id.as_deref().unwrap_or("").as_bytes(),
             &bytes,
         ],
@@ -1109,7 +1117,7 @@ mod tests {
         value["semanticFingerprint"] = json!(digest(
             FINGERPRINT_DOMAIN,
             &[
-                envelope.actor.kind.as_bytes(),
+                envelope.actor.identity_kind().as_bytes(),
                 envelope.actor.id.as_deref().unwrap_or("").as_bytes(),
                 &payload,
             ]
@@ -1613,6 +1621,32 @@ mod tests {
     }
 
     #[test]
+    fn user_and_delegated_user_share_the_v1_fingerprint_golden_vector() {
+        let mut value = golden_fixtures()[3].clone();
+        value["actor"] = json!({
+            "kind": "USER",
+            "id": "usr_01h455vb4pex5vy7enb1p677vn",
+        });
+        let user = decode_value(&value).unwrap();
+        // Fixed SHA-256 vector for the canonical USER scope and the golden WITHDRAW payload.
+        assert_eq!(
+            semantic_fingerprint(&user).unwrap(),
+            "001a9fbe03d64ac315f965fc0d815c0a6d9cebef60076721e0e544374cd18f6b"
+        );
+        value["actor"]["kind"] = json!("DELEGATED_USER");
+        let delegated = decode_value(&value).unwrap();
+        assert_eq!(
+            semantic_fingerprint(&user),
+            semantic_fingerprint(&delegated)
+        );
+        assert_eq!(
+            fifo_deduplication_id(&user),
+            fifo_deduplication_id(&delegated)
+        );
+        assert_ne!(user.actor().unwrap(), delegated.actor().unwrap());
+    }
+
+    #[test]
     fn fingerprint_is_actor_scoped_and_verified_before_consumer_access() {
         let mut value = fixture("WITHDRAW", Value::Null);
         let source = value["listingSourceId"].as_str().unwrap().to_owned();
@@ -1635,19 +1669,63 @@ mod tests {
         assert_ne!(semantic_fingerprint(&service), semantic_fingerprint(&user));
         value["actor"]["kind"] = json!("DELEGATED_USER");
         let delegated = decode_value(&value).unwrap();
-        assert_ne!(
+        assert_eq!(user.command_id(), delegated.command_id());
+        assert_eq!(user.submission_id(), delegated.submission_id());
+        assert_eq!(fifo_group_id(&user), fifo_group_id(&delegated));
+        assert_ne!(user.actor().unwrap(), delegated.actor().unwrap());
+        assert_eq!(
             semantic_fingerprint(&user),
             semantic_fingerprint(&delegated)
+        );
+        assert_eq!(
+            fifo_deduplication_id(&user),
+            fifo_deduplication_id(&delegated)
+        );
+        let mut another_user = value.clone();
+        another_user["actor"]["id"] = json!(user_core::user_id::UserId::new().to_string());
+        let another_user = decode_value(&another_user).unwrap();
+        assert_ne!(
+            semantic_fingerprint(&delegated),
+            semantic_fingerprint(&another_user)
+        );
+        assert!(matches!(
+            delegated
+                .clone()
+                .into_service_envelope()
+                .unwrap()
+                .message
+                .metadata
+                .actor,
+            ProductListingIngestionActor::DelegatedUser(_)
+        ));
+        let mut retried = value.clone();
+        retried["requestId"] = json!("retry-request");
+        retried["correlationId"] = json!("retry-correlation");
+        retried["preparedAt"] = json!("2026-01-02T00:00:00Z");
+        let retried = decode_value(&retried).unwrap();
+        assert_eq!(
+            semantic_fingerprint(&delegated),
+            semantic_fingerprint(&retried)
+        );
+        assert_eq!(
+            fifo_deduplication_id(&delegated),
+            fifo_deduplication_id(&retried)
         );
 
         let mut tampered = fingerprinted_value(&value).unwrap();
         tampered["payload"]["command"]["sourceListingId"] = json!("other");
         assert!(decode(&tampered.to_string()).is_err());
         tampered = fingerprinted_value(&value).unwrap();
-        tampered["actor"]["kind"] = json!("USER");
+        tampered["actor"]["id"] = json!(user_core::user_id::UserId::new().to_string());
         assert!(decode(&tampered.to_string()).is_err());
         let unverified: IngestionEnvelopeV1 = serde_json::from_value(tampered.clone()).unwrap();
         assert_eq!(unverified.verified_fingerprint(), Err(CodecError::Invalid));
+        let mut same_user = fingerprinted_value(&value).unwrap();
+        same_user["actor"]["kind"] = json!("USER");
+        assert!(matches!(
+            decode(&same_user.to_string()).unwrap().actor().unwrap(),
+            ProductListingIngestionActor::User(_)
+        ));
         tampered = fingerprinted_value(&value).unwrap();
         tampered["semanticFingerprint"] = json!("0".repeat(64));
         assert!(decode(&tampered.to_string()).is_err());

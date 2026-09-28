@@ -4,7 +4,9 @@ use std::sync::{
 };
 
 use application::{
-    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+    operation_context::{
+        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
+    },
     patch_field::PatchField,
 };
 use auction_core::AuctionId;
@@ -17,6 +19,7 @@ use product_listing_core::{
     product_listing_id::{ProductListingId, ProductListingKey},
     source_listing_id::SourceListingId,
 };
+use product_listing_ingestion_sqs::codec;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
@@ -681,6 +684,185 @@ async fn duplicate_create_fails_without_receipt_and_original_completion_is_prese
         processor.execute(first).await.unwrap(),
         ProductListingIngestionCompletion::AlreadyCompleted
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn user_and_delegated_user_with_same_key_replay_one_receipt() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let actor = UserId::new();
+    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'FREE', 'USER')")
+        .bind(actor.into_uuid())
+        .bind(format!("{actor}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let party: uuid::Uuid = sqlx::query_scalar(
+        "SELECT operator_party_id FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let partnership = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+        .bind(partnership)
+        .bind(party)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO partnership_members (user_id, partnership_id) VALUES ($1, $2)")
+        .bind(actor.into_uuid())
+        .bind(partnership)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id) VALUES ($1, $2)")
+        .bind(partnership)
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let user = prepared(
+        source,
+        Principal::User(actor),
+        "same-key",
+        vec![upsert(source, "one", "https://example.test/user")],
+    )
+    .await
+    .remove(0);
+    let delegated = prepared(
+        source,
+        Principal::DelegatedUser {
+            user_id: actor,
+            capabilities: [CredentialCapability::ProductListingsWrite]
+                .into_iter()
+                .collect(),
+        },
+        "same-key",
+        vec![upsert(source, "one", "https://example.test/user")],
+    )
+    .await
+    .remove(0);
+    // These integration envelopes must carry the actual verified codec fingerprint, unlike
+    // the constant-fingerprint fixtures that isolate receipt/transaction behavior elsewhere.
+    let user_wire = codec::decode(&codec::encode(&user.message).unwrap()).unwrap();
+    let delegated_wire = codec::decode(&codec::encode(&delegated.message).unwrap()).unwrap();
+    assert_eq!(
+        codec::semantic_fingerprint(&user_wire).unwrap(),
+        codec::semantic_fingerprint(&delegated_wire).unwrap()
+    );
+    assert_eq!(
+        codec::fifo_deduplication_id(&user_wire).unwrap(),
+        codec::fifo_deduplication_id(&delegated_wire).unwrap()
+    );
+    let user = user_wire.into_service_envelope().unwrap();
+    let delegated = delegated_wire.into_service_envelope().unwrap();
+    assert_eq!(
+        user.message.metadata.submission_id,
+        delegated.message.metadata.submission_id
+    );
+    assert_eq!(
+        user.message.metadata.command_id,
+        delegated.message.metadata.command_id
+    );
+    assert_ne!(
+        user.message.metadata.actor,
+        delegated.message.metadata.actor
+    );
+    let processor = handler(&pool);
+    assert!(matches!(
+        processor.execute(user.clone()).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(_)
+    ));
+    assert_eq!(
+        processor.execute(delegated.clone()).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert_eq!(counts(&pool).await, (1, 1, 1));
+
+    // A changed command with the same ID is a conflict, not a replay or second write.
+    let changed = prepared(
+        source,
+        Principal::User(actor),
+        "same-key",
+        vec![upsert(source, "one", "https://example.test/changed")],
+    )
+    .await
+    .remove(0);
+    let changed = codec::decode(&codec::encode(&changed.message).unwrap())
+        .unwrap()
+        .into_service_envelope()
+        .unwrap();
+    assert_eq!(
+        changed.message.metadata.command_id,
+        user.message.metadata.command_id
+    );
+    assert_ne!(changed.fingerprint, user.fingerprint);
+    assert!(matches!(
+        processor.execute(changed).await,
+        Err(ProductListingIngestionError::FingerprintConflict)
+    ));
+    assert_eq!(
+        processor.execute(user).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    let url: String =
+        sqlx::query_scalar("SELECT url FROM product_listings WHERE source_listing_id = 'one'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(url, "https://example.test/user");
+    assert_eq!(counts(&pool).await, (1, 1, 1));
+
+    let delegated_first = prepared(
+        source,
+        Principal::DelegatedUser {
+            user_id: actor,
+            capabilities: [CredentialCapability::ProductListingsWrite]
+                .into_iter()
+                .collect(),
+        },
+        "second-key",
+        vec![upsert(source, "two", "https://example.test/two")],
+    )
+    .await
+    .remove(0);
+    let user_second = prepared(
+        source,
+        Principal::User(actor),
+        "second-key",
+        vec![upsert(source, "two", "https://example.test/two")],
+    )
+    .await
+    .remove(0);
+    let delegated_wire = codec::decode(&codec::encode(&delegated_first.message).unwrap()).unwrap();
+    let user_wire = codec::decode(&codec::encode(&user_second.message).unwrap()).unwrap();
+    assert_eq!(delegated_wire.command_id(), user_wire.command_id());
+    assert_eq!(
+        codec::semantic_fingerprint(&delegated_wire),
+        codec::semantic_fingerprint(&user_wire)
+    );
+    assert_eq!(
+        codec::fifo_deduplication_id(&delegated_wire),
+        codec::fifo_deduplication_id(&user_wire)
+    );
+    assert!(matches!(
+        processor
+            .execute(delegated_wire.into_service_envelope().unwrap())
+            .await
+            .unwrap(),
+        ProductListingIngestionCompletion::Applied(_)
+    ));
+    assert_eq!(
+        processor
+            .execute(user_wire.into_service_envelope().unwrap())
+            .await
+            .unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert_eq!(counts(&pool).await, (2, 2, 2));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
