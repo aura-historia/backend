@@ -25,7 +25,6 @@ const SUBMISSION_IDENTITY_DOMAIN: &[u8] = b"aura.product-listing-ingestion.submi
 const COMMAND_IDENTITY_DOMAIN: &[u8] = b"aura.product-listing-ingestion.command.v1";
 
 /// One typed item with its position in the unfiltered original request.
-/// One typed item with its position in the unfiltered original request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexedProductListingIngestionIntent {
     pub index: usize,
@@ -1049,6 +1048,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_user_and_delegated_user_share_identity_across_unchanged_retries() {
+        let source = ListingSourceId::new();
+        let user_id = UserId::new();
+        let handler = SubmitPartnerProductListingIngestionHandler::new(FakePublisher::default());
+        let request = |source, key| {
+            submission(
+                source,
+                vec![IndexedProductListingIngestionIntent {
+                    index: 2,
+                    intent: upsert(source, "same-listing"),
+                }],
+                3,
+                key,
+            )
+        };
+        let user = context(Principal::User(user_id));
+        let delegated = context(Principal::DelegatedUser {
+            user_id,
+            capabilities: [CredentialCapability::ProductListingsWrite]
+                .into_iter()
+                .collect(),
+        });
+        let first = handler
+            .execute(&user, request(source, "same-key"))
+            .await
+            .unwrap();
+        let via_token = handler
+            .execute(&delegated, request(source, "same-key"))
+            .await
+            .unwrap();
+        let mut retry_context = delegated.clone();
+        retry_context.request_id = RequestId::new("retry-request");
+        retry_context.correlation_id = CorrelationId::new("retry-correlation");
+        let retry = handler
+            .execute(&retry_context, request(source, "same-key"))
+            .await
+            .unwrap();
+        assert_eq!(first.submission_id, via_token.submission_id);
+        assert_eq!(first.items[0].command_id, via_token.items[0].command_id);
+        assert_eq!(via_token.submission_id, retry.submission_id);
+        assert_eq!(via_token.items[0].command_id, retry.items[0].command_id);
+        assert_ne!(
+            via_token.items[0].command_id,
+            handler
+                .execute(&delegated, request(source, "other-key"))
+                .await
+                .unwrap()
+                .items[0]
+                .command_id
+        );
+        assert_ne!(
+            via_token.items[0].command_id,
+            handler
+                .execute(&delegated, request(ListingSourceId::new(), "same-key"))
+                .await
+                .unwrap()
+                .items[0]
+                .command_id
+        );
+        let calls = captured_calls(&handler.publisher);
+        assert!(calls.iter().all(|batch| batch[0].metadata.index == 2));
+        assert_eq!(
+            calls[0][0].metadata.actor,
+            ProductListingIngestionActor::User(user_id)
+        );
+        assert_eq!(
+            calls[1][0].metadata.actor,
+            ProductListingIngestionActor::DelegatedUser(user_id)
+        );
+        assert_eq!(calls[1][0].intent, calls[2][0].intent);
+    }
+
+    #[tokio::test]
     async fn repeated_listing_keys_keep_separate_original_indices_and_command_ids() {
         let source_id = ListingSourceId::new();
         let publisher = FakePublisher::default();
@@ -1104,6 +1176,7 @@ mod tests {
                 ProductListingIngestionOutcome::Unconfirmed,
                 ProductListingIngestionOutcome::NotAttempted {
                     reason: ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                    retryable: false,
                 },
             ],
         };
@@ -1113,13 +1186,14 @@ mod tests {
                 &context(Principal::System),
                 submission(
                     source_id,
-                    (0..4)
+                    [0, 2, 4, 6]
+                        .into_iter()
                         .map(|index| IndexedProductListingIngestionIntent {
                             index,
                             intent: upsert(source_id, &format!("source-{index}")),
                         })
                         .collect(),
-                    4,
+                    7,
                     "key",
                 ),
             )
@@ -1143,8 +1217,18 @@ mod tests {
         assert_eq!(
             ProductListingIngestionOutcome::NotAttempted {
                 reason: ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                retryable: false,
             },
             result.items[3].outcome,
+        );
+        assert_eq!(
+            [0, 2, 4, 6],
+            result
+                .items
+                .iter()
+                .map(|item| item.index)
+                .collect::<Vec<_>>()
+                .as_slice()
         );
         assert_eq!(1, result.confirmed_accepted_count());
     }
@@ -1291,6 +1375,10 @@ mod tests {
             &ProductListingIngestionActor::DelegatedUser(user_id),
             source_id,
             &key,
+        );
+        assert_eq!(
+            user_seed.submission_id(),
+            delegated_user_seed.submission_id()
         );
         assert_eq!(
             user_seed.command_id(ProductListingIngestionOperation::Upsert, 0),

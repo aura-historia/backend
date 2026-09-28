@@ -314,6 +314,8 @@ pub enum ProductListingIngestionOutcome {
     Unconfirmed,
     NotAttempted {
         reason: ProductListingIngestionNotAttemptedReason,
+        /// Whether retrying the unchanged whole submission can help without correcting the cause.
+        retryable: bool,
     },
 }
 

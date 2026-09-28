@@ -29,7 +29,12 @@ pub struct SqsProductListingIngestionPublisher {
     client: Client,
     queue_url: String,
     budget: Duration,
-    caller_deadline: Option<tokio::time::Instant>,
+}
+
+/// An invocation-scoped view of a reusable SQS publisher. Do not retain this across requests.
+pub struct InvocationProductListingIngestionPublisher<'a> {
+    publisher: &'a SqsProductListingIngestionPublisher,
+    deadline: tokio::time::Instant,
 }
 
 impl SqsProductListingIngestionPublisher {
@@ -38,7 +43,6 @@ impl SqsProductListingIngestionPublisher {
             client,
             queue_url: queue_url.into(),
             budget: DEFAULT_BUDGET,
-            caller_deadline: None,
         }
     }
 
@@ -47,19 +51,22 @@ impl SqsProductListingIngestionPublisher {
         self
     }
 
-    /// Caps publication by the caller's remaining response budget, including any headroom
-    /// reserved by the caller for mapping and returning its result.
-    pub fn with_deadline(mut self, deadline: tokio::time::Instant) -> Self {
-        self.caller_deadline = Some(deadline);
-        self
+    /// Create a separate view for each call, with the response headroom already subtracted.
+    /// The underlying SDK client and default publisher budget remain reusable.
+    pub fn with_deadline(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> InvocationProductListingIngestionPublisher<'_> {
+        InvocationProductListingIngestionPublisher {
+            publisher: self,
+            deadline,
+        }
     }
-}
 
-#[async_trait::async_trait]
-impl ProductListingIngestionPublisher for SqsProductListingIngestionPublisher {
-    async fn publish(
+    async fn publish_until(
         &self,
         commands: Vec<ProductListingIngestionMessage>,
+        caller_deadline: Option<tokio::time::Instant>,
     ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
         if commands.is_empty() {
             return Ok(Vec::new());
@@ -80,8 +87,7 @@ impl ProductListingIngestionPublisher for SqsProductListingIngestionPublisher {
         }
 
         let budget_deadline = tokio::time::Instant::now() + self.budget;
-        let deadline = self
-            .caller_deadline
+        let deadline = caller_deadline
             .unwrap_or(budget_deadline)
             .min(budget_deadline);
         // Preflight all commands independently, before starting any SQS request. Invalid commands
@@ -134,6 +140,28 @@ impl ProductListingIngestionPublisher for SqsProductListingIngestionPublisher {
     }
 }
 
+#[async_trait::async_trait]
+impl ProductListingIngestionPublisher for SqsProductListingIngestionPublisher {
+    async fn publish(
+        &self,
+        commands: Vec<ProductListingIngestionMessage>,
+    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
+        self.publish_until(commands, None).await
+    }
+}
+
+#[async_trait::async_trait]
+impl ProductListingIngestionPublisher for InvocationProductListingIngestionPublisher<'_> {
+    async fn publish(
+        &self,
+        commands: Vec<ProductListingIngestionMessage>,
+    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
+        self.publisher
+            .publish_until(commands, Some(self.deadline))
+            .await
+    }
+}
+
 struct EncodedMessage {
     body: String,
     group_id: String,
@@ -177,8 +205,9 @@ fn rejected(code: &str, retryable: bool) -> ProductListingIngestionOutcome {
 
 fn not_attempted(
     reason: ProductListingIngestionNotAttemptedReason,
+    retryable: bool,
 ) -> ProductListingIngestionOutcome {
-    ProductListingIngestionOutcome::NotAttempted { reason }
+    ProductListingIngestionOutcome::NotAttempted { reason, retryable }
 }
 
 #[derive(Clone, Debug)]
@@ -235,10 +264,19 @@ impl BatchTransport for SdkTransport<'_> {
                 .map_err(|_| SendError::NotSent)?;
             request = request.entries(entry);
         }
-        let response = request.send().await.map_err(|error| match error {
-            SdkError::ConstructionFailure(_) => SendError::NotSent,
-            _ => SendError::Uncertain,
-        })?;
+        // A transport call must be one HTTP attempt: only the outer publisher can track
+        // uncertainty across retries and distinguish possible acceptance from rejection.
+        let response = request
+            .customize()
+            .config_override(aws_sdk_sqs::config::Builder::new().retry_config(
+                aws_sdk_sqs::config::retry::RetryConfig::standard().with_max_attempts(1),
+            ))
+            .send()
+            .await
+            .map_err(|error| match error {
+                SdkError::ConstructionFailure(_) => SendError::NotSent,
+                _ => SendError::Uncertain,
+            })?;
         Ok(BatchResponse {
             successful: response
                 .successful()
@@ -266,7 +304,7 @@ async fn submit_batches<T: BatchTransport>(
     outcomes: &mut [Option<ProductListingIngestionOutcome>],
     deadline: tokio::time::Instant,
 ) {
-    let mut blocked = HashSet::new();
+    let mut blocked = HashMap::new();
     loop {
         let mut batch = Vec::new();
         let mut positions = Vec::new();
@@ -276,7 +314,7 @@ async fn submit_batches<T: BatchTransport>(
             let Some(message) = message.as_ref() else {
                 continue;
             };
-            if outcomes[position].is_some() || blocked.contains(&message.group_id) {
+            if outcomes[position].is_some() || blocked.contains_key(&message.group_id) {
                 continue;
             }
             // Claim the group's earliest unresolved eligible item *before* capacity checks.
@@ -306,29 +344,32 @@ async fn submit_batches<T: BatchTransport>(
             .into_iter()
             .zip(send_batch(transport, batch, deadline).await)
         {
-            if !matches!(result, ProductListingIngestionOutcome::Accepted)
-                && !matches!(result, ProductListingIngestionOutcome::NotAttempted { .. })
-            {
+            let retryable = match &result {
+                ProductListingIngestionOutcome::Rejected { retryable, .. } => Some(*retryable),
+                ProductListingIngestionOutcome::Unconfirmed => Some(true),
+                _ => None,
+            };
+            if let (Some(retryable), Some(message)) = (retryable, &encoded[position]) {
                 // A rejected/ambiguous eligible predecessor blocks all its successors.
-                if let Some(message) = &encoded[position] {
-                    blocked.insert(message.group_id.clone());
-                }
+                blocked.insert(message.group_id.clone(), retryable);
             }
             outcomes[position] = Some(result);
         }
     }
     for (position, message) in encoded.iter().enumerate() {
         if outcomes[position].is_none() {
-            outcomes[position] = Some(not_attempted(
-                if message
-                    .as_ref()
-                    .is_some_and(|m| blocked.contains(&m.group_id))
-                {
-                    ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor
-                } else {
-                    ProductListingIngestionNotAttemptedReason::DeadlineExceeded
+            outcomes[position] = Some(
+                match message.as_ref().and_then(|m| blocked.get(&m.group_id)) {
+                    Some(&retryable) => not_attempted(
+                        ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                        retryable,
+                    ),
+                    None => not_attempted(
+                        ProductListingIngestionNotAttemptedReason::DeadlineExceeded,
+                        true,
+                    ),
                 },
-            ));
+            );
         }
     }
 }
@@ -356,7 +397,10 @@ async fn send_batch<T: BatchTransport>(
         if tokio::time::Instant::now() >= deadline {
             for position in pending {
                 results[position] = Some(if attempt == 0 {
-                    not_attempted(ProductListingIngestionNotAttemptedReason::DeadlineExceeded)
+                    not_attempted(
+                        ProductListingIngestionNotAttemptedReason::DeadlineExceeded,
+                        true,
+                    )
                 } else {
                     unresolved_failure(uncertain[position])
                 });
@@ -482,6 +526,9 @@ async fn wait_for_retry(attempt: usize, deadline: tokio::time::Instant) -> bool 
     tokio::time::sleep(delay).await;
     tokio::time::Instant::now() < deadline
 }
+
+#[cfg(test)]
+mod sdk_tests;
 
 #[cfg(test)]
 mod tests {
@@ -726,7 +773,10 @@ mod tests {
         ));
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                false
+            )
         );
         assert_eq!(results[2], ProductListingIngestionOutcome::Accepted);
     }
@@ -734,13 +784,13 @@ mod tests {
     #[tokio::test]
     async fn exhausted_definite_failure_is_retryable_but_not_accepted() {
         let fake = Fake::new(vec![
-            FakeReply::Partial(vec![], vec![(0, false)]),
+            FakeReply::Partial(vec![1], vec![(0, false)]),
             FakeReply::Partial(vec![], vec![(0, false)]),
             FakeReply::Partial(vec![], vec![(0, false)]),
         ]);
         let results = run(
             &fake,
-            vec![message("a", 1), message("a", 1)],
+            vec![message("a", 1), message("a", 1), message("b", 1)],
             Duration::from_secs(1),
         )
         .await;
@@ -753,8 +803,12 @@ mod tests {
         ));
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
+        assert_eq!(results[2], ProductListingIngestionOutcome::Accepted);
     }
 
     #[tokio::test]
@@ -770,7 +824,10 @@ mod tests {
         assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
     }
 
@@ -798,7 +855,10 @@ mod tests {
         assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
         assert_eq!(results[2], ProductListingIngestionOutcome::Accepted);
         assert_eq!(results[3], ProductListingIngestionOutcome::Accepted);
@@ -817,7 +877,10 @@ mod tests {
         assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
         assert_eq!(results[2], ProductListingIngestionOutcome::Accepted);
     }
@@ -854,7 +917,10 @@ mod tests {
         assert_eq!(results[2], ProductListingIngestionOutcome::Accepted);
         assert_eq!(
             results[3],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                false
+            )
         );
     }
 
@@ -886,7 +952,10 @@ mod tests {
         ));
         assert_eq!(
             results[11],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                false
+            )
         );
     }
 
@@ -919,7 +988,10 @@ mod tests {
             assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
             assert_eq!(
                 results[1],
-                not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+                not_attempted(
+                    ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                    true
+                )
             );
         }
     }
@@ -961,7 +1033,10 @@ mod tests {
         assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
 
         let fake = Fake::new(vec![FakeReply::NotSent]);
@@ -1014,7 +1089,10 @@ mod tests {
         assert_eq!(results[0], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
         let fake = Fake::new(vec![FakeReply::Partial(vec![], vec![(0, false)])]);
         let results = run(&fake, vec![message("a", 1)], Duration::from_millis(10)).await;
@@ -1041,13 +1119,19 @@ mod tests {
         assert_eq!(results[2], ProductListingIngestionOutcome::Unconfirmed);
         assert_eq!(
             results[1],
-            not_attempted(ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::BlockedByFifoPredecessor,
+                true
+            )
         );
         let fake = Fake::new(vec![]);
         let results = run(&fake, vec![message("a", 1)], Duration::ZERO).await;
         assert_eq!(
             results[0],
-            not_attempted(ProductListingIngestionNotAttemptedReason::DeadlineExceeded)
+            not_attempted(
+                ProductListingIngestionNotAttemptedReason::DeadlineExceeded,
+                true
+            )
         );
         assert!(fake.calls().is_empty());
     }

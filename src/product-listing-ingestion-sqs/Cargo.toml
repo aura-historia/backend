@@ -22,3 +22,9 @@ time = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 url = { workspace = true }
 user-core = { workspace = true }
+
+[dev-dependencies]
+aws-sdk-sqs = "=1.112.0"
+aws-smithy-runtime-api = "=1.18.0"
+aws-smithy-types = "=1.8.1"
+http = { workspace = true }
