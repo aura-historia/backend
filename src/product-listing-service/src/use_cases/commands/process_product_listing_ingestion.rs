@@ -80,6 +80,108 @@ pub enum ProductListingIngestionError {
     CaptureRaw(#[from] CaptureProductListingRawObservationError),
 }
 
+impl ProductListingIngestionError {
+    /// Bounded, payload-free diagnostic code for the queue boundary. Keep matches exhaustive so
+    /// newly introduced failure variants cannot silently collapse into a generic retry reason.
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::InvalidMetadata => "INVALID_METADATA",
+            Self::FingerprintConflict => "FINGERPRINT_CONFLICT",
+            Self::BeginTransactionFailed => "BEGIN_TRANSACTION_FAILED",
+            Self::CommitTransactionFailed => "COMMIT_UNCONFIRMED",
+            Self::Receipt(error) => match error {
+                ProductListingCommandReceiptError::InvalidIdentity => "RECEIPT_INVALID_IDENTITY",
+                ProductListingCommandReceiptError::AlreadyExists => "RECEIPT_ALREADY_EXISTS",
+                ProductListingCommandReceiptError::InvalidPersistedState => "RECEIPT_INVALID_PERSISTED_STATE",
+                ProductListingCommandReceiptError::OperationFailed { .. } => "RECEIPT_OPERATION_FAILED",
+            },
+            Self::Create(error) => match error {
+                CreateProductListingError::AuthenticatedActorRequired => "CREATE_AUTHENTICATED_ACTOR_REQUIRED",
+                CreateProductListingError::Forbidden => "CREATE_FORBIDDEN",
+                CreateProductListingError::ListingSourceNotFound => "CREATE_LISTING_SOURCE_NOT_FOUND",
+                CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. } => "CREATE_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
+                CreateProductListingError::PartnerAuthorizationInternal { .. } => "CREATE_PARTNER_AUTHORIZATION_INTERNAL",
+                CreateProductListingError::AuctionNotFound => "CREATE_AUCTION_NOT_FOUND",
+                CreateProductListingError::AuctionSourceMismatch => "CREATE_AUCTION_SOURCE_MISMATCH",
+                CreateProductListingError::AuctionReferenceTemporarilyUnavailable { .. } => "CREATE_AUCTION_REFERENCE_TEMPORARILY_UNAVAILABLE",
+                CreateProductListingError::SourceListingAlreadyExists => "CREATE_SOURCE_LISTING_ALREADY_EXISTS",
+                CreateProductListingError::ProductListingTitleSlugAlreadyExists => "CREATE_TITLE_SLUG_ALREADY_EXISTS",
+                CreateProductListingError::ProductListingTitleSlugGenerationExhausted => "CREATE_TITLE_SLUG_GENERATION_EXHAUSTED",
+                CreateProductListingError::InvalidProductListing => "CREATE_INVALID_PRODUCT_LISTING",
+                CreateProductListingError::CreatedEventMissing => "CREATE_CREATED_EVENT_MISSING",
+                CreateProductListingError::PersistenceFailed => "CREATE_PERSISTENCE_FAILED",
+                CreateProductListingError::EventAppenderFailed { .. } => "CREATE_EVENT_APPENDER_FAILED",
+                CreateProductListingError::BeginTransactionFailed => "CREATE_BEGIN_TRANSACTION_FAILED",
+                CreateProductListingError::CommitTransactionFailed => "CREATE_COMMIT_TRANSACTION_FAILED",
+            },
+            Self::Update(error) => match error {
+                UpdateProductListingError::AuthenticatedActorRequired => "UPDATE_AUTHENTICATED_ACTOR_REQUIRED",
+                UpdateProductListingError::Forbidden => "UPDATE_FORBIDDEN",
+                UpdateProductListingError::ListingSourceNotFound => "UPDATE_LISTING_SOURCE_NOT_FOUND",
+                UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. } => "UPDATE_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
+                UpdateProductListingError::PartnerAuthorizationInternal { .. } => "UPDATE_PARTNER_AUTHORIZATION_INTERNAL",
+                UpdateProductListingError::AuctionNotFound => "UPDATE_AUCTION_NOT_FOUND",
+                UpdateProductListingError::AuctionSourceMismatch => "UPDATE_AUCTION_SOURCE_MISMATCH",
+                UpdateProductListingError::AuctionReferenceTemporarilyUnavailable { .. } => "UPDATE_AUCTION_REFERENCE_TEMPORARILY_UNAVAILABLE",
+                UpdateProductListingError::NotFound => "UPDATE_NOT_FOUND",
+                UpdateProductListingError::ListingWithdrawn => "UPDATE_LISTING_WITHDRAWN",
+                UpdateProductListingError::UrlRequired => "UPDATE_URL_REQUIRED",
+                UpdateProductListingError::InvalidProductListing => "UPDATE_INVALID_PRODUCT_LISTING",
+                UpdateProductListingError::PersistenceFailed => "UPDATE_PERSISTENCE_FAILED",
+                UpdateProductListingError::EventAppenderFailed { .. } => "UPDATE_EVENT_APPENDER_FAILED",
+                UpdateProductListingError::BeginTransactionFailed => "UPDATE_BEGIN_TRANSACTION_FAILED",
+                UpdateProductListingError::CommitTransactionFailed => "UPDATE_COMMIT_TRANSACTION_FAILED",
+            },
+            Self::Upsert(error) => match error {
+                UpsertProductListingError::AuthenticatedActorRequired => "UPSERT_AUTHENTICATED_ACTOR_REQUIRED",
+                UpsertProductListingError::Forbidden => "UPSERT_FORBIDDEN",
+                UpsertProductListingError::ListingSourceNotFound => "UPSERT_LISTING_SOURCE_NOT_FOUND",
+                UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. } => "UPSERT_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
+                UpsertProductListingError::PartnerAuthorizationInternal { .. } => "UPSERT_PARTNER_AUTHORIZATION_INTERNAL",
+                UpsertProductListingError::AuctionNotFound => "UPSERT_AUCTION_NOT_FOUND",
+                UpsertProductListingError::AuctionSourceMismatch => "UPSERT_AUCTION_SOURCE_MISMATCH",
+                UpsertProductListingError::AuctionReferenceTemporarilyUnavailable { .. } => "UPSERT_AUCTION_REFERENCE_TEMPORARILY_UNAVAILABLE",
+                UpsertProductListingError::ListingWithdrawn => "UPSERT_LISTING_WITHDRAWN",
+                UpsertProductListingError::InvalidProductListing { .. } => "UPSERT_INVALID_PRODUCT_LISTING",
+                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted => "UPSERT_TITLE_SLUG_GENERATION_EXHAUSTED",
+                UpsertProductListingError::PersistenceFailed => "UPSERT_PERSISTENCE_FAILED",
+                UpsertProductListingError::EventAppenderFailed { .. } => "UPSERT_EVENT_APPENDER_FAILED",
+                UpsertProductListingError::BeginTransactionFailed => "UPSERT_BEGIN_TRANSACTION_FAILED",
+                UpsertProductListingError::CommitTransactionFailed => "UPSERT_COMMIT_TRANSACTION_FAILED",
+            },
+            Self::Withdraw(error) => match error {
+                WithdrawProductListingError::AuthenticatedActorRequired => "WITHDRAW_AUTHENTICATED_ACTOR_REQUIRED",
+                WithdrawProductListingError::Forbidden => "WITHDRAW_FORBIDDEN",
+                WithdrawProductListingError::ListingSourceNotFound => "WITHDRAW_LISTING_SOURCE_NOT_FOUND",
+                WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. } => "WITHDRAW_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
+                WithdrawProductListingError::PartnerAuthorizationInternal { .. } => "WITHDRAW_PARTNER_AUTHORIZATION_INTERNAL",
+                WithdrawProductListingError::NotFound => "WITHDRAW_NOT_FOUND",
+                WithdrawProductListingError::PersistenceFailed => "WITHDRAW_PERSISTENCE_FAILED",
+                WithdrawProductListingError::EventAppenderFailed { .. } => "WITHDRAW_EVENT_APPENDER_FAILED",
+                WithdrawProductListingError::BeginTransactionFailed => "WITHDRAW_BEGIN_TRANSACTION_FAILED",
+                WithdrawProductListingError::CommitTransactionFailed => "WITHDRAW_COMMIT_TRANSACTION_FAILED",
+            },
+            Self::CaptureRaw(error) => match error {
+                CaptureProductListingRawObservationError::AuthenticatedActorRequired => "CAPTURE_RAW_AUTHENTICATED_ACTOR_REQUIRED",
+                CaptureProductListingRawObservationError::Forbidden => "CAPTURE_RAW_FORBIDDEN",
+                CaptureProductListingRawObservationError::SourceRecordKeyTooLong { .. } => "CAPTURE_RAW_SOURCE_RECORD_KEY_TOO_LONG",
+                CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul => "CAPTURE_RAW_SOURCE_RECORD_KEY_EMBEDDED_NUL",
+                CaptureProductListingRawObservationError::InvalidInput { .. } => "CAPTURE_RAW_INVALID_INPUT",
+                CaptureProductListingRawObservationError::ListingSourceNotFound => "CAPTURE_RAW_LISTING_SOURCE_NOT_FOUND",
+                CaptureProductListingRawObservationError::PartnerAuthorizationTemporarilyUnavailable { .. } => "CAPTURE_RAW_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
+                CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. } => "CAPTURE_RAW_PARTNER_AUTHORIZATION_INTERNAL",
+                CaptureProductListingRawObservationError::SourceRecordKeyHashCollision => "CAPTURE_RAW_SOURCE_RECORD_KEY_HASH_COLLISION",
+                CaptureProductListingRawObservationError::ProviderReceiptDigestConflict => "CAPTURE_RAW_PROVIDER_RECEIPT_DIGEST_CONFLICT",
+                CaptureProductListingRawObservationError::ProviderSourceOrderConflict => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_CONFLICT",
+                CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_AMBIGUOUS",
+                CaptureProductListingRawObservationError::BeginTransactionFailed => "CAPTURE_RAW_BEGIN_TRANSACTION_FAILED",
+                CaptureProductListingRawObservationError::CaptureFailed { .. } => "CAPTURE_RAW_CAPTURE_FAILED",
+                CaptureProductListingRawObservationError::CommitTransactionFailed => "CAPTURE_RAW_COMMIT_TRANSACTION_FAILED",
+            },
+        }
+    }
+}
+
 #[async_trait::async_trait]
 pub trait ProcessProductListingIngestionUseCase: Send + Sync {
     async fn execute(
@@ -319,6 +421,101 @@ where
                 .await
                 .map_err(|_| ProductListingIngestionError::CommitTransactionFailed)?;
             return Ok(ProductListingIngestionCompletion::Applied(effect));
+        }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    use application::error::{StaticError, box_error};
+
+    #[test]
+    fn ingestion_diagnostic_codes_distinguish_receipt_transaction_and_business_failures() {
+        let cases = [
+            (
+                ProductListingIngestionError::InvalidMetadata,
+                "INVALID_METADATA",
+            ),
+            (
+                ProductListingIngestionError::FingerprintConflict,
+                "FINGERPRINT_CONFLICT",
+            ),
+            (
+                ProductListingIngestionError::BeginTransactionFailed,
+                "BEGIN_TRANSACTION_FAILED",
+            ),
+            (
+                ProductListingIngestionError::CommitTransactionFailed,
+                "COMMIT_UNCONFIRMED",
+            ),
+            (
+                ProductListingIngestionError::Receipt(
+                    ProductListingCommandReceiptError::InvalidIdentity,
+                ),
+                "RECEIPT_INVALID_IDENTITY",
+            ),
+            (
+                ProductListingIngestionError::Receipt(
+                    ProductListingCommandReceiptError::AlreadyExists,
+                ),
+                "RECEIPT_ALREADY_EXISTS",
+            ),
+            (
+                ProductListingIngestionError::Receipt(
+                    ProductListingCommandReceiptError::InvalidPersistedState,
+                ),
+                "RECEIPT_INVALID_PERSISTED_STATE",
+            ),
+            (
+                ProductListingIngestionError::Receipt(
+                    ProductListingCommandReceiptError::OperationFailed {
+                        source: box_error(StaticError("secret")),
+                    },
+                ),
+                "RECEIPT_OPERATION_FAILED",
+            ),
+            (
+                ProductListingIngestionError::Create(
+                    CreateProductListingError::SourceListingAlreadyExists,
+                ),
+                "CREATE_SOURCE_LISTING_ALREADY_EXISTS",
+            ),
+            (
+                ProductListingIngestionError::Update(UpdateProductListingError::NotFound),
+                "UPDATE_NOT_FOUND",
+            ),
+            (
+                ProductListingIngestionError::Update(UpdateProductListingError::Forbidden),
+                "UPDATE_FORBIDDEN",
+            ),
+            (
+                ProductListingIngestionError::Upsert(
+                    UpsertProductListingError::InvalidProductListing {
+                        source: box_error(StaticError("secret")),
+                    },
+                ),
+                "UPSERT_INVALID_PRODUCT_LISTING",
+            ),
+            (
+                ProductListingIngestionError::Withdraw(WithdrawProductListingError::Forbidden),
+                "WITHDRAW_FORBIDDEN",
+            ),
+            (
+                ProductListingIngestionError::CaptureRaw(
+                    CaptureProductListingRawObservationError::ProviderReceiptDigestConflict,
+                ),
+                "CAPTURE_RAW_PROVIDER_RECEIPT_DIGEST_CONFLICT",
+            ),
+        ];
+        for (error, expected) in cases {
+            let code = error.diagnostic_code();
+            assert_eq!(code, expected);
+            assert!(!code.contains("secret"));
+            assert!(
+                code.bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+            );
         }
     }
 }
