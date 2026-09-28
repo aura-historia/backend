@@ -76,6 +76,14 @@ These are separate concepts. Enrichment advances `current_event_id` and `project
 
 Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` rows. It strictly decodes v1 payloads through direct DTO mapping without aggregate reconstruction, orders by `event_time ASC, event_id ASC`, and reports invalid persisted event data as an operation error instead of silently omitting it.
 
+## ProductListing ingestion command receipts
+
+`product_listing_command_receipts` is PostgreSQL-only operational idempotency state for downstream execution, not queue admission or a submission registry. Its primary key is the versioned `command_id` (`plic1_` plus 64 lowercase hex characters); `submission_id` is correlation metadata only. Each committed receipt retains the verified 32-byte semantic fingerprint, ListingSource ID, operation, the sole completion code `APPLIED`, and a database-assigned `completed_at` timestamp. Only successfully applied commands receive a receipt; business rejections are not persisted as completions. It contains no raw command, actor credentials, provider evidence, exception text, or response payload. Rows have no TTL or business-row foreign key: deletion of a listing/source does not permit an old command to execute again.
+
+Execution must acquire the namespaced transaction advisory lock for `command_id`, read the receipt, reject conflicting fingerprints/metadata rather than replay them, and commit the successful completion receipt in the **same PostgreSQL transaction** as any canonical or raw write. A matching committed receipt is a duplicate; an absent receipt permits execution only while holding that lock. Rolled-back, rejected, or retryable failures must not leave a receipt. The primary key is a final duplicate fence. Locking is per command, not per submission or source; it does not order distinct commands or replace aggregate concurrency control. A collision in the 64-bit advisory hash only causes extra serialization, never shared identity.
+
+The CDK DMS table mappings explicitly select only `product_listing_events`, `product_listing_raw_revisions`, `search_filters`, `search_filter_matches`, and `notification_deliveries` (with an exact selection assertion in `infra/test/dms-cdc.test.ts`). This new receipt table is **not selected** for DMS/Kinesis, historical Sequin, analytics, projections, or worker routing; keep it excluded on future CDC changes.
+
 ## Indexed read paths
 
 - User watchlist lists use `created DESC, product_listing_id ASC`; reverse product watcher reads use `product_listing_id, user_id ASC`.

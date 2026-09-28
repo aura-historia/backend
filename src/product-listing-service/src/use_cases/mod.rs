@@ -26,6 +26,11 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsUseCase,
 };
 
+pub use commands::process_product_listing_ingestion::{
+    ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
+    ProductListingIngestionCompletion, ProductListingIngestionEffect,
+    ProductListingIngestionEnvelope, ProductListingIngestionError,
+};
 pub use commands::product_listing_ingestion::{
     ProductListingIngestionActor, ProductListingIngestionCommandId,
     ProductListingIngestionFingerprint, ProductListingIngestionIdempotencyKey,

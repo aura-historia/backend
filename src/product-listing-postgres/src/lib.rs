@@ -5,6 +5,7 @@ pub mod product_listing_event_appender;
 mod product_listing_event_codec;
 
 pub mod partner_product_listing_authorizer;
+pub mod product_listing_command_receipt;
 pub mod product_listing_content_assessment_source_reader;
 pub mod product_listing_content_assessment_writer;
 pub mod product_listing_embedding_source_reader;
@@ -19,6 +20,7 @@ mod url;
 
 pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;
 
+pub use product_listing_command_receipt::SqlxProductListingCommandReceiptStoreFactory;
 pub use product_listing_content_assessment_source_reader::SqlxProductListingContentAssessmentSourceReader;
 pub use product_listing_content_assessment_writer::SqlxProductListingContentAssessmentWriterFactory;
 pub use product_listing_embedding_source_reader::SqlxProductListingEmbeddingSourceReader;
