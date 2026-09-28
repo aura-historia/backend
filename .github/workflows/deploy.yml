@@ -266,6 +266,10 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Ensure account-level DMS VPC role
+        if: github.event_name == 'push'
+        run: bash infra/scripts/ensure-dms-vpc-role.sh
+
       - name: Deploy foundation or migrate and update initialized application
         if: github.event_name == 'push'
         shell: bash
