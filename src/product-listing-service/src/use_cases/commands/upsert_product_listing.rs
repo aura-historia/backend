@@ -150,11 +150,15 @@ impl<U, R, E, A, V> UpsertProductListingHandler<U, R, E, A, V> {
         }
     }
 }
-enum AttemptError {
+/// A retryable race requires the caller to discard the transaction before retrying.
+pub(crate) enum UpsertProductListingApplyError {
     SourceRace,
-    SlugRace,
+    SlugCollision,
     Failed(UpsertProductListingError),
 }
+
+use UpsertProductListingApplyError as AttemptError;
+
 impl<U, R, E, A, V, G> UpsertProductListingHandler<U, R, E, A, V, G>
 where
     U: UnitOfWork,
@@ -164,19 +168,21 @@ where
     V: AuctionReferenceValidatorFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
-    async fn execute_attempt(
+    pub(crate) async fn apply_in_transaction(
         &self,
+        tx: &mut U::Tx,
         context: &OperationContext,
-        command: UpsertProductListingCommand,
+        command: &UpsertProductListingCommand,
         id: ProductListingId,
-    ) -> Result<UpsertProductListingResult, AttemptError> {
-        let mut tx =
-            self.unit_of_work.begin().await.map_err(|_| {
-                AttemptError::Failed(UpsertProductListingError::BeginTransactionFailed)
-            })?;
+    ) -> Result<UpsertProductListingResult, UpsertProductListingApplyError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<UpsertProductListingError>()
+            .map_err(UpsertProductListingApplyError::Failed)?;
         if let Some(actor) = partner_actor(&context.principal) {
             self.authorizer
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .authorize(actor, command.listing_source_id)
                 .await
                 .map_err(|e| AttemptError::Failed(e.into()))?;
@@ -184,13 +190,13 @@ where
         let key =
             ProductListingKey::new(command.listing_source_id, command.source_listing_id.clone());
         let found = {
-            let mut repository = self.products.in_transaction(&mut tx);
+            let mut repository = self.products.in_transaction(tx);
             repository
                 .find_by_key(&key)
                 .await
                 .map_err(|e| AttemptError::Failed(e.into()))?
         };
-        let result = match found {
+        match found {
             Some(loaded) => {
                 let mut product = loaded.value;
                 product
@@ -219,7 +225,7 @@ where
                                 })?;
                         if let PatchField::Set(auction_id) = &patch.auction_id {
                             self.auction_references
-                                .in_transaction(&mut tx)
+                                .in_transaction(tx)
                                 .validate(*auction_id, product.listing_source_id())
                                 .await
                                 .map_err(|e| AttemptError::Failed(e.into()))?;
@@ -227,7 +233,7 @@ where
                         Some(auction)
                     }
                 };
-                apply_update(&mut product, &command, auction).map_err(AttemptError::Failed)?;
+                apply_update(&mut product, command, auction).map_err(AttemptError::Failed)?;
                 let event = product.take_pending_event_payload().map(|payload| {
                     stamp_product_listing_event(
                         product.id(),
@@ -238,12 +244,12 @@ where
                 let outcome = if let Some(event) = event {
                     let effects = ProductListingWriteEffects::from(&event.payload);
                     self.products
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .update(&product, loaded.version, event.event_id, effects)
                         .await
                         .map_err(|e| AttemptError::Failed(e.into()))?;
                     self.events
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .append(&event)
                         .await
                         .map_err(|e| AttemptError::Failed(e.into()))?;
@@ -287,7 +293,7 @@ where
                             })?;
                         if let PatchField::Set(auction_id) = &patch.auction_id {
                             self.auction_references
-                                .in_transaction(&mut tx)
+                                .in_transaction(tx)
                                 .validate(*auction_id, command.listing_source_id)
                                 .await
                                 .map_err(|e| AttemptError::Failed(e.into()))?;
@@ -330,7 +336,7 @@ where
                 );
                 let persisted = self
                     .products
-                    .in_transaction(&mut tx)
+                    .in_transaction(tx)
                     .insert(&product, event.event_id)
                     .await
                     .map_err(|e| match e {
@@ -338,12 +344,12 @@ where
                             AttemptError::SourceRace
                         }
                         ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
-                            AttemptError::SlugRace
+                            AttemptError::SlugCollision
                         }
                         error => AttemptError::Failed(error.into()),
                     })?;
                 self.events
-                    .in_transaction(&mut tx)
+                    .in_transaction(tx)
                     .append(&event)
                     .await
                     .map_err(|e| AttemptError::Failed(e.into()))?;
@@ -354,11 +360,7 @@ where
                     },
                 ))
             }
-        }?;
-        tx.commit().await.map_err(|_| {
-            AttemptError::Failed(UpsertProductListingError::CommitTransactionFailed)
-        })?;
-        Ok(result)
+        }
     }
 }
 #[async_trait::async_trait]
@@ -384,8 +386,21 @@ where
         let mut source_race_retried = false;
         let mut slug_attempts = 0;
         loop {
-            match self.execute_attempt(context, command.clone(), id).await {
-                Ok(result) => return Ok(result),
+            let mut tx = self
+                .unit_of_work
+                .begin()
+                .await
+                .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
+            match self
+                .apply_in_transaction(&mut tx, context, &command, id)
+                .await
+            {
+                Ok(result) => {
+                    tx.commit()
+                        .await
+                        .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
+                    return Ok(result);
+                }
                 Err(AttemptError::SourceRace) if !source_race_retried => {
                     source_race_retried = true;
                     continue;
@@ -393,7 +408,7 @@ where
                 Err(AttemptError::SourceRace) => {
                     return Err(UpsertProductListingError::PersistenceFailed);
                 }
-                Err(AttemptError::SlugRace) => {
+                Err(AttemptError::SlugCollision) => {
                     slug_attempts += 1;
                     if title_slug_collision_retry(slug_attempts, true)
                         == TitleSlugCollisionRetry::Retry
@@ -921,6 +936,75 @@ mod tests {
             ),
             (1, 1, 0, 1, 1)
         );
+    }
+
+    #[tokio::test]
+    async fn should_apply_upsert_without_committing_callers_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = handler(&state);
+        let mut tx = handler
+            .unit_of_work
+            .begin()
+            .await
+            .expect("begin transaction");
+
+        let result = handler
+            .apply_in_transaction(&mut tx, &context(), &command(), ProductListingId::new())
+            .await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        {
+            let state = lock(&state);
+            assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 0));
+            assert_eq!((state.inserts, state.event_appends), (1, 1));
+        }
+        tx.commit().await.expect("commit caller transaction");
+        assert_eq!(lock(&state).commits, 1);
+    }
+
+    #[tokio::test]
+    async fn should_return_typed_source_and_slug_collisions_without_committing() {
+        for (error, is_source_race) in [
+            (
+                ProductListingRepositoryError::SourceListingAlreadyExists,
+                true,
+            ),
+            (
+                ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists,
+                false,
+            ),
+        ] {
+            let state = Arc::new(Mutex::new(State {
+                insert_results: VecDeque::from([Err(error)]),
+                ..Default::default()
+            }));
+            let handler = handler(&state);
+            let mut tx = handler
+                .unit_of_work
+                .begin()
+                .await
+                .expect("begin transaction");
+
+            let result = handler
+                .apply_in_transaction(&mut tx, &context(), &command(), ProductListingId::new())
+                .await;
+
+            if is_source_race {
+                assert!(matches!(
+                    result,
+                    Err(UpsertProductListingApplyError::SourceRace)
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(UpsertProductListingApplyError::SlugCollision)
+                ));
+            }
+            drop(tx);
+            let state = lock(&state);
+            assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
+            assert_eq!((state.inserts, state.event_appends), (1, 0));
+        }
     }
 
     #[tokio::test]
