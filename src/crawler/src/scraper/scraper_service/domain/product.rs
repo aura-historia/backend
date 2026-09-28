@@ -1,10 +1,13 @@
-use crate::network::policy::{DomainFailureKind, domain_failure_kind};
+use crate::CrawlerDomainId;
+use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use listing_source_core::ListingSourceId;
 use money::Currency;
 use product_listing_normalization::{
     ListingAvailabilityQuickCheck, ProductListingNormalizationInput,
 };
+use std::cell::RefCell;
+use std::future::Future;
 use url::Url;
 
 /// Result of a successful scrape — the raw normalization input together with
@@ -45,6 +48,110 @@ pub enum DomainFetchHealth {
 pub struct ScrapeOutcome {
     pub result: Result<Option<ScrapedProduct>, ScraperError>,
     pub domain_health: DomainFetchHealth,
+}
+
+struct ScrapeObservationState {
+    domain_id: CrawlerDomainId,
+    transport_health: Option<DomainFetchHealth>,
+}
+
+tokio::task_local! {
+    static SCRAPE_OBSERVATION: RefCell<ScrapeObservationState>;
+}
+
+/// Runs a scrape with the persisted domain identity and returns the transport
+/// observation collected by the primary/seed fetches. Test doubles that do not
+/// participate in this context return `None` and retain the legacy fallback at
+/// the caller boundary.
+pub(crate) async fn with_scrape_observation<F, T>(
+    domain_id: CrawlerDomainId,
+    future: F,
+) -> (T, Option<DomainFetchHealth>)
+where
+    F: Future<Output = T>,
+{
+    SCRAPE_OBSERVATION
+        .scope(
+            RefCell::new(ScrapeObservationState {
+                domain_id,
+                transport_health: None,
+            }),
+            async {
+                let result = future.await;
+                let observation =
+                    SCRAPE_OBSERVATION.with(|state| state.borrow().transport_health.clone());
+                (result, observation)
+            },
+        )
+        .await
+}
+
+pub(crate) fn current_scrape_domain_id() -> Option<CrawlerDomainId> {
+    SCRAPE_OBSERVATION
+        .try_with(|state| state.borrow().domain_id)
+        .ok()
+}
+
+pub(crate) fn begin_transport_observation() {
+    let _ = SCRAPE_OBSERVATION.try_with(|state| {
+        state.borrow_mut().transport_health = Some(DomainFetchHealth::NotObserved);
+    });
+}
+
+pub(crate) fn current_transport_observation() -> Option<DomainFetchHealth> {
+    SCRAPE_OBSERVATION
+        .try_with(|state| state.borrow().transport_health.clone())
+        .ok()
+        .flatten()
+}
+
+pub(crate) fn record_transport_observation(health: DomainFetchHealth) {
+    let _ = SCRAPE_OBSERVATION.try_with(|state| {
+        state.borrow_mut().transport_health = Some(health);
+    });
+}
+
+pub(crate) fn record_transport_success() {
+    record_transport_observation(DomainFetchHealth::Responsive);
+}
+
+pub(crate) fn record_transport_fetch_error(
+    kind: NetworkErrorKind,
+    status_code: Option<u16>,
+    retry_after: Option<std::time::Duration>,
+) {
+    record_transport_observation(domain_health_for_fetch_error(
+        kind,
+        status_code,
+        retry_after,
+    ));
+}
+
+/// Converts one fetch result into an independent transport observation.
+///
+/// HTTP responses outside the circuit-opening policy are responsive even when
+/// they are non-2xx. Connection, DNS, timeout, unsafe-target, and unknown
+/// failures do not prove that the remote domain responded.
+pub(crate) fn domain_health_for_fetch_error(
+    network_kind: NetworkErrorKind,
+    status_code: Option<u16>,
+    retry_after: Option<std::time::Duration>,
+) -> DomainFetchHealth {
+    let status_code = status_code.or(match network_kind {
+        NetworkErrorKind::HttpStatus(status) => Some(status),
+        _ => None,
+    });
+    match domain_failure_kind(network_kind) {
+        Some(kind) => DomainFetchHealth::CircuitFailure {
+            kind,
+            status_code,
+            retry_after,
+        },
+        None if matches!(network_kind, NetworkErrorKind::HttpStatus(_)) => {
+            DomainFetchHealth::Responsive
+        }
+        None => DomainFetchHealth::NotObserved,
+    }
 }
 
 pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFetchHealth {
@@ -166,5 +273,81 @@ pub trait ScraperService: Send + Sync {
             result,
             domain_health,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn responsive_http_statuses_prove_domain_health() {
+        for status in [404, 410, 403, 425, 500, 502] {
+            assert_eq!(
+                domain_health_for_fetch_error(
+                    NetworkErrorKind::HttpStatus(status),
+                    Some(status),
+                    None,
+                ),
+                DomainFetchHealth::Responsive,
+                "HTTP {status} should remain responsive"
+            );
+        }
+    }
+
+    #[test]
+    fn only_policy_network_failures_open_domain_circuit() {
+        assert!(matches!(
+            domain_health_for_fetch_error(NetworkErrorKind::HttpStatus(429), Some(429), None),
+            DomainFetchHealth::CircuitFailure {
+                kind: DomainFailureKind::Http429,
+                ..
+            }
+        ));
+        assert_eq!(
+            domain_health_for_fetch_error(NetworkErrorKind::Request, None, None),
+            DomainFetchHealth::NotObserved
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_fetch_application_error_stays_not_observed() {
+        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+            begin_transport_observation();
+            Err::<(), _>("schema lookup failed")
+        })
+        .await;
+
+        assert_eq!(observation, Some(DomainFetchHealth::NotObserved));
+    }
+
+    #[tokio::test]
+    async fn downstream_error_cannot_erase_responsive_primary_fetch() {
+        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+            begin_transport_observation();
+            record_transport_success();
+            Err::<(), _>("pending schema review")
+        })
+        .await;
+
+        assert_eq!(observation, Some(DomainFetchHealth::Responsive));
+    }
+
+    #[tokio::test]
+    async fn probe_transport_failure_is_recorded_independently_of_final_error() {
+        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+            begin_transport_observation();
+            record_transport_fetch_error(NetworkErrorKind::Timeout, None, None);
+            Err::<(), _>("timeout")
+        })
+        .await;
+
+        assert!(matches!(
+            observation,
+            Some(DomainFetchHealth::CircuitFailure {
+                kind: DomainFailureKind::Timeout,
+                ..
+            })
+        ));
     }
 }

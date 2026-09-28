@@ -104,6 +104,7 @@ pub trait ScraperCandidateService: Send + Sync {
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         exclude_url: &Url,
         limit: i64,
     ) -> Result<Vec<Url>, sqlx::Error>;
@@ -433,30 +434,40 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         exclude_url: &Url,
         limit: i64,
     ) -> Result<Vec<Url>, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        let domain_id_uuid = (*domain_id).into_uuid();
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT su.url
             FROM listing_source_urls su
             JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+            JOIN listing_source_domains sd
+              ON sd.listing_source_id = su.listing_source_id
+             AND sd.domain_id = su.domain_id
             WHERE s.crawl_enabled = TRUE
               AND su.listing_source_id = $1
+              AND su.domain_id = $2
               AND su.url_class = 'product'
               AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-              AND su.url <> $2
+              AND su.url <> $3
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND su.failure_count = 0
+              AND (sd.scrape_failure_streak = 0
+                   OR sd.next_scrape_at IS NULL
+                   OR sd.next_scrape_at <= NOW())
             -- Intentional: schema seeding runs on a rare path (typically once per
             -- ListingSource), so ORDER BY RANDOM() keeps this simple. If rows per ListingSource grow
             -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
             ORDER BY RANDOM()
-            LIMIT $3
+            LIMIT $4
             "#,
         )
         .bind(listing_source_id_uuid)
+        .bind(domain_id_uuid)
         .bind(exclude_url.to_string())
         .bind(limit)
         .fetch_all(&self.pool)

@@ -5,7 +5,8 @@ use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapedProduct, ScraperService,
-    domain_health_for_scraper_error,
+    begin_transport_observation, current_scrape_domain_id, current_transport_observation,
+    domain_health_for_scraper_error, record_transport_fetch_error, record_transport_success,
 };
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
@@ -168,6 +169,8 @@ impl ScraperService for ScraperServiceImpl {
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
         fallback_currency: Option<money::Currency>,
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
+        begin_transport_observation();
+        let domain_id = current_scrape_domain_id();
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
@@ -185,22 +188,31 @@ impl ScraperService for ScraperServiceImpl {
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, "Fetching product page HTML");
         let fetched = match self.html_fetcher.fetch(url).await {
-            Ok(fetched) => fetched,
+            Ok(fetched) => {
+                record_transport_success();
+                fetched
+            }
             Err(FetchError::Network {
-                kind: NetworkErrorKind::HttpStatus(404 | 410),
+                kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
                 details,
             })
             | Err(FetchError::NetworkWithMetadata {
-                kind: NetworkErrorKind::HttpStatus(404 | 410),
+                kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
                 details,
                 ..
             }) => {
+                record_transport_fetch_error(
+                    NetworkErrorKind::HttpStatus(status),
+                    Some(status),
+                    None,
+                );
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details,
                 });
             }
             Err(FetchError::Network { kind, details }) => {
+                record_transport_fetch_error(kind, None, None);
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind,
@@ -213,6 +225,7 @@ impl ScraperService for ScraperServiceImpl {
                 retry_after,
                 details,
             }) => {
+                record_transport_fetch_error(kind, status, retry_after);
                 return Err(ScraperError::HttpErrorWithMetadata(Box::new(
                     HttpErrorMetadata {
                         url: url.clone(),
@@ -263,6 +276,7 @@ impl ScraperService for ScraperServiceImpl {
                 url,
                 product_url_pattern,
                 &html,
+                domain_id.as_ref(),
                 current_scrape_mode(),
             )
             .await?;
@@ -393,10 +407,10 @@ impl ScraperService for ScraperServiceImpl {
                 ),
             )
             .await;
-        let domain_health = match &result {
+        let domain_health = current_transport_observation().unwrap_or_else(|| match &result {
             Ok(_) => DomainFetchHealth::Responsive,
             Err(error) => domain_health_for_scraper_error(error),
-        };
+        });
         ScrapeOutcome {
             result,
             domain_health,

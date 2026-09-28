@@ -34,6 +34,7 @@ use crate::scraper::normalization::product_normalization_service::{
     PreparedProduct,
 };
 use crate::scraper::scraper_service::ScraperService;
+use crate::scraper::scraper_service::domain::product::with_scrape_observation;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
@@ -44,6 +45,7 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_normalization::ListingAvailabilityQuickCheck;
+use std::future::Future;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;
@@ -77,6 +79,14 @@ pub(super) fn fetch_result(html: String) -> FetchedHtml {
 
 pub(super) fn fetch_result_for(html: String, final_url: Url) -> FetchedHtml {
     FetchedHtml::new(html, final_url, reqwest::StatusCode::OK)
+}
+
+pub(super) async fn with_test_scrape_domain<F, T>(future: F) -> T
+where
+    F: Future<Output = T>,
+{
+    let (result, _) = with_scrape_observation(crate::CrawlerDomainId::new(), future).await;
+    result
 }
 
 pub(super) fn minimal_schema() -> ProductCssSelectorSchema {

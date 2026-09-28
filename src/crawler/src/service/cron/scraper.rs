@@ -6,6 +6,7 @@ use crate::scraper::candidate_service::{
     ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
 };
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
+use crate::scraper::scraper_service::domain::product::with_scrape_observation;
 use crate::scraper::scraper_service::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScraperError, ScraperService,
 };
@@ -469,63 +470,69 @@ async fn scrape_candidate_with_options(
         };
     };
 
-    let scrape_outcome = if candidate.is_domain_probe {
-        ctx.scraper
-            .scrape_with_mode(
-                &candidate.listing_source_id,
-                &candidate.url,
-                candidate.url_pattern.as_deref(),
-                candidate.last_scraped_hash.as_deref(),
-                candidate.last_scraped_schema_fingerprint.as_deref(),
-                candidate.last_captured_raw_input_sha256.as_deref(),
-                candidate.fallback_currency,
-                ScrapeMode::DomainProbe,
-            )
-            .await
-    } else {
-        // Preserve the established normal scrape call path. Probe mode is the
-        // only mode that requires the extended outcome contract.
-        let result = match candidate.fallback_currency {
-            Some(fallback_currency) => {
+    let is_domain_probe = candidate.is_domain_probe;
+    let (scrape_outcome, observed_domain_health) =
+        with_scrape_observation(candidate.domain_id, async {
+            if is_domain_probe {
                 ctx.scraper
-                    .scrape_with_fallback_currency(
+                    .scrape_with_mode(
                         &candidate.listing_source_id,
                         &candidate.url,
                         candidate.url_pattern.as_deref(),
                         candidate.last_scraped_hash.as_deref(),
                         candidate.last_scraped_schema_fingerprint.as_deref(),
                         candidate.last_captured_raw_input_sha256.as_deref(),
-                        Some(fallback_currency),
+                        candidate.fallback_currency,
+                        ScrapeMode::DomainProbe,
                     )
                     .await
+            } else {
+                let result = match candidate.fallback_currency {
+                    Some(fallback_currency) => {
+                        ctx.scraper
+                            .scrape_with_fallback_currency(
+                                &candidate.listing_source_id,
+                                &candidate.url,
+                                candidate.url_pattern.as_deref(),
+                                candidate.last_scraped_hash.as_deref(),
+                                candidate.last_scraped_schema_fingerprint.as_deref(),
+                                candidate.last_captured_raw_input_sha256.as_deref(),
+                                Some(fallback_currency),
+                            )
+                            .await
+                    }
+                    None => {
+                        ctx.scraper
+                            .scrape(
+                                &candidate.listing_source_id,
+                                &candidate.url,
+                                candidate.url_pattern.as_deref(),
+                                candidate.last_scraped_hash.as_deref(),
+                                candidate.last_scraped_schema_fingerprint.as_deref(),
+                                candidate.last_captured_raw_input_sha256.as_deref(),
+                            )
+                            .await
+                    }
+                };
+                ScrapeOutcome {
+                    result,
+                    domain_health: DomainFetchHealth::NotObserved,
+                }
             }
-            None => {
-                ctx.scraper
-                    .scrape(
-                        &candidate.listing_source_id,
-                        &candidate.url,
-                        candidate.url_pattern.as_deref(),
-                        candidate.last_scraped_hash.as_deref(),
-                        candidate.last_scraped_schema_fingerprint.as_deref(),
-                        candidate.last_captured_raw_input_sha256.as_deref(),
+        })
+        .await;
+    let mut domain_health = observed_domain_health
+        .or_else(|| {
+            (!is_domain_probe).then(|| match &scrape_outcome.result {
+                Ok(_) => DomainFetchHealth::Responsive,
+                Err(error) => {
+                    crate::scraper::scraper_service::domain::product::domain_health_for_scraper_error(
+                        error,
                     )
-                    .await
-            }
-        };
-        let domain_health = match &result {
-            Ok(_) => DomainFetchHealth::Responsive,
-            Err(error) => {
-                crate::scraper::scraper_service::domain::product::domain_health_for_scraper_error(
-                    error,
-                )
-            }
-        };
-        ScrapeOutcome {
-            result,
-            domain_health,
-        }
-    };
-    let mut domain_health = scrape_outcome.domain_health;
+                }
+            })
+        })
+        .unwrap_or(scrape_outcome.domain_health);
     let scrape_result = scrape_outcome.result;
     let mut server_failure_status = None;
 
@@ -1324,8 +1331,9 @@ impl CrawlerCronJob {
 mod tests {
     use super::*;
     use crate::scraper::candidate_service::{
-        DomainCircuitOpenOutcome, MockScraperCandidateService,
+        DomainCircuitOpenOutcome, DomainHealthSnapshot, MockScraperCandidateService,
     };
+    use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
     use crate::scraper::scraper_service::{MockScraperService, ScrapedProduct};
     use crate::service::cron::config::CrawlerCronConfig;
     use crate::service::cron::test_support::{noop_listing_source_registration, scraper_candidate};
@@ -3067,5 +3075,99 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_not_close_probe_circuit_when_schema_error_precedes_primary_fetch() {
+        let url = url::Url::parse("https://probe-local-error.example.com/product/1").unwrap();
+        let mut candidate = scraper_candidate("ListingSource", url.clone());
+        candidate.is_domain_probe = true;
+        candidate.domain_health = DomainHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some("HTTP_429".to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::now_utc() - time::Duration::minutes(1)),
+        };
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_scraper_failure()
+            .once()
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape_with_mode()
+            .once()
+            .returning(|_, _, _, _, _, _, _, _| {
+                Box::pin(async move {
+                    ScrapeOutcome {
+                        result: Err(ScraperError::SchemaServiceError(
+                            ProductListingSchemaServiceError::DatabaseError(
+                                sqlx::Error::RowNotFound,
+                            ),
+                        )),
+                        domain_health: DomainFetchHealth::NotObserved,
+                    }
+                })
+            });
+
+        let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+        ctx.domain_id = candidate.domain_id;
+        let outcome = scrape_domain_candidates(vec![candidate], ctx).await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(outcome.skipped, 0);
+    }
+
+    #[tokio::test]
+    async fn should_close_probe_circuit_after_responsive_fetch_and_later_pending_review() {
+        let url = url::Url::parse("https://probe-responsive.example.com/product/1").unwrap();
+        let mut candidate = scraper_candidate("ListingSource", url.clone());
+        candidate.is_domain_probe = true;
+        candidate.domain_health = DomainHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some("HTTP_429".to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::now_utc() - time::Duration::minutes(1)),
+        };
+        let expected_domain_id = candidate.domain_id;
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_close_domain_circuit()
+            .once()
+            .withf(move |domain_id, snapshot| {
+                *domain_id == expected_domain_id && snapshot.scrape_failure_streak == 1
+            })
+            .returning(|_, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape_with_mode()
+            .once()
+            .returning(|_, url, _, _, _, _, _, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    ScrapeOutcome {
+                        result: Err(ScraperError::PendingSchemaReview {
+                            url,
+                            review_id: crate::CrawlerReviewId::new(),
+                        }),
+                        domain_health: DomainFetchHealth::Responsive,
+                    }
+                })
+            });
+
+        let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+        ctx.domain_id = candidate.domain_id;
+        let outcome = scrape_domain_candidates(vec![candidate], ctx).await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(outcome.skipped, 0);
     }
 }

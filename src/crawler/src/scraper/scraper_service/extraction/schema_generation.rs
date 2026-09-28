@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
@@ -47,6 +48,7 @@ impl ScraperServiceImpl {
         url: &Url,
         product_url_pattern: Option<&str>,
         html: &str,
+        domain_id: Option<&CrawlerDomainId>,
         mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
         debug!("Obtaining product CSS selector schemas");
@@ -69,7 +71,14 @@ impl ScraperServiceImpl {
             }
 
             let seed_pages = self
-                .collect_schema_seed_pages(listing_source_id, url, product_url_pattern, html, mode)
+                .collect_schema_seed_pages(
+                    listing_source_id,
+                    domain_id,
+                    url,
+                    product_url_pattern,
+                    html,
+                    mode,
+                )
                 .await?;
             if self.review_repository.is_some() {
                 if let Some(existing) = self

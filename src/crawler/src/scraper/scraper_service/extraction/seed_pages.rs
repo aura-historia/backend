@@ -1,11 +1,12 @@
+use crate::CrawlerDomainId;
 use crate::network::policy::domain_failure_kind;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
-use crate::scraper::scraper_service::domain::product::ScrapeMode;
+use crate::scraper::scraper_service::domain::product::{ScrapeMode, record_transport_fetch_error};
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
-use tracing::warn;
+use tracing::{debug, warn};
 use url::Url;
 
 pub(crate) struct SchemaSeedPage {
@@ -25,6 +26,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn collect_schema_seed_pages(
         &self,
         listing_source_id: &ListingSourceId,
+        domain_id: Option<&CrawlerDomainId>,
         url: &Url,
         product_url_pattern: Option<&str>,
         primary_html: &str,
@@ -38,10 +40,17 @@ impl ScraperServiceImpl {
             return Ok(pages);
         }
 
+        let Some(domain_id) = domain_id else {
+            debug!(
+                "Skipping schema-seed sampling because no persisted crawler domain context is available"
+            );
+            return Ok(pages);
+        };
+
         let extra_limit = (self.schema_seed_pages - 1) as i64;
         let sample_urls = match self
             .candidate_service
-            .get_random_product_urls_for_schema_seed(listing_source_id, url, extra_limit)
+            .get_random_product_urls_for_schema_seed(listing_source_id, domain_id, url, extra_limit)
             .await
         {
             Ok(urls) => urls,
@@ -56,8 +65,8 @@ impl ScraperServiceImpl {
 
         // Keep this exclusion keying aligned with the DB query in
         // `get_random_product_urls_for_schema_seed`: both currently operate on
-        // raw URL strings. If URL canonicalization is introduced, update both
-        // places together to avoid duplicate samples slipping through.
+        // raw URL strings for exclusion. If URL canonicalization is introduced,
+        // update both places together to avoid duplicate samples slipping through.
         let mut seen_urls = HashSet::new();
         seen_urls.insert(url.as_str().to_string());
         for sample_url in sample_urls {
@@ -89,6 +98,7 @@ impl ScraperServiceImpl {
                 }
                 Err(err) => {
                     if let Some(error) = domain_failure_error(&sample_url, err.clone()) {
+                        record_fetch_transport_error(&err);
                         return Err(error);
                     }
                     warn!(
@@ -101,6 +111,18 @@ impl ScraperServiceImpl {
         }
 
         Ok(pages)
+    }
+}
+
+fn record_fetch_transport_error(error: &FetchError) {
+    match error {
+        FetchError::Network { kind, .. } => record_transport_fetch_error(*kind, None, None),
+        FetchError::NetworkWithMetadata {
+            kind,
+            status,
+            retry_after,
+            ..
+        } => record_transport_fetch_error(*kind, *status, *retry_after),
     }
 }
 

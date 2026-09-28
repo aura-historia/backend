@@ -1725,7 +1725,7 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 
     let exclude = url::Url::parse(exclude_url).unwrap();
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &exclude, 5)
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &exclude, 5)
         .await
         .unwrap();
 
@@ -1842,7 +1842,12 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     .unwrap();
 
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&seed_listing_source_id, &current_url, 20)
+        .get_random_product_urls_for_schema_seed(
+            &seed_listing_source_id,
+            &seed_domain_id,
+            &current_url,
+            20,
+        )
         .await
         .unwrap();
 
@@ -1869,6 +1874,71 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     assert!(
         sampled.iter().all(|u| u != &other_listing_source_url),
         "URLs from other listing_sources must be excluded"
+    );
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_a =
+        insert_listing_source_with_domain(&pool, listing_source_id, "seed-domain-a.example.com")
+            .await;
+    let domain_b =
+        insert_domain_for_listing_source(&pool, listing_source_id, "seed-domain-b.example.com")
+            .await;
+
+    let current_a = "https://seed-domain-a.example.com/p/current";
+    let seed_a = "https://seed-domain-a.example.com/p/seed";
+    let current_b = "https://seed-domain-b.example.com/p/current";
+    let seed_b = "https://seed-domain-b.example.com/p/seed";
+    insert_product_url(&pool, listing_source_id, domain_a, current_a).await;
+    insert_product_url(&pool, listing_source_id, domain_a, seed_a).await;
+    insert_product_url(&pool, listing_source_id, domain_b, current_b).await;
+    insert_product_url(&pool, listing_source_id, domain_b, seed_b).await;
+
+    let sampled_a = service
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_a,
+            &url::Url::parse(current_a).unwrap(),
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        sampled_a,
+        vec![url::Url::parse(seed_a).unwrap()],
+        "schema seeds must stay within the primary persisted domain"
+    );
+
+    sqlx::query(
+        "UPDATE listing_source_domains
+         SET scrape_failure_streak = 1,
+             last_scrape_error_kind = 'HTTP_429',
+             next_scrape_at = NOW() + INTERVAL '15 minutes'
+         WHERE domain_id = $1",
+    )
+    .bind(domain_b.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sampled_b = service
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_b,
+            &url::Url::parse(current_b).unwrap(),
+            10,
+        )
+        .await
+        .unwrap();
+    assert!(
+        sampled_b.is_empty(),
+        "an open persisted domain must not be bypassed through schema seeding"
     );
 }
 
@@ -1901,7 +1971,7 @@ async fn scraper_seed_urls_should_respect_limit() {
 
     let exclude = url::Url::parse(current_url).unwrap();
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &exclude, 3)
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &exclude, 3)
         .await
         .unwrap();
 
