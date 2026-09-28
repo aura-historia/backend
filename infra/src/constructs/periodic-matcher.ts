@@ -7,7 +7,7 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { ssmValue } from "../config";
-import { PERIODIC_MATCHER_CONTAINER, PERIODIC_MATCHER_REPOSITORY, periodicMatcherNames } from "../periodic-matcher-config";
+import { PERIODIC_MATCHER_CONTAINER, PERIODIC_MATCHER_IMAGE, PERIODIC_MATCHER_REPOSITORY, periodicMatcherNames } from "../periodic-matcher-config";
 import type { Network } from "./network";
 import { ScheduledEcsJob } from "./scheduled-ecs-job";
 import type { PostgresConnectionSettings } from "./storage";
@@ -15,6 +15,7 @@ import type { PostgresConnectionSettings } from "./storage";
 export interface PeriodicMatcherProps {
   readonly config: StageConfig;
   readonly network: Network;
+  readonly cluster: ecs.ICluster;
   readonly postgres: PostgresConnectionSettings;
   readonly imageDigest: string;
   readonly enabled: cdk.CfnCondition;
@@ -29,7 +30,9 @@ export class PeriodicMatcher extends ScheduledEcsJob {
     const names = periodicMatcherNames(config.stage);
     super(scope, id, {
       network,
+      cluster: props.cluster,
       names: { ...names, lifecyclePolicy: `periodic-matcher-events-${config.stage}` },
+      platform: PERIODIC_MATCHER_IMAGE.platform,
       imageRepository: PERIODIC_MATCHER_REPOSITORY,
       imageDigest: props.imageDigest,
       containerName: PERIODIC_MATCHER_CONTAINER,

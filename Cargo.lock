@@ -5743,14 +5743,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-google-adc"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
  "google-cloud-auth",
  "lambda_runtime",
+ "platform-google-adc",
  "platform-observability",
  "platform-postgres",
- "serde_json",
  "serial_test",
  "sqlx",
  "test-api",
@@ -7145,8 +7154,8 @@ dependencies = [
  "fxrate-postgres",
  "google-cloud-auth",
  "large-language-model",
- "libc",
  "opensearch",
+ "platform-google-adc",
  "platform-observability",
  "platform-postgres",
  "product-listing-opensearch",
@@ -7154,7 +7163,6 @@ dependencies = [
  "reqwest 0.12.28",
  "search-filter-postgres",
  "search-filter-service",
- "serde_json",
  "thiserror 2.0.20",
  "time",
  "tokio",

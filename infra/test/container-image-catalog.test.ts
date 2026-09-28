@@ -239,6 +239,20 @@ describe("container image catalog and release preflight", () => {
     }
   });
 
+  test("historical release missing a newly cataloged image cannot be rolled back by substitution", () => {
+    const fixture = createFixtureCatalog();
+    try {
+      const catalog = validateCatalog(fixture.catalog, fixture.root);
+      const missing = Object.assign(new Error("image not found"), { code: "ImageNotFoundException" });
+      expect(() => resolveImages(catalog, SHA, (repository, tag) => {
+        if (repository === "aura-worker-two") throw missing;
+        return ecrResult(tag, DIGEST_A);
+      })).toThrow(`Missing immutable image aura-worker-two:git-${SHA}`);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   test("task output extraction accepts one valid ARN and rejects missing, empty, duplicate, or malformed outputs", () => {
     const catalog = loadCatalog();
     const goodOutput = { OutputKey: "PeriodicMatcherTaskDefinitionArn", OutputValue: TASK_ARN };

@@ -8,10 +8,9 @@ async-trait = { workspace = true }
 
 fxrate-postgres = { workspace = true }
 google-cloud-auth = { workspace = true }
-libc = { workspace = true }
-serde_json = { workspace = true }
 large-language-model = { workspace = true }
 opensearch = { workspace = true }
+platform-google-adc = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 product-listing-opensearch = { workspace = true }

@@ -8,7 +8,9 @@ import * as sns from "aws-cdk-lib/aws-sns";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import { matcherTaskL2EventPattern, PERIODIC_MATCHER_CONTAINER, periodicMatcherNames } from "../periodic-matcher-config";
+import { PERIODIC_MATCHER_CONTAINER, periodicMatcherNames } from "../periodic-matcher-config";
+import { scheduledEcsClusterName } from "../scheduled-ecs-config";
+import { ecsTaskL2EventPattern } from "./ecs-task-event-patterns";
 import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
@@ -63,7 +65,7 @@ export class Observability extends Construct {
     }).addAlarmAction(alarmAction);
     const names = periodicMatcherNames(props.config.stage);
     const stack = cdk.Stack.of(this);
-    const clusterArn = stack.formatArn({ service: "ecs", resource: "cluster", resourceName: names.cluster, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
+    const clusterArn = stack.formatArn({ service: "ecs", resource: "cluster", resourceName: scheduledEcsClusterName(props.config.stage), arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
     const familyPrefix = stack.formatArn({ service: "ecs", resource: "task-definition", resourceName: `${names.family}:`, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
     for (const failure of ["exit", "interruption"] as const) {
       const safeTaskFields = events.RuleTargetInput.fromObject({
@@ -77,7 +79,7 @@ export class Observability extends Construct {
           : { stopCode: events.EventField.fromPath("$.detail.stopCode") }),
       });
       new events.Rule(this, `PeriodicMatcher${failure}Failure`, {
-        eventPattern: matcherTaskL2EventPattern(clusterArn, familyPrefix, failure),
+        eventPattern: ecsTaskL2EventPattern(clusterArn, familyPrefix, PERIODIC_MATCHER_CONTAINER, failure),
         targets: [new targets.SnsTopic(this.alarmTopic, { message: safeTaskFields })],
       });
     }

@@ -68,6 +68,8 @@ const log = process.env.TEST_LOG;
 const events = fs.readFileSync(log, 'utf8').trim().split('\\n').filter(Boolean).map(JSON.parse);
 fs.appendFileSync(log, JSON.stringify({ tool, args }) + '\\n');
 if (tool === 'git' && args[0] === 'rev-parse') { console.log('${sha}'); process.exit(0); }
+if (tool === 'git' && args[0] === 'fetch') process.exit(0);
+if (tool === 'git' && args[0] === 'diff') { console.log(process.env.TEST_CHANGED_PATH || ''); process.exit(0); }
 if (tool === 'npm') process.exit(0); // Never run CDK or deploy anything.
 if (tool === 'docker') {
   if (args[0] === 'image' && args[1] === 'inspect') {
@@ -120,6 +122,33 @@ process.exit(1);
   return entries;
 }
 
+test('artifact stack reconciliation is limited to repository-definition changes', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'container-artifact-changes-'));
+  try {
+    writeFixture(directory);
+    const output = path.join(directory, 'github-output');
+    const env = {
+      ...process.env,
+      PATH: `${path.join(directory, 'bin')}${path.delimiter}${process.env.PATH}`,
+      TEST_LOG: path.join(directory, 'commands.log'),
+      GITHUB_OUTPUT: output,
+      GITHUB_SHA: sha,
+      BEFORE_SHA: 'b'.repeat(40),
+    };
+    const script = workflowStep('deploy.yml', 'Detect repository definition changes');
+    run('bash', ['-e', '-c', script], directory, { ...env, TEST_CHANGED_PATH: '' });
+    assert.equal(readFileSync(output, 'utf8'), 'reconcile=false\n');
+    writeFileSync(output, '');
+    run('bash', ['-e', '-c', script], directory, { ...env, TEST_CHANGED_PATH: 'ci/container-images.json' });
+    assert.equal(readFileSync(output, 'utf8'), 'reconcile=true\n');
+    writeFileSync(output, '');
+    run('bash', ['-e', '-c', script], directory, { ...env, BEFORE_SHA: '0'.repeat(40) });
+    assert.equal(readFileSync(output, 'utf8'), 'reconcile=true\n');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('a second catalog image builds, publishes, resolves, and reaches deploy without contacting AWS', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'container-workflows-'));
   try {
@@ -148,6 +177,9 @@ test('a second catalog image builds, publishes, resolves, and reaches deploy wit
     assert.match(catalogWorkflow, /matrix: \$\{\{ fromJSON\(needs\.catalog\.outputs\.container_matrix\) \}\}/);
     assert.match(deployWorkflow, /matrix: \$\{\{ fromJSON\(needs\.infra-test\.outputs\.container_matrix\) \}\}/);
     assert.match(deployWorkflow, /needs\.aws-push-container-images\.result == 'success'/);
+    assert.match(deployWorkflow, /needs\.infra-test\.outputs\.reconcile_artifact_stack == 'false' && needs\.aws-container-artifacts\.result == 'skipped'/);
+    const publisherJob = deployWorkflow.split('  aws-push-container-images:')[1].split('  aws-push-lambda:')[0];
+    assert.doesNotMatch(publisherJob, /^    environment:/m, 'immutable image publication must not require a separate environment approval');
     for (const workflow of [deployWorkflow, initializeWorkflow]) {
       assert.match(workflow, /uses: \.\/\.github\/actions\/resolve-container-images/);
       assert.match(workflow, /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);

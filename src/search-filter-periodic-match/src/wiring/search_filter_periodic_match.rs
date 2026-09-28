@@ -98,12 +98,7 @@ impl PeriodicMatchConfig {
         let evaluation_limit = nonzero("PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
         let llm_concurrency = nonzero("PERIODIC_MATCH_LLM_CONCURRENCY", 8)?;
         let max_attempts = nonzero("PERIODIC_MATCH_MAX_ATTEMPTS", 3)?;
-        if hybrid_scan_limit.get() > MAX_HYBRID_SCAN_LIMIT
-            || evaluation_limit > hybrid_scan_limit
-            || max_attempts.get() > 10
-        {
-            return Err(WiringError::InvalidPolicy);
-        }
+        validate_limits(hybrid_scan_limit, evaluation_limit, max_attempts)?;
         let endpoint_raw = required("OPENSEARCH_ENDPOINT_URL")?;
         let endpoint = url::Url::parse(&endpoint_raw).map_err(WiringError::OpenSearchUrl)?;
         let auth = if matches!(stage.as_deref(), Some("local" | "test" | "ephemeral")) {
@@ -156,6 +151,20 @@ impl PeriodicMatchConfig {
         })
     }
 }
+fn validate_limits(
+    hybrid_scan_limit: NonZeroUsize,
+    evaluation_limit: NonZeroUsize,
+    max_attempts: NonZeroUsize,
+) -> Result<(), WiringError> {
+    if hybrid_scan_limit.get() > MAX_HYBRID_SCAN_LIMIT
+        || evaluation_limit > hybrid_scan_limit
+        || max_attempts.get() > 10
+    {
+        return Err(WiringError::InvalidPolicy);
+    }
+    Ok(())
+}
+
 fn required(name: &'static str) -> Result<String, WiringError> {
     std::env::var(name)
         .ok()
@@ -278,6 +287,21 @@ mod tests {
     }
 
     #[test]
+    fn should_enforce_hybrid_evaluation_and_attempt_limits() {
+        let valid = |hybrid, evaluation, attempts| {
+            validate_limits(
+                NonZeroUsize::new(hybrid).unwrap(),
+                NonZeroUsize::new(evaluation).unwrap(),
+                NonZeroUsize::new(attempts).unwrap(),
+            )
+        };
+        assert!(valid(100, 100, 10).is_ok());
+        assert!(matches!(valid(101, 1, 1), Err(WiringError::InvalidPolicy)));
+        assert!(matches!(valid(10, 11, 1), Err(WiringError::InvalidPolicy)));
+        assert!(matches!(valid(10, 10, 11), Err(WiringError::InvalidPolicy)));
+    }
+
+    #[test]
     fn should_trim_string_and_numeric_wiring_inputs() {
         assert_eq!(
             trimmed_non_empty("  value  ".to_owned()),
@@ -287,6 +311,100 @@ mod tests {
             parse_number::<u16>("POSTGRES_PORT", " 5432 "),
             Ok(5432)
         ));
+    }
+
+    #[test]
+    fn config_probe() {
+        let Ok(expected) = std::env::var("AURA_TEST_CONFIG_EXPECT") else {
+            return;
+        };
+        let config = PeriodicMatchConfig::from_env();
+        match expected.as_str() {
+            "valid-local" => {
+                let config = config.expect("valid local configuration");
+                assert!(config.auth.is_none());
+                assert_eq!(config.endpoint.as_str(), "https://search.example.test/");
+            }
+            "valid-prod" => {
+                let config = config.expect("valid production configuration");
+                assert_eq!(
+                    config.auth,
+                    Some(("reader".to_owned(), "secret".to_owned()))
+                );
+            }
+            "policy" => assert!(matches!(config, Err(WiringError::InvalidPolicy))),
+            "url" => assert!(matches!(config, Err(WiringError::OpenSearchUrl(_)))),
+            "number" => assert!(matches!(config, Err(WiringError::InvalidNumber { .. }))),
+            "missing" => assert!(matches!(config, Err(WiringError::MissingEnv { .. }))),
+            other => panic!("unexpected configuration test case: {other}"),
+        }
+    }
+
+    #[test]
+    fn validates_startup_configuration_without_network_or_environment_races() {
+        use std::process::Command;
+
+        let base = [
+            ("STAGE", "test"),
+            ("OPENSEARCH_ENDPOINT_URL", "https://search.example.test/"),
+            ("POSTGRES_HOST", "database.example.test"),
+            ("POSTGRES_DATABASE", "aura"),
+            ("POSTGRES_USERNAME", "user"),
+            ("POSTGRES_PASSWORD", "password"),
+            ("POSTGRES_TLS_ROOT_CERT", "/path/to/ca.pem"),
+            ("VERTEX_AI_PROJECT_ID", "project"),
+            ("VERTEX_AI_LOCATION", "region"),
+            ("VERTEX_AI_MODEL", "model"),
+        ];
+        let cases: &[(&[(&str, &str)], &str)] = &[
+            (&[], "valid-local"),
+            (
+                &[
+                    ("STAGE", "prod"),
+                    ("OPENSEARCH_USERNAME", "reader"),
+                    ("OPENSEARCH_PASSWORD", "secret"),
+                ],
+                "valid-prod",
+            ),
+            (&[("STAGE", "prod")], "missing"),
+            (&[("VERTEX_AI_LOCATION", "  ")], "missing"),
+            (&[("OPENSEARCH_ENDPOINT_URL", "not-a-url")], "url"),
+            (&[("POSTGRES_PORT", "65536")], "number"),
+            (&[("POSTGRES_MAX_CONNECTIONS", "0")], "policy"),
+            (&[("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", "101")], "policy"),
+            (&[("PERIODIC_MATCH_EVALUATION_LIMIT", "101")], "policy"),
+            (&[("PERIODIC_MATCH_MAX_RUN_SECONDS", "0")], "policy"),
+            (&[("PERIODIC_MATCH_MAX_RUN_SECONDS", "7201")], "policy"),
+            (
+                &[(
+                    "PERIODIC_MATCH_PROJECTION_LAG_SECONDS",
+                    "18446744073709551615",
+                )],
+                "number",
+            ),
+        ];
+        for (overrides, expected) in cases {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .env_clear()
+                .envs(base)
+                .envs(overrides.iter().copied())
+                .env("AURA_TEST_CONFIG_EXPECT", expected)
+                .args([
+                    "--exact",
+                    "wiring::search_filter_periodic_match::tests::config_probe",
+                ]);
+            if let Ok(profile) = std::env::var("LLVM_PROFILE_FILE") {
+                command.env("LLVM_PROFILE_FILE", profile);
+            }
+            let result = command.output().expect("run isolated configuration test");
+            assert!(
+                result.status.success(),
+                "case {expected} {overrides:?}: {} {}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 
     #[test]

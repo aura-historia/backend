@@ -9,10 +9,11 @@ import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
+import type { ContainerImage } from "../container-image-catalog";
+import { ecsTaskEventPattern, type RawEcsTaskEventPattern } from "./ecs-task-event-patterns";
 import type { Network } from "./network";
 
 export interface ScheduledEcsJobNames {
-  readonly cluster: string;
   readonly family: string;
   readonly group: string;
   readonly schedule: string;
@@ -27,7 +28,12 @@ export interface ScheduledEcsJobNames {
 
 export interface ScheduledEcsJobProps {
   readonly network: Network;
+  readonly cluster: ecs.ICluster;
   readonly names: ScheduledEcsJobNames;
+  readonly platform: ContainerImage["platform"];
+  readonly cpu?: number;
+  readonly memoryLimitMiB?: number;
+  readonly extendTaskRole?: (role: iam.Role) => void;
   readonly imageRepository: string;
   readonly imageDigest: string;
   readonly containerName: string;
@@ -40,7 +46,14 @@ export interface ScheduledEcsJobProps {
 }
 
 type LifecycleClassification = "stopped" | "application-container-nonzero" | "interruption";
-type RawEventBridgePattern = { readonly source: string[]; readonly "detail-type": string[]; readonly detail: Record<string, unknown> };
+
+export function ecsCpuArchitectureForPlatform(platform: ContainerImage["platform"]): ecs.CpuArchitecture {
+  switch (platform) {
+    case "linux/amd64": return ecs.CpuArchitecture.X86_64;
+    case "linux/arm64": return ecs.CpuArchitecture.ARM64;
+    default: throw new Error(`Unsupported scheduled ECS image platform: ${platform}`);
+  }
+}
 
 export class ScheduledEcsJob extends Construct {
   readonly deliveryDlq: sqs.Queue;
@@ -48,12 +61,12 @@ export class ScheduledEcsJob extends Construct {
 
   constructor(scope: Construct, id: string, props: ScheduledEcsJobProps) {
     super(scope, id);
-    const { names, network } = props;
+    const { names, network, cluster } = props;
     const stack = cdk.Stack.of(this);
     const repository = ecr.Repository.fromRepositoryName(this, "Repository", props.imageRepository);
     const applicationLog = new logs.LogGroup(this, "ApplicationLog", { logGroupName: names.applicationLog, retention: props.retention, removalPolicy: cdk.RemovalPolicy.RETAIN });
     const lifecycleLog = new logs.LogGroup(this, "LifecycleLog", { logGroupName: names.lifecycleLog, retention: props.retention, removalPolicy: cdk.RemovalPolicy.RETAIN });
-    const cluster = new ecs.Cluster(this, "Cluster", { vpc: network.vpc, clusterName: names.cluster });
+
     const ecsTaskSourceArn = `arn:${stack.partition}:ecs:${stack.region}:${stack.account}:*`;
     const ecsTaskTrust = () => new iam.ServicePrincipal("ecs-tasks.amazonaws.com", {
       conditions: {
@@ -63,11 +76,12 @@ export class ScheduledEcsJob extends Construct {
     });
     const executionRole = new iam.Role(this, "ExecutionRole", { assumedBy: ecsTaskTrust() });
     const taskRole = new iam.Role(this, "TaskRole", { assumedBy: ecsTaskTrust() });
+    props.extendTaskRole?.(taskRole);
     repository.grantPull(executionRole);
     applicationLog.grantWrite(executionRole);
     const task = new ecs.FargateTaskDefinition(this, "Task", {
-      family: names.family, cpu: 1024, memoryLimitMiB: 2048,
-      runtimePlatform: { operatingSystemFamily: ecs.OperatingSystemFamily.LINUX, cpuArchitecture: ecs.CpuArchitecture.X86_64 },
+      family: names.family, cpu: props.cpu ?? 1024, memoryLimitMiB: props.memoryLimitMiB ?? 2048,
+      runtimePlatform: { operatingSystemFamily: ecs.OperatingSystemFamily.LINUX, cpuArchitecture: ecsCpuArchitectureForPlatform(props.platform) },
       executionRole, taskRole,
     });
     this.taskDefinitionArn = task.taskDefinitionArn;
@@ -130,7 +144,7 @@ export class ScheduledEcsJob extends Construct {
         conditions: { ArnEquals: { "aws:SourceArn": lifecycleRuleArns }, StringEquals: { "aws:SourceAccount": stack.account } },
       })] }).toJSON()),
     });
-    const lifecycleRule = (logicalId: string, name: string, eventPattern: RawEventBridgePattern, inputTransformer: events.CfnRule.InputTransformerProperty): void => {
+    const lifecycleRule = (logicalId: string, name: string, eventPattern: RawEcsTaskEventPattern, inputTransformer: events.CfnRule.InputTransformerProperty): void => {
       const rule = new events.CfnRule(this, logicalId, {
         name, eventPattern,
         targets: [{ id: "LifecycleLog", arn: lifecycleLogArn, inputTransformer }],
@@ -152,17 +166,14 @@ export class ScheduledEcsJob extends Construct {
         inputTemplate: `{"timestamp":<time>,"message":${JSON.stringify(message)}}`,
       };
     };
-    const baseDetail = { clusterArn: [cluster.clusterArn], taskDefinitionArn: [{ prefix: familyPrefix }], lastStatus: ["STOPPED"] };
     lifecycleRule("StoppedTasks", names.lifecycleRule,
-      { source: ["aws.ecs"], "detail-type": ["ECS Task State Change"], detail: baseDetail }, lifecycleInput("stopped"));
+      ecsTaskEventPattern(cluster.clusterArn, familyPrefix, props.containerName, "stopped"), lifecycleInput("stopped"));
     lifecycleRule("FailedTasks", names.exitFailureRule,
-      { source: ["aws.ecs"], "detail-type": ["ECS Task State Change"], detail: { ...baseDetail, containers: { name: [props.containerName], exitCode: [{ "anything-but": 0 }] } } },
-      lifecycleInput("application-container-nonzero"));
+      ecsTaskEventPattern(cluster.clusterArn, familyPrefix, props.containerName, "exit"), lifecycleInput("application-container-nonzero"));
     lifecycleRule("InterruptedTasks", names.interruptionRule,
-      { source: ["aws.ecs"], "detail-type": ["ECS Task State Change"], detail: { ...baseDetail, stopCode: ["TaskFailedToStart", "UserInitiated", "ServiceSchedulerInitiated", "SpotInterruption", "TerminationNotice"] } },
-      lifecycleInput("interruption", true));
+      ecsTaskEventPattern(cluster.clusterArn, familyPrefix, props.containerName, "interruption"), lifecycleInput("interruption", true));
 
-    for (const [key, value] of Object.entries({ ClusterArn: cluster.clusterArn, ClusterName: names.cluster, TaskDefinitionArn: task.taskDefinitionArn, TaskFamily: names.family, ImageDigest: props.imageDigest, ContainerName: props.containerName, ApplicationSubnetIds: cdk.Fn.join(",", subnetIds), ApplicationSecurityGroupId: network.applicationSecurityGroup.securityGroupId, ScheduleGroup: names.group, ScheduleName: names.schedule, ScheduleArn: schedule.attrArn, DeliveryDlqUrl: this.deliveryDlq.queueUrl, DeliveryDlqArn: this.deliveryDlq.queueArn, ApplicationLogGroup: applicationLog.logGroupName, LifecycleLogGroup: lifecycleLog.logGroupName })) {
+    for (const [key, value] of Object.entries({ ClusterArn: cluster.clusterArn, ClusterName: cluster.clusterName, TaskDefinitionArn: task.taskDefinitionArn, TaskFamily: names.family, ImageDigest: props.imageDigest, ContainerName: props.containerName, ApplicationSubnetIds: cdk.Fn.join(",", subnetIds), ApplicationSecurityGroupId: network.applicationSecurityGroup.securityGroupId, ScheduleGroup: names.group, ScheduleName: names.schedule, ScheduleArn: schedule.attrArn, DeliveryDlqUrl: this.deliveryDlq.queueUrl, DeliveryDlqArn: this.deliveryDlq.queueArn, ApplicationLogGroup: applicationLog.logGroupName, LifecycleLogGroup: lifecycleLog.logGroupName })) {
       new cdk.CfnOutput(this, key, { value });
     }
   }

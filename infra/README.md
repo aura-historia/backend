@@ -132,10 +132,14 @@ stages. Ordinary S3 ZIP/template uploads can overwrite an existing SHA key and d
 not guarantee byte immutability.
 
 ECS images are described by the non-secret `ci/container-images.json` catalog. CDK
-validation exposes that catalog as the publishing matrix. Each relevant push first
-reconciles the independent retained ECR artifact stack once, then publishes every
-catalog entry through the same generic job. For a new SHA tag, that job builds one
-local image, runs the image-owned `ci/container-images/<id>/smoke.sh`, and only then
+validation exposes that catalog as the publishing matrix. Pushes reconcile the
+independent retained ECR artifact stack only when the catalog or artifact stack
+source changes (including first-push events without a prior revision); ordinary
+application source changes reuse the retained repositories. A missing repository
+fails publication closed and requires an approved artifact-stack reconciliation.
+Each push publishes every catalog entry through the same generic job; immutable
+image publication itself does not select a protected deployment environment. For a
+new SHA tag, that job builds one local image, runs the image-owned `ci/container-images/<id>/smoke.sh`, and only then
 adds and pushes the immutable `git-<full-sha>` release tag. Existing tags are reused
 without rebuilding. The registry digest is resolved from ECR; it is not inferred
 from a local image ID. Deploy, Initialize, and manual artifact rollback use the
@@ -161,14 +165,18 @@ changed in the embedded migration set; normal forward migrations retain this
 validation. Choose artifacts compatible with the current templates, newer database
 schema, retained schema-2 jobs and provider/template contracts; arbitrary historical
 infrastructure rollback or old releases missing required binaries are not supported.
+Adding a catalog image changes the compute release contract. Historical commits
+without a compatible retained image for every current catalog entry are not
+automatically rollback-compatible. Use a separately reviewed infrastructure/template
+compatibility path; never substitute `latest` or rebuild a missing historical artifact.
 This two-stack update is not atomic; already committed writes, email and provider
 effects are not undone.
 
 ## Periodic saved-filter matcher (#1843)
 
-The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the existing artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. Its existing stack name, repository physical name, repository construct identity, retention, and export name remain stable.
+The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the existing artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. Its existing stack name (`aura-historia-periodic-matcher-artifacts`), repository physical name, repository construct identity, retention, and export name remain stable pending live-stack verification; renaming the stack without an explicit migration could orphan retained resources or exports.
 
-`infra/src/constructs/scheduled-ecs-job.ts` owns the shared private Fargate, Scheduler, IAM, DLQ, lifecycle-log and output resources. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
+The compute stack owns one named scheduled ECS cluster per real stage and injects it into each `ScheduledEcsJob`. `infra/src/constructs/scheduled-ecs-job.ts` owns each job's private Fargate task, Scheduler, IAM, DLQ, lifecycle-log and output resources. Jobs select CPU/memory and the catalog image platform (amd64 or arm64), and may add task-role grants; the matcher retains its 1024 CPU / 2048 MiB amd64 task and empty task role. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
 
 The matcher schedule is `cron(0 15 * * ? *)`, timezone `UTC`, flexible window `OFF`, task count one, Fargate platform `1.4.0`. The `PeriodicMatcherEnabled` compute parameter defaults to `false` on first creation. New-template push deploys and Initialize may introduce newly added digest parameters on an older valid compute stack; existing activation values are preserved, while a newly introduced matcher enablement parameter uses its `false` default. Manual artifact rollback changes `CommitSHA` and every catalog digest together while retaining all other parameters and using the deployed CloudFormation template. A pre-feature compute template that lacks a required digest parameter cannot use artifact-only rollback; it must first receive an infrastructure-bearing release. Push publication resolves/reuses an immutable artifact or builds and smoke-tests the selected source once before publishing its final tag. Initialize and manual Deploy only resolve existing registry artifacts and never rebuild, pull, or repeat application-specific image smoke tests. The shared resolver fails on missing or malformed artifacts before migration/admission; it never turns manual or initialization paths into a build.
 

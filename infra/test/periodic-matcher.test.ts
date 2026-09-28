@@ -1,8 +1,11 @@
 import * as cdk from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
-import { ScheduledEcsJob } from "../src/constructs/scheduled-ecs-job";
+import { ScheduledEcsJob, ecsCpuArchitectureForPlatform } from "../src/constructs/scheduled-ecs-job";
+import { ecsTaskEventPattern, ecsTaskL2EventPattern } from "../src/constructs/ecs-task-event-patterns";
 import { matcherTaskEventPattern, periodicMatcherNames, PERIODIC_MATCHER_IMAGE } from "../src/periodic-matcher-config";
+import { scheduledEcsClusterName } from "../src/scheduled-ecs-config";
 
 function stacks(stage: "dev" | "prod" | "ephemeral") {
   return createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage });
@@ -183,7 +186,8 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(lifecycleRules).toHaveLength(3);
     expectRawTaskPattern(stoppedRule.Properties.EventPattern, stage, ["clusterArn", "taskDefinitionArn", "lastStatus"]);
     const [clusterId, clusterResource] = Object.entries(template.findResources("AWS::ECS::Cluster"))[0];
-    expect(clusterResource.Properties.ClusterName).toBe(names.cluster);
+    expect(clusterId).toBe("PeriodicMatcherCluster207C1F86");
+    expect(clusterResource.Properties.ClusterName).toBe(scheduledEcsClusterName(stage));
     expect(stoppedRule.Properties.EventPattern.detail.clusterArn).toEqual([{ "Fn::GetAtt": [clusterId, "Arn"] }]);
     expect(stoppedRule.Properties.EventPattern.detail).toMatchObject({
       taskDefinitionArn: [{ prefix: expect.anything() }],
@@ -272,27 +276,67 @@ test("synthesized lifecycle log targets emit a timestamp and string message, nev
   }
 });
 
-test("two scheduled ECS jobs synthesize independent private tasks and lifecycle targets", () => {
+test("two scheduled ECS jobs share one stage cluster but retain independent tasks, policies and lifecycle targets", () => {
   const app = stacks("dev");
   const names = periodicMatcherNames("dev");
   const secondNames = Object.fromEntries(Object.entries(names).map(([key, value]) => [key, value.replaceAll("periodic-matcher", "example-job").replaceAll("search-filter-periodic-match", "example-job")])) as unknown as typeof names;
+  const armImage = { ...PERIODIC_MATCHER_IMAGE, platform: "linux/arm64" as const };
   new ScheduledEcsJob(app.compute, "ExampleJob", {
-    network: app.network!.network, names: { ...secondNames, cluster: "aura-historia-example-job-dev", lifecyclePolicy: "example-job-events-dev" },
+    network: app.network!.network, cluster: app.compute.scheduledEcsCluster!,
+    names: { ...secondNames, lifecyclePolicy: "example-job-events-dev" },
+    platform: armImage.platform, cpu: 512, memoryLimitMiB: 1024,
     imageRepository: "example-job", imageDigest: `sha256:${"a".repeat(64)}`,
     containerName: "example-job", environment: { STAGE: "dev" }, secrets: () => ({}),
+    extendTaskRole: (role) => role.addToPolicy(new iam.PolicyStatement({ actions: ["s3:GetObject"], resources: ["arn:aws:s3:::example-bucket/input/*"] })),
     scheduleExpression: "cron(0 12 * * ? *)",
     enabled: new cdk.CfnCondition(app.compute, "ExampleJobActivation", { expression: cdk.Fn.conditionEquals("true", "false") }),
     retention: cdk.aws_logs.RetentionDays.ONE_MONTH, removalPolicy: cdk.RemovalPolicy.RETAIN,
   });
   const template = Template.fromStack(app.compute);
+  template.resourceCountIs("AWS::ECS::Cluster", 1);
+  template.hasResourceProperties("AWS::ECS::Cluster", { ClusterName: scheduledEcsClusterName("dev") });
   template.resourceCountIs("AWS::ECS::TaskDefinition", 2);
+  template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+    Family: secondNames.family, Cpu: "512", Memory: "1024",
+    RuntimePlatform: { OperatingSystemFamily: "LINUX", CpuArchitecture: "ARM64" },
+  });
+  const exampleRoleId = Object.keys(template.findResources("AWS::IAM::Role")).find((id) => id.includes("ExampleJobTaskRole"))!;
+  const examplePolicies = Object.values(template.findResources("AWS::IAM::Policy"))
+    .filter((policy) => JSON.stringify(policy.Properties.Roles).includes(exampleRoleId));
+  expect(examplePolicies).toHaveLength(1);
+  expect(examplePolicies[0].Properties.PolicyDocument.Statement).toEqual([{
+    Action: "s3:GetObject", Effect: "Allow", Resource: "arn:aws:s3:::example-bucket/input/*",
+  }]);
   template.hasResourceProperties("AWS::Scheduler::Schedule", { Name: names.schedule });
   template.hasResourceProperties("AWS::Scheduler::Schedule", { Name: secondNames.schedule });
+  const schedules = Object.values(template.findResources("AWS::Scheduler::Schedule"))
+    .filter((schedule) => schedule.Properties.Target.EcsParameters);
+  expect(schedules).toHaveLength(2);
+  expect(schedules[0].Properties.Target.Arn).toEqual(schedules[1].Properties.Target.Arn);
   template.hasResourceProperties("AWS::SQS::Queue", { QueueName: secondNames.dlq });
   const exampleRules = Object.values(template.findResources("AWS::Events::Rule"))
     .filter((rule) => rule.Properties.Name?.includes("example-job"));
   expect(exampleRules).toHaveLength(3);
-  expect(exampleRules.find((rule) => rule.Properties.Name === secondNames.exitFailureRule)?.Properties.EventPattern.detail.containers.name).toEqual(["example-job"]);
+  const matcherExit = synthesizedRule(template, names.exitFailureRule).Properties.EventPattern;
+  const exampleExit = synthesizedRule(template, secondNames.exitFailureRule).Properties.EventPattern;
+  expect(exampleExit.detail.clusterArn).toEqual(matcherExit.detail.clusterArn);
+  expect(exampleExit.detail.taskDefinitionArn).not.toEqual(matcherExit.detail.taskDefinitionArn);
+  expect(exampleExit.detail.containers.name).toEqual(["example-job"]);
+  expect(exampleExit.detail.exitCode).toBeUndefined();
+  const matcherEvent = fixtureTaskEvent("dev", { containers: [{ name: "periodic-matcher", exitCode: 1 }] });
+  const exampleEvent = { ...matcherEvent, detail: { ...matcherEvent.detail, taskDefinitionArn: `arn:aws:ecs:eu-central-1:123456789012:task-definition/${secondNames.family}:1`, containers: [{ name: "example-job", exitCode: 1 }] } };
+  const matcherPattern = ecsTaskEventPattern("cluster", "matcher:", "periodic-matcher", "exit");
+  const examplePattern = ecsTaskEventPattern("cluster", "example:", "example-job", "exit");
+  expect(patternMatches(matcherPattern, { ...matcherEvent, detail: { ...matcherEvent.detail, clusterArn: "cluster", taskDefinitionArn: "matcher:1" } })).toBe(true);
+  expect(patternMatches(examplePattern, { ...matcherEvent, detail: { ...matcherEvent.detail, clusterArn: "cluster", taskDefinitionArn: "matcher:1" } })).toBe(false);
+  expect(patternMatches(examplePattern, { ...exampleEvent, detail: { ...exampleEvent.detail, clusterArn: "cluster", taskDefinitionArn: "example:1" } })).toBe(true);
+  expect(patternMatches(matcherPattern, { ...exampleEvent, detail: { ...exampleEvent.detail, clusterArn: "cluster", taskDefinitionArn: "example:1" } })).toBe(false);
+});
+
+test("catalog platform mappings support both architectures and reject unknown platforms", () => {
+  expect(ecsCpuArchitectureForPlatform(PERIODIC_MATCHER_IMAGE.platform)).toBe(cdk.aws_ecs.CpuArchitecture.X86_64);
+  expect(ecsCpuArchitectureForPlatform("linux/arm64")).toBe(cdk.aws_ecs.CpuArchitecture.ARM64);
+  expect(() => ecsCpuArchitectureForPlatform("linux/s390x" as typeof PERIODIC_MATCHER_IMAGE.platform)).toThrow(/Unsupported scheduled ECS image platform/);
 });
 
 test("ephemeral stages do not create the matcher or digest parameters", () => {
@@ -358,6 +402,8 @@ test("STOPPED fixtures distinguish successful, nonzero, startup and interruption
 test("failure patterns and production observability preserve their synthesized EventBridge contracts", () => {
   const exit = matcherTaskEventPattern("cluster", "family:", "exit");
   const interruption = matcherTaskEventPattern("cluster", "family:", "interruption");
+  expect(exit).toEqual(ecsTaskEventPattern("cluster", "family:", "periodic-matcher", "exit"));
+  expect(ecsTaskL2EventPattern("cluster", "family:", "periodic-matcher", "exit").detailType).toEqual(exit["detail-type"]);
   expect(exit["detail-type"]).toEqual(["ECS Task State Change"]);
   expect(exit.detail).toMatchObject({ clusterArn: ["cluster"], taskDefinitionArn: [{ prefix: "family:" }], containers: { name: ["periodic-matcher"], exitCode: [{ "anything-but": 0 }] } });
   expect(interruption.detail).not.toHaveProperty("containers");

@@ -204,6 +204,24 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn startup_error_fails_without_launching_matching() {
+        let (job, calls) = fake(None, false, None).await;
+        assert_eq!(
+            run(
+                async move {
+                    let _ = job;
+                    Err::<(Arc<dyn RunPeriodicSearchFilterMatchingUseCase>, Duration), _>(())
+                },
+                std::future::pending(),
+                STARTUP_LIMIT,
+            )
+            .await,
+            Err(ExecutionError::StartupFailed)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn startup_timeout_and_cancel_do_not_launch() {
         let (job, calls) = fake(None, false, None).await;
         assert_eq!(

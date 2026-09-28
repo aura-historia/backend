@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as ecs from "aws-cdk-lib/aws-ecs";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
@@ -24,6 +25,7 @@ import {
 import { Observability } from "./constructs/observability";
 import { PeriodicMatcher } from "./constructs/periodic-matcher";
 import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
+import { scheduledEcsClusterName } from "./scheduled-ecs-config";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
@@ -253,6 +255,7 @@ export class ApplicationComputeStack extends cdk.Stack {
   readonly identity: Identity;
   readonly eventing: Eventing;
   readonly periodicMatcher?: PeriodicMatcher;
+  readonly scheduledEcsCluster?: ecs.Cluster;
 
   constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
     super(scope, id, stackProps(props));
@@ -314,6 +317,11 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     if (!config.isEphemeral) {
       if (!props.network) throw new Error("Periodic matcher requires the application network.");
+      this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
+        vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
+      });
+      // Preserve the existing named cluster during the move out of PeriodicMatcher.
+      (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
       const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
         type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
         description: "Verified immutable ECR image manifest digest for this release.",
@@ -325,7 +333,7 @@ export class ApplicationComputeStack extends cdk.Stack {
         expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
       });
       this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
-        config, network: props.network, postgres: props.storage.postgres,
+        config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
         imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
       });
       new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
