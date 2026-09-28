@@ -4,9 +4,10 @@ use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
-    DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapedProduct, ScraperService,
-    begin_transport_observation, current_scrape_domain_id, current_transport_observation,
-    domain_health_for_scraper_error, record_transport_fetch_error, record_transport_success,
+    DomainFetchHealth, FetchFailureSource, ScrapeMode, ScrapeOutcome, ScrapeRequest,
+    ScrapedProduct, ScraperService, begin_transport_observation, current_fetch_failure,
+    current_scrape_domain_id, current_transport_observation, domain_health_for_scraper_error,
+    record_transport_failure, record_transport_success,
 };
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
@@ -201,7 +202,10 @@ impl ScraperService for ScraperServiceImpl {
                 details,
                 ..
             }) => {
-                record_transport_fetch_error(
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    None,
                     NetworkErrorKind::HttpStatus(status),
                     Some(status),
                     None,
@@ -212,7 +216,7 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
             Err(FetchError::Network { kind, details }) => {
-                record_transport_fetch_error(kind, None, None);
+                record_transport_failure(url, FetchFailureSource::Primary, None, kind, None, None);
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind,
@@ -225,7 +229,14 @@ impl ScraperService for ScraperServiceImpl {
                 retry_after,
                 details,
             }) => {
-                record_transport_fetch_error(kind, status, retry_after);
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    None,
+                    kind,
+                    status,
+                    retry_after,
+                );
                 return Err(ScraperError::HttpErrorWithMetadata(Box::new(
                     HttpErrorMetadata {
                         url: url.clone(),
@@ -381,29 +392,18 @@ impl ScraperService for ScraperServiceImpl {
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn scrape_with_mode(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        fallback_currency: Option<money::Currency>,
-        mode: ScrapeMode,
-    ) -> ScrapeOutcome {
+    async fn scrape_with_mode(&self, request: ScrapeRequest) -> ScrapeOutcome {
         let result = SCRAPE_MODE
             .scope(
-                mode,
+                request.mode,
                 self.scrape_with_fallback_currency(
-                    listing_source_id,
-                    url,
-                    product_url_pattern,
-                    last_scraped_hash,
-                    last_scraped_schema_fingerprint,
-                    expected_last_captured_raw_input_sha256,
-                    fallback_currency,
+                    &request.listing_source_id,
+                    &request.url,
+                    request.product_url_pattern.as_deref(),
+                    request.last_scraped_hash.as_deref(),
+                    request.last_scraped_schema_fingerprint.as_deref(),
+                    request.expected_last_captured_raw_input_sha256.as_deref(),
+                    request.fallback_currency,
                 ),
             )
             .await;
@@ -414,6 +414,7 @@ impl ScraperService for ScraperServiceImpl {
         ScrapeOutcome {
             result,
             domain_health,
+            fetch_failure: current_fetch_failure(),
         }
     }
 }

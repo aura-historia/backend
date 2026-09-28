@@ -20,8 +20,8 @@ mod tests;
 pub use auto_throttle::{ScraperAutoThrottle, ScraperAutoThrottleConfig};
 pub use domain::errors::ScraperError;
 pub use domain::product::{
-    DomainFetchHealth, MockScraperService, ScrapeMode, ScrapeOutcome, ScrapedProduct,
-    ScraperService,
+    DomainFetchHealth, FetchFailureContext, FetchFailureSource, MockScraperService, ScrapeMode,
+    ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
 };
 pub use service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, DEFAULT_SCHEMA_SEED_PAGES, FetchError, FetchedHtml,

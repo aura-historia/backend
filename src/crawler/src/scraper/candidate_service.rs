@@ -39,6 +39,14 @@ pub struct ScraperCandidate {
     pub is_domain_probe: bool,
 }
 
+/// A schema-seed URL together with the raw-input fence observed when it was
+/// selected. The fence is used if the seed later produces a transport failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaSeedCandidate {
+    pub url: Url,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainHealthSnapshot {
     pub scrape_failure_streak: i32,
@@ -55,6 +63,34 @@ pub struct DomainCircuitOpenOutcome {
     /// The streak known to have been persisted when the domain write applied.
     /// This is `None` when the domain write was stale.
     pub persisted_failure_streak: Option<u32>,
+}
+
+/// URL-level failure state to persist. Keeping the URL and its fence together
+/// prevents a seed failure from accidentally using the primary candidate's
+/// optimistic-concurrency token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchFailureRequest {
+    pub listing_source_id: ListingSourceId,
+    pub url: Url,
+    pub error_kind: String,
+    pub error_message: String,
+    pub status_code: Option<i32>,
+    pub next_retry_at: OffsetDateTime,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
+/// The independently fenced URL and domain writes for a domain-opening
+/// failure. The URL request identifies the actual failing URL; the domain
+/// snapshot remains the candidate domain's complete optimistic-concurrency
+/// fence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainCircuitOpenRequest {
+    pub url_failure: FetchFailureRequest,
+    pub domain_id: CrawlerDomainId,
+    pub expected_domain_health: DomainHealthSnapshot,
+    pub domain_error_kind: DomainFailureKind,
+    pub domain_status_code: Option<i32>,
+    pub next_scrape_at: OffsetDateTime,
 }
 
 /// Calculates the next domain failure streak from one candidate snapshot.
@@ -107,7 +143,7 @@ pub trait ScraperCandidateService: Send + Sync {
         domain_id: &CrawlerDomainId,
         exclude_url: &Url,
         limit: i64,
-    ) -> Result<Vec<Url>, sqlx::Error>;
+    ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error>;
     #[allow(clippy::too_many_arguments)]
     async fn mark_as_scraped(
         &self,
@@ -170,32 +206,24 @@ pub trait ScraperCandidateService: Send + Sync {
     #[allow(clippy::too_many_arguments)]
     async fn mark_fetch_failure_and_open_domain_circuit(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        error_kind: &str,
-        error_message: &str,
-        status_code: Option<i32>,
-        next_retry_at: OffsetDateTime,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        _domain_id: &CrawlerDomainId,
-        _expected_domain_health: &DomainHealthSnapshot,
-        _domain_error_kind: DomainFailureKind,
-        _domain_status_code: Option<i32>,
-        _next_scrape_at: OffsetDateTime,
+        request: DomainCircuitOpenRequest,
     ) -> Result<DomainCircuitOpenOutcome, sqlx::Error> {
-        let url_failure = self
+        let url_failure = request.url_failure;
+        let url_failure_outcome = self
             .mark_fetch_failure(
-                listing_source_id,
-                url,
-                error_kind,
-                error_message,
-                status_code,
-                next_retry_at,
-                expected_last_captured_raw_input_sha256,
+                &url_failure.listing_source_id,
+                &url_failure.url,
+                &url_failure.error_kind,
+                &url_failure.error_message,
+                url_failure.status_code,
+                url_failure.next_retry_at,
+                url_failure
+                    .expected_last_captured_raw_input_sha256
+                    .as_deref(),
             )
             .await?;
         Ok(DomainCircuitOpenOutcome {
-            url_failure,
+            url_failure: url_failure_outcome,
             domain_circuit: CrawlerUrlWriteOutcome::NoopStale,
             persisted_failure_streak: None,
         })
@@ -437,12 +465,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         domain_id: &CrawlerDomainId,
         exclude_url: &Url,
         limit: i64,
-    ) -> Result<Vec<Url>, sqlx::Error> {
+    ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let domain_id_uuid = (*domain_id).into_uuid();
-        let rows: Vec<(String,)> = sqlx::query_as(
+        let rows: Vec<(String, Option<Vec<u8>>)> = sqlx::query_as(
             r#"
-            SELECT su.url
+            SELECT su.url, su.last_captured_raw_input_sha256
             FROM listing_source_urls su
             JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
             JOIN listing_source_domains sd
@@ -475,7 +503,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         Ok(rows
             .into_iter()
-            .filter_map(|(raw_url,)| Url::parse(&raw_url).ok())
+            .filter_map(|(raw_url, expected_last_captured_raw_input_sha256)| {
+                Url::parse(&raw_url).ok().map(|url| SchemaSeedCandidate {
+                    url,
+                    expected_last_captured_raw_input_sha256,
+                })
+            })
             .collect())
     }
 
@@ -726,20 +759,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     #[allow(clippy::too_many_arguments)]
     async fn mark_fetch_failure_and_open_domain_circuit(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        error_kind: &str,
-        error_message: &str,
-        status_code: Option<i32>,
-        next_retry_at: OffsetDateTime,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        domain_id: &CrawlerDomainId,
-        expected_domain_health: &DomainHealthSnapshot,
-        domain_error_kind: DomainFailureKind,
-        domain_status_code: Option<i32>,
-        next_scrape_at: OffsetDateTime,
+        request: DomainCircuitOpenRequest,
     ) -> Result<DomainCircuitOpenOutcome, sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
+        let url_failure = request.url_failure;
         let url_result = sqlx::query(
             "UPDATE listing_source_urls
              SET failure_count = failure_count + 1,
@@ -754,13 +777,13 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
                AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
         )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(url.to_string())
-        .bind(error_kind)
-        .bind(error_message)
-        .bind(status_code)
-        .bind(next_retry_at)
-        .bind(expected_last_captured_raw_input_sha256)
+        .bind(uuid::Uuid::from(url_failure.listing_source_id))
+        .bind(url_failure.url.to_string())
+        .bind(url_failure.error_kind)
+        .bind(url_failure.error_message)
+        .bind(url_failure.status_code)
+        .bind(url_failure.next_retry_at)
+        .bind(url_failure.expected_last_captured_raw_input_sha256)
         .execute(&mut *transaction)
         .await?;
 
@@ -773,7 +796,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             });
         }
 
-        let next_streak = next_domain_failure_streak(expected_domain_health, domain_error_kind);
+        let next_streak =
+            next_domain_failure_streak(&request.expected_domain_health, request.domain_error_kind);
         let domain_result = sqlx::query(
             "UPDATE listing_source_domains
              SET scrape_failure_streak = $2,
@@ -785,14 +809,19 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                AND next_scrape_at IS NOT DISTINCT FROM $7
                AND last_scrape_error_kind IS NOT DISTINCT FROM $8",
         )
-        .bind(domain_id.as_uuid())
+        .bind(request.domain_id.as_uuid())
         .bind(i32::try_from(next_streak).expect("domain failure streak must fit persisted INT"))
-        .bind(domain_error_kind.as_str())
-        .bind(domain_status_code)
-        .bind(next_scrape_at)
-        .bind(expected_domain_health.scrape_failure_streak)
-        .bind(expected_domain_health.next_scrape_at)
-        .bind(expected_domain_health.last_scrape_error_kind.as_deref())
+        .bind(request.domain_error_kind.as_str())
+        .bind(request.domain_status_code)
+        .bind(request.next_scrape_at)
+        .bind(request.expected_domain_health.scrape_failure_streak)
+        .bind(request.expected_domain_health.next_scrape_at)
+        .bind(
+            request
+                .expected_domain_health
+                .last_scrape_error_kind
+                .as_deref(),
+        )
         .execute(&mut *transaction)
         .await?;
 
@@ -805,7 +834,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         if domain_circuit == CrawlerUrlWriteOutcome::NoopStale {
             tracing::debug!(
-                domain_id = %domain_id,
+                domain_id = %request.domain_id,
                 "Skipped stale scraper domain circuit opening"
             );
         }

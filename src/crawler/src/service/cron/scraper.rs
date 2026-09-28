@@ -3,12 +3,16 @@ use crate::network::policy::{
     NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
-    ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
+    DomainCircuitOpenRequest, FetchFailureRequest, ScraperCandidate, ScraperCandidateService,
+    next_domain_failure_streak,
 };
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
-use crate::scraper::scraper_service::domain::product::with_scrape_observation;
+use crate::scraper::scraper_service::domain::product::{
+    current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
+};
 use crate::scraper::scraper_service::{
-    DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScraperError, ScraperService,
+    DomainFetchHealth, FetchFailureContext, FetchFailureSource, ScrapeMode, ScrapeOutcome,
+    ScrapeRequest, ScrapedProduct, ScraperError, ScraperService,
 };
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -421,70 +425,92 @@ async fn scrape_candidate_with_options(
     ctx: &ScrapeDomainContext,
     open_5xx_burst: bool,
 ) -> ScrapeCandidateOutcome {
-    // Skip URLs from listing_sources with already-exhausted budgets
-    {
-        let exhausted = ctx.budget_exhausted_listing_sources.lock().await;
-        if exhausted.contains(&candidate.listing_source_id) {
-            debug!("Skipping URL — ListingSource LLM budget already exhausted in this batch");
-            return ScrapeCandidateOutcome {
-                capture: None,
-                errored: false,
-                skipped: true,
-                ..Default::default()
-            };
-        }
-    }
-
-    {
-        let pending = ctx.schema_pending_listing_sources.lock().await;
-        if pending.contains(&candidate.listing_source_id) {
-            debug!("Skipping URL because ListingSource has pending schema review in this batch");
-            return ScrapeCandidateOutcome {
-                capture: None,
-                errored: false,
-                skipped: true,
-                ..Default::default()
-            };
-        }
+    if should_skip_candidate(&candidate, ctx).await {
+        return skipped_outcome();
     }
 
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!("Skipping URL — lock held by another worker");
-        return ScrapeCandidateOutcome {
-            capture: None,
-            errored: false,
-            skipped: true,
-            ..Default::default()
-        };
+        return skipped_outcome();
     };
-
     let Some(_listing_source_lock) =
         ListingSourceLock::try_acquire(&ctx.lock_manager, candidate.listing_source_id)
     else {
         debug!("Skipping URL because another worker is scraping this ListingSource");
-        return ScrapeCandidateOutcome {
-            capture: None,
-            errored: false,
-            skipped: true,
-            ..Default::default()
-        };
+        return skipped_outcome();
     };
 
+    let scrape_outcome = run_candidate_scrape(&candidate, ctx).await;
+    let domain_health = scrape_outcome.domain_health.clone();
+    let fetch_failure = scrape_outcome.fetch_failure;
+    let mut outcome = match scrape_outcome.result {
+        Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
+        Ok(None) => skipped_outcome(),
+        Err(ScraperError::ProductListingRemoved { .. }) => handle_verified_removal(&candidate),
+        Err(error) => {
+            handle_scrape_error(
+                &candidate,
+                ctx,
+                error,
+                fetch_failure,
+                domain_health.clone(),
+                open_5xx_burst,
+            )
+            .await
+        }
+    };
+    if matches!(outcome.domain_health, DomainFetchHealth::NotObserved) {
+        outcome.domain_health = domain_health;
+    }
+    outcome
+}
+
+fn skipped_outcome() -> ScrapeCandidateOutcome {
+    ScrapeCandidateOutcome {
+        skipped: true,
+        ..Default::default()
+    }
+}
+
+async fn should_skip_candidate(candidate: &ScraperCandidate, ctx: &ScrapeDomainContext) -> bool {
+    let exhausted = ctx.budget_exhausted_listing_sources.lock().await;
+    if exhausted.contains(&candidate.listing_source_id) {
+        debug!("Skipping URL — ListingSource LLM budget already exhausted in this batch");
+        return true;
+    }
+    drop(exhausted);
+
+    let pending = ctx.schema_pending_listing_sources.lock().await;
+    if pending.contains(&candidate.listing_source_id) {
+        debug!("Skipping URL because ListingSource has pending schema review in this batch");
+        return true;
+    }
+    false
+}
+
+fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeRequest {
+    ScrapeRequest {
+        listing_source_id: candidate.listing_source_id,
+        url: candidate.url.clone(),
+        product_url_pattern: candidate.url_pattern.clone(),
+        last_scraped_hash: candidate.last_scraped_hash.clone(),
+        last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+        fallback_currency: candidate.fallback_currency,
+        mode,
+    }
+}
+
+async fn run_candidate_scrape(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+) -> ScrapeOutcome {
     let is_domain_probe = candidate.is_domain_probe;
-    let (scrape_outcome, observed_domain_health) =
+    let (mut outcome, observed_domain_health) =
         with_scrape_observation(candidate.domain_id, async {
             if is_domain_probe {
                 ctx.scraper
-                    .scrape_with_mode(
-                        &candidate.listing_source_id,
-                        &candidate.url,
-                        candidate.url_pattern.as_deref(),
-                        candidate.last_scraped_hash.as_deref(),
-                        candidate.last_scraped_schema_fingerprint.as_deref(),
-                        candidate.last_captured_raw_input_sha256.as_deref(),
-                        candidate.fallback_currency,
-                        ScrapeMode::DomainProbe,
-                    )
+                    .scrape_with_mode(scrape_request(candidate, ScrapeMode::DomainProbe))
                     .await
             } else {
                 let result = match candidate.fallback_currency {
@@ -517,395 +543,436 @@ async fn scrape_candidate_with_options(
                 ScrapeOutcome {
                     result,
                     domain_health: DomainFetchHealth::NotObserved,
+                    fetch_failure: current_fetch_failure(),
                 }
             }
         })
         .await;
-    let mut domain_health = observed_domain_health
+    outcome.domain_health = observed_domain_health
         .or_else(|| {
-            (!is_domain_probe).then(|| match &scrape_outcome.result {
+            (!is_domain_probe).then(|| match &outcome.result {
                 Ok(_) => DomainFetchHealth::Responsive,
-                Err(error) => {
-                    crate::scraper::scraper_service::domain::product::domain_health_for_scraper_error(
-                        error,
-                    )
-                }
+                Err(error) => domain_health_for_scraper_error(error),
             })
         })
-        .unwrap_or(scrape_outcome.domain_health);
-    let scrape_result = scrape_outcome.result;
-    let mut server_failure_status = None;
+        .unwrap_or(outcome.domain_health);
+    outcome
+}
 
-    let mut outcome = match scrape_result {
-        Ok(Some(scraped)) => {
-            let disposition = match &scraped.availability {
-                product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
-                    product_listing_core::listing_availability::ListingAvailability::SoldOut,
-                ) => CrawlerDisposition::DormantSold,
-                product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(_)
-                | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
-                | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
-                    CrawlerDisposition::Active
-                }
+async fn handle_successful_scrape(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    scraped: ScrapedProduct,
+) -> ScrapeCandidateOutcome {
+    let disposition = match &scraped.availability {
+        product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
+            product_listing_core::listing_availability::ListingAvailability::SoldOut,
+        ) => CrawlerDisposition::DormantSold,
+        product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(_)
+        | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
+        | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
+            CrawlerDisposition::Active
+        }
+    };
+    let provenance = match crawler_provenance(
+        Some(scraped.hash.as_str()),
+        Some(scraped.schema_fingerprint.as_str()),
+    ) {
+        Ok(provenance) => provenance,
+        Err(error) => {
+            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build crawler raw-capture provenance");
+            return ScrapeCandidateOutcome {
+                errored: true,
+                ..Default::default()
             };
-            let provenance = match crawler_provenance(
-                Some(scraped.hash.as_str()),
-                Some(scraped.schema_fingerprint.as_str()),
-            ) {
-                Ok(provenance) => provenance,
-                Err(error) => {
-                    warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build crawler raw-capture provenance");
-                    return ScrapeCandidateOutcome {
-                        capture: None,
-                        errored: true,
-                        skipped: false,
-                        ..Default::default()
-                    };
-                }
-            };
-            let meta = CandidateMeta {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                hash: scraped.hash,
-                schema_fingerprint: scraped.schema_fingerprint,
-                raw_input_sha256: scraped.raw_input_sha256,
-                disposition,
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            };
+        }
+    };
+    let meta = CandidateMeta {
+        listing_source_id: candidate.listing_source_id,
+        url: candidate.url.clone(),
+        hash: scraped.hash,
+        schema_fingerprint: scraped.schema_fingerprint,
+        raw_input_sha256: scraped.raw_input_sha256,
+        disposition,
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+    };
 
-            if candidate.last_captured_raw_input_sha256.as_deref()
-                == Some(meta.raw_input_sha256.as_slice())
-                && disposition == CrawlerDisposition::Active
-            {
-                match ctx
-                    .scraper_candidates
-                    .mark_as_scraped(
-                        &meta.listing_source_id,
-                        &meta.url,
-                        &meta.hash,
-                        &meta.schema_fingerprint,
-                        &meta.raw_input_sha256,
-                        meta.disposition,
-                        meta.expected_last_captured_raw_input_sha256.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome {
-                        capture: None,
-                        errored: false,
-                        skipped: false,
-                        ..Default::default()
-                    },
-                    Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                        debug!(
-                            listing_source_id = %meta.listing_source_id,
-                            url = %meta.url,
-                            crawler_url_write_outcome = "stale_noop",
-                            "Skipped stale active crawler scrape completion"
-                        );
-                        ScrapeCandidateOutcome {
-                            capture: None,
-                            errored: false,
-                            skipped: true,
-                            ..Default::default()
-                        }
-                    }
-                    Err(error) => {
-                        warn!(error = %error, url = %meta.url, "Failed to persist unchanged raw scrape metadata");
-                        ScrapeCandidateOutcome {
-                            capture: None,
-                            errored: true,
-                            skipped: false,
-                            ..Default::default()
-                        }
-                    }
-                }
-            } else {
+    if candidate.last_captured_raw_input_sha256.as_deref() == Some(meta.raw_input_sha256.as_slice())
+        && disposition == CrawlerDisposition::Active
+    {
+        return match ctx
+            .scraper_candidates
+            .mark_as_scraped(
+                &meta.listing_source_id,
+                &meta.url,
+                &meta.hash,
+                &meta.schema_fingerprint,
+                &meta.raw_input_sha256,
+                meta.disposition,
+                meta.expected_last_captured_raw_input_sha256.as_deref(),
+            )
+            .await
+        {
+            Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome::default(),
+            Ok(CrawlerUrlWriteOutcome::NoopStale) => {
+                debug!(
+                    listing_source_id = %meta.listing_source_id,
+                    url = %meta.url,
+                    crawler_url_write_outcome = "stale_noop",
+                    "Skipped stale active crawler scrape completion"
+                );
                 ScrapeCandidateOutcome {
-                    capture: Some(RawCaptureRequest {
-                        item: ProductListingRawCaptureItem::crawler(
-                            candidate.listing_source_id,
-                            &candidate.url,
-                            scraped.raw_input,
-                            provenance,
-                        ),
-                        on_success: RawCaptureSuccessAction::MarkScraped(meta),
-                        on_failure: RawCaptureFailureAction::None,
-                    }),
-                    errored: false,
-                    skipped: false,
+                    skipped: true,
                     ..Default::default()
                 }
             }
-        }
-        Ok(None) => ScrapeCandidateOutcome {
-            capture: None,
-            errored: false,
-            skipped: true,
-            ..Default::default()
-        },
-        Err(ScraperError::ProductListingRemoved { .. }) => handle_verified_removal(&candidate),
-        Err(e) => {
-            let error_message = e.to_string();
-            let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
-            let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
-
-            let http_failure = match &e {
-                ScraperError::HttpError { kind, .. } => Some((*kind, None, None)),
-                ScraperError::HttpErrorWithMetadata(metadata) => {
-                    Some((metadata.kind, metadata.status_code, metadata.retry_after))
-                }
-                _ => None,
-            };
-
-            if let Some((kind, metadata_status_code, retry_after)) = http_failure {
-                let cooldown = durable_retry_cooldown_for(kind);
-                let next_retry_at = time::OffsetDateTime::now_utc()
-                    + time::Duration::seconds(cooldown.as_secs() as i64);
-                let status_code = match kind {
-                    NetworkErrorKind::HttpStatus(code) => Some(code as i32),
-                    _ => None,
-                }
-                .or(metadata_status_code.map(i32::from));
-                server_failure_status = status_code
-                    .filter(|status| matches!(*status, 500 | 502))
-                    .and_then(|status| u16::try_from(status).ok());
-                let url_error_kind = crawler_url_error_kind(kind, status_code);
-                let domain_kind = domain_failure_kind(kind).or_else(|| {
-                    (open_5xx_burst && server_failure_status.is_some())
-                        .then_some(crate::network::policy::DomainFailureKind::Http5xxBurst)
-                });
-                if let Some(domain_kind) = domain_kind {
-                    let failure_streak =
-                        next_domain_failure_streak(&candidate.domain_health, domain_kind);
-                    let domain_cooldown = domain_cooldown(domain_kind, failure_streak, retry_after);
-                    let next_scrape_at = time::OffsetDateTime::now_utc()
-                        + time::Duration::seconds(domain_cooldown.as_secs() as i64);
-                    if domain_kind == crate::network::policy::DomainFailureKind::Http5xxBurst {
-                        domain_health = DomainFetchHealth::CircuitFailure {
-                            kind: domain_kind,
-                            status_code: status_code.and_then(|value| u16::try_from(value).ok()),
-                            retry_after,
-                        };
-                    }
-                    let result = ctx
-                        .scraper_candidates
-                        .mark_fetch_failure_and_open_domain_circuit(
-                            &candidate.listing_source_id,
-                            &candidate.url,
-                            &url_error_kind,
-                            &error_message,
-                            status_code,
-                            next_retry_at,
-                            candidate.last_captured_raw_input_sha256.as_deref(),
-                            &candidate.domain_id,
-                            &candidate.domain_health,
-                            domain_kind,
-                            status_code,
-                            next_scrape_at,
-                        )
-                        .await;
-                    match result {
-                        Ok(domain_open_outcome) => {
-                            if domain_open_outcome.url_failure == CrawlerUrlWriteOutcome::NoopStale
-                            {
-                                debug!(
-                                    listing_source_id = %candidate.listing_source_id,
-                                    url = %candidate.url,
-                                    crawler_url_write_outcome = "stale_noop",
-                                    "Skipped stale crawler fetch failure metadata"
-                                );
-                            }
-
-                            match domain_open_outcome.domain_circuit {
-                                CrawlerUrlWriteOutcome::Applied => {
-                                    let persisted_failure_streak = domain_open_outcome
-                                        .persisted_failure_streak
-                                        .expect("applied domain circuit must report its streak");
-                                    warn!(
-                                        event = "crawler.scraper.domain_circuit_opened",
-                                        domain_id = %candidate.domain_id,
-                                        listing_source_domain = %candidate.listing_source_domain,
-                                        error_kind = %domain_kind.as_str(),
-                                        status_code = ?status_code,
-                                        failure_streak = persisted_failure_streak,
-                                        retry_after_seconds = retry_after.map(|value| value.as_secs()),
-                                        next_scrape_at = %next_scrape_at,
-                                        "Opened scraper domain circuit"
-                                    );
-                                }
-                                CrawlerUrlWriteOutcome::NoopStale => debug!(
-                                    event = "crawler.scraper.domain_circuit_open_stale",
-                                    domain_id = %candidate.domain_id,
-                                    listing_source_domain = %candidate.listing_source_domain,
-                                    error_kind = %domain_kind.as_str(),
-                                    "Skipped stale scraper domain circuit opening"
-                                ),
-                            }
-                        }
-                        Err(error) => warn!(
-                            event = "crawler.scraper.domain_circuit_open_failed",
-                            error = %error,
-                            domain_id = %candidate.domain_id,
-                            listing_source_domain = %candidate.listing_source_domain,
-                            error_kind = %domain_kind.as_str(),
-                            "Failed to persist scraper domain circuit opening"
-                        ),
-                    }
-                } else {
-                    match ctx
-                        .scraper_candidates
-                        .mark_fetch_failure(
-                            &candidate.listing_source_id,
-                            &candidate.url,
-                            &url_error_kind,
-                            &error_message,
-                            status_code,
-                            next_retry_at,
-                            candidate.last_captured_raw_input_sha256.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(CrawlerUrlWriteOutcome::Applied) => {}
-                        Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                            debug!(
-                                listing_source_id = %candidate.listing_source_id,
-                                url = %candidate.url,
-                                crawler_url_write_outcome = "stale_noop",
-                                "Skipped stale crawler fetch failure metadata"
-                            );
-                        }
-                        Err(mark_err) => {
-                            warn!(
-                                error = %mark_err,
-                                "Failed to persist scraper fetch failure metadata"
-                            );
-                        }
-                    }
-                }
-            } else {
-                // Non-HTTP errors: schema failures, normalization errors, etc.
-                // These do not affect retry scheduling but are persisted for observability.
-                let error_kind = scraper_error_kind(&e);
-                match &e {
-                    ScraperError::SchemaRegenerationExhausted { .. }
-                    | ScraperError::FreshSchemaNormalizationFailed { .. }
-                    | ScraperError::SchemaClassificationRejected { .. }
-                    | ScraperError::LlmBudgetExceeded { .. }
-                    | ScraperError::PendingSchemaReview { .. } => {
-                        let cooldown = std::time::Duration::from_secs(30 * 60);
-                        let next_retry_at = time::OffsetDateTime::now_utc()
-                            + time::Duration::seconds(cooldown.as_secs() as i64);
-                        match ctx
-                            .scraper_candidates
-                            .mark_fetch_failure(
-                                &candidate.listing_source_id,
-                                &candidate.url,
-                                error_kind,
-                                &error_message,
-                                None,
-                                next_retry_at,
-                                candidate.last_captured_raw_input_sha256.as_deref(),
-                            )
-                            .await
-                        {
-                            Ok(CrawlerUrlWriteOutcome::Applied) => {}
-                            Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                                debug!(
-                                    listing_source_id = %candidate.listing_source_id,
-                                    url = %candidate.url,
-                                    crawler_url_write_outcome = "stale_noop",
-                                    "Skipped stale crawler schema/classification cooldown metadata"
-                                );
-                            }
-                            Err(mark_err) => {
-                                warn!(
-                                    error = %mark_err,
-                                    "Failed to persist schema/classification cooldown metadata"
-                                );
-                            }
-                        }
-                    }
-                    _ => {
-                        match ctx
-                            .scraper_candidates
-                            .mark_scraper_failure(
-                                &candidate.listing_source_id,
-                                &candidate.url,
-                                error_kind,
-                                &error_message,
-                                candidate.last_captured_raw_input_sha256.as_deref(),
-                            )
-                            .await
-                        {
-                            Ok(CrawlerUrlWriteOutcome::Applied) => {}
-                            Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                                debug!(
-                                    listing_source_id = %candidate.listing_source_id,
-                                    url = %candidate.url,
-                                    crawler_url_write_outcome = "stale_noop",
-                                    "Skipped stale crawler failure metadata"
-                                );
-                            }
-                            Err(mark_err) => {
-                                warn!(
-                                    error = %mark_err,
-                                    "Failed to persist scraper failure metadata"
-                                );
-                            }
-                        }
-                    }
+            Err(error) => {
+                warn!(error = %error, url = %meta.url, "Failed to persist unchanged raw scrape metadata");
+                ScrapeCandidateOutcome {
+                    errored: true,
+                    ..Default::default()
                 }
             }
+        };
+    }
 
-            // Log LLM budget exhaustion at INFO level only once per ListingSource per batch
-            if is_llm_budget_exceeded {
-                if let ScraperError::LlmBudgetExceeded {
-                    listing_source_id,
-                    max_calls,
-                    ..
-                } = &e
-                {
-                    let mut exhausted = ctx.budget_exhausted_listing_sources.lock().await;
-                    if exhausted.insert(*listing_source_id) {
-                        info!(
-                            listing_source_id = %listing_source_id,
-                            max_calls,
-                            "LLM call budget exhausted for ListingSource; skipping remaining URLs in batch"
-                        );
-                    }
-                }
-            } else if is_pending_schema_review {
-                let mut pending = ctx.schema_pending_listing_sources.lock().await;
-                if pending.insert(candidate.listing_source_id) {
-                    info!(
-                        listing_source_id = %candidate.listing_source_id,
-                        "ProductListing schema review pending for ListingSource; skipping remaining URLs in batch"
+    ScrapeCandidateOutcome {
+        capture: Some(RawCaptureRequest {
+            item: ProductListingRawCaptureItem::crawler(
+                candidate.listing_source_id,
+                &candidate.url,
+                scraped.raw_input,
+                provenance,
+            ),
+            on_success: RawCaptureSuccessAction::MarkScraped(meta),
+            on_failure: RawCaptureFailureAction::None,
+        }),
+        ..Default::default()
+    }
+}
+
+struct HttpFailure {
+    url: url::Url,
+    kind: NetworkErrorKind,
+    status_code: Option<u16>,
+    retry_after: Option<Duration>,
+    expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
+fn http_failure(
+    candidate: &ScraperCandidate,
+    error: &ScraperError,
+    context: Option<FetchFailureContext>,
+) -> Option<HttpFailure> {
+    let (error_kind, error_status_code, error_retry_after) = match error {
+        ScraperError::HttpError { kind, .. } => (*kind, None, None),
+        ScraperError::HttpErrorWithMetadata(metadata) => {
+            (metadata.kind, metadata.status_code, metadata.retry_after)
+        }
+        _ => return None,
+    };
+    let context = context.unwrap_or(FetchFailureContext {
+        url: candidate.url.clone(),
+        kind: error_kind,
+        status_code: error_status_code,
+        retry_after: error_retry_after,
+        source: FetchFailureSource::Primary,
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+    });
+    Some(HttpFailure {
+        url: context.url,
+        kind: context.kind,
+        status_code: context.status_code.or(error_status_code),
+        retry_after: context.retry_after.or(error_retry_after),
+        expected_last_captured_raw_input_sha256: context.expected_last_captured_raw_input_sha256,
+    })
+}
+
+async fn handle_scrape_error(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error: ScraperError,
+    fetch_failure: Option<FetchFailureContext>,
+    mut domain_health: DomainFetchHealth,
+    open_5xx_burst: bool,
+) -> ScrapeCandidateOutcome {
+    let error_message = error.to_string();
+    let server_failure_status =
+        if let Some(failure) = http_failure(candidate, &error, fetch_failure) {
+            persist_http_failure(
+                candidate,
+                ctx,
+                &error_message,
+                failure,
+                &mut domain_health,
+                open_5xx_burst,
+            )
+            .await
+        } else {
+            persist_non_http_failure(candidate, ctx, &error, &error_message).await;
+            None
+        };
+    record_batch_error_state(candidate, ctx, &error).await;
+
+    ScrapeCandidateOutcome {
+        errored: true,
+        domain_health,
+        server_failure_status,
+        ..Default::default()
+    }
+}
+
+async fn persist_http_failure(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_message: &str,
+    failure: HttpFailure,
+    domain_health: &mut DomainFetchHealth,
+    open_5xx_burst: bool,
+) -> Option<u16> {
+    let cooldown = durable_retry_cooldown_for(failure.kind);
+    let next_retry_at =
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64);
+    let status_code = failure
+        .status_code
+        .or(match failure.kind {
+            NetworkErrorKind::HttpStatus(code) => Some(code),
+            _ => None,
+        })
+        .map(i32::from);
+    let server_failure_status = status_code
+        .filter(|status| matches!(*status, 500 | 502))
+        .and_then(|status| u16::try_from(status).ok());
+    let url_error_kind = crawler_url_error_kind(failure.kind, status_code);
+    let domain_kind = domain_failure_kind(failure.kind).or_else(|| {
+        (open_5xx_burst && server_failure_status.is_some())
+            .then_some(crate::network::policy::DomainFailureKind::Http5xxBurst)
+    });
+    let url_failure = FetchFailureRequest {
+        listing_source_id: candidate.listing_source_id,
+        url: failure.url.clone(),
+        error_kind: url_error_kind,
+        error_message: error_message.to_owned(),
+        status_code,
+        next_retry_at,
+        expected_last_captured_raw_input_sha256: failure.expected_last_captured_raw_input_sha256,
+    };
+
+    let Some(domain_kind) = domain_kind else {
+        persist_url_failure(ctx, url_failure).await;
+        return server_failure_status;
+    };
+
+    let failure_streak = next_domain_failure_streak(&candidate.domain_health, domain_kind);
+    let domain_cooldown = domain_cooldown(domain_kind, failure_streak, failure.retry_after);
+    let next_scrape_at =
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(domain_cooldown.as_secs() as i64);
+    if domain_kind == crate::network::policy::DomainFailureKind::Http5xxBurst {
+        *domain_health = DomainFetchHealth::CircuitFailure {
+            kind: domain_kind,
+            status_code: status_code.and_then(|value| u16::try_from(value).ok()),
+            retry_after: failure.retry_after,
+        };
+    }
+
+    let result = ctx
+        .scraper_candidates
+        .mark_fetch_failure_and_open_domain_circuit(DomainCircuitOpenRequest {
+            url_failure,
+            domain_id: candidate.domain_id,
+            expected_domain_health: candidate.domain_health.clone(),
+            domain_error_kind: domain_kind,
+            domain_status_code: status_code,
+            next_scrape_at,
+        })
+        .await;
+    log_domain_open_result(
+        candidate,
+        domain_kind,
+        status_code,
+        failure.retry_after,
+        next_scrape_at,
+        result,
+    );
+    server_failure_status
+}
+
+async fn persist_url_failure(ctx: &ScrapeDomainContext, request: FetchFailureRequest) {
+    let url = request.url.clone();
+    match ctx
+        .scraper_candidates
+        .mark_fetch_failure(
+            &request.listing_source_id,
+            &request.url,
+            &request.error_kind,
+            &request.error_message,
+            request.status_code,
+            request.next_retry_at,
+            request.expected_last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            url = %url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler fetch failure metadata"
+        ),
+        Err(error) => warn!(
+            error = %error,
+            url = %url,
+            "Failed to persist scraper fetch failure metadata"
+        ),
+    }
+}
+
+fn log_domain_open_result(
+    candidate: &ScraperCandidate,
+    domain_kind: crate::network::policy::DomainFailureKind,
+    status_code: Option<i32>,
+    retry_after: Option<Duration>,
+    next_scrape_at: time::OffsetDateTime,
+    result: Result<crate::scraper::candidate_service::DomainCircuitOpenOutcome, sqlx::Error>,
+) {
+    match result {
+        Ok(domain_open_outcome) => {
+            if domain_open_outcome.url_failure == CrawlerUrlWriteOutcome::NoopStale {
+                debug!(
+                    listing_source_id = %candidate.listing_source_id,
+                    crawler_url_write_outcome = "stale_noop",
+                    "Skipped stale crawler fetch failure metadata"
+                );
+            }
+            match domain_open_outcome.domain_circuit {
+                CrawlerUrlWriteOutcome::Applied => {
+                    let persisted_failure_streak = domain_open_outcome
+                        .persisted_failure_streak
+                        .expect("applied domain circuit must report its streak");
+                    warn!(
+                        event = "crawler.scraper.domain_circuit_opened",
+                        domain_id = %candidate.domain_id,
+                        listing_source_domain = %candidate.listing_source_domain,
+                        error_kind = %domain_kind.as_str(),
+                        status_code = ?status_code,
+                        failure_streak = persisted_failure_streak,
+                        retry_after_seconds = retry_after.map(|value| value.as_secs()),
+                        next_scrape_at = %next_scrape_at,
+                        "Opened scraper domain circuit"
                     );
                 }
-                warn!(error = %e, "Scraper run failed");
-            } else if matches!(
-                &e,
-                ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
-            ) {
-                debug!(error = %e, "Scraper run failed");
-            } else {
-                warn!(error = %e, "Scraper run failed");
-            }
-
-            ScrapeCandidateOutcome {
-                capture: None,
-                errored: true,
-                skipped: false,
-                ..Default::default()
+                CrawlerUrlWriteOutcome::NoopStale => debug!(
+                    event = "crawler.scraper.domain_circuit_open_stale",
+                    domain_id = %candidate.domain_id,
+                    listing_source_domain = %candidate.listing_source_domain,
+                    error_kind = %domain_kind.as_str(),
+                    "Skipped stale scraper domain circuit opening"
+                ),
             }
         }
-    };
-    outcome.domain_health = domain_health;
-    outcome.server_failure_status = server_failure_status;
-    outcome
+        Err(error) => warn!(
+            event = "crawler.scraper.domain_circuit_open_failed",
+            error = %error,
+            domain_id = %candidate.domain_id,
+            listing_source_domain = %candidate.listing_source_domain,
+            error_kind = %domain_kind.as_str(),
+            "Failed to persist scraper domain circuit opening"
+        ),
+    }
+}
+
+async fn persist_non_http_failure(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error: &ScraperError,
+    error_message: &str,
+) {
+    let error_kind = scraper_error_kind(error);
+    let has_retry_cooldown = matches!(
+        error,
+        ScraperError::SchemaRegenerationExhausted { .. }
+            | ScraperError::FreshSchemaNormalizationFailed { .. }
+            | ScraperError::SchemaClassificationRejected { .. }
+            | ScraperError::LlmBudgetExceeded { .. }
+            | ScraperError::PendingSchemaReview { .. }
+    );
+    if has_retry_cooldown {
+        let next_retry_at =
+            time::OffsetDateTime::now_utc() + time::Duration::seconds((30 * 60) as i64);
+        persist_url_failure(
+            ctx,
+            FetchFailureRequest {
+                listing_source_id: candidate.listing_source_id,
+                url: candidate.url.clone(),
+                error_kind: error_kind.to_owned(),
+                error_message: error_message.to_owned(),
+                status_code: None,
+                next_retry_at,
+                expected_last_captured_raw_input_sha256: candidate
+                    .last_captured_raw_input_sha256
+                    .clone(),
+            },
+        )
+        .await;
+    } else {
+        match ctx
+            .scraper_candidates
+            .mark_scraper_failure(
+                &candidate.listing_source_id,
+                &candidate.url,
+                error_kind,
+                error_message,
+                candidate.last_captured_raw_input_sha256.as_deref(),
+            )
+            .await
+        {
+            Ok(CrawlerUrlWriteOutcome::Applied) => {}
+            Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                crawler_url_write_outcome = "stale_noop",
+                "Skipped stale crawler failure metadata"
+            ),
+            Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+        }
+    }
+}
+
+async fn record_batch_error_state(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error: &ScraperError,
+) {
+    if let ScraperError::LlmBudgetExceeded {
+        listing_source_id,
+        max_calls,
+        ..
+    } = error
+    {
+        let mut exhausted = ctx.budget_exhausted_listing_sources.lock().await;
+        if exhausted.insert(*listing_source_id) {
+            info!(
+                listing_source_id = %listing_source_id,
+                max_calls,
+                "LLM call budget exhausted for ListingSource; skipping remaining URLs in batch"
+            );
+        }
+    } else if let ScraperError::PendingSchemaReview { .. } = error {
+        let mut pending = ctx.schema_pending_listing_sources.lock().await;
+        if pending.insert(candidate.listing_source_id) {
+            info!(
+                listing_source_id = %candidate.listing_source_id,
+                "ProductListing schema review pending for ListingSource; skipping remaining URLs in batch"
+            );
+        }
+        warn!(error = %error, "Scraper run failed");
+    } else if matches!(
+        error,
+        ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
+    ) {
+        debug!(error = %error, "Scraper run failed");
+    } else {
+        warn!(error = %error, "Scraper run failed");
+    }
 }
 
 /// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
@@ -1334,6 +1401,7 @@ mod tests {
         DomainCircuitOpenOutcome, DomainHealthSnapshot, MockScraperCandidateService,
     };
     use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+    use crate::scraper::scraper_service::domain::product::record_transport_failure;
     use crate::scraper::scraper_service::{MockScraperService, ScrapedProduct};
     use crate::service::cron::config::CrawlerCronConfig;
     use crate::service::cron::test_support::{noop_listing_source_registration, scraper_candidate};
@@ -1871,37 +1939,26 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .withf(
-                move |_,
-                      _,
-                      _,
-                      _,
-                      status_code,
-                      next_retry_at,
-                      expected_raw_input_sha256,
-                      _,
-                      expected_domain_health,
-                      domain_error_kind,
-                      domain_status_code,
-                      _| {
-                    let expected_cooldown = durable_retry_cooldown_for(NetworkErrorKind::Timeout);
-                    let expected_from =
-                        before + time::Duration::seconds(expected_cooldown.as_secs() as i64);
-                    let expected_until = time::OffsetDateTime::now_utc()
-                        + time::Duration::seconds(expected_cooldown.as_secs() as i64)
-                        + time::Duration::seconds(1);
-                    status_code.is_none()
-                        && *next_retry_at >= expected_from
-                        && *next_retry_at <= expected_until
-                        && expected_raw_input_sha256.is_none()
-                        && expected_domain_health.scrape_failure_streak == 0
-                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Timeout
-                        && domain_status_code.is_none()
-                },
-            )
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .withf(move |request| {
+                let expected_cooldown = durable_retry_cooldown_for(NetworkErrorKind::Timeout);
+                let expected_from =
+                    before + time::Duration::seconds(expected_cooldown.as_secs() as i64);
+                let expected_until = time::OffsetDateTime::now_utc()
+                    + time::Duration::seconds(expected_cooldown.as_secs() as i64)
+                    + time::Duration::seconds(1);
+                request.url_failure.status_code.is_none()
+                    && request.url_failure.next_retry_at >= expected_from
+                    && request.url_failure.next_retry_at <= expected_until
+                    && request
+                        .url_failure
+                        .expected_last_captured_raw_input_sha256
+                        .is_none()
+                    && request.expected_domain_health.scrape_failure_streak == 0
+                    && request.domain_error_kind
+                        == crate::network::policy::DomainFailureKind::Timeout
+                    && request.domain_status_code.is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -2126,32 +2183,21 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .withf(
-                move |received_listing_source_id,
-                      received_url,
-                      error_kind,
-                      _,
-                      status_code,
-                      _,
-                      expected_raw_input_sha256,
-                      _,
-                      expected_domain_health,
-                      domain_error_kind,
-                      domain_status_code,
-                      _| {
-                    *received_listing_source_id == listing_source_id
-                        && received_url == &url
-                        && error_kind == "HTTP_429"
-                        && *status_code == Some(429)
-                        && expected_raw_input_sha256.is_none()
-                        && expected_domain_health.scrape_failure_streak == 0
-                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Http429
-                        && *domain_status_code == Some(429)
-                },
-            )
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .withf(move |request| {
+                request.url_failure.listing_source_id == listing_source_id
+                    && request.url_failure.url == url
+                    && request.url_failure.error_kind == "HTTP_429"
+                    && request.url_failure.status_code == Some(429)
+                    && request
+                        .url_failure
+                        .expected_last_captured_raw_input_sha256
+                        .is_none()
+                    && request.expected_domain_health.scrape_failure_streak == 0
+                    && request.domain_error_kind
+                        == crate::network::policy::DomainFailureKind::Http429
+                    && request.domain_status_code == Some(429)
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -2304,17 +2350,13 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .withf(
-                |_, _, error_kind, _, status_code, _, _, _, _, domain_error_kind, _, _| {
-                    error_kind == "HTTP_500"
-                        && *status_code == Some(500)
-                        && *domain_error_kind
-                            == crate::network::policy::DomainFailureKind::Http5xxBurst
-                },
-            )
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .withf(|request| {
+                request.url_failure.error_kind == "HTTP_500"
+                    && request.url_failure.status_code == Some(500)
+                    && request.domain_error_kind
+                        == crate::network::policy::DomainFailureKind::Http5xxBurst
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let scrape_count = Arc::new(AtomicUsize::new(0));
         let scrape_count_for_mock = Arc::clone(&scrape_count);
@@ -2366,17 +2408,14 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .withf(
-                |_, received_url, error_kind, _, status_code, _, _, _, _, domain_kind, _, _| {
-                    received_url.as_str().ends_with("/4")
-                        && error_kind == "HTTP_500"
-                        && *status_code == Some(500)
-                        && *domain_kind == crate::network::policy::DomainFailureKind::Http5xxBurst
-                },
-            )
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .withf(|request| {
+                request.url_failure.url.as_str().ends_with("/4")
+                    && request.url_failure.error_kind == "HTTP_500"
+                    && request.url_failure.status_code == Some(500)
+                    && request.domain_error_kind
+                        == crate::network::policy::DomainFailureKind::Http5xxBurst
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -2497,9 +2536,7 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -2560,30 +2597,19 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure_and_open_domain_circuit()
             .once()
-            .withf(
-                move |_,
-                      received_url,
-                      error_kind,
-                      _,
-                      status_code,
-                      _,
-                      expected_raw_input_sha256,
-                      _,
-                      _,
-                      domain_error_kind,
-                      domain_status_code,
-                      _| {
-                    received_url == &first_url
-                        && error_kind == "HTTP_429"
-                        && *status_code == Some(429)
-                        && expected_raw_input_sha256.is_none()
-                        && *domain_error_kind == crate::network::policy::DomainFailureKind::Http429
-                        && *domain_status_code == Some(429)
-                },
-            )
-            .returning(|_, _, _, _, _, _, _, _, _, _, _, _| {
-                Box::pin(async { Ok(applied_domain_circuit_open_outcome()) })
-            });
+            .withf(move |request| {
+                request.url_failure.url == first_url
+                    && request.url_failure.error_kind == "HTTP_429"
+                    && request.url_failure.status_code == Some(429)
+                    && request
+                        .url_failure
+                        .expected_last_captured_raw_input_sha256
+                        .is_none()
+                    && request.domain_error_kind
+                        == crate::network::policy::DomainFailureKind::Http429
+                    && request.domain_status_code == Some(429)
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let scrape_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let scrape_count_for_mock = Arc::clone(&scrape_count);
@@ -3098,7 +3124,7 @@ mod tests {
         scraper_service
             .expect_scrape_with_mode()
             .once()
-            .returning(|_, _, _, _, _, _, _, _| {
+            .returning(|_| {
                 Box::pin(async move {
                     ScrapeOutcome {
                         result: Err(ScraperError::SchemaServiceError(
@@ -3107,6 +3133,7 @@ mod tests {
                             ),
                         )),
                         domain_health: DomainFetchHealth::NotObserved,
+                        fetch_failure: None,
                     }
                 })
             });
@@ -3150,8 +3177,8 @@ mod tests {
         scraper_service
             .expect_scrape_with_mode()
             .once()
-            .returning(|_, url, _, _, _, _, _, _| {
-                let url = url.clone();
+            .returning(|request| {
+                let url = request.url.clone();
                 Box::pin(async move {
                     ScrapeOutcome {
                         result: Err(ScraperError::PendingSchemaReview {
@@ -3159,6 +3186,7 @@ mod tests {
                             review_id: crate::CrawlerReviewId::new(),
                         }),
                         domain_health: DomainFetchHealth::Responsive,
+                        fetch_failure: None,
                     }
                 })
             });
@@ -3169,5 +3197,71 @@ mod tests {
 
         assert_eq!(outcome.failed, 1);
         assert_eq!(outcome.skipped, 0);
+    }
+
+    #[tokio::test]
+    async fn should_persist_schema_seed_failure_against_seed_url_and_fence() {
+        let primary_url =
+            url::Url::parse("https://seed-provenance.example.com/product/primary").unwrap();
+        let seed_url = url::Url::parse("https://seed-provenance.example.com/product/seed").unwrap();
+        let primary_fence = vec![1; 32];
+        let seed_fence = vec![2; 32];
+        let mut candidate = scraper_candidate("ListingSource", primary_url);
+        candidate.last_captured_raw_input_sha256 = Some(primary_fence);
+        let expected_domain_id = candidate.domain_id;
+        let expected_listing_source_id = candidate.listing_source_id;
+        let expected_seed_url = seed_url.clone();
+        let expected_seed_fence = seed_fence.clone();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_domain_circuit()
+            .once()
+            .withf(move |request| {
+                request.url_failure.listing_source_id == expected_listing_source_id
+                    && request.url_failure.url == expected_seed_url
+                    && request.url_failure.error_kind == "HTTP_429"
+                    && request.url_failure.status_code == Some(429)
+                    && request.url_failure.expected_last_captured_raw_input_sha256
+                        == Some(expected_seed_fence.clone())
+                    && request.domain_id == expected_domain_id
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(move |_, _, _, _, _, _| {
+                let seed_url = seed_url.clone();
+                let seed_fence = seed_fence.clone();
+                Box::pin(async move {
+                    record_transport_failure(
+                        &seed_url,
+                        FetchFailureSource::SchemaSeed,
+                        Some(seed_fence.as_slice()),
+                        NetworkErrorKind::HttpStatus(429),
+                        Some(429),
+                        None,
+                    );
+                    Err(ScraperError::HttpError {
+                        url: seed_url,
+                        kind: NetworkErrorKind::HttpStatus(429),
+                        details: "seed rate limited".to_owned(),
+                    })
+                })
+            });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert!(matches!(
+            outcome.domain_health,
+            DomainFetchHealth::CircuitFailure {
+                kind: crate::network::policy::DomainFailureKind::Http429,
+                ..
+            }
+        ));
     }
 }

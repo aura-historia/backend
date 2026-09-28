@@ -1,7 +1,9 @@
 use crate::CrawlerDomainId;
 use crate::network::policy::domain_failure_kind;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
-use crate::scraper::scraper_service::domain::product::{ScrapeMode, record_transport_fetch_error};
+use crate::scraper::scraper_service::domain::product::{
+    FetchFailureSource, ScrapeMode, record_transport_failure,
+};
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use listing_source_core::ListingSourceId;
@@ -69,10 +71,11 @@ impl ScraperServiceImpl {
         // update both places together to avoid duplicate samples slipping through.
         let mut seen_urls = HashSet::new();
         seen_urls.insert(url.as_str().to_string());
-        for sample_url in sample_urls {
+        for seed_candidate in sample_urls {
             if pages.len() >= self.schema_seed_pages {
                 break;
             }
+            let sample_url = seed_candidate.url;
             let sample_url_key = sample_url.as_str().to_string();
             if !seen_urls.insert(sample_url_key) {
                 continue;
@@ -98,7 +101,13 @@ impl ScraperServiceImpl {
                 }
                 Err(err) => {
                     if let Some(error) = domain_failure_error(&sample_url, err.clone()) {
-                        record_fetch_transport_error(&err);
+                        record_fetch_transport_error(
+                            &sample_url,
+                            seed_candidate
+                                .expected_last_captured_raw_input_sha256
+                                .as_deref(),
+                            &err,
+                        );
                         return Err(error);
                     }
                     warn!(
@@ -114,15 +123,33 @@ impl ScraperServiceImpl {
     }
 }
 
-fn record_fetch_transport_error(error: &FetchError) {
+fn record_fetch_transport_error(
+    url: &Url,
+    expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    error: &FetchError,
+) {
     match error {
-        FetchError::Network { kind, .. } => record_transport_fetch_error(*kind, None, None),
+        FetchError::Network { kind, .. } => record_transport_failure(
+            url,
+            FetchFailureSource::SchemaSeed,
+            expected_last_captured_raw_input_sha256,
+            *kind,
+            None,
+            None,
+        ),
         FetchError::NetworkWithMetadata {
             kind,
             status,
             retry_after,
             ..
-        } => record_transport_fetch_error(*kind, *status, *retry_after),
+        } => record_transport_failure(
+            url,
+            FetchFailureSource::SchemaSeed,
+            expected_last_captured_raw_input_sha256,
+            *kind,
+            *status,
+            *retry_after,
+        ),
     }
 }
 

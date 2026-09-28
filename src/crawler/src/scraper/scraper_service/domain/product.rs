@@ -33,6 +33,37 @@ pub enum ScrapeMode {
     DomainProbe,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchFailureSource {
+    Primary,
+    SchemaSeed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchFailureContext {
+    pub url: Url,
+    pub kind: NetworkErrorKind,
+    pub status_code: Option<u16>,
+    pub retry_after: Option<std::time::Duration>,
+    pub source: FetchFailureSource,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
+/// All inputs required to execute one scraper request. Keeping the request as
+/// one value also makes the probe boundary explicit and prevents the mode
+/// call from growing another positional argument.
+#[derive(Debug, Clone)]
+pub struct ScrapeRequest {
+    pub listing_source_id: ListingSourceId,
+    pub url: Url,
+    pub product_url_pattern: Option<String>,
+    pub last_scraped_hash: Option<String>,
+    pub last_scraped_schema_fingerprint: Option<String>,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    pub fallback_currency: Option<Currency>,
+    pub mode: ScrapeMode,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum DomainFetchHealth {
     #[default]
@@ -48,11 +79,13 @@ pub enum DomainFetchHealth {
 pub struct ScrapeOutcome {
     pub result: Result<Option<ScrapedProduct>, ScraperError>,
     pub domain_health: DomainFetchHealth,
+    pub fetch_failure: Option<FetchFailureContext>,
 }
 
 struct ScrapeObservationState {
     domain_id: CrawlerDomainId,
     transport_health: Option<DomainFetchHealth>,
+    fetch_failure: Option<FetchFailureContext>,
 }
 
 tokio::task_local! {
@@ -75,6 +108,7 @@ where
             RefCell::new(ScrapeObservationState {
                 domain_id,
                 transport_health: None,
+                fetch_failure: None,
             }),
             async {
                 let result = future.await;
@@ -105,6 +139,13 @@ pub(crate) fn current_transport_observation() -> Option<DomainFetchHealth> {
         .flatten()
 }
 
+pub(crate) fn current_fetch_failure() -> Option<FetchFailureContext> {
+    SCRAPE_OBSERVATION
+        .try_with(|state| state.borrow().fetch_failure.clone())
+        .ok()
+        .flatten()
+}
+
 pub(crate) fn record_transport_observation(health: DomainFetchHealth) {
     let _ = SCRAPE_OBSERVATION.try_with(|state| {
         state.borrow_mut().transport_health = Some(health);
@@ -125,6 +166,31 @@ pub(crate) fn record_transport_fetch_error(
         status_code,
         retry_after,
     ));
+}
+
+pub(crate) fn record_transport_failure(
+    url: &Url,
+    source: FetchFailureSource,
+    expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    kind: NetworkErrorKind,
+    status_code: Option<u16>,
+    retry_after: Option<std::time::Duration>,
+) {
+    record_transport_fetch_error(kind, status_code, retry_after);
+    let _ = SCRAPE_OBSERVATION.try_with(|state| {
+        state.borrow_mut().fetch_failure = Some(FetchFailureContext {
+            url: url.clone(),
+            kind,
+            status_code: status_code.or(match kind {
+                NetworkErrorKind::HttpStatus(status) => Some(status),
+                _ => None,
+            }),
+            retry_after,
+            source,
+            expected_last_captured_raw_input_sha256: expected_last_captured_raw_input_sha256
+                .map(ToOwned::to_owned),
+        });
+    });
 }
 
 /// Converts one fetch result into an independent transport observation.
@@ -242,27 +308,16 @@ pub trait ScraperService: Send + Sync {
     /// Executes one scrape while reporting the independent transport health
     /// observation used by the domain circuit. The default keeps existing
     /// implementations and test doubles compatible.
-    #[allow(clippy::too_many_arguments)]
-    async fn scrape_with_mode(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        fallback_currency: Option<Currency>,
-        _mode: ScrapeMode,
-    ) -> ScrapeOutcome {
+    async fn scrape_with_mode(&self, request: ScrapeRequest) -> ScrapeOutcome {
         let result = self
             .scrape_with_fallback_currency(
-                listing_source_id,
-                url,
-                product_url_pattern,
-                last_scraped_hash,
-                last_scraped_schema_fingerprint,
-                expected_last_captured_raw_input_sha256,
-                fallback_currency,
+                &request.listing_source_id,
+                &request.url,
+                request.product_url_pattern.as_deref(),
+                request.last_scraped_hash.as_deref(),
+                request.last_scraped_schema_fingerprint.as_deref(),
+                request.expected_last_captured_raw_input_sha256.as_deref(),
+                request.fallback_currency,
             )
             .await;
         let domain_health = match &result {
@@ -272,6 +327,7 @@ pub trait ScraperService: Send + Sync {
         ScrapeOutcome {
             result,
             domain_health,
+            fetch_failure: None,
         }
     }
 }

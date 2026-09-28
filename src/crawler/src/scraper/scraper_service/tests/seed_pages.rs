@@ -1,5 +1,6 @@
 use super::*;
 use crate::network::policy::NetworkErrorKind;
+use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::{ScraperError, service::FetchError};
 
 #[tokio::test]
@@ -223,7 +224,10 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
         .expect_get_random_product_urls_for_schema_seed()
         .once()
         .returning(move |_, _, _, _| {
-            let sampled = vec![sample_seed_url_clone.clone()];
+            let sampled = vec![SchemaSeedCandidate {
+                url: sample_seed_url_clone.clone(),
+                expected_last_captured_raw_input_sha256: None,
+            }];
             Box::pin(async move { Ok(sampled) })
         });
 
@@ -314,7 +318,10 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         .expect_get_random_product_urls_for_schema_seed()
         .once()
         .returning(move |_, _, _, _| {
-            let sampled = vec![sample_seed_url_clone.clone()];
+            let sampled = vec![SchemaSeedCandidate {
+                url: sample_seed_url_clone.clone(),
+                expected_last_captured_raw_input_sha256: None,
+            }];
             Box::pin(async move { Ok(sampled) })
         });
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);

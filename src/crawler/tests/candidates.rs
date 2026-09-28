@@ -1,7 +1,8 @@
 use crawler::CrawlerDomainId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainHealthSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
+    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, ScraperCandidateService,
+    ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{
@@ -20,6 +21,44 @@ const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn raw_input_hash() -> Vec<u8> {
     vec![7; 32]
+}
+
+fn fetch_failure_request(
+    listing_source_id: ListingSourceId,
+    url: url::Url,
+    error_kind: &str,
+    error_message: &str,
+    status_code: Option<i32>,
+    next_retry_at: time::OffsetDateTime,
+    expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+) -> FetchFailureRequest {
+    FetchFailureRequest {
+        listing_source_id,
+        url,
+        error_kind: error_kind.to_owned(),
+        error_message: error_message.to_owned(),
+        status_code,
+        next_retry_at,
+        expected_last_captured_raw_input_sha256,
+    }
+}
+
+fn domain_open_request(
+    url_failure: FetchFailureRequest,
+    domain_id: CrawlerDomainId,
+    expected_domain_health: DomainHealthSnapshot,
+    domain_error_kind: DomainFailureKind,
+    domain_status_code: Option<i32>,
+    next_scrape_at: time::OffsetDateTime,
+) -> DomainCircuitOpenRequest {
+    DomainCircuitOpenRequest {
+        url_failure,
+        domain_id,
+        expected_domain_health,
+        domain_error_kind,
+        domain_status_code,
+        next_scrape_at,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1730,11 +1769,15 @@ async fn scraper_seed_urls_should_exclude_current_url() {
         .unwrap();
 
     assert!(
-        sampled.iter().all(|u| u.as_str() != exclude_url),
+        sampled
+            .iter()
+            .all(|candidate| candidate.url.as_str() != exclude_url),
         "excluded URL must never be returned"
     );
     assert!(
-        sampled.iter().any(|u| u.as_str() == other_url),
+        sampled
+            .iter()
+            .any(|candidate| candidate.url.as_str() == other_url),
         "another eligible product URL should be sampled"
     );
 }
@@ -1852,27 +1895,35 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
         .unwrap();
 
     assert!(
-        sampled.iter().any(|u| u == &eligible_url),
+        sampled
+            .iter()
+            .any(|candidate| candidate.url == eligible_url),
         "eligible product URL from same ListingSource should be included"
     );
     assert!(
-        sampled.iter().all(|u| u != &current_url),
+        sampled.iter().all(|candidate| candidate.url != current_url),
         "current URL must be excluded"
     );
     assert!(
-        sampled.iter().any(|u| u == &sold_url),
+        sampled.iter().any(|candidate| candidate.url == sold_url),
         "sold product URLs must be included for schema seeding"
     );
     assert!(
-        sampled.iter().any(|u| u == &withdrawn_url),
+        sampled
+            .iter()
+            .any(|candidate| candidate.url == withdrawn_url),
         "a second sold product URL must be included for schema seeding"
     );
     assert!(
-        sampled.iter().all(|u| u != &category_url),
+        sampled
+            .iter()
+            .all(|candidate| candidate.url != category_url),
         "non-product URLs must be excluded"
     );
     assert!(
-        sampled.iter().all(|u| u != &other_listing_source_url),
+        sampled
+            .iter()
+            .all(|candidate| candidate.url != other_listing_source_url),
         "URLs from other listing_sources must be excluded"
     );
 }
@@ -1909,9 +1960,10 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
         )
         .await
         .unwrap();
+    assert_eq!(sampled_a.len(), 1);
     assert_eq!(
-        sampled_a,
-        vec![url::Url::parse(seed_a).unwrap()],
+        sampled_a[0].url,
+        url::Url::parse(seed_a).unwrap(),
         "schema seeds must stay within the primary persisted domain"
     );
 
@@ -1939,6 +1991,160 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
     assert!(
         sampled_b.is_empty(),
         "an open persisted domain must not be bypassed through schema seeding"
+    );
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "seed-failure-provenance.example.com",
+    )
+    .await;
+    let primary_url =
+        url::Url::parse("https://seed-failure-provenance.example.com/p/primary").unwrap();
+    let seed_url = url::Url::parse("https://seed-failure-provenance.example.com/p/seed").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, primary_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, domain_id, seed_url.as_str()).await;
+
+    let seed_hash = vec![2; 32];
+    sqlx::query(
+        "UPDATE listing_source_urls
+         SET last_captured_raw_input_sha256 = decode($2, 'hex')
+         WHERE listing_source_id = $1 AND url = $3",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind("01".repeat(32))
+    .bind(primary_url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls
+         SET last_captured_raw_input_sha256 = decode($2, 'hex')
+         WHERE listing_source_id = $1 AND url = $3",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind("02".repeat(32))
+    .bind(seed_url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let primary_next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    sqlx::query(
+        "UPDATE listing_source_urls
+         SET last_error_kind = 'PRIMARY_SENTINEL',
+             last_status_code = 418,
+             next_retry_at = $2
+         WHERE listing_source_id = $1 AND url = $3",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(primary_next_retry_at)
+    .bind(primary_url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Simulate another worker changing P after the primary scrape. The seed
+    // request carries S's own fence, so this stale P state is irrelevant.
+    sqlx::query(
+        "UPDATE listing_source_urls
+         SET last_captured_raw_input_sha256 = decode($2, 'hex')
+         WHERE listing_source_id = $1 AND url = $3",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind("09".repeat(32))
+    .bind(primary_url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let expected_domain_health = DomainHealthSnapshot {
+        scrape_failure_streak: 0,
+        last_scrape_error_kind: None,
+        next_scrape_at: None,
+    };
+    let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
+    let outcome = service
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                seed_url.clone(),
+                "HTTP_429",
+                "schema seed rate limited",
+                Some(429),
+                next_retry_at,
+                Some(seed_hash),
+            ),
+            domain_id,
+            expected_domain_health,
+            DomainFailureKind::Http429,
+            Some(429),
+            next_retry_at,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+
+    let primary: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT failure_count, last_error_kind, last_status_code, next_retry_at
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(primary_url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(primary.0, 0);
+    assert_eq!(primary.1, "PRIMARY_SENTINEL");
+    assert_eq!(primary.2, 418);
+    assert!(
+        (primary.3 - primary_next_retry_at)
+            .whole_microseconds()
+            .abs()
+            <= 1
+    );
+
+    let seed: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT failure_count, last_error_kind, last_status_code, next_retry_at
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(seed_url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(seed.0, 1);
+    assert_eq!(seed.1, "HTTP_429");
+    assert_eq!(seed.2, 429);
+    assert!((seed.3 - next_retry_at).whole_microseconds().abs() <= 1);
+
+    let domain: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT scrape_failure_streak, last_scrape_error_kind, last_scrape_status_code, next_scrape_at
+         FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(domain.0, 1);
+    assert_eq!(domain.1, "HTTP_429");
+    assert_eq!(domain.2, 429);
+    assert!(domain.3 > time::OffsetDateTime::now_utc());
+
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &primary_url, 10)
+        .await
+        .unwrap();
+    assert!(
+        sampled.is_empty(),
+        "the failed seed must not be selected during the active retry cooldown"
     );
 }
 
@@ -2003,20 +2209,22 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
     };
 
     let first = service
-        .mark_fetch_failure_and_open_domain_circuit(
-            &listing_source_id,
-            &url,
-            "HTTP_429",
-            "rate limited",
-            Some(429),
-            first_next,
-            None,
-            &domain_id,
-            &initial,
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                url.clone(),
+                "HTTP_429",
+                "rate limited",
+                Some(429),
+                first_next,
+                None,
+            ),
+            domain_id,
+            initial.clone(),
             DomainFailureKind::Http429,
             Some(429),
             first_next,
-        )
+        ))
         .await
         .unwrap();
     assert_eq!(first.url_failure, CrawlerUrlWriteOutcome::Applied);
@@ -2029,20 +2237,22 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         next_scrape_at: Some(first_next),
     };
     let second = service
-        .mark_fetch_failure_and_open_domain_circuit(
-            &listing_source_id,
-            &url,
-            "HTTP_429",
-            "rate limited again",
-            Some(429),
-            second_next,
-            None,
-            &domain_id,
-            &after_first,
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                url.clone(),
+                "HTTP_429",
+                "rate limited again",
+                Some(429),
+                second_next,
+                None,
+            ),
+            domain_id,
+            after_first.clone(),
             DomainFailureKind::Http429,
             Some(429),
             second_next,
-        )
+        ))
         .await
         .unwrap();
     assert_eq!(second.persisted_failure_streak, Some(2));
@@ -2053,20 +2263,22 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         next_scrape_at: Some(second_next),
     };
     let changed_kind = service
-        .mark_fetch_failure_and_open_domain_circuit(
-            &listing_source_id,
-            &url,
-            "Timeout",
-            "timed out",
-            None,
-            third_next,
-            None,
-            &domain_id,
-            &after_second,
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                url.clone(),
+                "Timeout",
+                "timed out",
+                None,
+                third_next,
+                None,
+            ),
+            domain_id,
+            after_second.clone(),
             DomainFailureKind::Timeout,
             None,
             third_next,
-        )
+        ))
         .await
         .unwrap();
     assert_eq!(changed_kind.persisted_failure_streak, Some(1));
@@ -2100,20 +2312,22 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         next_scrape_at: None,
     };
     let restarted = service
-        .mark_fetch_failure_and_open_domain_circuit(
-            &listing_source_id,
-            &url,
-            "HTTP_429",
-            "rate limited after recovery",
-            Some(429),
-            first_next,
-            None,
-            &domain_id,
-            &after_recovery,
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                url.clone(),
+                "HTTP_429",
+                "rate limited after recovery",
+                Some(429),
+                first_next,
+                None,
+            ),
+            domain_id,
+            after_recovery,
             DomainFailureKind::Http429,
             Some(429),
             first_next,
-        )
+        ))
         .await
         .unwrap();
     assert_eq!(restarted.persisted_failure_streak, Some(1));
@@ -2164,20 +2378,22 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
     .unwrap();
 
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(
-            &listing_source_id,
-            &url,
-            "HTTP_429",
-            "stale worker",
-            Some(429),
-            observed_next,
-            None,
-            &domain_id,
-            &expected,
+        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            fetch_failure_request(
+                listing_source_id,
+                url.clone(),
+                "HTTP_429",
+                "stale worker",
+                Some(429),
+                observed_next,
+                None,
+            ),
+            domain_id,
+            expected.clone(),
             DomainFailureKind::Http429,
             Some(429),
             time::OffsetDateTime::from_unix_timestamp(2_100_000_100).unwrap(),
-        )
+        ))
         .await
         .unwrap();
 
