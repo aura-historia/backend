@@ -3,9 +3,11 @@ import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as events from "aws-cdk-lib/aws-events";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
+import type { QueueCatalog } from "./queues";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
@@ -19,6 +21,7 @@ export interface ObservabilityProps {
   readonly api: apigwv2.HttpApi;
   readonly functions: LambdaCatalog;
   readonly workerQueues: WorkerQueueCatalog;
+  readonly ingestionQueues: QueueCatalog;
   readonly maintenanceSchedulerDeadLetterQueue: sqs.IQueue;
 }
 
@@ -78,6 +81,39 @@ export class Observability extends Construct {
         metric: queues.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions),
         threshold: settings.deadLetterVisibleThreshold,
       }).addAlarmAction(alarmAction);
+    }
+
+    const ingestion = props.ingestionQueues.productListingIngestion;
+    const metricOptions = { statistic: "Maximum", period: cdk.Duration.minutes(5) };
+    for (const [id, metric, threshold] of [
+      ["SourceAge", ingestion.queue.metricApproximateAgeOfOldestMessage(metricOptions), 900],
+      ["SourceBacklog", ingestion.queue.metricApproximateNumberOfMessagesVisible(metricOptions), 100],
+      ["DeadLetterVisible", ingestion.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions), 1],
+    ] as const) {
+      new cloudwatch.Alarm(this, `ProductListingIngestion${id}Alarm`, {
+        alarmName: `${props.stageName}-product-listing-ingestion-${toKebabCase(id)}`,
+        alarmDescription: `ProductListing ingestion ${id} requires operator investigation; do not purge or blindly redrive.`,
+        metric,
+        threshold,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }).addAlarmAction(alarmAction);
+    }
+
+    // Runtime emits one structured outcome per record, including unprocessed suffix records.
+    for (const [outcome, metricName] of [
+      ["completed", "CompletedRecords"],
+      ["failed", "FailedRecords"],
+      ["unprocessed", "UnprocessedRecords"],
+    ] as const) {
+      new logs.MetricFilter(this, `ProductListingIngestion${metricName}Filter`, {
+        logGroup: logs.LogGroup.fromLogGroupName(this, `ProductListingIngestion${metricName}Logs`, `/aws/lambda/product-listing-ingestion-lambda-${props.stageName}`),
+        filterPattern: logs.FilterPattern.literal(`{ $.ingestion_outcome = "${outcome}" }`),
+        metricNamespace: `AuraHistoria/ProductListingIngestion/${props.stageName}`,
+        metricName,
+        metricValue: "1",
+      });
     }
 
     apiAlarm(this, props.stageName, "Api4XXErrorAlarm", "4XXError", props.api, 50, 2, "Sum").addAlarmAction(alarmAction);
@@ -278,10 +314,11 @@ function apiAlarm(
   });
 }
 
-const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter"]);
+const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter", "productListingIngestion"]);
 
 const queueWorkerKeys = new Set<LambdaKey>([
   "shopify",
+  "productListingIngestion",
   "productListingOpenSearch",
   "productListingNormalization",
   "productContentAssessment",

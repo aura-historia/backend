@@ -32,7 +32,7 @@ src/constructs/            # focused infrastructure modules
   network.ts               # two-AZ VPC, one NAT/EIP, S3 endpoint, workload security groups
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
-  queues.ts                # existing Shopify Lambda queue and DLQ
+  queues.ts                # existing Shopify queue/DLQ and separate FIFO command ingress
   worker-queues.ts          # scoped worker queues, unbound IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
 sql/
@@ -116,7 +116,7 @@ templates and any future file assets under the stage prefix (`${stage}/`). Lambd
 CDK-managed assets. The periodic matcher Fargate image remains separate pending
 #1843; no crawler artifact is in this release.
 
-A push builds and uploads 19 Lambda ZIPs as `<binary>-<stage>-<commit-sha>.zip`
+A push builds and uploads 20 Lambda ZIPs as `<binary>-<stage>-<commit-sha>.zip`
 and the tracked MJML templates as `<stage>/<commit-sha>/mjml/<template-path>.html`
 (for example, `dev/<sha>/mjml/watchlist/product-update/price/en.html`).
 `CommitSHA` is the full Git commit SHA, not the PR head SHA. The compiler is installed
@@ -298,6 +298,65 @@ uploaded artifacts by `CommitSHA`. Neither path
 builds, uploads, configures, or deploys the legacy native `aura-historia-worker`
 artifact or Sequin ingress. Native process deployment remains externally owned;
 this change does not pause consumers or activate the DMS/Kinesis path.
+
+## ProductListing command ingress (#1859)
+
+The data stack declares a **separate FIFO** `product-listing-ingestion-queue-${stage}.fifo` and
+`product-listing-ingestion-dlq-${stage}.fifo`. These are not Shopify's existing EventBridge
+input/DLQ or any CDC Standard worker queue. Both require TLS, use SQS-managed encryption,
+and disable content-based deduplication: the command publisher supplies explicit group and
+deduplication IDs. Source retention is seven days, DLQ retention 14 days, five receives
+before redrive, source visibility 270 seconds, and only the named source may redrive into
+the DLQ. Real-stage source and DLQ retain on deletion **and replacement**; ephemeral
+deletes. Data outputs expose both URLs. Never rename or purge queues to clear an alarm.
+
+Compute imports the source by stage-local name and supplies
+`PRODUCT_LISTING_INGESTION_QUEUE_URL` to **only** the API and Shopify producers. Each
+gets `sqs:SendMessage` on this source ARN (including `SendMessageBatch` API calls;
+`SendMessageBatch` is not an IAM action). Both keep their existing PostgreSQL and
+network dependencies; real private application subnets reach SQS over the existing
+HTTPS NAT egress, not an unconfigured endpoint policy. The ingestion Lambda has only
+its own source consume actions, PostgreSQL runtime-secret access in real stages,
+standard Lambda log/VPC permissions, and no DLQ message/replay, provider, search,
+or queue-publish powers. The mapping targets a published version, is active after
+protected initialization/migration, batches up to ten with **no batching window**,
+returns `ReportBatchItemFailures`, and limits event concurrency to two against a
+reserved concurrency of two. Its 512 MiB, 45-second invocation uses one PostgreSQL
+connection per execution, so this consumer adds at most two database connections;
+check aggregate account and database capacity before activation. Do not reserve a
+fresh 45 seconds for each of ten messages; large message metadata can shrink a batch.
+
+Runtime must validate *all* SQS message IDs before work and process the batch in
+received order. On the first non-complete record, return that message ID **and all
+unprocessed successor IDs**, even across groups; only a confirmed committed prefix
+is omitted. A failed FIFO group blocks subsequent deliveries until repair/redrive;
+submission ID is correlation only, while database command receipts deduplicate
+completed commands. Pause the event source mapping to stop consumption, inspect
+queue age/depth, Lambda errors/throttles, DLQ and persisted receipts using safe IDs,
+then repair before small operator-authorized redrive. An older DLQ command may no
+longer be valid after newer state: FIFO ordering and receipts do not make arbitrary
+replay safe. Never log bodies, tokens, raw provider payloads, or secrets.
+
+Prod sends Lambda errors/throttles, source oldest-age >=900s, visible backlog >=100,
+and DLQ visible count >=1 to the existing alarm topic. Alarms use a five-minute period,
+missing data not breaching. Three stage-bounded CloudWatch Logs metric filters count
+one **JSON log entry per record** with `ingestion_outcome` equal to `completed`,
+`failed`, or `unprocessed`, as `CompletedRecords`, `FailedRecords`, and
+`UnprocessedRecords` in `AuraHistoria/ProductListingIngestion/prod`. Partial-response
+failures need not increment Lambda `Errors`; the runtime must emit these safe
+per-record outcomes (including the suffix) for the counters to populate. They are
+not proofs of committed state or substitutes for queue and receipt inspection.
+
+**Release gate:** build and upload the `product-listing-ingestion-lambda` artifact for
+this stage/SHA before deploying compute. The protected Initialize/Deploy workflows
+apply migrations before compute and deploy the API stack after compute; they do not
+guarantee independently deployed producers wait for an active, verified consumer.
+Stage data/queue deployment, receipt migration, consumer artifact and mapping
+verification must precede enabling API/Shopify command publication. This change
+does not cut over producer code, add HTTP endpoints, change the old Shopify mapping,
+or verify live AWS deployment. Review a stage-specific CDK change set/diff for unintended
+legacy queue replacements and establish queue/DLQ and database custody before any
+producer cutover.
 
 ## Worker queue contract
 

@@ -130,6 +130,11 @@ impl ProductListingIngestionSubmissionId {
         &self.0
     }
 
+    /// Rehydrate only a canonical ID from a verified ingestion envelope.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        valid_ingestion_id(value, "plis1_").then(|| Self(value.to_owned()))
+    }
+
     pub(crate) fn from_digest(digest: [u8; 32]) -> Self {
         Self(format!("plis1_{}", lowercase_hex(&digest)))
     }
@@ -166,6 +171,11 @@ impl ProductListingIngestionCommandId {
         &self.0
     }
 
+    /// Rehydrate only a canonical ID from a verified ingestion envelope.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        valid_ingestion_id(value, "plic1_").then(|| Self(value.to_owned()))
+    }
+
     pub(crate) fn from_digest(digest: [u8; 32]) -> Self {
         Self(format!("plic1_{}", lowercase_hex(&digest)))
     }
@@ -175,6 +185,15 @@ impl Display for ProductListingIngestionCommandId {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.as_str())
     }
+}
+
+fn valid_ingestion_id(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
 }
 
 fn lowercase_hex(bytes: &[u8]) -> String {
@@ -309,6 +328,32 @@ pub struct ProductListingIngestionItemOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wire_ids_require_canonical_prefix_and_lowercase_digest() {
+        let submission = ProductListingIngestionSubmissionId::from_digest([0xab; 32]);
+        let command = ProductListingIngestionCommandId::from_digest([0xcd; 32]);
+        assert_eq!(
+            ProductListingIngestionSubmissionId::from_wire(submission.as_str()),
+            Some(submission.clone())
+        );
+        assert_eq!(
+            ProductListingIngestionCommandId::from_wire(command.as_str()),
+            Some(command.clone())
+        );
+        for bad in ["", "plis1_", "plis1_ABC", "plis1_invalid"] {
+            assert!(ProductListingIngestionSubmissionId::from_wire(bad).is_none());
+        }
+        assert!(ProductListingIngestionSubmissionId::from_wire(command.as_str()).is_none());
+        assert!(ProductListingIngestionCommandId::from_wire(submission.as_str()).is_none());
+        assert!(
+            ProductListingIngestionCommandId::from_wire(&command.as_str().to_uppercase()).is_none()
+        );
+        assert!(
+            ProductListingIngestionCommandId::from_wire(&format!("{}0", command.as_str()))
+                .is_none()
+        );
+    }
 
     #[test]
     fn idempotency_keys_accept_only_visible_ascii_up_to_128_bytes() {

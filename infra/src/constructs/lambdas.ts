@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as path from "node:path";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -10,6 +11,7 @@ import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 
 import type { Network } from "./network";
+import type { QueueCatalog } from "./queues";
 import type { Search } from "./opensearch";
 import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } from "./storage";
 
@@ -18,6 +20,7 @@ interface LambdaEnvironmentContext {
   readonly commitSha: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
+  readonly queues: QueueCatalog;
 }
 
 interface LambdaDefinition {
@@ -82,6 +85,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 256,
     postgres: true,
     timeoutSeconds: 30,
+    environment: (context) => ({ PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl }),
   },
   stripe: {
     id: "StripeLambda",
@@ -111,6 +115,13 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
             OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/product-projector/password`),
           }),
     }),
+  },
+  productListingIngestion: {
+    id: "ProductListingIngestionLambda",
+    binaryName: "product-listing-ingestion-lambda",
+    memorySize: 512,
+    postgres: true,
+    timeoutSeconds: 45,
   },
   productListingNormalization: {
     id: "ProductListingNormalizationLambda",
@@ -250,6 +261,7 @@ export interface LambdasProps {
   readonly mailTemplateBucket: s3.IBucket;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
+  readonly queues: QueueCatalog;
   readonly network?: Network;
 }
 
@@ -258,6 +270,7 @@ export class Lambdas extends Construct {
   readonly apiAlias: lambda.Alias;
   readonly productListingOpenSearchVersion: lambda.Version;
   readonly productListingNormalizationVersion: lambda.Version;
+  readonly productListingIngestionVersion: lambda.Version;
   readonly productContentAssessmentVersion: lambda.Version;
   readonly productEmbeddingVersion: lambda.Version;
   readonly productTranslationVersion: lambda.Version;
@@ -281,11 +294,17 @@ export class Lambdas extends Construct {
           description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
         });
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
+    const ingestionLogGroup = new logs.LogGroup(this, "ProductListingIngestionLogGroup", {
+      logGroupName: `/aws/lambda/product-listing-ingestion-lambda-${props.config.stage}`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: props.config.isEphemeral ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
+    });
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       commitSha: props.parameters.commitSha,
       postgres: props.postgres,
       search: props.search,
+      queues: props.queues,
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -316,6 +335,8 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
+        reservedConcurrentExecutions: key === "productListingIngestion" ? 2 : undefined,
+        logGroup: key === "productListingIngestion" ? ingestionLogGroup : undefined,
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -337,6 +358,10 @@ export class Lambdas extends Construct {
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
       description: `product-listing-normalization-${props.parameters.commitSha}`,
+    });
+    this.productListingIngestionVersion = new lambda.Version(this, "ProductListingIngestionVersion", {
+      lambda: this.functions.productListingIngestion,
+      description: `product-listing-ingestion-${props.parameters.commitSha}`,
     });
     this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
       lambda: this.functions.productContentAssessment,
@@ -544,6 +569,12 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
       resources: ["*"],
     }),
   );
+  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
+    producer.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [props.queues.productListingIngestion.queue.queueArn],
+    }));
+  }
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
   props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
@@ -613,6 +644,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
+    PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     STAGE: config.stage,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
     STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,

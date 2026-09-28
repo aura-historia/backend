@@ -33,13 +33,14 @@ use product_listing_service::{
     },
     product_listing_auction_patch::ProductListingAuctionPatch,
     use_cases::commands::product_listing_ingestion::{
-        ProductListingIngestionActor, ProductListingIngestionFingerprint,
-        ProductListingIngestionIntent, ProductListingIngestionMessage,
-        ProductListingIngestionOperation,
+        ProductListingIngestionActor, ProductListingIngestionCommandId,
+        ProductListingIngestionFingerprint, ProductListingIngestionIntent,
+        ProductListingIngestionMessage, ProductListingIngestionMetadata,
+        ProductListingIngestionOperation, ProductListingIngestionSubmissionId,
     },
     use_cases::{
         CaptureProductListingRawObservationCommand, CreateProductListingCommand,
-        UpdateProductListingCommand, UpsertProductListingCommand,
+        ProductListingIngestionEnvelope, UpdateProductListingCommand, UpsertProductListingCommand,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -136,6 +137,35 @@ impl IngestionEnvelopeV1 {
     pub fn into_intent(self) -> Result<ProductListingIngestionIntent> {
         self.validate()?;
         self.payload.into_intent()
+    }
+
+    /// Revalidate the wire fingerprint and all typed fields before constructing the service input.
+    /// Transport IDs never become business identity or authorize an actor on their own.
+    pub fn into_service_envelope(self) -> Result<ProductListingIngestionEnvelope> {
+        self.validate()?;
+        let fingerprint = self.typed_fingerprint()?;
+        let operation = self.payload.operation();
+        Ok(ProductListingIngestionEnvelope {
+            message: ProductListingIngestionMessage {
+                metadata: ProductListingIngestionMetadata {
+                    submission_id: ProductListingIngestionSubmissionId::from_wire(
+                        &self.submission_id,
+                    )
+                    .ok_or(CodecError::Invalid)?,
+                    command_id: ProductListingIngestionCommandId::from_wire(&self.command_id)
+                        .ok_or(CodecError::Invalid)?,
+                    index: self.index,
+                    input_count: self.input_count,
+                    listing_source_id: parse_source(&self.listing_source_id)?,
+                    operation,
+                    actor: self.actor.to_actor()?,
+                    request_id: RequestId::new(self.request_id),
+                    correlation_id: CorrelationId::new(self.correlation_id),
+                },
+                intent: self.payload.into_intent()?,
+            },
+            fingerprint,
+        })
     }
 
     fn validate(&self) -> Result<()> {
@@ -902,6 +932,20 @@ mod tests {
             assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), original);
             assert_eq!(decode(&encoded).unwrap(), envelope);
             let intent = envelope.clone().into_intent().unwrap();
+            let service = envelope.clone().into_service_envelope().unwrap();
+            assert_eq!(service.message.intent, intent);
+            assert_eq!(
+                service.message.metadata.command_id.as_str(),
+                envelope.command_id()
+            );
+            assert_eq!(
+                service.message.metadata.submission_id.as_str(),
+                envelope.submission_id()
+            );
+            assert_eq!(service.message.metadata.actor, envelope.actor().unwrap());
+            assert_eq!(service.message.metadata.index, envelope.index());
+            assert_eq!(service.message.metadata.input_count, envelope.input_count());
+            assert_eq!(service.fingerprint, envelope.typed_fingerprint().unwrap());
             assert_eq!(wire_payload(&intent).unwrap(), envelope.payload);
             assert_eq!(intent.listing_source_id().to_string(), GOLDEN_SOURCE);
             if let Some(id) = intent.source_listing_id() {
@@ -1004,7 +1048,25 @@ mod tests {
                 value["semanticFingerprint"].as_str().unwrap()
             );
             assert_eq!(decoded.actor().unwrap(), message.metadata.actor);
+            assert_eq!(
+                decoded.clone().into_service_envelope().unwrap().message,
+                *message
+            );
             assert!(decoded.prepared_at().unwrap() <= OffsetDateTime::now_utc());
+        }
+    }
+
+    #[test]
+    fn service_rehydration_rejects_tampered_identity_or_fingerprint() {
+        let original = golden_fixtures().remove(0);
+        for (field, replacement) in [
+            ("commandId", json!(format!("plic1_{}", "F".repeat(64)))),
+            ("submissionId", json!(format!("plis1_{}", "g".repeat(64)))),
+            ("semanticFingerprint", json!("0".repeat(64))),
+        ] {
+            let mut value = original.clone();
+            value[field] = replacement;
+            assert!(decode(&value.to_string()).is_err());
         }
     }
 
