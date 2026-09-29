@@ -55,6 +55,7 @@ use product_listing_service::{
         SubmitInternalProductListingIngestionUseCase, SubmitPartnerProductListingIngestionHandler,
         SubmitPartnerProductListingIngestionUseCase, UpdateProductListingCommand,
         UpdateProductListingError, UpsertProductListingCommand, UpsertProductListingResult,
+        WithdrawProductListingError,
     },
 };
 use serde_json::json;
@@ -1216,6 +1217,107 @@ async fn upsert_update_withdraw_and_restore_preserve_one_listing_and_command_rec
         ("ACTIVE".into(), "https://example.test/restored".into(), 4)
     );
     assert_eq!(counts(&pool).await, (1, 4, 5));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn queued_withdrawal_keeps_missing_target_unmodified_and_replays_once_per_command() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let processor = handler(&pool);
+    let missing = prepared(
+        source,
+        Principal::System,
+        "withdraw-missing",
+        vec![ProductListingIngestionIntent::Withdraw(product_key(
+            source, "missing",
+        ))],
+    )
+    .await
+    .remove(0);
+    assert!(matches!(
+        processor.execute(missing).await,
+        Err(ProductListingIngestionError::Withdraw(
+            WithdrawProductListingError::NotFound
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (0, 0, 0));
+
+    let created = prepared(
+        source,
+        Principal::System,
+        "create-before-withdraw",
+        vec![create(source, "one")],
+    )
+    .await
+    .remove(0);
+    assert!(matches!(
+        processor.execute(created).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::Created(_))
+    ));
+    // Seed an otherwise valid observed-sale fixture to check that withdrawal only
+    // clears the current availability assertion, not historical evidence.
+    let fx_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, $2, 'test', $3)")
+        .bind(fx_id)
+        .bind(OffsetDateTime::UNIX_EPOCH)
+        .bind(format!("withdraw-observation-{fx_id}"))
+        .execute(&pool).await.unwrap();
+    sqlx::query("UPDATE product_listings SET availability = 'SOLD_OUT', sale_observation_fx_rate_id = $1, sale_observed_at = $2 WHERE listing_source_id = $3 AND source_listing_id = 'one'")
+        .bind(fx_id)
+        .bind(OffsetDateTime::UNIX_EPOCH)
+        .bind(source.into_uuid())
+        .execute(&pool).await.unwrap();
+    let withdraw = prepared(
+        source,
+        Principal::System,
+        "withdraw-one",
+        vec![ProductListingIngestionIntent::Withdraw(product_key(
+            source, "one",
+        ))],
+    )
+    .await
+    .remove(0);
+    let original = withdraw.clone();
+    assert!(matches!(
+        processor.execute(withdraw).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::Withdrawn(result))
+            if result.outcome == ChangeOutcome::Changed
+    ));
+    assert_eq!(counts(&pool).await, (1, 2, 2));
+    let state: (String, Option<String>, Option<uuid::Uuid>, Option<OffsetDateTime>) =
+        sqlx::query_as("SELECT lifecycle, availability, sale_observation_fx_rate_id, sale_observed_at FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = 'one'")
+            .bind(source.into_uuid())
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        state,
+        (
+            "WITHDRAWN".into(),
+            None,
+            Some(fx_id),
+            Some(OffsetDateTime::UNIX_EPOCH)
+        )
+    );
+    assert_eq!(
+        processor.execute(original).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert_eq!(counts(&pool).await, (1, 2, 2));
+    let repeat = prepared(
+        source,
+        Principal::System,
+        "withdraw-one-again",
+        vec![ProductListingIngestionIntent::Withdraw(product_key(
+            source, "one",
+        ))],
+    )
+    .await
+    .remove(0);
+    assert!(matches!(
+        processor.execute(repeat).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::Withdrawn(result))
+            if result.outcome == ChangeOutcome::Unchanged
+    ));
+    assert_eq!(counts(&pool).await, (1, 2, 3));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

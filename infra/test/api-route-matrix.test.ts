@@ -18,7 +18,6 @@ type CloudFormationResource = {
 
 const ASYNC_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
 
-
 const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/lib.rs",
   "../../src/aura-historia-api/src/search_filters/mod.rs",
@@ -34,6 +33,7 @@ function normalizePath(value: string): string {
 function routeKey(method: string, routePath: string): string {
   return `${method.toUpperCase()} ${normalizePath(routePath)}`;
 }
+
 
 function catalogRouteKeys(): string[] {
   return API_ROUTE_CATALOG.map((definition) => routeKey(definition.method, definition.path)).sort();
@@ -113,7 +113,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(99);
+    expect(catalog).toHaveLength(100);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog.filter((key) => !key.endsWith(" /health") && !key.endsWith(" /ready")))
       .toEqual(swagger);
@@ -121,9 +121,9 @@ describe("HTTP API route policy matrix", () => {
     expect(catalog).not.toContain("ANY /{proxy+}");
   });
 
-  test("adds only POST, PATCH and PUT on the exact async route with application bearer and Partner policy", () => {
+  test("adds only POST, PATCH, PUT and DELETE on the exact async route with application bearer and Partner policy", () => {
     expect(API_ROUTE_CATALOG.filter((route) => route.path === ASYNC_PATH)).toEqual(
-      ["POST", "PATCH", "PUT"].map((method) => ({
+      ["POST", "PATCH", "PUT", "DELETE"].map((method) => ({
         method,
         path: ASYNC_PATH,
         lambda: "auraHistoriaApi",
@@ -137,7 +137,7 @@ describe("HTTP API route policy matrix", () => {
       })),
     );
     expect(API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/product-listings/async")))
-      .toHaveLength(3);
+      .toHaveLength(4);
     expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listing_source_id}/product-listings")
       .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE"]);
   });
@@ -219,8 +219,8 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(99);
-    for (const method of ["POST", "PATCH", "PUT"]) {
+    expect(routes).toHaveLength(100);
+    for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({ AuthorizationType: "NONE" }) })]);
     }
@@ -228,6 +228,11 @@ describe("HTTP API route policy matrix", () => {
     expect(routes.every((route) => route.Properties.AuthorizationType === "NONE")).toBe(true);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
     expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties).toEqual(expect.objectContaining({
+      PayloadFormatVersion: "2.0",
+      IntegrationType: "AWS_PROXY",
+    }));
+    expect(integrations[0].Properties).not.toHaveProperty("RequestParameters");
     expect(routes.every((route) => JSON.stringify(route.Properties.Target).includes(integrationIds[0]))).toBe(true);
     expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).toContain(`:function:aura-historia-api-${stage}:live`);
     expect(JSON.stringify(integrations[0].Properties.IntegrationUri)).not.toContain(":function/");

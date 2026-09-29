@@ -81,7 +81,7 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
 async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {
     let async_ingestion = matches!(
         request.method(),
-        &Method::POST | &Method::PATCH | &Method::PUT
+        &Method::POST | &Method::PATCH | &Method::PUT | &Method::DELETE
     ) && request.uri().path().starts_with("/api/v1/listing-sources/")
         && request.uri().path().ends_with("/product-listings/async");
     let response = next.run(request).await;
