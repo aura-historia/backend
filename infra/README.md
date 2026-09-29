@@ -239,16 +239,17 @@ contain their process-generated fixture **public** CA at
 provider token, or signed event body is packaged or logged.
 
 CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
-binary with:
+binary from `src/<binary>/` (not the workspace root, whose default-run package
+does not include the Lambda binaries):
 
 ```bash
 cargo lambda build --locked --release \
   --target x86_64-unknown-linux-musl \
-  --output-format zip
+  --output-format zip --bin <binary>
 ```
 
-`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI conditionally
-uploads it under `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
+The ZIP lands in the shared workspace `target/lambda/<binary>/bootstrap.zip`;
+CI conditionally uploads it under `<binary>-<stage>-<commit-sha>.zip`, matching
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
 native Axum router, and applies a `14 s` application request deadline. The same
@@ -674,10 +675,13 @@ CloudFormation inspection and recovery; an archive-only import or empty shell is
 not initialized compute. A usable
 `UPDATE_ROLLBACK_COMPLETE` stack may be retried after inspection. Failed creation
 cannot simply be updated. Inventory retained resources before any approved stack
-cleanup; no workflow deletes or automatically imports them. Follow the
-[archive resource-import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery)
-when applicable. After partial application creation, inspect what is already
-active before resuming Deploy; Initialize is not a stack-repair workflow. If only
+cleanup; no workflow deletes or automatically imports them. A failed first
+compute creation can retain both the CDC failure archive and named periodic-matcher
+log groups; clearing only the bucket will not make a repeat creation safe. Follow
+the [archive resource-import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery)
+and separately reconcile other retained resources when applicable. After partial
+application creation, inspect what is already active before resuming Deploy;
+Initialize is not a stack-repair workflow. If only
 post-deploy output resolution failed, inspect parameters and rerun the missing
 verification where possible rather than blindly redeploying. Never purge queues
 or replace RDS to get a release through. No workflow manages external OpenSearch

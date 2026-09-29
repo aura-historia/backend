@@ -104,6 +104,8 @@ export class ScheduledEcsJob extends Construct {
     });
     const group = new scheduler.CfnScheduleGroup(this, "Group", { name: names.group });
     const groupArn = stack.formatArn({ service: "scheduler", resource: "schedule-group", resourceName: names.group });
+    // Avoid resolving Schedule.attrArn: CloudFormation can fail to retrieve it for a new schedule in a named group.
+    const scheduleArn = stack.formatArn({ service: "scheduler", resource: "schedule", resourceName: `${names.group}/${names.schedule}`, arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
     const schedulerRole = new iam.Role(this, "SchedulerRole", {
       assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com", {
         conditions: { StringEquals: { "aws:SourceAccount": stack.account, "aws:SourceArn": groupArn } },
@@ -173,7 +175,7 @@ export class ScheduledEcsJob extends Construct {
     lifecycleRule("InterruptedTasks", names.interruptionRule,
       ecsTaskEventPattern(cluster.clusterArn, familyPrefix, props.containerName, "interruption"), lifecycleInput("interruption", true));
 
-    for (const [key, value] of Object.entries({ ClusterArn: cluster.clusterArn, ClusterName: cluster.clusterName, TaskDefinitionArn: task.taskDefinitionArn, TaskFamily: names.family, ImageDigest: props.imageDigest, ContainerName: props.containerName, ApplicationSubnetIds: cdk.Fn.join(",", subnetIds), ApplicationSecurityGroupId: network.applicationSecurityGroup.securityGroupId, ScheduleGroup: names.group, ScheduleName: names.schedule, ScheduleArn: schedule.attrArn, DeliveryDlqUrl: this.deliveryDlq.queueUrl, DeliveryDlqArn: this.deliveryDlq.queueArn, ApplicationLogGroup: applicationLog.logGroupName, LifecycleLogGroup: lifecycleLog.logGroupName })) {
+    for (const [key, value] of Object.entries({ ClusterArn: cluster.clusterArn, ClusterName: cluster.clusterName, TaskDefinitionArn: task.taskDefinitionArn, TaskFamily: names.family, ImageDigest: props.imageDigest, ContainerName: props.containerName, ApplicationSubnetIds: cdk.Fn.join(",", subnetIds), ApplicationSecurityGroupId: network.applicationSecurityGroup.securityGroupId, ScheduleGroup: names.group, ScheduleName: names.schedule, ScheduleArn: scheduleArn, DeliveryDlqUrl: this.deliveryDlq.queueUrl, DeliveryDlqArn: this.deliveryDlq.queueArn, ApplicationLogGroup: applicationLog.logGroupName, LifecycleLogGroup: lifecycleLog.logGroupName })) {
       new cdk.CfnOutput(this, key, { value });
     }
   }

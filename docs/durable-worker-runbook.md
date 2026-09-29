@@ -66,16 +66,23 @@ ownership repair. Do not add `--import-existing-resources` to normal deployment.
    Record the change-set ARN and approval, then explicitly execute only that set.
 6. Verify import completion, exact stack ownership, unchanged bucket safety
    settings and retained contents using metadata-only checks; run drift inspection
-   and resolve discrepancies before normal deployment resumes. An archive-only
-   stack is **not application readiness**. Recheck the full migration/FX/OpenSearch/
-   native-handoff/SES prerequisites and review the subsequent full CDK changes
-   separately before creating active compute. Complete that full-template **UPDATE**
-   through the operator-controlled recovery path and require `UPDATE_COMPLETE`
-   before returning to normal Deploy. Deploy deliberately rejects `IMPORT_COMPLETE`
-   and archive-only stacks; importing the bucket alone does not complete recovery.
-   Remove obsolete GitHub variables through repo administration. Import neither
-   replays nor purges archived events; controlled replay remains a separately
-   approved recovery operation.
+   and resolve discrepancies before normal deployment resumes. Inspect **all**
+   `DELETE_SKIPPED` resources from failed compute creations before the full-template
+   update: the periodic matcher's retained application and lifecycle log groups
+   (`/aura-historia/<stage>/periodic-matcher` and
+   `/aura-historia/<stage>/periodic-matcher-lifecycle`) can also collide on recreation.
+   Recover ownership of any such resources through a separate, narrowly reviewed
+   operator plan; the archive-only import neither adopts log groups nor makes
+   deleting their history safe. An archive-only stack is **not application
+   readiness**. Recheck the full migration/FX/OpenSearch/native-handoff/SES
+   prerequisites and review the subsequent full CDK changes separately before
+   creating active compute. Complete that full-template **UPDATE** through the
+   operator-controlled recovery path and require `UPDATE_COMPLETE` before returning
+   to normal Deploy. Deploy deliberately rejects `IMPORT_COMPLETE` and archive-only
+   stacks; importing the bucket alone does not complete recovery. Remove obsolete
+   GitHub variables through repo administration. Import neither replays nor purges
+   archived events; controlled replay remains a separately approved recovery
+   operation.
 
 ## Projection fences and rebuild
 
