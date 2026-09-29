@@ -18,10 +18,11 @@ use aura_historia_api::auth::{
     TransportPrincipal, UserAuthenticationAuthenticator,
 };
 use aura_historia_api::state::{
-    AdminOverviewState, AppState, AuctionsState, BillingState, ListingSourcesState,
-    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
+    ListingSourcesState, NewsletterState, NotificationsState, OAuthState, PartiesState,
+    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, SearchFiltersState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -345,6 +346,12 @@ fn woocommerce_messages() -> &'static Mutex<Vec<ProductListingIngestionMessage>>
 }
 
 pub fn woocommerce_ingestion_messages(
+    listing_source_id: ListingSourceId,
+) -> Vec<ProductListingIngestionMessage> {
+    captured_ingestion_messages(listing_source_id)
+}
+
+pub fn captured_ingestion_messages(
     listing_source_id: ListingSourceId,
 ) -> Vec<ProductListingIngestionMessage> {
     woocommerce_messages()
@@ -1889,6 +1896,12 @@ async fn test_state(
         ))
         .with_products(products_state)
         .with_partner_product_listings(partner_product_listings_state)
+        .with_async_partner_product_listings(AsyncPartnerProductListingsState::new(
+            Arc::new(SubmitPartnerProductListingIngestionHandler::new(
+                RecordingWoocommerceIngestionPublisher,
+            )),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)

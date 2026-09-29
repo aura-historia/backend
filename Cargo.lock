@@ -6044,22 +6044,29 @@ dependencies = [
 name = "product-listing-ingestion-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "auction-postgres",
  "aws_lambda_events",
  "lambda_runtime",
+ "listing-source-core",
  "platform-lambda-bootstrap",
  "platform-lambda-sqs",
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "product-listing-core",
  "product-listing-ingestion-sqs",
  "product-listing-postgres",
  "product-listing-service",
  "serde_json",
+ "serial_test",
  "sqlx",
+ "test-api",
  "tokio",
  "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

@@ -319,12 +319,17 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
     expect(versions).toHaveLength(1);
     const [versionId, version] = versions[0];
-    expect(JSON.stringify(version.Properties.Description)).toContain("product-listing-ingestion-");
+    expect(version.Properties).toMatchObject({
+      FunctionName: { Ref: consumer.id },
+      Description: { "Fn::Join": ["", ["product-listing-ingestion-", { Ref: "CommitSHA" }]] },
+    });
     expect(consumer.resource.Properties).toMatchObject({
       Runtime: "provided.al2023", Handler: "lib.handler", MemorySize: 512, Timeout: 45,
       ReservedConcurrentExecutions: 2, Architectures: ["x86_64"],
     });
-    expect(JSON.stringify(consumer.resource.Properties.Code.S3Key)).toContain(`product-listing-ingestion-lambda-${stage}-`);
+    expect(consumer.resource.Properties.Code.S3Key).toEqual({
+      "Fn::Join": ["", [`product-listing-ingestion-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]],
+    });
     const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
       .filter(([, resource]) => resource.Properties.FunctionName?.Ref === versionId);
     expect(mappings).toHaveLength(1);
