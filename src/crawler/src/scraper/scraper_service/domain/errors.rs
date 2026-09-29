@@ -51,6 +51,9 @@ pub enum ScraperError {
     #[error("URL has no host: {url}")]
     NoHost { url: Url },
 
+    #[error("Persisted crawler domain context is required for {mode} scraping of '{url}'")]
+    MissingDomainContext { url: Url, mode: &'static str },
+
     #[error("Schema service error: {0}")]
     SchemaServiceError(#[from] ProductListingSchemaServiceError),
 

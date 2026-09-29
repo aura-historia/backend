@@ -509,7 +509,7 @@ async fn main() {
         // 7. Build cron job
         let cron_job = CrawlerCronJob::new(
             config,
-            Arc::new(LocalLockManager::new()),
+            Arc::new(LocalLockManager::with_database(pool.clone())),
             spider_candidates,
             spider_svc,
             scraper_candidates,

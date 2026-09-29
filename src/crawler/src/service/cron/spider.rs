@@ -7,7 +7,7 @@ use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -18,6 +18,8 @@ const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60
 const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+const DOMAIN_LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);
+const MAX_IDLE_DOMAIN_LOCK_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CrawlCooldownProfile {
@@ -91,6 +93,8 @@ struct SpiderSlotOutcome {
     domain_id: CrawlerDomainId,
     succeeded: bool,
     skipped: bool,
+    deferred: bool,
+    retry_candidate: Option<SpiderCandidate>,
 }
 
 fn spawn_spider_candidate(
@@ -116,18 +120,39 @@ fn spawn_spider_candidate(
 
     join_set.spawn(
         async move {
-            let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id) else {
-                warn!(
-                    listing_source_id = %candidate.listing_source_id,
-                    domain_id = %candidate.domain_id,
-                    "Skipping domain - lock held by another worker"
-                );
-                return SpiderSlotOutcome {
-                    domain_id,
-                    succeeded: false,
-                    skipped: true,
+            let _lock =
+                match DomainLock::try_acquire_global(&lock_manager, candidate.domain_id).await {
+                    Ok(Some(lock)) => lock,
+                    Ok(None) => {
+                        debug!(
+                            listing_source_id = %candidate.listing_source_id,
+                            domain_id = %candidate.domain_id,
+                            "Deferring domain - lock held by another worker"
+                        );
+                        return SpiderSlotOutcome {
+                            domain_id,
+                            succeeded: false,
+                            skipped: false,
+                            deferred: true,
+                            retry_candidate: Some(candidate),
+                        };
+                    }
+                    Err(error) => {
+                        error!(
+                            listing_source_id = %candidate.listing_source_id,
+                            domain_id = %candidate.domain_id,
+                            error = %error,
+                            "Unable to coordinate spider domain lock"
+                        );
+                        return SpiderSlotOutcome {
+                            domain_id,
+                            succeeded: false,
+                            skipped: false,
+                            deferred: false,
+                            retry_candidate: None,
+                        };
+                    }
                 };
-            };
 
             match spider_service
                 .run(
@@ -153,6 +178,8 @@ fn spawn_spider_candidate(
                         domain_id,
                         succeeded: true,
                         skipped: false,
+                        deferred: false,
+                        retry_candidate: None,
                     }
                 }
                 Err(e) => {
@@ -255,6 +282,8 @@ fn spawn_spider_candidate(
                         domain_id,
                         succeeded: false,
                         skipped: false,
+                        deferred: false,
+                        retry_candidate: None,
                     }
                 }
             }
@@ -280,6 +309,7 @@ impl CrawlerCronJob {
 
         let pass_start = tokio::time::Instant::now();
         let mut excluded_domain_ids: HashSet<CrawlerDomainId> = HashSet::new();
+        let mut deferred_candidates = VecDeque::new();
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
@@ -287,9 +317,46 @@ impl CrawlerCronJob {
         let mut skipped = 0usize;
         let mut started = false;
         let mut fetch_failed = false;
+        let mut no_more_candidates = false;
+        let mut retry_deferred = false;
+        let mut idle_lock_retries = 0;
 
         loop {
-            while join_set.len() < spider_concurrency && !fetch_failed {
+            while join_set.len() < spider_concurrency {
+                if retry_deferred {
+                    if join_set.is_empty() {
+                        idle_lock_retries += 1;
+                        if idle_lock_retries > MAX_IDLE_DOMAIN_LOCK_RETRIES {
+                            debug!(
+                                deferred_domains = deferred_candidates.len(),
+                                "Leaving contended spider domains deferred for the next scheduler pass"
+                            );
+                            retry_deferred = false;
+                            break;
+                        }
+                        tokio::time::sleep(DOMAIN_LOCK_RETRY_DELAY).await;
+                    } else {
+                        idle_lock_retries = 0;
+                    }
+                    if let Some(candidate) = deferred_candidates.pop_front() {
+                        retry_deferred = false;
+                        spawn_spider_candidate(
+                            &mut join_set,
+                            candidate,
+                            Arc::clone(&self.spider_candidates),
+                            Arc::clone(&self.spider_service),
+                            Arc::clone(&self.lock_manager),
+                            self.config.spider_classify_threshold,
+                        );
+                        continue;
+                    }
+                    retry_deferred = false;
+                }
+
+                if no_more_candidates || fetch_failed {
+                    break;
+                }
+
                 let open_slots = spider_concurrency - join_set.len();
                 let limit = (open_slots as i64).max(1);
                 let excluded: Vec<CrawlerDomainId> = excluded_domain_ids.iter().copied().collect();
@@ -307,7 +374,8 @@ impl CrawlerCronJob {
                 };
 
                 if candidates.is_empty() {
-                    if !started && join_set.is_empty() {
+                    no_more_candidates = true;
+                    if !started && join_set.is_empty() && deferred_candidates.is_empty() {
                         debug!("No spider candidates, skipping scheduler pass");
                         return;
                     }
@@ -354,12 +422,22 @@ impl CrawlerCronJob {
             match join_set.join_next().await {
                 Some(Ok(outcome)) => {
                     excluded_domain_ids.insert(outcome.domain_id);
-                    if outcome.succeeded {
+                    if outcome.deferred {
+                        if let Some(candidate) = outcome.retry_candidate {
+                            deferred_candidates.push_back(candidate);
+                        }
+                    } else if outcome.succeeded {
                         succeeded += 1;
                     } else if outcome.skipped {
                         skipped += 1;
                     } else {
                         failed += 1;
+                    }
+                    if !outcome.deferred {
+                        retry_deferred = !deferred_candidates.is_empty();
+                        idle_lock_retries = 0;
+                    } else if join_set.is_empty() {
+                        retry_deferred = !deferred_candidates.is_empty();
                     }
                 }
                 Some(Err(e)) => {
@@ -596,6 +674,68 @@ mod tests {
         );
 
         job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_retry_a_contended_spider_domain_in_the_same_pass() {
+        let domain_id = CrawlerDomainId::new();
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let held_lock = DomainLock::try_acquire(&lock_manager, domain_id)
+            .expect("test must hold the domain lock before scheduling");
+        let release_lock = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(75)).await;
+            drop(held_lock);
+        });
+
+        let first_candidate = Arc::new(AtomicBool::new(true));
+        let first_candidate_for_mock = Arc::clone(&first_candidate);
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let candidate = spider_candidate(domain_id);
+                let first_candidate = Arc::clone(&first_candidate_for_mock);
+                let no_exclusions = excluded.is_empty();
+                Box::pin(async move {
+                    if no_exclusions && first_candidate.swap(false, Ordering::SeqCst) {
+                        Ok(vec![candidate])
+                    } else {
+                        Ok(vec![])
+                    }
+                })
+            });
+        spider_candidates
+            .expect_reset_crawl_failure()
+            .once()
+            .returning(|_| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().once().returning(|_, _, _, _| {
+            Box::pin(async {
+                Ok(SpiderRunResult {
+                    total_links: 10,
+                    product_urls_count: 5,
+                    product_pattern: None,
+                })
+            })
+        });
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig {
+                spider_concurrency: 1,
+                ..CrawlerCronConfig::default()
+            },
+            lock_manager,
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(MockScraperCandidateService::new()),
+            Box::new(MockScraperService::new()),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+
+        job.run_spider_once().await;
+        release_lock.await.expect("lock release task must join");
     }
 
     #[tokio::test]

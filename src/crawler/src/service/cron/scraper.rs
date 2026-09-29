@@ -28,6 +28,9 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
+const DOMAIN_LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);
+const MAX_IDLE_DOMAIN_LOCK_RETRIES: usize = 3;
+
 /// Context for scraping a domain's candidates.
 struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
@@ -103,6 +106,8 @@ struct ScrapeDomainOutcome {
     succeeded: usize,
     failed: usize,
     skipped: usize,
+    deferred: bool,
+    retry_candidates: Option<Vec<ScraperCandidate>>,
 }
 
 struct ScheduledScrapeDomainOutcome {
@@ -490,6 +495,7 @@ async fn should_skip_candidate(candidate: &ScraperCandidate, ctx: &ScrapeDomainC
 
 fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeRequest {
     ScrapeRequest {
+        domain_id: Some(candidate.domain_id),
         listing_source_id: candidate.listing_source_id,
         url: candidate.url.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
@@ -507,7 +513,7 @@ async fn run_candidate_scrape(
 ) -> ScrapeOutcome {
     let is_domain_probe = candidate.is_domain_probe;
     let (mut outcome, observed_domain_health) =
-        with_scrape_observation(candidate.domain_id, async {
+        with_scrape_observation(Some(candidate.domain_id), async {
             if is_domain_probe {
                 ctx.scraper
                     .scrape_with_mode(scrape_request(candidate, ScrapeMode::DomainProbe))
@@ -988,6 +994,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
+        ScraperError::MissingDomainContext { .. } => "MissingDomainContext",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
@@ -1019,12 +1026,28 @@ async fn scrape_domain_candidates(
         succeeded: 0,
         failed: 0,
         skipped: 0,
+        deferred: false,
+        retry_candidates: None,
     };
 
-    let Some(_domain_lock) = DomainLock::try_acquire(&ctx.lock_manager, ctx.domain_id) else {
-        warn!(domain_id = %ctx.domain_id, "Skipping scraper domain - lock held by another worker");
-        outcome.skipped = candidates.len();
-        return outcome;
+    let _domain_lock = match DomainLock::try_acquire_global(&ctx.lock_manager, ctx.domain_id).await
+    {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            debug!(domain_id = %ctx.domain_id, "Deferring scraper domain - lock held by another worker");
+            outcome.deferred = true;
+            outcome.retry_candidates = Some(candidates);
+            return outcome;
+        }
+        Err(error) => {
+            error!(
+                domain_id = %ctx.domain_id,
+                error = %error,
+                "Unable to coordinate scraper domain lock"
+            );
+            outcome.failed = candidates.len();
+            return outcome;
+        }
     };
 
     let mut server_failure_urls = HashSet::new();
@@ -1207,7 +1230,7 @@ impl CrawlerCronJob {
         );
         let mut seen_domains: HashSet<crate::CrawlerDomainId> = HashSet::new();
         let mut active_domains: HashSet<crate::CrawlerDomainId> = HashSet::new();
-        let mut pending_domains: VecDeque<(crate::CrawlerDomainId, Vec<ScraperCandidate>)> =
+        let mut pending_domains: VecDeque<(crate::CrawlerDomainId, Vec<ScraperCandidate>, bool)> =
             VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, command_rx) =
@@ -1223,6 +1246,8 @@ impl CrawlerCronJob {
         let mut skipped = 0usize;
         let mut started = false;
         let mut no_more_candidates = false;
+        let mut retry_deferred = false;
+        let mut idle_lock_retries = 0;
 
         let raw_capture_collector = tokio::spawn(run_raw_capture_collector(
             command_rx,
@@ -1234,11 +1259,36 @@ impl CrawlerCronJob {
 
         loop {
             while join_set.len() < scraper_concurrency {
-                if let Some((domain, candidates)) = pending_domains
-                    .iter()
-                    .position(|(domain, _)| !active_domains.contains(domain))
-                    .and_then(|idx| pending_domains.remove(idx))
-                {
+                let pending_index = pending_domains.iter().position(|(domain, _, is_retry)| {
+                    !active_domains.contains(domain) && (!*is_retry || retry_deferred)
+                });
+                if let Some(pending_index) = pending_index {
+                    let is_retry = pending_domains[pending_index].2;
+                    if is_retry {
+                        if join_set.is_empty() {
+                            idle_lock_retries += 1;
+                            if idle_lock_retries > MAX_IDLE_DOMAIN_LOCK_RETRIES {
+                                debug!(
+                                    deferred_domains = pending_domains
+                                        .iter()
+                                        .filter(|(_, _, is_retry)| *is_retry)
+                                        .count(),
+                                    "Leaving contended scraper domains deferred for the next scheduler pass"
+                                );
+                                retry_deferred = false;
+                                break;
+                            }
+                            tokio::time::sleep(DOMAIN_LOCK_RETRY_DELAY).await;
+                        } else {
+                            idle_lock_retries = 0;
+                        }
+                    }
+                    let (domain, candidates, is_retry) = pending_domains
+                        .remove(pending_index)
+                        .expect("pending domain index must remain valid");
+                    if is_retry {
+                        retry_deferred = false;
+                    }
                     let scraper = Arc::clone(&self.scraper_service);
                     let scraper_candidates = Arc::clone(&self.scraper_candidates);
                     let lock_manager = Arc::clone(&self.lock_manager);
@@ -1249,7 +1299,9 @@ impl CrawlerCronJob {
                         Arc::clone(&schema_pending_listing_sources);
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain);
-                    total += candidates.len();
+                    if !is_retry {
+                        total += candidates.len();
+                    }
 
                     join_set.spawn(
                         async move {
@@ -1279,7 +1331,7 @@ impl CrawlerCronJob {
 
                 let mut excluded_domain_ids = seen_domains.clone();
                 excluded_domain_ids.extend(active_domains.iter().copied());
-                excluded_domain_ids.extend(pending_domains.iter().map(|(domain, _)| *domain));
+                excluded_domain_ids.extend(pending_domains.iter().map(|(domain, _, _)| *domain));
                 let excluded_domain_ids: Vec<crate::CrawlerDomainId> =
                     excluded_domain_ids.into_iter().collect();
                 let candidates = match self
@@ -1331,7 +1383,11 @@ impl CrawlerCronJob {
                 }
 
                 debug!(domains = by_domain.len(), "Candidates grouped by domain");
-                pending_domains.extend(by_domain);
+                pending_domains.extend(
+                    by_domain
+                        .into_iter()
+                        .map(|(domain, candidates)| (domain, candidates, false)),
+                );
             }
 
             if join_set.is_empty() {
@@ -1344,6 +1400,17 @@ impl CrawlerCronJob {
                     succeeded += scheduled.outcome.succeeded;
                     failed += scheduled.outcome.failed;
                     skipped += scheduled.outcome.skipped;
+                    if scheduled.outcome.deferred {
+                        if let Some(candidates) = scheduled.outcome.retry_candidates {
+                            pending_domains.push_back((scheduled.domain_id, candidates, true));
+                        }
+                        if join_set.is_empty() {
+                            retry_deferred = true;
+                        }
+                    } else {
+                        retry_deferred = pending_domains.iter().any(|(_, _, is_retry)| *is_retry);
+                        idle_lock_retries = 0;
+                    }
                 }
                 Some(Err(e)) => {
                     error!(error = %e, "Scraper domain worker task failed to join");
@@ -1861,6 +1928,73 @@ mod tests {
             schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id: crate::CrawlerDomainId::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn should_defer_a_contended_scraper_domain_without_losing_candidates() {
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/product/1").unwrap(),
+        );
+        candidate.is_domain_probe = true;
+        let domain_id = candidate.domain_id;
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let held_lock = DomainLock::try_acquire(&lock_manager, domain_id)
+            .expect("test must hold the domain lock before scheduling");
+
+        let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
+        let first_context = ScrapeDomainContext {
+            scraper: Arc::new(MockScraperService::new()),
+            scraper_candidates: Arc::new(MockScraperCandidateService::new()),
+            lock_manager: Arc::clone(&lock_manager),
+            command_tx,
+            budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            domain_id,
+        };
+
+        let deferred = scrape_domain_candidates(vec![candidate], first_context).await;
+        assert!(deferred.deferred);
+        assert_eq!(deferred.succeeded, 0);
+        assert_eq!(deferred.failed, 0);
+        assert_eq!(deferred.skipped, 0);
+        assert_eq!(deferred.retry_candidates.as_ref().map(Vec::len), Some(1));
+
+        drop(held_lock);
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape_with_mode()
+            .once()
+            .returning(|_| {
+                Box::pin(async {
+                    ScrapeOutcome {
+                        result: Ok(None),
+                        domain_health: DomainFetchHealth::NotObserved,
+                        fetch_failure: None,
+                    }
+                })
+            });
+        let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
+        let retry_context = ScrapeDomainContext {
+            scraper: Arc::new(scraper_service),
+            scraper_candidates: Arc::new(MockScraperCandidateService::new()),
+            lock_manager,
+            command_tx,
+            budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            domain_id,
+        };
+
+        let retried = scrape_domain_candidates(
+            deferred
+                .retry_candidates
+                .expect("contended candidates must be retained"),
+            retry_context,
+        )
+        .await;
+        assert!(!retried.deferred);
+        assert_eq!(retried.skipped, 1);
     }
 
     #[tokio::test]

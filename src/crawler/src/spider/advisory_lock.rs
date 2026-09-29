@@ -2,6 +2,9 @@ use crate::CrawlerDomainId;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use listing_source_core::ListingSourceId;
+use sqlx::Either;
+use sqlx::pool::PoolConnection;
+use sqlx::postgres::{PgAdvisoryLock, PgAdvisoryLockKey, PgPool};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -67,17 +70,62 @@ impl Drop for AdvisoryLock {
 #[derive(Clone, Default)]
 pub struct LocalLockManager {
     locks: Arc<DashMap<String, Instant>>,
+    database: Option<PgPool>,
 }
 
 impl LocalLockManager {
     pub fn new() -> Self {
         Self {
             locks: Arc::new(DashMap::new()),
+            database: None,
+        }
+    }
+
+    /// Creates a lock manager that coordinates domain ownership across crawler
+    /// processes through PostgreSQL advisory locks. The in-memory map remains
+    /// useful as a cheap same-process fast path.
+    pub fn with_database(database: PgPool) -> Self {
+        Self {
+            locks: Arc::new(DashMap::new()),
+            database: Some(database),
         }
     }
 
     fn try_acquire(&self, key: String) -> Option<AdvisoryLock> {
         AdvisoryLock::try_acquire(Arc::clone(&self.locks), key)
+    }
+
+    async fn try_acquire_domain(
+        &self,
+        domain_id: CrawlerDomainId,
+    ) -> Result<Option<DomainLock>, sqlx::Error> {
+        let key = domain_id_to_advisory_key(domain_id);
+        let Some(local) = self.try_acquire(key.to_string()) else {
+            return Ok(None);
+        };
+
+        let Some(database) = &self.database else {
+            return Ok(Some(DomainLock {
+                local,
+                database: None,
+            }));
+        };
+
+        let connection = database.acquire().await?;
+        let lock = PgAdvisoryLock::with_key(PgAdvisoryLockKey::BigInt(key));
+        match lock.try_acquire(connection).await? {
+            Either::Left(database_guard) => Ok(Some(DomainLock {
+                local,
+                database: Some(database_guard),
+            })),
+            Either::Right(_connection) => {
+                // Returning the connection to the pool flushes the queued
+                // advisory-unlock state, if any. No guard was created here.
+                drop(_connection);
+                drop(local);
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -86,7 +134,12 @@ impl LocalLockManager {
 // ---------------------------------------------------------------------------
 
 /// RAII lock for a spider domain (keyed by `CrawlerDomainId`).
-pub struct DomainLock(#[allow(dead_code)] AdvisoryLock);
+pub struct DomainLock {
+    #[allow(dead_code)]
+    local: AdvisoryLock,
+    #[allow(dead_code)]
+    database: Option<sqlx::postgres::PgAdvisoryLockGuard<PoolConnection<sqlx::Postgres>>>,
+}
 
 impl DomainLock {
     pub fn try_acquire(
@@ -94,7 +147,17 @@ impl DomainLock {
         domain_id: CrawlerDomainId,
     ) -> Option<Self> {
         let key = domain_id_to_advisory_key(domain_id);
-        lock_manager.try_acquire(key.to_string()).map(Self)
+        lock_manager.try_acquire(key.to_string()).map(|local| Self {
+            local,
+            database: None,
+        })
+    }
+
+    pub async fn try_acquire_global(
+        lock_manager: &LocalLockManager,
+        domain_id: CrawlerDomainId,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        lock_manager.try_acquire_domain(domain_id).await
     }
 }
 

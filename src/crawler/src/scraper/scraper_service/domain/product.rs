@@ -31,6 +31,9 @@ pub struct ScrapedProduct {
 pub enum ScrapeMode {
     Normal,
     DomainProbe,
+    /// Explicitly keeps the legacy direct API on the primary page only. This
+    /// mode never samples persisted sibling URLs for schema generation.
+    PrimaryOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +57,9 @@ pub struct FetchFailureContext {
 /// call from growing another positional argument.
 #[derive(Debug, Clone)]
 pub struct ScrapeRequest {
+    /// Persisted crawler domain used for schema-seed fanout and circuit state.
+    /// `None` is valid only for [`ScrapeMode::PrimaryOnly`].
+    pub domain_id: Option<CrawlerDomainId>,
     pub listing_source_id: ListingSourceId,
     pub url: Url,
     pub product_url_pattern: Option<String>,
@@ -83,7 +89,7 @@ pub struct ScrapeOutcome {
 }
 
 struct ScrapeObservationState {
-    domain_id: CrawlerDomainId,
+    domain_id: Option<CrawlerDomainId>,
     transport_health: Option<DomainFetchHealth>,
     fetch_failure: Option<FetchFailureContext>,
 }
@@ -97,7 +103,7 @@ tokio::task_local! {
 /// participate in this context return `None` and retain the legacy fallback at
 /// the caller boundary.
 pub(crate) async fn with_scrape_observation<F, T>(
-    domain_id: CrawlerDomainId,
+    domain_id: Option<CrawlerDomainId>,
     future: F,
 ) -> (T, Option<DomainFetchHealth>)
 where
@@ -124,6 +130,7 @@ pub(crate) fn current_scrape_domain_id() -> Option<CrawlerDomainId> {
     SCRAPE_OBSERVATION
         .try_with(|state| state.borrow().domain_id)
         .ok()
+        .flatten()
 }
 
 pub(crate) fn begin_transport_observation() {
@@ -255,9 +262,9 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)
         | ScraperError::LlmBudgetExceeded { .. } => DomainFetchHealth::Responsive,
-        ScraperError::NoHost { .. } | ScraperError::PendingSchemaReview { .. } => {
-            DomainFetchHealth::NotObserved
-        }
+        ScraperError::NoHost { .. }
+        | ScraperError::MissingDomainContext { .. }
+        | ScraperError::PendingSchemaReview { .. } => DomainFetchHealth::NotObserved,
     }
 }
 
@@ -368,7 +375,7 @@ mod tests {
 
     #[tokio::test]
     async fn pre_fetch_application_error_stays_not_observed() {
-        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
             begin_transport_observation();
             Err::<(), _>("schema lookup failed")
         })
@@ -379,7 +386,7 @@ mod tests {
 
     #[tokio::test]
     async fn downstream_error_cannot_erase_responsive_primary_fetch() {
-        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
             begin_transport_observation();
             record_transport_success();
             Err::<(), _>("pending schema review")
@@ -391,7 +398,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_transport_failure_is_recorded_independently_of_final_error() {
-        let (_, observation) = with_scrape_observation(CrawlerDomainId::new(), async {
+        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
             begin_transport_observation();
             record_transport_fetch_error(NetworkErrorKind::Timeout, None, None);
             Err::<(), _>("timeout")

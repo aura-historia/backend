@@ -28,6 +28,7 @@ fn primary_request(
     fence: Vec<u8>,
 ) -> ScrapeRequest {
     ScrapeRequest {
+        domain_id: Some(crate::CrawlerDomainId::new()),
         listing_source_id,
         url,
         product_url_pattern: None,

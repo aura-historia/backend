@@ -8,7 +8,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_no
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
-use tracing::{debug, warn};
+use tracing::warn;
 use url::Url;
 
 pub(crate) struct SchemaSeedPage {
@@ -38,15 +38,17 @@ impl ScraperServiceImpl {
             url: url.clone(),
             raw_html: primary_html.to_string(),
         }];
-        if self.schema_seed_pages <= 1 || mode == ScrapeMode::DomainProbe {
+        if self.schema_seed_pages <= 1
+            || matches!(mode, ScrapeMode::DomainProbe | ScrapeMode::PrimaryOnly)
+        {
             return Ok(pages);
         }
 
         let Some(domain_id) = domain_id else {
-            debug!(
-                "Skipping schema-seed sampling because no persisted crawler domain context is available"
-            );
-            return Ok(pages);
+            return Err(ScraperError::MissingDomainContext {
+                url: url.clone(),
+                mode: "normal",
+            });
         };
 
         let extra_limit = (self.schema_seed_pages - 1) as i64;

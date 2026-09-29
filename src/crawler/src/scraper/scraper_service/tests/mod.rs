@@ -86,7 +86,7 @@ pub(super) async fn with_test_scrape_domain<F, T>(future: F) -> T
 where
     F: Future<Output = T>,
 {
-    let (result, _) = with_scrape_observation(crate::CrawlerDomainId::new(), future).await;
+    let (result, _) = with_scrape_observation(Some(crate::CrawlerDomainId::new()), future).await;
     result
 }
 
