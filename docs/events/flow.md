@@ -59,6 +59,7 @@ Partner ProductListing API writes are synchronous and bypass raw capture. Crawle
 sequenceDiagram
     participant Caller
     participant API as aura-historia-api or AWS intake Lambda
+    participant Service as ProductListing write use case
     participant PG as Postgres
     participant DMS as DMS
     participant Stream as Kinesis
@@ -67,11 +68,10 @@ sequenceDiagram
     participant OS as OpenSearch
 
     Caller->>API: ProductListing create/update/withdraw
-    API->>PG: begin transaction
-    API->>PG: lock/read ProductListing row
-    API->>PG: insert/update authoritative product_listings state
-    API->>PG: insert product_listing_events
-    API->>PG: commit
+    API->>Service: invoke synchronous write use case
+    Service->>PG: lock/read and persist state/event in one transaction
+    PG-->>Service: commit confirmed
+    Service-->>API: write result
     API-->>Caller: success/failure after commit
     PG-->>DMS: selected committed change after approved start
     DMS->>Stream: CDC record
@@ -87,6 +87,8 @@ sequenceDiagram
 Synchronous partner API writes and crawler capture do not publish to the separate ProductListing ingestion FIFO. Shopify forwards mapped raw observations through the #1855 [asynchronous ingestion submission contract](../product-listing.md#asynchronous-ingestion-submission) to the #1859 FIFO consumer; the WooCommerce webhook now submits mapped observations through the same publisher, with its own HTTP `204`-on-confirmed-admission contract. Neither code nor infrastructure declarations prove live deployment. Synchronous partner routes and Shopify's upstream SQS acknowledgment contract remain unchanged.
 
 ### V1 command admission versus CDC delivery
+
+Source-neutral ingress: async partner verbs and trusted internal calls submit canonical commands; Shopify's retained Standard SQS Lambda and the signed WooCommerce HTTP webhook submit mapped `CAPTURE_RAW` commands. Each provider acknowledges a mapped observation only after the shared publisher's **confirmed FIFO acceptance**; REST reports admission per item. The FIFO consumer verifies the envelope and calls the service-owned execution use case to commit a per-`commandId` receipt atomically with either canonical state/event or raw evidence. Raw evidence is then normalized by authoritative PostgreSQL stream progress after a separate CDC wake-up; canonical events feed the separate DMS/Kinesis → Standard SQS projection workers. The crawler and existing synchronous partner writes remain direct; this flow does not turn CDC worker queues or the old Shopify input queue into FIFO. None of these declarations proves deployed delivery.
 
 A v1 command submission has an original source-scoped batch and per-index outcomes. For example, if indices `0` and `1` are in one logical FIFO group and `0` is `Unconfirmed`, `1` is `NotAttempted(BlockedByFifoPredecessor)`; an unrelated group can still be `Accepted`. Only confirmed `Accepted` items count as admitted, and none of these statuses reports business completion. Pure validation rejects before send do not take FIFO positions. After a partial/lost reply, retry the unchanged ordered logical batch with the same effective key, actor and source, not just the failures renumbered; IDs remain stable but there is no submission registry or exactly-once guarantee. The publisher gates same-group successors within each submission, while FIFO's ordering guarantee concerns per-group acceptance at the shared queue, not upstream chronology or synchronous writes. The v1 wire example, SQS batch/message limits and retry budget are in the [ProductListing contract](../product-listing.md#asynchronous-ingestion-submission); valid raw input is not necessarily a valid queue message.
 

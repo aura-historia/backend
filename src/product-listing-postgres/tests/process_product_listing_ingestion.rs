@@ -737,6 +737,47 @@ async fn failed_receipt_insert_rolls_back_listing_and_event_then_can_retry() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn failed_event_insert_rolls_back_listing_and_receipt_then_can_retry() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let envelope = prepared(
+        source,
+        Principal::System,
+        "event-failure",
+        vec![create(source, "one")],
+    )
+    .await
+    .remove(0);
+    sqlx::query("CREATE FUNCTION reject_ingestion_test_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test event insert failure'; END $$")
+        .execute(&pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_ingestion_test_event BEFORE INSERT ON product_listing_events FOR EACH ROW EXECUTE FUNCTION reject_ingestion_test_event()")
+        .execute(&pool).await.unwrap();
+    let processor = handler(&pool);
+    assert!(matches!(
+        processor.execute(envelope.clone()).await,
+        Err(ProductListingIngestionError::Create(
+            CreateProductListingError::EventAppenderFailed { .. }
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (0, 0, 0));
+    sqlx::query("DROP TRIGGER reject_ingestion_test_event ON product_listing_events")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION reject_ingestion_test_event()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        processor.execute(envelope).await,
+        Ok(ProductListingIngestionCompletion::Applied(
+            ProductListingIngestionEffect::Created(_)
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (1, 1, 1));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn later_failed_command_does_not_undo_previously_committed_command() {
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;

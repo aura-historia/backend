@@ -10,9 +10,10 @@ use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use product_listing_ingestion_sqs::codec;
 use product_listing_normalization::SourcePayload;
 use product_listing_service::use_cases::{
-    ProductListingIngestionIntent, ProductListingIngestionNotAttemptedReason,
-    ProductListingIngestionOperation, ProductListingIngestionOutcome,
-    ProductListingIngestionRejectionReason,
+    ProcessProductListingIngestionUseCase, ProductListingIngestionCompletion,
+    ProductListingIngestionEffect, ProductListingIngestionIntent,
+    ProductListingIngestionNotAttemptedReason, ProductListingIngestionOperation,
+    ProductListingIngestionOutcome, ProductListingIngestionRejectionReason,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -103,6 +104,9 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             receipt.source_evidence_sha256().as_bytes()
         );
         let wire = codec::encode(message)?;
+        assert!(!wire.contains(&token));
+        assert!(!wire.contains(SECRET));
+        assert!(!wire.contains(&signature(&body)));
         let restored = codec::decode(&wire)?.into_service_envelope()?;
         assert_eq!(message, &restored.message);
         assert_eq!(
@@ -113,6 +117,54 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             }
         );
         assert_no_raw_rows(source_id).await?;
+        // A confirmed webhook response transfers custody to the queue; it is not a raw
+        // capture. Drive the actual codec and service-owned PostgreSQL processor manually.
+        let envelope = codec::decode(&wire)?.into_service_envelope()?;
+        let pool = get_postgres_client().await;
+        let processor = super::async_product_listing_ingestion::processor(&pool);
+        assert!(matches!(
+            processor.execute(envelope.clone()).await?,
+            ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+                _
+            ))
+        ));
+        let stored: (String, String, Option<String>, serde_json::Value) = sqlx::query_as(
+            "SELECT s.ingestion_method, s.source_record_key, r.source_event_id, r.source_payload \
+             FROM product_listing_raw_streams s JOIN product_listing_raw_revisions r \
+             ON r.product_listing_raw_stream_id = s.product_listing_raw_stream_id WHERE s.listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(stored.0, "WOOCOMMERCE");
+        assert_eq!(stored.1, "17");
+        assert_eq!(stored.2.as_deref(), Some("delivery-1"));
+        assert_eq!(stored.3["futureWooKey"]["nested"], true);
+        assert_eq!(
+            processor.execute(envelope).await?,
+            ProductListingIngestionCompletion::AlreadyCompleted
+        );
+        let receipts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_command_receipts WHERE listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(receipts, 1);
+        let raw_revisions: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_raw_revisions r JOIN product_listing_raw_streams s USING (product_listing_raw_stream_id) WHERE s.listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(raw_revisions, 1);
+        let listings: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listings WHERE listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(listings, 0);
         Ok(())
     }
     .await;

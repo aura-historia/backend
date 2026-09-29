@@ -97,6 +97,41 @@ describe("container release workflow behavior", () => {
     expect(deployWorkflow).toMatch(/name: Ensure account-level DMS VPC role\n\s+if: github.event_name == 'push'/);
   });
 
+  test("deploys the verified migration artifact and requires a ready migration before updating compute and API", () => {
+    const release = deployWorkflow.split("      - name: Deploy foundation or migrate and update initialized application")[1]
+      ?.split("      - name: Preflight stage artifacts and deployed stack state")[0];
+    expect(release).toBeDefined();
+    const initialize = release!.indexOf('deploy "${STACK_NAME_PREFIX}-initialize"');
+    expect(release).toContain('--parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"');
+    const wait = release!.indexOf('aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"');
+    const invoke = release!.indexOf('aws lambda invoke \\');
+    const ready = release!.indexOf('length == 1 and .[0] == {"status":"ready"}');
+    const application = release!.indexOf('deploy "${stacks[@]}" --previous-parameters');
+    expect(initialize).toBeGreaterThanOrEqual(0);
+    expect(wait).toBeGreaterThan(initialize);
+    expect(invoke).toBeGreaterThan(wait);
+    expect(ready).toBeGreaterThan(invoke);
+    expect(application).toBeGreaterThan(ready);
+    expect(release).toContain("Private migration failed; application admission is blocked.");
+    expect(release).toContain("if [ \"$needs_initialize\" = true ]; then");
+    expect(release).toContain('exit 0');
+  });
+
+  test("initialize gates compute and API on a successful private migration and FX capture", () => {
+    const initialize = initializeWorkflow.split("      - name: Migrate and capture FX before deploying compute and API")[1];
+    expect(initialize).toBeDefined();
+    const migration = initialize!.indexOf('invoke_function "database-migration-lambda-${STAGE}"');
+    const ready = initialize!.indexOf('length == 1 and .[0] == {"status":"ready"}');
+    const fx = initialize!.indexOf('invoke_function "fxrate-lambda-${STAGE}"');
+    const compute = initialize!.indexOf('deploy "${STACK_NAME_PREFIX}-compute"');
+    const api = initialize!.indexOf('deploy "${stacks[@]}"');
+    expect(migration).toBeGreaterThanOrEqual(0);
+    expect(ready).toBeGreaterThan(migration);
+    expect(fx).toBeGreaterThan(ready);
+    expect(compute).toBeGreaterThan(fx);
+    expect(api).toBeGreaterThan(compute);
+  });
+
   test("manual rollback reuses deployed templates without invoking migrations", () => {
     const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
     expect(rollback).toBeDefined();

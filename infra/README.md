@@ -417,10 +417,14 @@ confirmed committed application/receipt. Unconfirmed publication can duplicate o
 retry and leaves the upstream message in Shopify's retry/DLQ custody; downstream
 failures belong to the ingestion FIFO retry/DLQ. See the [flow](../docs/events/flow.md#shopify-queue-forwarding-boundaries-runtime-deployment-gated)
 and [handoff runbook](../docs/durable-worker-runbook.md#shopify-forwarding-handoff).
-The Shopify producer code now forwards mapped observations. This change does not
-add HTTP endpoints, change the old Shopify mapping, or verify live AWS deployment. Review a stage-specific CDK change
-set/diff for unintended legacy queue replacements and establish custody of both
-source/DLQ pairs and authoritative PostgreSQL state before any producer cutover.
+The Shopify producer code now forwards mapped observations. This does not change the
+old Shopify mapping or verify live AWS deployment. The separately declared async
+HTTP verbs and WooCommerce forwarding also require staged producer cutovers; neither
+synth nor CloudFormation resource ordering proves consumer readiness. Follow the
+[ingestion rollout, bounded ephemeral smoke, and redrive gate](../docs/durable-worker-runbook.md#productlisting-ingestion-rollout-and-acceptance-gate)
+before enabling each producer. Review a stage-specific CDK change set/diff for
+unintended legacy queue replacements and establish custody of both source/DLQ
+pairs and authoritative PostgreSQL state before any cutover.
 
 ## Worker queue contract
 

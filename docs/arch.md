@@ -1430,7 +1430,7 @@ The handler:
 4. writes all authoritative state required by the use case;
 5. explicitly commits the abstract transaction.
 
-The concrete adapter implements that abstraction using SQLx.
+The concrete adapter implements that abstraction using SQLx. This includes the asynchronous ProductListing command consumer: its public execution use case owns the per-command PostgreSQL state/event-or-raw-capture and receipt transaction. The queue Lambda composes ports and maps records; it MUST NOT begin/commit that transaction or call private transaction-aware write mechanics directly. Public synchronous/inbound use-case APIs MUST remain transaction-free. FIFO admission and CDC fanout are separate from the authoritative write; see the [ProductListing contract](product-listing.md#downstream-command-execution-consumer-installed-shopify-producer-forwarding-gated-by-deployment).
 
 ```text
 record-service
