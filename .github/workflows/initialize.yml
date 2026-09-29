@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Stage to initialize"
+        description: "First-time FX bootstrap only, after Migrate; retries reuse the stable event ID (no deployment)"
         required: true
         type: choice
         options:
           - dev
           - prod
       commit_sha:
-        description: "Full 40-character lowercase SHA of artifacts uploaded for this stage"
+        description: "Expected DEPLOYED initialization stack CommitSHA (full 40-character lowercase SHA); not a source checkout"
         required: true
         type: string
 
@@ -21,41 +21,27 @@ concurrency:
 
 env:
   STAGE: ${{ inputs.stage }}
-  STACK_NAME_PREFIX: application-${{ inputs.stage }}
   DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
 
 jobs:
   initialize:
-    name: Initialize ${{ inputs.stage }}
+    name: First-time FX bootstrap for ${{ inputs.stage }}
     environment:
-      name: ${{ inputs.stage == 'prod' && 'aws-prod' || 'aws-dev' }}
+      name: aws-${{ inputs.stage }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
     steps:
-      - name: Validate initialization inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! [[ "${DEPLOY_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "commit_sha must be a full 40-character lowercase Git commit SHA" >&2
-            exit 1
-          fi
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.commit_sha }}
-          fetch-depth: 0
+          ref: ${{ github.sha }}
 
-      - name: Verify checked-out source
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$(git rev-parse HEAD)" != "${DEPLOY_COMMIT_SHA}" ]; then
-            echo "checked-out release source does not match commit_sha" >&2
-            exit 1
-          fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
@@ -63,142 +49,8 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: State required Lambda invoke access
-        run: |
-          echo "The CI deploy role must allow lambda:InvokeFunction on exactly database-migration-lambda-${STAGE} and fxrate-lambda-${STAGE}."
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-
-      - name: Require deployed foundation at the selected SHA
+      - name: Capture initial FX snapshot (idempotent retry)
         shell: bash
-        run: |
-          set -euo pipefail
-          for stack in network data initialize; do
-            if ! aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-${stack}" \
-              --output json > "${stack}-stack.json"; then
-              echo "Deploy the ${stack} foundation stack before Initialize." >&2
-              exit 1
-            fi
-            status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
-            case "$status" in
-              CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-              *) echo "Foundation stack ${stack} is not complete: ${status:-missing}" >&2; exit 1 ;;
-            esac
-          done
-          init_sha="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "CommitSHA") | .ParameterValue' initialize-stack.json)"
-          if [ "$init_sha" != "$DEPLOY_COMMIT_SHA" ]; then
-            echo 'Initialize stack CommitSHA does not match the selected release; run Deploy first.' >&2
-            exit 1
-          fi
-
-          # A failed or partial first initialization can be retried, but never invoke
-          # migrations while an existing application stack is mid-update or failed.
-          for stack in compute api; do
-            if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-${stack}" \
-              --output json > "${stack}-stack.json" 2>error.txt; then
-              status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
-              case "$status" in
-                CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-                *) echo "${stack} stack is ${status:-missing}; repair it before Initialize." >&2; exit 1 ;;
-              esac
-            elif ! grep -Eq '\(ValidationError\).*does not exist' error.txt; then
-              cat error.txt >&2; exit 1
-            fi
-          done
-          if [ "$STAGE" = prod ]; then
-            if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-observability" \
-              --output json > observability-stack.json 2>error.txt; then
-              status="$(jq -r '.Stacks[0].StackStatus // empty' observability-stack.json)"
-              case "$status" in
-                CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-                *) echo "Observability stack is ${status:-missing}; repair it before Initialize." >&2; exit 1 ;;
-              esac
-            elif ! grep -Eq '\(ValidationError\).*does not exist' error.txt; then
-              cat error.txt >&2; exit 1
-            fi
-          fi
-
-      - name: Install CDK dependencies
-        run: npm --prefix infra ci
-
-      - name: Migrate and capture FX before deploying compute and API
-        shell: bash
-        run: |
-          set -euo pipefail
-          deploy() {
-            npm --prefix infra run cdk -- deploy "$@" \
-              --context stage="${STAGE}" \
-              --context stackNamePrefix="${STACK_NAME_PREFIX}" \
-              --require-approval never \
-              --method change-set \
-              --exclusively \
-              --no-path-metadata \
-              --no-asset-metadata \
-              --no-version-reporting \
-              --no-notices
-          }
-          invoke_function() {
-            local function_name="$1"
-            local payload="$2"
-            local result_file="$3"
-            local response
-            local status_code
-            local function_error
-
-            if ! response="$(aws lambda invoke \
-              --function-name "${function_name}" \
-              --invocation-type RequestResponse \
-              --payload "fileb://${payload}" \
-              --cli-binary-format raw-in-base64-out \
-              --cli-connect-timeout 10 \
-              --cli-read-timeout 900 \
-              "${result_file}" \
-              --query '{StatusCode: StatusCode, FunctionError: FunctionError}' \
-              --output json 2>&1)"; then
-              echo "Synchronous invocation failed for ${function_name}. The CI deploy role must allow lambda:InvokeFunction exactly on ${function_name}." >&2
-              echo "${response}" >&2
-              return 1
-            fi
-
-            status_code="$(jq -r '.StatusCode // empty' <<< "${response}")"
-            function_error="$(jq -r '.FunctionError // empty' <<< "${response}")"
-            if [ "${status_code}" != "200" ] || [ -n "${function_error}" ]; then
-              echo "Synchronous invocation failed for ${function_name}: StatusCode=${status_code:-missing}, FunctionError=${function_error:-none}." >&2
-              echo "The CI deploy role must allow lambda:InvokeFunction exactly on ${function_name}." >&2
-              return 1
-            fi
-          }
-
-          aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"
-          aws lambda wait function-updated --function-name "fxrate-lambda-${STAGE}"
-
-          printf '{}' > migration-invocation.json
-          cat > fxrate-invocation.json <<EOF
-          {"version":"0","id":"deployment:fxrate:initial:${STAGE}:v1","detail-type":"Scheduled Event","source":"aura-historia.deployment","account":"000000000000","time":"1970-01-01T00:00:00Z","region":"eu-central-1","resources":[],"detail":{}}
-          EOF
-          invoke_function "database-migration-lambda-${STAGE}" migration-invocation.json migration-result.json
-          if ! jq -se 'length == 1 and .[0] == {"status":"ready"}' migration-result.json >/dev/null; then
-            echo 'Private migration did not return ready.' >&2
-            exit 1
-          fi
-
-          invoke_function "fxrate-lambda-${STAGE}" fxrate-invocation.json fxrate-result.json
-          # The FX handler returns JSON null on capture or idempotent duplicate; reject success-shaped errors.
-          if ! jq -se 'length == 1 and .[0] == null' fxrate-result.json >/dev/null; then
-            echo 'Initial FX capture did not return success.' >&2
-            exit 1
-          fi
-
-          # CDK uses defaults on creation and previous parameter values on updates (including CDC).
-          deploy "${STACK_NAME_PREFIX}-compute" \
-            --previous-parameters \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
-
-          stacks=("${STACK_NAME_PREFIX}-api")
-          if [ "${STAGE}" = "prod" ]; then
-            stacks+=("${STACK_NAME_PREFIX}-observability")
-          fi
-          deploy "${stacks[@]}"
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: bash ci/invoke-operation.sh initialize

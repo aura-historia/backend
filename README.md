@@ -59,6 +59,13 @@ cargo test --workspace --test integration --all-features
 
 ```
 
+## Deployment and operations
+
+See the [workflow and release runbook](infra/README.md#deployment-inputs) for
+automatic `develop` → dev and UTC CalVer tag → prod deployment, manual PostgreSQL
+migration, FX-only initialization, first-time setup and rollback. OpenSearch remains
+an [externally operated service](docs/opensearch-stage.md#release-and-schema-change-contract).
+
 ## License
 
 [CC BY-NC-SA 4.0](LICENSE)

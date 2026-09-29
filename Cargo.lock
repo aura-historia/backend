@@ -20,7 +20,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "uuid",
 ]
@@ -31,7 +31,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-core",
@@ -111,7 +111,7 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -224,7 +224,7 @@ dependencies = [
  "rstest",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "uuid",
@@ -247,7 +247,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -266,7 +266,7 @@ dependencies = [
  "listing-source-core",
  "localization",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -347,7 +347,7 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tower",
@@ -381,38 +381,12 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
  "user-core",
  "uuid",
-]
-
-[[package]]
-name = "aura-historia-cron"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "chrono",
- "cron_tab",
- "fxrate-postgres",
- "google-cloud-auth",
- "large-language-model",
- "opensearch",
- "platform-observability",
- "platform-postgres",
- "product-listing-opensearch",
- "product-listing-postgres",
- "reqwest 0.12.28",
- "search-filter-postgres",
- "search-filter-service",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
 ]
 
 [[package]]
@@ -427,7 +401,7 @@ dependencies = [
  "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-core",
 ]
 
@@ -557,9 +531,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-account"
-version = "1.118.0"
+version = "1.119.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccdf480d75b399c185883e319682a507fa4a786c3d84f6b4291d3802f583991a"
+checksum = "0832117bd7d961eea588a1025cd1f202bbcaae05a813881f6aee00191bd39c87"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -582,9 +556,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudformation"
-version = "1.128.0"
+version = "1.129.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e7bfeca134e86ca347ced13098457aacf98448788b36c9933beae936313df8c"
+checksum = "683262b92cdc471829b0d3d8f981b5e4ed4f5f02d1f81de220740277a735df0f"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -608,9 +582,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudwatchlogs"
-version = "1.153.0"
+version = "1.154.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "741d0623a47a3b2649d8bd04fc1af2c43020a397d931dd3c5f9b4a7b7ff83274"
+checksum = "28ae4930d994890603595a7edd8facb473e060ba03ed8436903d24ae61dc8561"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -634,9 +608,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.136.0"
+version = "1.137.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64499b74ee07763680d0bb752159a748d57edcd2399bcdcbdfc8fd101a5ec056"
+checksum = "69da80e41489bf1b85231d031148c66bf3c6ee3571d4f9e04eb01e0911559427"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -659,9 +633,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-eventbridge"
-version = "1.120.0"
+version = "1.121.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ab9b743a9e81d3de9da2680540d37ecfcbb9d874fee669b55dc1b665e8bf48"
+checksum = "80aeef3f1f2dfa06244d11b70c27400474b53efb532c0b87018b6ea21d0b3b98"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -684,9 +658,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.146.0"
+version = "1.147.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bf6c2a01714e6f7b03e24d6bcd6348b431df8d8bd48b451478962a1180557e1"
+checksum = "2ee40e781c5850703fd5efe9c5663a9bec391193ac834c9c043ed1486cf9765d"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -709,9 +683,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.149.0"
+version = "1.150.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d48257fb0eb1907a02a965ff7d1b910770a6de2c59a2d03461678df989c5cdcd"
+checksum = "2fecaa77c862fa1e9d636d54fa06e0049a19a4f071b0d72ea1b9086887d09359"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -745,9 +719,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-secretsmanager"
-version = "1.118.0"
+version = "1.119.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95282e80be3777be68335aa69b52f00f865ac10efae6118c395b3158b8b00fcb"
+checksum = "f28259db7d655b96a6b5748132a9a780361e908ab2d692f767729a4581033a4b"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -770,9 +744,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sesv2"
-version = "1.137.0"
+version = "1.138.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4f9f67fc7462a531d5c55d76b33c70e679147442757aad5bef28f1d947e37a1"
+checksum = "e6c2072b1b273802e8e47c46e6f0a9969e3a24c723ed3650b1b5c1366dbe3d66"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -821,9 +795,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sqs"
-version = "1.112.0"
+version = "1.113.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2222f7970a8ff4382bc8864f3d5950fa5f866790d32df2bf43ef379d43eb735"
+checksum = "86da1862e37e7d30d47acc7013fd367a93ae1b55391b2b4fbb34067556e7f9fa"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -994,9 +968,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http"
-version = "0.64.0"
+version = "0.64.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37843d9add67c3aff5856f409c6dc315d3cdff60f9c0cb5b670dab1e9920306d"
+checksum = "639b4d8f8555f24a9be649811c3eb0b4d4616f4d61daf0c32e28873bc1ea9af1"
 dependencies = [
  "aws-smithy-eventstream",
  "aws-smithy-runtime-api",
@@ -1276,7 +1250,7 @@ dependencies = [
  "platform-observability",
  "platform-postgres-secretsmanager",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -1334,7 +1308,7 @@ dependencies = [
  "application",
  "async-trait",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -1352,7 +1326,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "user-core",
@@ -1414,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "bloomfilter"
-version = "3.0.1"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f6d7f06817e48ea4e17532fa61bc4e8b9a101437f0623f69d2ea54284f3a817"
+checksum = "31e5ceddd1bbfd0277575e19e3c248840a8b5c3c9643a7e0418830f6cd5eb2c5"
 dependencies = [
  "getrandom 0.2.17",
  "siphasher 1.0.3",
@@ -1453,7 +1427,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_urlencoded",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tower-service",
@@ -1585,7 +1559,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1643,7 +1617,7 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -1769,7 +1743,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-core",
@@ -1979,7 +1953,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -2032,41 +2006,6 @@ dependencies = [
  "domain-primitives",
  "serde",
  "uuid",
-]
-
-[[package]]
-name = "cron"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "089df96cf6a25253b4b6b6744d86f91150a3d4df546f31a95def47976b8cba97"
-dependencies = [
- "chrono",
- "once_cell",
- "phf 0.11.3",
- "winnow 0.7.15",
-]
-
-[[package]]
-name = "cron_tab"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96f824a908f7e39d734d51e9f3848542131b5d50d2a02532ebcc381336e62da"
-dependencies = [
- "chrono",
- "cron",
- "crossbeam-channel",
- "futures",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "crossbeam-channel"
-version = "0.5.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d85363c37faeca707aef026efa9f3b34d077bce547e48f770770625c6013679e"
-dependencies = [
- "crossbeam-utils",
 ]
 
 [[package]]
@@ -2319,7 +2258,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -2376,7 +2315,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2564,7 +2503,7 @@ dependencies = [
  "serde_json",
  "slug",
  "strong_id",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -2689,7 +2628,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -2728,7 +2667,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3051,7 +2990,7 @@ dependencies = [
  "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -3069,7 +3008,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3113,7 +3052,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "uuid",
@@ -3129,7 +3068,7 @@ dependencies = [
  "indexmap 2.14.2",
  "money",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -3160,7 +3099,7 @@ dependencies = [
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "wiremock",
 ]
@@ -3266,7 +3205,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -3287,7 +3226,7 @@ dependencies = [
  "rand 0.10.2",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
 ]
@@ -3316,7 +3255,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
 ]
@@ -3434,7 +3373,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3567,7 +3506,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -3972,7 +3911,7 @@ dependencies = [
  "base64 0.23.1",
  "public-network-policy",
  "reqwest 0.12.28",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -4136,7 +4075,7 @@ dependencies = [
  "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "walkdir",
  "windows-link",
 ]
@@ -4321,7 +4260,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -4535,7 +4474,7 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "uuid",
 ]
@@ -4559,7 +4498,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -4581,7 +4520,7 @@ dependencies = [
  "party-service",
  "serde",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -4644,7 +4583,7 @@ dependencies = [
  "mime",
  "precomputed-hash",
  "selectors 0.37.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4818,7 +4757,7 @@ dependencies = [
  "rstest",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4832,7 +4771,7 @@ dependencies = [
  "indexmap 2.14.2",
  "itertools 0.14.0",
  "rustc-hash",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4882,7 +4821,7 @@ dependencies = [
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "user-core",
  "uuid",
@@ -4930,7 +4869,7 @@ dependencies = [
  "async-trait",
  "notification-core",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-core",
 ]
 
@@ -4983,7 +4922,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -5006,7 +4945,7 @@ dependencies = [
  "partnership-core",
  "party-core",
  "rstest",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5020,7 +4959,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5099,7 +5038,7 @@ dependencies = [
  "domain-primitives",
  "fake",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "user-core",
@@ -5120,7 +5059,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -5144,7 +5083,7 @@ dependencies = [
  "rstest",
  "serde",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5333,7 +5272,7 @@ dependencies = [
  "party-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "user-core",
  "uuid",
@@ -5363,7 +5302,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -5388,7 +5327,7 @@ dependencies = [
  "party-core",
  "party-service",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5404,7 +5343,7 @@ dependencies = [
  "domain-primitives",
  "serde-email",
  "slug",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -5423,7 +5362,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "uuid",
@@ -5440,7 +5379,7 @@ dependencies = [
  "party-core",
  "serde",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5805,18 +5744,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-google-adc"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
  "google-cloud-auth",
  "lambda_runtime",
+ "platform-google-adc",
  "platform-observability",
  "platform-postgres",
- "serde_json",
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -5849,7 +5797,7 @@ dependencies = [
  "opensearch",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5859,7 +5807,7 @@ dependencies = [
  "application",
  "async-trait",
  "sqlx",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -5874,7 +5822,7 @@ dependencies = [
  "platform-postgres",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -5885,7 +5833,7 @@ dependencies = [
  "aura-historia-jobs",
  "aws-sdk-sqs",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
 ]
 
@@ -6085,7 +6033,7 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "uuid",
@@ -6107,7 +6055,7 @@ dependencies = [
  "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
 ]
@@ -6165,7 +6113,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6234,7 +6182,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -6270,7 +6218,7 @@ dependencies = [
  "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6307,7 +6255,7 @@ dependencies = [
  "product-listing-normalization",
  "product-listing-service",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6385,8 +6333,8 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.43",
- "socket2 0.5.10",
- "thiserror 2.0.20",
+ "socket2 0.6.5",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -6409,7 +6357,7 @@ dependencies = [
  "rustls 0.23.43",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -6424,9 +6372,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6868,7 +6816,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6948,7 +6896,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7152,7 +7100,7 @@ dependencies = [
  "serial_test",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -7200,6 +7148,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-periodic-match"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fxrate-postgres",
+ "google-cloud-auth",
+ "large-language-model",
+ "opensearch",
+ "platform-google-adc",
+ "platform-observability",
+ "platform-postgres",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "reqwest 0.12.28",
+ "search-filter-postgres",
+ "search-filter-service",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "search-filter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -7221,7 +7193,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -7285,7 +7257,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7706,7 +7678,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7763,7 +7735,7 @@ checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
 dependencies = [
  "num-bigint",
  "num-traits",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
 ]
 
@@ -7968,7 +7940,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-stream",
@@ -8012,7 +7984,7 @@ dependencies = [
  "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.119",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -8039,7 +8011,7 @@ dependencies = [
  "sha1 0.11.0",
  "sha2 0.11.0",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "uuid",
@@ -8075,7 +8047,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "uuid",
@@ -8101,7 +8073,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
@@ -8529,7 +8501,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-tar",
@@ -8563,11 +8535,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -8583,9 +8555,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8784,7 +8756,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime",
  "toml_parser",
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -8793,7 +8765,7 @@ version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -8900,7 +8872,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-cloudwatchlogs",
  "chrono",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-core",
@@ -9089,7 +9061,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-service",
 ]
 
@@ -9109,7 +9081,7 @@ dependencies = [
  "serde-email",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -9125,7 +9097,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "user-core",
@@ -9151,7 +9123,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -9174,7 +9146,7 @@ dependencies = [
  "money",
  "serde",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -9404,7 +9376,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -9431,7 +9403,7 @@ dependencies = [
  "serde",
  "serde-email",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -9531,7 +9503,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9703,15 +9675,6 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
@@ -9763,7 +9726,7 @@ dependencies = [
  "product-listing-service",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",

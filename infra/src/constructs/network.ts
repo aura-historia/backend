@@ -1,3 +1,4 @@
+import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
@@ -5,6 +6,7 @@ import {
   ARTIFACT_BUCKET_NAME,
   CLOUDFORMATION_STAGING_BUCKET_NAME,
   MAIL_TEMPLATE_BUCKET_NAME,
+  WORKLOAD_REGION,
   type StageConfig,
 } from "../config";
 
@@ -57,6 +59,10 @@ export class Network extends Construct {
       actions: ["s3:GetObject", "s3:ListBucket"],
       principals: [new iam.AnyPrincipal()],
       resources: s3EndpointResources(),
+    }));
+    s3Endpoint.addToPolicy(new iam.PolicyStatement({
+      actions: ["s3:GetObject"], principals: [new iam.AnyPrincipal()],
+      resources: [`arn:${cdk.Stack.of(this).partition}:s3:::prod-${WORKLOAD_REGION}-starport-layer-bucket/*`],
     }));
 
     this.applicationSecurityGroup = new ec2.SecurityGroup(this, "ApplicationSecurityGroup", {

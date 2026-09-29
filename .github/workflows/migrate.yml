@@ -1,0 +1,56 @@
+name: Migrate (CD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage to migrate using its already-deployed migration Lambda (no deployment)"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      commit_sha:
+        description: "Expected DEPLOYED initialization stack CommitSHA (full 40-character lowercase SHA); not a source checkout"
+        required: true
+        type: string
+
+concurrency:
+  group: aws-deploy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+env:
+  STAGE: ${{ inputs.stage }}
+  DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+
+jobs:
+  migrate:
+    name: Migrate ${{ inputs.stage }}
+    environment:
+      name: aws-${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Run deployed database migrations
+        shell: bash
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: bash ci/invoke-operation.sh migrate

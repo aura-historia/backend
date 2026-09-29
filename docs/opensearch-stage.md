@@ -30,6 +30,45 @@ jq '.settings += {"number_of_shards":1,"number_of_replicas":0}' opensearch/mappi
 
 Never recreate existing indices, reset aliases, delete documents or reapply old security backups as part of code deployment. Subsequent mapping changes and rebuild/alias cutover belong to controlled #1803 operations. Routine `docker compose up` preserves `stage_data`; **never use `down -v`** on a populated volume. A normal CDK/Lambda release only reads SSM references and has no host lifecycle hook. Engine upgrades require a planned outage, verified PostgreSQL reconstruction inputs/backup, pinned-image review, adapter checks on the candidate engine, an explicit Compose change/restart, and post-restart version/green/security checks. Do not downgrade a migrated data volume.
 
+## Release and schema-change contract
+
+OpenSearch setup, schema changes, security and host lifecycle are **external manual
+operations** owned by the host operator, not AWS deployment. There is no safe
+OpenSearch migration runner or administrative access path available to the GitHub
+workflows; the public gateway does not expose admin APIs and runtime roles must
+not gain those privileges. `Migrate (CD)` invokes only the private PostgreSQL
+migrator. FX-only `Initialize (CD)` and Deploy never apply OpenSearch assets.
+
+For a first-time stage, follow [Deploy foundation → Migrate Postgres → host setup
+if needed → Initialize FX → Deploy the same ref with `scope=all`](../infra/README.md#first-time-stage).
+Use the selected source's mappings/pipeline and scoped role definitions for a fresh
+installation. If the service already exists, verify its compatibility instead of
+rerunning creation commands. Before `all`, record owner approval and evidence for
+index/mapping/pipeline state, role isolation, trusted TLS, endpoint references,
+network prerequisites and native-consumer handoff; hold the release if any required
+check is unavailable. Compute creation activates consumers and is not a safe probe
+of an unprepared search service. There is no workflow readiness marker for this
+external step.
+
+For subsequent mapping or engine changes, the host owner must review the selected
+release's asset diff against actual state and document an approved, resource-specific
+plan. Apply additive mappings and compatible readers before writers. Incompatible
+changes require a separately reviewed new-generation rebuild/cutover with writer
+fencing, authoritative PostgreSQL inputs and permanent deletion fences per the
+[rebuild contract](durable-worker-runbook.md#projection-fences-and-rebuild); no
+automated rebuild tool is implied. Record sanitized pre/post checks and recovery
+options. For releases with PostgreSQL migration-source changes, auto stops at
+foundation; complete forward Migrate and external OpenSearch work before same-ref
+Deploy `scope=all` under the [release procedure](../infra/README.md#routine-and-schema-dependent-releases).
+OpenSearch-only changes are not detected by that guard. If they require separate
+manual gating, cancel blocked automatic runs before manual operations so shared
+stage concurrency cannot deadlock. Resume only after compatibility is verified.
+Neither a source rollback nor rerun
+of Migrate reverses an index/security change. Do not recreate populated indices,
+reset aliases, downgrade a migrated volume or expose admin access to make a
+release succeed. Production requires its own approved host and evidence; these
+stage observations are not a production setup claim.
+
 ## Public TLS and AWS gate
 
 The gateway profile uses Caddy at `https://opensearch.stage.aura-historia.com:9443`, independently of the existing `internal-agent.aura-historia.com` service on 80/443/8080. It proxies only application search/projection/percolation paths; admin APIs are not routed. The certificate and Certbot state are in the private, Git-ignored `opensearch/stage/certs/` directory (including `live/` symlinks into `archive/`); the whole directory is mounted read-only into Caddy. Do not copy only the `live/` directory or check certificate keys into source control. `OPENSEARCH_CERT_DIR` can override the default bind source for another host. Caddy does not bind 80/443 or perform ACME challenges itself.
@@ -58,7 +97,7 @@ curl --max-time 5 https://opensearch.stage.aura-historia.com:9443/product-listin
 
 The unauthenticated request must return 401. An authenticated reader search returned 200 with TLS verification enabled; wrong credentials returned 401, a reader write and administrative route returned 403. Wrong SNI/hostname failed the TLS handshake; with an isolated incorrect CA trust store verification failed, while ISRG Root X1 succeeded. `openssl s_client` verified the hostname and chain. Never use `-k` against the public endpoint. No **host-side inbound source-IP** allowlist is required for stage while TLS and authentication are enforced; this does not waive the dev AWS security group's outbound destination-CIDR rule. Never publish 9300 or the loopback admin port. The host/operator controls firewall and expiry monitoring.
 
-AWS **dev** configuration (there is no AWS `stage` environment): `/opensearch/dev/endpoint-url` = `https://opensearch.stage.aura-historia.com:9443`; per-role SSM username/password pairs are `/opensearch/dev/{reader,product-projector,filter-projector,percolator}/{username,password}`. Keep the shared `/opensearch/stage` configuration unchanged; it is not the AWS `dev` stack's SSM input. Do not substitute it for the role-specific `/opensearch/dev` endpoint and credentials. These dev parameters were populated on 2026-09-25 in the inspected AWS account in `eu-central-1`: four distinct pairs at version 1 and the endpoint updated from the legacy host to version 2. The retired shared `/opensearch/dev/{username,password}` parameters were deleted after confirming no active dev CloudFormation stack depended on them; do not recreate or reuse them. The CDK Lambda environment uses `{{resolve:ssm:...}}` (not `ssm-secure`), so these SSM passwords are `String` parameters under the existing configuration contract. Restrict IAM read permissions and operator access accordingly; an eventual migration to Secrets Manager requires a deliberate CDK contract change. Neither parameter values nor local credential files belong in Git, CLI argument lists, issues or logs. The owner waived the AWS-subnet connection test specifically for this dev/stage host; this is **not** AWS network acceptance evidence. Keep worker mappings disabled pending search-dependent checks and capacity validation. No crawler work is included.
+AWS **dev** configuration (there is no AWS `stage` environment): `/opensearch/dev/endpoint-url` = `https://opensearch.stage.aura-historia.com:9443`; per-role SSM username/password pairs are `/opensearch/dev/{reader,product-projector,filter-projector,percolator}/{username,password}`. Keep the shared `/opensearch/stage` configuration unchanged; it is not the AWS `dev` stack's SSM input. Do not substitute it for the role-specific `/opensearch/dev` endpoint and credentials. These dev parameters were populated on 2026-09-25 in the inspected AWS account in `eu-central-1`: four distinct pairs at version 1 and the endpoint updated from the legacy host to version 2. The retired shared `/opensearch/dev/{username,password}` parameters were deleted after confirming no active dev CloudFormation stack depended on them; do not recreate or reuse them. The CDK Lambda environment uses `{{resolve:ssm:...}}` (not `ssm-secure`), so these SSM passwords are `String` parameters under the existing configuration contract. Restrict IAM read permissions and operator access accordingly; an eventual migration to Secrets Manager requires a deliberate CDK contract change. Neither parameter values nor local credential files belong in Git, CLI argument lists, issues or logs. The owner waived the AWS-subnet connection test specifically for this dev/stage host; this is **not** AWS network acceptance evidence. Hold first compute creation (`Deploy scope=all`) pending search-dependent checks and capacity validation; for existing compute, fence affected mappings through a separately approved operator operation if needed. No crawler work is included.
 
 ### Dev private-subnet egress and release gate (#1850)
 
@@ -66,7 +105,7 @@ AWS **dev** configuration (there is no AWS `stage` environment): `/opensearch/de
 
 The sole recorded DNS A result on 2026-09-25 was `148.251.91.20`. The checked-in `/32` reflects that observation, **not** approved ownership, a guarantee of stable DNS, or evidence of AWS reachability. Before deploying the rule, obtain host/network owner approval for this destination, check current A records and routing against the stage gateway, and update `infra/src/config.ts` and this runbook if the approved IPv4 CIDR(s) differ. If approval or stable destination information is unavailable, hold network deployment and search-dependent rollout rather than guessing or allowing all IPv4. On host/IP rotation, coordinate DNS, destination CIDR rule and trusted-TLS checks before traffic moves. The owner waived a **standalone** private AWS subnet/NAT connectivity check for this dev/stage installation, not the need for a correctly scoped rule; **NAT EIP allowlisting at the host is not mandatory**. This is not a waiver of deployment verification or a production precedent.
 
-Under #1802/#1805, record the deployed dev security-group TCP 9443 rule and approved CIDR(s), effective endpoint/SSM role configuration, and sanitized search-dependent smoke from a private application workload: `/ready` (which now requires a successful permitted zero-result `product-listings` reader search and PostgreSQL query), plus projector/percolator paths before ordinary search-dependent traffic. Compute creation activates worker mappings; hold Initialize until their exposure and native-consumer handoff are approved. Check trusted TLS hostname verification and record failures or omitted probes explicitly (including an intentionally waived standalone NAT check); a host-local curl, synth or SSM inspection is not an AWS workload smoke. Hold search-dependent activation or cutover when the rule is missing or a required probe fails; leave affected mappings off, investigate DNS/SG/NAT/TLS/auth, and repeat checks after correction. Carry the same approved-destination TCP 9443 requirement into #1843 private Fargate networking if those tasks use this endpoint; do not assume a Lambda security-group rule covers Fargate.
+Under #1802/#1805, record the deployed dev security-group TCP 9443 rule and approved CIDR(s), effective endpoint/SSM role configuration, and sanitized search-dependent smoke from a private application workload: `/ready` (which now requires a successful permitted zero-result `product-listings` reader search and PostgreSQL query), plus projector/percolator paths before ordinary search-dependent traffic. Compute creation activates worker mappings; hold manual Deploy `scope=all` until their exposure, prerequisites and native-consumer handoff are verified and approved. If a required pre-activation private-workload probe cannot be performed with approved access, hold `all`; neither Migrate nor Initialize supplies an OpenSearch probe or administrator runner. The #1843 periodic matcher task attaches the same existing `ApplicationSecurityGroup` in private application subnets, so it inherits this scoped dev-only destination rule rather than creating a new or broader rule. Check trusted TLS hostname verification and record failures or omitted probes explicitly (including the owner-waived standalone NAT test, which remains waived and is not a pass); a host-local curl, synth or SSM inspection is not an AWS workload smoke. Hold search-dependent activation or cutover when the rule is missing or a required probe fails; leave affected mappings off, investigate DNS/SG/NAT/TLS/auth, and repeat checks after correction.
 
 ## Monitoring, recovery and evidence gates
 

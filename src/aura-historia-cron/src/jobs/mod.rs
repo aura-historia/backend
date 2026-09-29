@@ -1,2 +1,0 @@
-mod search_filter_periodic_match;
-pub(crate) use search_filter_periodic_match::SearchFilterPeriodicMatchJob;

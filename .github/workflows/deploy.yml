@@ -1,10 +1,15 @@
 name: Deploy (CD)
+run-name: Deploy ${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }} — ${{ inputs.ref || github.ref_name }} (${{ inputs.scope || 'auto' }})
 
 on:
   push:
-    branches: [prod, develop]
+    branches: [develop]
+    tags: ["[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]"]
     paths:
-      - ".github/workflows/deploy.yml"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "ci/**"
+      - ".dockerignore"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -15,192 +20,195 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Stage to deploy"
+        description: Stage to deploy
         required: true
         type: choice
-        options:
-          - dev
-          - prod
-      commit_sha:
-        description: "Full 40-character lowercase SHA of artifacts already uploaded for this stage"
-        required: true
+        default: dev
+        options: [dev, prod]
+      ref:
+        description: "Dev: develop or full commit SHA (blank = develop). Prod: existing YYYYMMDD-HHMM tag."
         type: string
+      scope:
+        description: "auto: stop at foundation for new stages or migration changes; foundation: prepare only; all: acknowledge readiness and deploy application"
+        required: true
+        type: choice
+        default: auto
+        options: [auto, foundation, all]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
+  group: aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
   cancel-in-progress: false
 
 env:
+  STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage || startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
-  STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.stage
-    || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'dev' }}
-  STACK_NAME_PREFIX: application-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
-  DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event_name == 'push' && github.sha || '' }}
 
 jobs:
   infra-test:
-    name: Test CDK infrastructure
-    permissions:
-      contents: read
+    name: Resolve release and test infrastructure
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      stage: ${{ env.STAGE }}
+      commit_sha: ${{ steps.source.outputs.commit_sha }}
+      lambda_matrix: ${{ steps.lambda-catalog.outputs.matrix }}
+      container_matrix: ${{ steps.container-catalog.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
-
+      - name: Resolve and validate release source
+        id: source
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: node ci/release-source.cjs
+      - name: Check out the exact release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.commit_sha }}
       - name: Install CDK dependencies
         run: npm --prefix infra ci
-
       - name: Type-check CDK app
         run: npm --prefix infra run build
-
-      - name: Test CDK app
-        run: npm --prefix infra test
-
+      - name: Test CDK app and deployment helpers
+        run: |
+          npm --prefix infra test
+          node --test ci/*.test.cjs
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
+      - name: Read container image catalog
+        id: container-catalog
+        run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
+      - name: Read release Lambda catalog
+        id: lambda-catalog
+        run: |
+          node -e 'console.log("matrix=" + JSON.stringify({binary: require("./ci/lambda-binaries.json")}))' >> "$GITHUB_OUTPUT"
 
-  aws-push-lambda:
-    name: Publish Lambda ${{ matrix.binary }}
-    if: github.event_name == 'push'
+  aws-push-container-images:
+    name: Publish or reuse image ${{ matrix.id }}
+    needs: [infra-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
+    env:
+      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
     strategy:
-      # Lambda-only artifact catalog; native CDC ingress is an external handoff.
-      matrix:
-        include:
-          - crate: src/aura-historia-api
-            binary: aura-historia-api
-          - crate: src/shopify-lambda
-            binary: shopify-lambda
-          - crate: src/cognito-post-confirmation
-            binary: cognito-post-confirmation
-          - crate: src/cloudwatch-log-retention-lambda
-            binary: cloudwatch-log-retention-lambda
-          - crate: src/database-migration-lambda
-            binary: database-migration-lambda
-          - crate: src/fxrate-lambda
-            binary: fxrate-lambda
-          - crate: src/backend-cleanup-lambda
-            binary: backend-cleanup-lambda
-          - crate: src/stripe-lambda
-            binary: stripe-lambda
-          - crate: src/product-listing-opensearch-lambda
-            binary: product-listing-opensearch-lambda
-          - crate: src/product-listing-normalization-lambda
-            binary: product-listing-normalization-lambda
-          - crate: src/product-content-assessment-lambda
-            binary: product-content-assessment-lambda
-          - crate: src/product-embedding-lambda
-            binary: product-embedding-lambda
-          - crate: src/product-translation-lambda
-            binary: product-translation-lambda
-          - crate: src/search-filter-projection-lambda
-            binary: search-filter-projection-lambda
-          - crate: src/search-filter-percolator-lambda
-            binary: search-filter-percolator-lambda
-          - crate: src/search-filter-match-notification-lambda
-            binary: search-filter-match-notification-lambda
-          - crate: src/watchlist-notification-lambda
-            binary: watchlist-notification-lambda
-          - crate: src/notification-delivery-lambda
-            binary: notification-delivery-lambda
-          - crate: src/cdc-router-lambda
-            binary: cdc-router-lambda
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_COMMIT_SHA }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Publish tested image or reuse immutable SHA tag
+        env:
+          IMAGE_ID: ${{ matrix.id }}
+          IMAGE_BINARY: ${{ matrix.binary }}
+          IMAGE_REPOSITORY: ${{ matrix.repository }}
+          IMAGE_DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE_PLATFORM: ${{ matrix.platform }}
+        run: bash ci/publish-container.sh
 
-      - name: Install Toolchain
+  aws-push-lambda:
+    name: Publish or reuse Lambda ${{ matrix.binary }}
+    needs: [infra-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
+      BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+      BINARY: ${{ matrix.binary }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.infra-test.outputs.lambda_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_COMMIT_SHA }}
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Check for published ZIP
+        id: artifact
+        run: |
+          exists="$(bash ci/s3-artifact-exists.sh "$BUCKET" "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip")"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+      - name: Install toolchain
+        if: steps.artifact.outputs.exists == 'false'
         run: rustup show
-
       - uses: Swatinem/rust-cache@v2
-
+        if: steps.artifact.outputs.exists == 'false'
       - name: Cache cargo-lambda
+        if: steps.artifact.outputs.exists == 'false'
         uses: actions/cache@v6
         with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cargo/registry
-            ~/.cargo/git
+          path: ~/.cargo/bin/cargo-lambda
           key: ${{ runner.os }}-cargo-lambda-1.9.0
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@v2
+        if: steps.artifact.outputs.exists == 'false'
         with:
           version: 0.14.1
-
-      - name: Install cargo-lambda
+      - name: Build Lambda ZIP
+        if: steps.artifact.outputs.exists == 'false'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: true
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
         run: |
           if ! cargo lambda --version | grep -Eq '^cargo-lambda 1\.9\.0($| )'; then
             cargo install cargo-lambda --version 1.9.0 --locked --force
           fi
-
-      - name: Build Lambda binary
-        working-directory: ${{ matrix.crate }}
-        env:
-          CARGO_PROFILE_RELEASE_LTO: true
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
-        run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip --bin "${{ matrix.binary }}"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Upload Lambda ZIP
-        shell: bash
-        env:
-          BUCKET: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
-          BINARY: ${{ matrix.binary }}
+          cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip --bin "$BINARY"
+      - name: Upload Lambda ZIP without replacing a published artifact
+        if: steps.artifact.outputs.exists == 'false'
         run: |
-          set -euo pipefail
           file="target/lambda/${BINARY}/bootstrap.zip"
-          key="${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"
           test -s "$file"
-          aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$file" \
-            --tagging "stage=${STAGE}" >/dev/null
+          aws s3api put-object --bucket "$BUCKET" \
+            --key "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip" --body "$file" \
+            --if-none-match '*' --tagging "stage=${STAGE}" >/dev/null
 
   aws-push-mail-templates:
-    name: Compile and upload mail templates
-    if: github.event_name == 'push'
+    name: Publish or reuse mail templates
+    needs: [infra-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
-
+    env:
+      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_COMMIT_SHA }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: npm --prefix mjml ci
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-
-      - name: Install pinned MJML
-        run: npm --prefix mjml ci
-
-      - name: Compile and upload templates
+      - name: Compile and upload missing templates
         shell: bash
         env:
           BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
@@ -208,235 +216,58 @@ jobs:
           set -euo pipefail
           template_count=0
           while IFS= read -r -d '' template; do
-            test -s "$template"
-            name="${template%.mjml}.html"
-            output="dist/emails/${name}"
-            mkdir -p "$(dirname "$output")"
-            mjml/node_modules/.bin/mjml "$template" -o "$output"
-            test -s "$output"
-            key="${STAGE}/${DEPLOY_COMMIT_SHA}/${name}"
-            aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$output" \
-              --tagging "stage=${STAGE}" >/dev/null
+            key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"
+            exists="$(bash ci/s3-artifact-exists.sh "$BUCKET" "$key")"
+            if [ "$exists" = false ]; then
+              output="dist/emails/${template%.mjml}.html"
+              mkdir -p "$(dirname "$output")"
+              mjml/node_modules/.bin/mjml "$template" -o "$output"
+              test -s "$output"
+              aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$output" \
+                --if-none-match '*' --tagging "stage=${STAGE}" >/dev/null
+            fi
             template_count=$((template_count + 1))
           done < <(git ls-files -z -- 'mjml/**/*.mjml')
           test "$template_count" -gt 0
 
   aws-cdk-deploy:
-    name: Deploy CDK stacks after environment approval
-    if: >-
-      ${{ always() && needs.infra-test.result == 'success'
-          && ((github.event_name == 'push' && needs.aws-push-lambda.result == 'success'
-               && needs.aws-push-mail-templates.result == 'success')
-              || (github.event_name == 'workflow_dispatch' && needs.aws-push-lambda.result == 'skipped'
-                  && needs.aws-push-mail-templates.result == 'skipped')) }}
-    needs: [infra-test, aws-push-lambda, aws-push-mail-templates]
-    environment:
-      name: ${{ (github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev') == 'prod' && 'aws-prod' || 'aws-dev' }}
+    name: Deploy CDK stacks
+    needs:
+      [
+        infra-test,
+        aws-push-container-images,
+        aws-push-lambda,
+        aws-push-mail-templates,
+      ]
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: aws-${{ needs.infra-test.outputs.stage }}
     permissions:
       contents: read
       id-token: write
+    env:
+      DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}
+      DEPLOY_SCOPE: ${{ inputs.scope || 'auto' }}
     steps:
-      - name: Validate commit SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! [[ "${DEPLOY_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "commit_sha must be a full 40-character lowercase Git commit SHA" >&2
-            exit 1
-          fi
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
-
-      - name: Setup Node.js
-        if: github.event_name == 'push'
-        uses: actions/setup-node@v7
+          ref: ${{ env.DEPLOY_COMMIT_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
-
-      - name: Install CDK dependencies
-        if: github.event_name == 'push'
-        run: npm --prefix infra ci
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
+      - run: npm --prefix infra ci
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Ensure account-level DMS VPC role
-        if: github.event_name == 'push'
-        run: bash infra/scripts/ensure-dms-vpc-role.sh
-
-      - name: Deploy foundation or migrate and update initialized application
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-          deploy() {
-            npm --prefix infra run cdk -- deploy "$@" \
-              --context stage="${STAGE}" \
-              --context stackNamePrefix="${STACK_NAME_PREFIX}" \
-              --require-approval never \
-              --method change-set \
-              --exclusively \
-              --no-path-metadata \
-              --no-asset-metadata \
-              --no-version-reporting \
-              --no-notices
-          }
-          stack_status() {
-            local stack="$1"
-            local status
-            if status="$(aws cloudformation describe-stacks \
-              --stack-name "${STACK_NAME_PREFIX}-${stack}" \
-              --query 'Stacks[0].StackStatus' --output text 2>error.txt)"; then
-              printf '%s\n' "$status"
-            elif grep -Eq '\(ValidationError\).*does not exist' error.txt; then
-              printf 'missing\n'
-            else
-              cat error.txt >&2
-              return 1
-            fi
-          }
-
-          # Missing application stacks (including partial initialization) are repaired by
-          # Initialize after the foundation advances; failed/in-progress stacks require operator repair.
-          for stack in compute api; do
-            status="$(stack_status "$stack")"
-            case "$status" in
-              missing|CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-              *) echo "Application stack ${stack} is ${status}; repair it before Deploy." >&2; exit 1 ;;
-            esac
-            if [ "$stack" = compute ]; then compute_status="$status"; else api_status="$status"; fi
-          done
-          observability_status=missing
-          if [ "$STAGE" = prod ]; then
-            observability_status="$(stack_status observability)"
-            case "$observability_status" in
-              missing|CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-              *) echo "Observability stack is ${observability_status}; repair it before Deploy." >&2; exit 1 ;;
-            esac
-          fi
-          needs_initialize=false
-          if [ "$compute_status" = missing ] || [ "$api_status" = missing ] \
-            || { [ "$STAGE" = prod ] && [ "$observability_status" = missing ]; }; then
-            needs_initialize=true
-          fi
-
-          # A missing/partially created foundation is safe to resume; do not update a failed stack.
-          for stack in network data initialize; do
-            status="$(stack_status "$stack")"
-            case "$status" in
-              missing|CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-              *) echo "Foundation stack ${stack} is ${status}; repair it before Deploy." >&2; exit 1 ;;
-            esac
-          done
-          deploy "${STACK_NAME_PREFIX}-network"
-          deploy "${STACK_NAME_PREFIX}-data"
-          deploy "${STACK_NAME_PREFIX}-initialize" \
-            --parameters "${STACK_NAME_PREFIX}-initialize:CommitSHA=${DEPLOY_COMMIT_SHA}"
-
-          if [ "$needs_initialize" = true ]; then
-            echo 'Foundation deployed. Run Initialize (CD) with this stage and commit SHA to repair initialization, migrate, and admit compute/API.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # Only the initialization stack owns the private migration Lambda.
-          # Update it to this verified SHA before invoking the embedded migrations.
-          aws lambda wait function-updated --function-name "database-migration-lambda-${STAGE}"
-          printf '{}' > migration-invocation.json
-          response="$(aws lambda invoke \
-            --function-name "database-migration-lambda-${STAGE}" \
-            --invocation-type RequestResponse \
-            --payload fileb://migration-invocation.json \
-            --cli-binary-format raw-in-base64-out \
-            --cli-connect-timeout 10 --cli-read-timeout 900 \
-            migration-result.json --query '{StatusCode: StatusCode, FunctionError: FunctionError}' \
-            --output json)" || { echo 'Private migration invocation failed.' >&2; exit 1; }
-          if [ "$(jq -r '.StatusCode // empty' <<< "$response")" != 200 ] \
-            || [ -n "$(jq -r '.FunctionError // empty' <<< "$response")" ] \
-            || ! jq -se 'length == 1 and .[0] == {"status":"ready"}' migration-result.json >/dev/null; then
-            echo 'Private migration failed; application admission is blocked.' >&2
-            exit 1
-          fi
-
-          stacks=("${STACK_NAME_PREFIX}-compute" "${STACK_NAME_PREFIX}-api")
-          if [ "$STAGE" = prod ]; then
-            stacks+=("${STACK_NAME_PREFIX}-observability")
-          fi
-          # CDK retains existing activation parameters, including the approved CDC router value.
-          deploy "${stacks[@]}" \
-            --previous-parameters \
-            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
-
-      - name: Preflight stage artifacts and deployed stack state
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
+      - name: Resolve immutable release images
+        id: container-images
+        uses: ./.github/actions/resolve-container-images
+        with:
+          commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}
+      - name: Deploy foundation and application
         env:
-          MAIL_BUCKET: ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
-        run: |
-          set -euo pipefail
-          # Check tracked templates from the workflow source, not an older release tree.
-          template_count=0
-          while IFS= read -r -d '' template; do
-            key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"
-            aws s3api head-object --bucket "$MAIL_BUCKET" --key "$key" >/dev/null || {
-              echo "Missing stage mail artifact: $key" >&2; exit 1;
-            }
-            template_count=$((template_count + 1))
-          done < <(git ls-files -z -- 'mjml/**/*.mjml')
-          test "$template_count" -gt 0
-
-          stacks=(network data initialize compute api)
-          if [ "$STAGE" = prod ]; then
-            stacks+=(observability)
-          fi
-          for stack in "${stacks[@]}"; do
-            name="${STACK_NAME_PREFIX}-${stack}"
-            if ! aws cloudformation describe-stacks --stack-name "$name" --output json > "${stack}-stack.json"; then
-              echo "Stack $name is missing or inaccessible; finish Initialize (CD) first." >&2
-              exit 1
-            fi
-            status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
-            case "$status" in
-              CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-              *) echo "Stack $name is not safe to update: ${status:-missing}" >&2; exit 1 ;;
-            esac
-          done
-          for stack in initialize compute; do
-            file="${stack}-stack.json"
-            if ! jq -e '[.Stacks[0].Parameters[]? | select(.ParameterKey == "CommitSHA") | .ParameterValue] | length == 1 and (.[0] | type == "string" and test("^[0-9a-f]{40}$"))' "$file" >/dev/null; then
-              echo "Stack $stack must have one valid CommitSHA parameter." >&2; exit 1
-            fi
-          done
-          if ! jq -e '[.Stacks[0].Parameters[]? | select(.ParameterKey == "CdcRouterEnabled") | .ParameterValue] | length == 1 and (.[0] == "true" or .[0] == "false")' compute-stack.json >/dev/null; then
-            echo 'Compute stack must have a valid CdcRouterEnabled parameter.' >&2; exit 1
-          fi
-
-      - name: Update only artifact SHA with previous CloudFormation templates
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          for stack in initialize compute; do
-            name="${STACK_NAME_PREFIX}-${stack}"
-            current_sha="$(jq -r '.Stacks[0].Parameters[] | select(.ParameterKey == "CommitSHA") | .ParameterValue' "${stack}-stack.json")"
-            if [ "$current_sha" = "$DEPLOY_COMMIT_SHA" ]; then
-              echo "$name already selects the requested SHA."
-              continue
-            fi
-            # Supply every existing parameter with UsePreviousValue, including CdcRouterEnabled.
-            jq --arg sha "$DEPLOY_COMMIT_SHA" \
-              '[.Stacks[0].Parameters[] | if .ParameterKey == "CommitSHA" then
-                {ParameterKey, ParameterValue: $sha}
-              else {ParameterKey, UsePreviousValue: true} end]' \
-              "${stack}-stack.json" > "${stack}-parameters.json"
-            aws cloudformation update-stack --stack-name "$name" \
-              --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
-              --parameters "file://${stack}-parameters.json" >/dev/null
-            aws cloudformation wait stack-update-complete --stack-name "$name"
-          done
-          echo 'Only initialization and compute artifact parameters were changed; no migration was invoked.' >> "$GITHUB_STEP_SUMMARY"
+          CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
+        run: bash ci/deploy-stacks.sh
