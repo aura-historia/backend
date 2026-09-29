@@ -74,7 +74,7 @@ product-listing-service = ["application", "auction-core", "auction-service", "do
 woocommerce-service = ["application", "listing-source-core", "listing-source-service", "product-listing-normalization", "product-listing-service"]
 search-filter-core = ["domain-primitives", "fxrate-core", "product-listing-core", "user-core"]
 
-shopify-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "fxrate-postgres", "listing-source-core", "listing-source-postgres", "listing-source-service", "product-listing-normalization", "product-listing-postgres", "product-listing-service"]
+shopify-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "fxrate-postgres", "listing-source-core", "listing-source-postgres", "listing-source-service", "product-listing-ingestion-sqs", "product-listing-normalization", "product-listing-postgres", "product-listing-service"]
 stripe-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-core", "user-postgres", "user-service"]
 user-postgres = ["application", "domain-primitives", "geo", "localization", "money", "platform-postgres", "user-core", "user-service"]
 user-cognito = ["application", "user-core", "user-service"]

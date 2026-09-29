@@ -407,11 +407,20 @@ this stage/SHA before deploying compute. The protected Initialize/Deploy workflo
 apply migrations before compute and deploy the API stack after compute; they do not
 guarantee independently deployed producers wait for an active, verified consumer.
 Stage data/queue deployment, receipt migration, consumer artifact and mapping
-verification must precede enabling API/Shopify command publication. This change
-does not cut over producer code, add HTTP endpoints, change the old Shopify mapping,
-or verify live AWS deployment. Review a stage-specific CDK change set/diff for unintended
-legacy queue replacements and establish queue/DLQ and database custody before any
-producer cutover.
+verification must precede enabling API/Shopify command publication. The Shopify
+Lambda's FIFO URL and exact source-ARN `sqs:SendMessage` grant are ready for a separate
+forwarding runtime cutover; the existing EventBridge → Shopify Standard SQS source/DLQ,
+partial-response mapping, private PostgreSQL network/secret and source lookup stay in
+place. When forwarding an eligible observation, only confirmed FIFO admission may
+acknowledge the upstream Shopify SQS message; the FIFO consumer acknowledges only
+confirmed committed application/receipt. Unconfirmed publication can duplicate on
+retry and leaves the upstream message in Shopify's retry/DLQ custody; downstream
+failures belong to the ingestion FIFO retry/DLQ. See the [flow](../docs/events/flow.md#shopify-queue-forwarding-boundaries-runtime-deployment-gated)
+and [handoff runbook](../docs/durable-worker-runbook.md#shopify-forwarding-handoff).
+The Shopify producer code now forwards mapped observations. This change does not
+add HTTP endpoints, change the old Shopify mapping, or verify live AWS deployment. Review a stage-specific CDK change
+set/diff for unintended legacy queue replacements and establish custody of both
+source/DLQ pairs and authoritative PostgreSQL state before any producer cutover.
 
 ## Worker queue contract
 

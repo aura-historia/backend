@@ -401,6 +401,22 @@ fn unconfirmed(
     }
 }
 
+/// Compute the identities expected for one item without publishing it. Callers checking a
+/// submission report can reject outcomes belonging to a different command or submission.
+pub fn product_listing_ingestion_identity(
+    actor: &ProductListingIngestionActor,
+    listing_source_id: ListingSourceId,
+    idempotency_key: &ProductListingIngestionIdempotencyKey,
+    operation: ProductListingIngestionOperation,
+    index: usize,
+) -> (
+    ProductListingIngestionSubmissionId,
+    ProductListingIngestionCommandId,
+) {
+    let seed = IngestionIdentitySeed::new(actor, listing_source_id, idempotency_key);
+    (seed.submission_id(), seed.command_id(operation, index))
+}
+
 struct IngestionIdentitySeed(Vec<u8>);
 
 impl IngestionIdentitySeed {
