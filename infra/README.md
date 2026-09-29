@@ -239,16 +239,17 @@ contain their process-generated fixture **public** CA at
 provider token, or signed event body is packaged or logged.
 
 CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
-binary with:
+binary from `src/<binary>/` (not the workspace root, whose default-run package
+does not include the Lambda binaries):
 
 ```bash
 cargo lambda build --locked --release \
   --target x86_64-unknown-linux-musl \
-  --output-format zip
+  --output-format zip --bin <binary>
 ```
 
-`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI conditionally
-uploads it under `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
+The ZIP lands in the shared workspace `target/lambda/<binary>/bootstrap.zip`;
+CI conditionally uploads it under `<binary>-<stage>-<commit-sha>.zip`, matching
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
 native Axum router, and applies a `14 s` application request deadline. The same

@@ -244,6 +244,12 @@ describe("immutable artifact publication", () => {
     expect(lambda).not.toMatch(/search-filter-periodic-match|aura-historia-cron|docker build/);
     expect(lambda).toContain('bash ci/s3-artifact-exists.sh "$BUCKET" "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
     const steps = lambda.split(/^      - /m);
+    const build = steps.find((step) => step.includes("cargo lambda build"));
+    const upload = steps.find((step) => step.includes("aws s3api put-object"));
+    expect(build).toContain("working-directory: src/${{ matrix.binary }}");
+    expect(build).toContain('--bin "$BINARY"');
+    expect(upload).not.toContain("working-directory:");
+    expect(upload).toContain('file="target/lambda/${BINARY}/bootstrap.zip"');
     for (const command of ["cargo lambda build", "aws s3api put-object"]) {
       const step = steps.find((candidate) => candidate.includes(command));
       expect(step).toBeDefined();

@@ -169,6 +169,7 @@ jobs:
           version: 0.14.1
       - name: Build Lambda ZIP
         if: steps.artifact.outputs.exists == 'false'
+        working-directory: src/${{ matrix.binary }}
         env:
           CARGO_PROFILE_RELEASE_LTO: true
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
