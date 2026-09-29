@@ -1,0 +1,22 @@
+[
+  "aura-historia-api",
+  "shopify-lambda",
+  "cognito-post-confirmation",
+  "cloudwatch-log-retention-lambda",
+  "database-migration-lambda",
+  "fxrate-lambda",
+  "backend-cleanup-lambda",
+  "stripe-lambda",
+  "product-listing-opensearch-lambda",
+  "product-listing-normalization-lambda",
+  "product-listing-ingestion-lambda",
+  "product-content-assessment-lambda",
+  "product-embedding-lambda",
+  "product-translation-lambda",
+  "search-filter-projection-lambda",
+  "search-filter-percolator-lambda",
+  "search-filter-match-notification-lambda",
+  "watchlist-notification-lambda",
+  "notification-delivery-lambda",
+  "cdc-router-lambda"
+]

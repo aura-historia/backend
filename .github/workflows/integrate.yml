@@ -2,11 +2,11 @@ name: Integrate (CI)
 
 on:
   push:
-    branches: [prod, develop]
+    branches: [develop]
     paths:
-      - ".github/workflows/integrate.yml"
-      - ".github/workflows/deploy.yml"
-      - ".github/workflows/initialize.yml"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "ci/**"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -18,9 +18,9 @@ on:
       - "mjml/**"
   pull_request:
     paths:
-      - ".github/workflows/integrate.yml"
-      - ".github/workflows/deploy.yml"
-      - ".github/workflows/initialize.yml"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "ci/**"
       - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -34,7 +34,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/prod' }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,8 +62,10 @@ jobs:
       - name: Type-check CDK app
         run: npm --prefix infra run build
 
-      - name: Test CDK app
-        run: npm --prefix infra test
+      - name: Test CDK app and deployment helpers
+        run: |
+          npm --prefix infra test
+          node --test ci/*.test.cjs
 
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all

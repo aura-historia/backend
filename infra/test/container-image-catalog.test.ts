@@ -7,7 +7,6 @@ const {
   extractTaskDefinitionOutputs,
   loadCatalog,
   prepareNewTemplateUpdate,
-  preparePreviousTemplateUpdate,
   resolveImage,
   resolveImages,
   validateCatalog,
@@ -17,7 +16,7 @@ const {
   extractTaskDefinitionOutputs: (stack: unknown, catalog: readonly any[], stackName?: string) => readonly any[];
   loadCatalog: () => readonly any[];
   prepareNewTemplateUpdate: (stack: unknown, sha: string, digests: Record<string, string>, catalog: readonly any[]) => any;
-  preparePreviousTemplateUpdate: (stack: unknown, sha: string, digests: Record<string, string>, catalog: readonly any[]) => any;
+
   resolveImage: (image: any, sha: string, describe: (repository: string, tag: string) => unknown, options?: { allowMissing?: boolean }) => any;
   resolveImages: (catalog: readonly any[], sha: string, describe: (repository: string, tag: string) => unknown) => Record<string, string>;
   validateCatalog: (catalog: unknown, rootDir: string) => readonly any[];
@@ -167,7 +166,7 @@ describe("container image catalog and release preflight", () => {
     }
   });
 
-  test("new-template initialization allows absent new digests but rejects malformed values when present", () => {
+  test("CDK deployment allows absent new digests but rejects malformed values when present", () => {
     const catalog = loadCatalog();
     expect(validateNewTemplateParameters([{ ParameterKey: "CommitSHA", ParameterValue: SHA }], catalog).size).toBe(0);
     expect(validateNewTemplateParameters([
@@ -182,7 +181,7 @@ describe("container image catalog and release preflight", () => {
     expect(() => validateNewTemplateParameters([{ ParameterKey: "PeriodicMatcherEnabled", ParameterValue: "sometimes" }], catalog)).toThrow(/true or false/);
   });
 
-  test("new-template initialization supplies every release digest and preserves existing activation", () => {
+  test("CDK deployment supplies every release digest and preserves existing activation", () => {
     const catalog = loadCatalog();
     const digests = { PeriodicMatcherImageDigest: DIGEST_A };
     const expected = {
@@ -205,35 +204,24 @@ describe("container image catalog and release preflight", () => {
     ]), SHA, digests, catalog)).toThrow(/true or false/);
   });
 
-  test("previous-template updates require every digest parameter, change the complete artifact set, and preserve activation", () => {
+  test("CDK updates require the complete selected catalog and leave other parameters to previous values", () => {
     const fixture = createFixtureCatalog();
     try {
       const catalog = validateCatalog(fixture.catalog, fixture.root);
-      const parameters = [
+      const existing = stack([
         { ParameterKey: "CommitSHA", ParameterValue: SHA },
         { ParameterKey: "FirstImageDigest", ParameterValue: DIGEST_A },
-        { ParameterKey: "SecondImageDigest", ParameterValue: DIGEST_B },
         { ParameterKey: "FirstEnabled", ParameterValue: "true" },
-        { ParameterKey: "SecondEnabled", ParameterValue: "false" },
-        { ParameterKey: "PeriodicMatcherEnabled", ParameterValue: "true" },
         { ParameterKey: "CdcRouterEnabled", ParameterValue: "false" },
         { ParameterKey: "OtherSetting", ParameterValue: "unchanged" },
-      ];
-      const outputs = catalog.map((image: any) => ({ OutputKey: image.taskDefinitionOutput, OutputValue: TASK_ARN }));
-      const allUnchanged = preparePreviousTemplateUpdate(stack(parameters, outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog);
-      expect(allUnchanged.unchanged).toBe(true);
-      expect(allUnchanged.parameters.find((parameter: any) => parameter.ParameterKey === "PeriodicMatcherEnabled")).toEqual({ ParameterKey: "PeriodicMatcherEnabled", UsePreviousValue: true });
-      const oneChanged = preparePreviousTemplateUpdate(stack(parameters, outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: `sha256:${"c".repeat(64)}` }, catalog);
-      expect(oneChanged.unchanged).toBe(false);
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "FirstImageDigest").ParameterValue).toBe(DIGEST_A);
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "SecondImageDigest").ParameterValue).toBe(`sha256:${"c".repeat(64)}`);
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "FirstEnabled")).toEqual({ ParameterKey: "FirstEnabled", UsePreviousValue: true });
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "SecondEnabled")).toEqual({ ParameterKey: "SecondEnabled", UsePreviousValue: true });
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "CdcRouterEnabled")).toEqual({ ParameterKey: "CdcRouterEnabled", UsePreviousValue: true });
-      expect(() => preparePreviousTemplateUpdate(stack(parameters.filter((parameter) => parameter.ParameterKey !== "SecondEnabled"), outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/missing SecondEnabled/);
-      expect(oneChanged.parameters.find((parameter: any) => parameter.ParameterKey === "OtherSetting")).toEqual({ ParameterKey: "OtherSetting", UsePreviousValue: true });
-      expect(() => preparePreviousTemplateUpdate(stack(parameters.filter((parameter) => parameter.ParameterKey !== "SecondImageDigest"), outputs), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/infrastructure-bearing release first/);
-      expect(() => preparePreviousTemplateUpdate(stack(parameters), SHA, { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B }, catalog)).toThrow(/missing or invalid .*TaskDefinitionArn.*infrastructure-bearing release first/);
+      ]);
+      const digests = { FirstImageDigest: DIGEST_A, SecondImageDigest: DIGEST_B };
+      expect(prepareNewTemplateUpdate(existing, SHA, digests, catalog)).toEqual({
+        parameters: { CommitSHA: SHA, ...digests },
+        preserveExistingParameters: true,
+      });
+      expect(() => prepareNewTemplateUpdate(existing, SHA, { FirstImageDigest: DIGEST_A }, catalog)).toThrow(/contain exactly/);
+      expect(() => prepareNewTemplateUpdate(existing, SHA, { ...digests, UnknownImageDigest: DIGEST_B }, catalog)).toThrow(/contain exactly/);
     } finally {
       fixture.cleanup();
     }

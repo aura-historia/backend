@@ -168,8 +168,21 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(JSON.stringify(schedulerStatements)).not.toContain('"Resource":"*"');
     expect(JSON.stringify(schedulerStatements[0])).toContain("ecs:cluster");
     expect(JSON.stringify(schedulerStatements[1])).toContain("iam:PassedToService");
-    const schedule = Object.values(template.findResources("AWS::Scheduler::Schedule")).find((resource) => resource.Properties.Name === `search-filter-periodic-match-${stage}`)!;
+    const names = periodicMatcherNames(stage);
+    const schedule = Object.values(template.findResources("AWS::Scheduler::Schedule")).find((resource) => resource.Properties.Name === names.schedule)!;
+    const [groupId] = Object.entries(template.findResources("AWS::Scheduler::ScheduleGroup"))
+      .find(([, resource]) => resource.Properties.Name === names.group)!;
+    expect(schedule.Properties.GroupName).toEqual({ Ref: groupId });
     expect(schedule.DependsOn).toContain(schedulerPolicyId);
+    const scheduleArnOutputs = Object.entries(template.toJSON().Outputs as Record<string, { Value: unknown }>)
+      .filter(([id]) => id.startsWith("PeriodicMatcherScheduleArn"));
+    expect(scheduleArnOutputs).toHaveLength(1);
+    expect(scheduleArnOutputs[0][1].Value).toEqual({
+      "Fn::Join": ["", [
+        "arn:", { Ref: "AWS::Partition" }, ":scheduler:", { Ref: "AWS::Region" },
+        ":", { Ref: "AWS::AccountId" }, `:schedule/${names.group}/${names.schedule}`,
+      ]],
+    });
     expect(JSON.stringify(template.toJSON())).not.toContain("PeriodicMatcherReaderPasswordParameter");
     template.resourceCountIs("AWS::Logs::ResourcePolicy", 1);
     expect(Object.keys(template.findResources("AWS::CloudFormation::CustomResource")).filter((key) => key.includes("PeriodicMatcher"))).toHaveLength(0);
@@ -178,7 +191,6 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
       Target: Match.objectLike({ EcsParameters: Match.objectLike({ TaskCount: 1, LaunchType: "FARGATE", PlatformVersion: "1.4.0", NetworkConfiguration: Match.objectLike({ AwsvpcConfiguration: Match.objectLike({ AssignPublicIp: "DISABLED" }) }) }), RetryPolicy: { MaximumEventAgeInSeconds: 3600, MaximumRetryAttempts: 2 } }),
     });
     template.resourceCountIs("AWS::ECS::Service", 0);
-    const names = periodicMatcherNames(stage);
     const stoppedRule = synthesizedRule(template, names.lifecycleRule);
     const exitRule = synthesizedRule(template, names.exitFailureRule);
     const interruptionRule = synthesizedRule(template, names.interruptionRule);
