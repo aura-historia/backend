@@ -20,7 +20,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "uuid",
 ]
@@ -31,7 +31,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-core",
@@ -111,7 +111,7 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -224,7 +224,7 @@ dependencies = [
  "rstest",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "uuid",
@@ -247,7 +247,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -266,7 +266,7 @@ dependencies = [
  "listing-source-core",
  "localization",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -347,7 +347,7 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tower",
@@ -381,7 +381,7 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
@@ -401,7 +401,7 @@ dependencies = [
  "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-core",
 ]
 
@@ -1250,7 +1250,7 @@ dependencies = [
  "platform-observability",
  "platform-postgres-secretsmanager",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -1308,7 +1308,7 @@ dependencies = [
  "application",
  "async-trait",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -1326,7 +1326,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "user-core",
@@ -1427,7 +1427,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_urlencoded",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tower-service",
@@ -1559,7 +1559,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1617,7 +1617,7 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -1743,7 +1743,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-core",
@@ -1952,7 +1952,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -2257,7 +2257,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -2314,7 +2314,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2502,7 +2502,7 @@ dependencies = [
  "serde_json",
  "slug",
  "strong_id",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -2627,7 +2627,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -2989,7 +2989,7 @@ dependencies = [
  "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -3007,7 +3007,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3051,7 +3051,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "uuid",
@@ -3067,7 +3067,7 @@ dependencies = [
  "indexmap 2.14.2",
  "money",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -3098,7 +3098,7 @@ dependencies = [
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "wiremock",
 ]
@@ -3204,7 +3204,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -3225,7 +3225,7 @@ dependencies = [
  "rand 0.10.2",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
 ]
@@ -3254,7 +3254,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
 ]
@@ -3372,7 +3372,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3505,7 +3505,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -3910,7 +3910,7 @@ dependencies = [
  "base64 0.23.1",
  "public-network-policy",
  "reqwest 0.12.28",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -4074,7 +4074,7 @@ dependencies = [
  "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "walkdir",
  "windows-link",
 ]
@@ -4259,7 +4259,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -4473,7 +4473,7 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "uuid",
 ]
@@ -4497,7 +4497,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -4519,7 +4519,7 @@ dependencies = [
  "party-service",
  "serde",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -4582,7 +4582,7 @@ dependencies = [
  "mime",
  "precomputed-hash",
  "selectors 0.37.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4756,7 +4756,7 @@ dependencies = [
  "rstest",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4770,7 +4770,7 @@ dependencies = [
  "indexmap 2.14.2",
  "itertools 0.14.0",
  "rustc-hash",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4820,7 +4820,7 @@ dependencies = [
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
  "user-core",
  "uuid",
@@ -4868,7 +4868,7 @@ dependencies = [
  "async-trait",
  "notification-core",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-core",
 ]
 
@@ -4921,7 +4921,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -4944,7 +4944,7 @@ dependencies = [
  "partnership-core",
  "party-core",
  "rstest",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5037,7 +5037,7 @@ dependencies = [
  "domain-primitives",
  "fake",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "user-core",
@@ -5058,7 +5058,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -5082,7 +5082,7 @@ dependencies = [
  "rstest",
  "serde",
  "sha2 0.11.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5271,7 +5271,7 @@ dependencies = [
  "party-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "user-core",
  "uuid",
@@ -5301,7 +5301,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -5326,7 +5326,7 @@ dependencies = [
  "party-core",
  "party-service",
  "serde",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5342,7 +5342,7 @@ dependencies = [
  "domain-primitives",
  "serde-email",
  "slug",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -5361,7 +5361,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "uuid",
@@ -5378,7 +5378,7 @@ dependencies = [
  "party-core",
  "serde",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -5748,7 +5748,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5763,7 +5763,7 @@ dependencies = [
  "serial_test",
  "sqlx",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -5796,7 +5796,7 @@ dependencies = [
  "opensearch",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5806,7 +5806,7 @@ dependencies = [
  "application",
  "async-trait",
  "sqlx",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -5821,7 +5821,7 @@ dependencies = [
  "platform-postgres",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -5832,7 +5832,7 @@ dependencies = [
  "aura-historia-jobs",
  "aws-sdk-sqs",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "url",
 ]
 
@@ -6032,7 +6032,7 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
  "uuid",
@@ -6054,7 +6054,7 @@ dependencies = [
  "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "url",
 ]
@@ -6112,7 +6112,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6181,7 +6181,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -6217,7 +6217,7 @@ dependencies = [
  "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6254,7 +6254,7 @@ dependencies = [
  "product-listing-normalization",
  "product-listing-service",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -6333,7 +6333,7 @@ dependencies = [
  "rustc-hash",
  "rustls 0.23.43",
  "socket2 0.6.5",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "web-time",
@@ -6356,7 +6356,7 @@ dependencies = [
  "rustls 0.23.43",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tinyvec",
  "tracing",
  "web-time",
@@ -7099,7 +7099,7 @@ dependencies = [
  "serial_test",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "url",
@@ -7163,7 +7163,7 @@ dependencies = [
  "reqwest 0.12.28",
  "search-filter-postgres",
  "search-filter-service",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7192,7 +7192,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -7256,7 +7256,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7677,7 +7677,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -7734,7 +7734,7 @@ checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
 dependencies = [
  "num-bigint",
  "num-traits",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
 ]
 
@@ -7939,7 +7939,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tokio-stream",
@@ -7983,7 +7983,7 @@ dependencies = [
  "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.119",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -8010,7 +8010,7 @@ dependencies = [
  "sha1 0.11.0",
  "sha2 0.11.0",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "uuid",
@@ -8046,7 +8046,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "uuid",
@@ -8072,7 +8072,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "sqlx-core",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
@@ -8500,7 +8500,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-tar",
@@ -8534,11 +8534,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.21",
 ]
 
 [[package]]
@@ -8554,9 +8554,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8871,7 +8871,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-cloudwatchlogs",
  "chrono",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-core",
@@ -9060,7 +9060,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "user-service",
 ]
 
@@ -9080,7 +9080,7 @@ dependencies = [
  "serde-email",
  "strum 0.28.0",
  "strum_macros 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "uuid",
 ]
@@ -9096,7 +9096,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "user-core",
@@ -9122,7 +9122,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -9145,7 +9145,7 @@ dependencies = [
  "money",
  "serde",
  "serde-email",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -9375,7 +9375,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "user-core",
@@ -9402,7 +9402,7 @@ dependencies = [
  "serde",
  "serde-email",
  "strum 0.28.0",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -9725,7 +9725,7 @@ dependencies = [
  "product-listing-service",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
+ "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
