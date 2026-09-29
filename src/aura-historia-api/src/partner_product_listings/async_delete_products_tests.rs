@@ -411,18 +411,19 @@ async fn partial_and_zero_confirmed_publisher_outcomes_are_truthful() {
     );
     let second = report(request(&app, &path, body, Some("retry"), Some("token")).await).await;
     assert_eq!(first, second);
-    let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    for call in calls.iter() {
-        assert_eq!(
-            call.iter().map(|m| m.metadata.index).collect::<Vec<_>>(),
-            [1, 2, 3, 4, 5]
-        );
+    {
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        for call in calls.iter() {
+            assert_eq!(
+                call.iter().map(|m| m.metadata.index).collect::<Vec<_>>(),
+                [1, 2, 3, 4, 5]
+            );
+        }
+        for (a, b) in calls[0].iter().zip(&calls[1]) {
+            assert_eq!(a.metadata.command_id, b.metadata.command_id);
+        }
     }
-    for (a, b) in calls[0].iter().zip(&calls[1]) {
-        assert_eq!(a.metadata.command_id, b.metadata.command_id);
-    }
-    drop(calls);
     for (mode, expected_status, error) in [
         (
             Mode::Unconfirmed,
