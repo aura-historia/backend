@@ -61,7 +61,7 @@ impl ProductListingIngestionSubmissionResult {
     }
 }
 
-/// Whole-call failures that occur before publication can produce per-item outcomes.
+/// Whole-call failures; publisher startup failures during submission are reported per item.
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingIngestionSubmissionError {
     #[error("authenticated principal required")]
@@ -70,6 +70,7 @@ pub enum ProductListingIngestionSubmissionError {
     Forbidden,
     #[error("submission indices must be unique and within the original input count")]
     InconsistentInputIndices,
+    /// Retained for existing callers; startup failures during submission now have item outcomes.
     #[error("product listing ingestion publisher could not start the submission")]
     PublisherNotStarted {
         #[source]
@@ -256,10 +257,22 @@ async fn submit<P: ProductListingIngestionPublisher>(
             .iter()
             .map(|message| (message.metadata.index, message.metadata.command_id.clone()))
             .collect();
-        let published = publisher.publish(prepared).await.map_err(|source| {
-            ProductListingIngestionSubmissionError::PublisherNotStarted { source }
-        })?;
-        outcomes.extend(reconcile_publisher_outcomes(&expected, published));
+        outcomes.extend(match publisher.publish(prepared).await {
+            Ok(published) => reconcile_publisher_outcomes(&expected, published),
+            Err(_) => expected
+                .into_iter()
+                .map(|(index, command_id)| ProductListingIngestionItemOutcome {
+                    index,
+                    command_id,
+                    outcome: ProductListingIngestionOutcome::Rejected {
+                        reason: ProductListingIngestionRejectionReason::Publisher {
+                            code: "INGESTION_INTERNAL_ERROR".to_owned(),
+                        },
+                        retryable: false,
+                    },
+                })
+                .collect(),
+        });
     }
 
     outcomes.sort_by_key(|outcome| outcome.index);
@@ -475,6 +488,7 @@ mod tests {
     struct FakePublisher {
         calls: Arc<Mutex<Vec<Vec<ProductListingIngestionMessage>>>>,
         outcomes: Vec<ProductListingIngestionOutcome>,
+        fail_before_attempt: bool,
     }
 
     #[async_trait]
@@ -488,6 +502,11 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(commands.clone());
+            if self.fail_before_attempt {
+                return Err(ProductListingIngestionPublishError::new(
+                    std::io::Error::other("invalid queue URL: private diagnostic"),
+                ));
+            }
             Ok(commands
                 .into_iter()
                 .zip(
@@ -1179,6 +1198,7 @@ mod tests {
                     retryable: false,
                 },
             ],
+            ..Default::default()
         };
         let handler = SubmitInternalProductListingIngestionHandler::new(publisher);
         let result = handler
@@ -1231,6 +1251,140 @@ mod tests {
                 .as_slice()
         );
         assert_eq!(1, result.confirmed_accepted_count());
+    }
+
+    #[tokio::test]
+    async fn publisher_startup_failure_reports_every_prepared_item_and_preserves_rejections() {
+        let source_id = ListingSourceId::new();
+        let system = context(Principal::System);
+        let handler = SubmitInternalProductListingIngestionHandler::new(FakePublisher {
+            fail_before_attempt: true,
+            ..Default::default()
+        });
+        let request = || {
+            submission(
+                source_id,
+                vec![
+                    IndexedProductListingIngestionIntent {
+                        index: 4,
+                        intent: upsert(source_id, "source-4"),
+                    },
+                    IndexedProductListingIngestionIntent {
+                        index: 1,
+                        intent: ProductListingIngestionIntent::Update {
+                            product_key: ProductListingKey::new(
+                                source_id,
+                                source_listing_id("invalid-url"),
+                            ),
+                            command: UpdateProductListingCommand {
+                                url: PatchField::Clear,
+                                ..Default::default()
+                            },
+                        },
+                    },
+                    IndexedProductListingIngestionIntent {
+                        index: 0,
+                        intent: upsert(source_id, "source-0"),
+                    },
+                ],
+                5,
+                "startup-failure-key",
+            )
+        };
+        let result = handler
+            .execute(&system, request())
+            .await
+            .unwrap_or_else(|error| panic!("startup failure should have item outcomes: {error}"));
+        let retry = handler
+            .execute(&system, request())
+            .await
+            .unwrap_or_else(|error| panic!("retry should have item outcomes: {error}"));
+
+        assert_eq!(result, retry);
+        assert_eq!("startup-failure-key", result.idempotency_key.as_str());
+        assert_eq!(5, result.original_input_count);
+        assert_eq!(0, result.confirmed_accepted_count());
+        assert_eq!(
+            vec![0, 1, 4],
+            result
+                .items
+                .iter()
+                .map(|item| item.index)
+                .collect::<Vec<_>>()
+        );
+        let internal_error = ProductListingIngestionOutcome::Rejected {
+            reason: ProductListingIngestionRejectionReason::Publisher {
+                code: "INGESTION_INTERNAL_ERROR".to_owned(),
+            },
+            retryable: false,
+        };
+        assert_eq!(internal_error, result.items[0].outcome);
+        assert_eq!(internal_error, result.items[2].outcome);
+        assert_eq!(
+            ProductListingIngestionOutcome::Rejected {
+                reason: ProductListingIngestionRejectionReason::UrlCannotBeCleared,
+                retryable: false,
+            },
+            result.items[1].outcome
+        );
+
+        let calls = captured_calls(&handler.publisher);
+        assert_eq!(2, calls.len());
+        assert_eq!(calls[0], calls[1]);
+        assert_eq!(
+            vec![0, 4],
+            calls[0]
+                .iter()
+                .map(|item| item.metadata.index)
+                .collect::<Vec<_>>()
+        );
+        for (message, item) in calls[0].iter().zip([&result.items[0], &result.items[2]]) {
+            assert_eq!(result.submission_id, message.metadata.submission_id);
+            assert_eq!(item.command_id, message.metadata.command_id);
+            assert_eq!(5, message.metadata.input_count);
+            assert_eq!(source_id, message.metadata.listing_source_id);
+            assert_eq!(system.request_id, message.metadata.request_id);
+            assert_eq!(system.correlation_id, message.metadata.correlation_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_startup_failure_returns_generated_idempotency_key() {
+        let source_id = ListingSourceId::new();
+        let handler = SubmitInternalProductListingIngestionHandler::new(FakePublisher {
+            fail_before_attempt: true,
+            ..Default::default()
+        });
+        let mut request = submission(
+            source_id,
+            vec![IndexedProductListingIngestionIntent {
+                index: 0,
+                intent: upsert(source_id, "source-0"),
+            }],
+            1,
+            "placeholder",
+        );
+        request.idempotency_key = None;
+
+        let result = handler
+            .execute(&context(Principal::System), request)
+            .await
+            .unwrap_or_else(|error| panic!("startup failure should have a result: {error}"));
+        assert!(result.idempotency_key.as_str().starts_with("generated-"));
+        assert_eq!(0, result.confirmed_accepted_count());
+        assert_eq!(
+            ProductListingIngestionOutcome::Rejected {
+                reason: ProductListingIngestionRejectionReason::Publisher {
+                    code: "INGESTION_INTERNAL_ERROR".to_owned(),
+                },
+                retryable: false,
+            },
+            result.items[0].outcome
+        );
+        let calls = captured_calls(&handler.publisher);
+        assert_eq!(1, calls.len());
+        assert_eq!(result.submission_id, calls[0][0].metadata.submission_id);
+        assert_eq!(result.items[0].command_id, calls[0][0].metadata.command_id);
     }
 
     #[tokio::test]

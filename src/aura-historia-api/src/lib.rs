@@ -30,11 +30,11 @@ use crate::auth::{
     UserAuthenticationAuthenticator,
 };
 use crate::state::{
-    AdminOverviewState, AppState, AuctionsState, BillingState, ListingSourcesState,
-    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, ReadinessCheck, SearchFiltersState, UsersState, WatchlistState,
-    WebhooksState,
+    AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
+    ListingSourcesState, NewsletterState, NotificationsState, OAuthState, PartiesState,
+    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, ReadinessCheck,
+    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -95,6 +95,7 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
+use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use listing_source_postgres::{
@@ -162,7 +163,8 @@ use product_listing_service::use_cases::{
     CreateProductListingHandler, GetAuctionCatalogueHandler, GetProductListingHandler,
     GetProductListingHistoryHandler, GetSimilarProductListingsHandler,
     ProductListingSearchReadExecutionPolicy, SearchProductListingsHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
+    UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -238,6 +240,7 @@ pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PR
 pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
+pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
     "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
@@ -702,6 +705,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(async_partner_product_listings) = state.async_partner_product_listings {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+                    post(partner_product_listings::async_create_products::create_products),
+                )
+                .with_state(async_partner_product_listings),
+        );
+    }
+
     if let Some(public_auctions) = state.public_auctions {
         routes = routes.merge(
             Router::new()
@@ -1050,6 +1064,10 @@ async fn app_state_from_config_and_pool(
     pool: PgPool,
 ) -> Result<AppState, ApiStateError> {
     let cognito_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+    let ingestion_publisher = SqsProductListingIngestionPublisher::new(
+        aws_sdk_sqs::Client::new(&cognito_config),
+        ingestion_queue_url_from_env()?,
+    );
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&cognito_config),
         config.cognito_user_pool_id(),
@@ -1477,6 +1495,12 @@ async fn app_state_from_config_and_pool(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
+        Arc::new(SubmitPartnerProductListingIngestionHandler::new(
+            ingestion_publisher,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let partner_product_listings_state = PartnerProductListingsState::new(
         Arc::new(create_product),
         Arc::new(update_product),
@@ -1728,6 +1752,7 @@ async fn app_state_from_config_and_pool(
             .with_product_listing_history(Arc::new(get_product_listing_history)),
         )
         .with_partner_product_listings(partner_product_listings_state)
+        .with_async_partner_product_listings(async_partner_product_listings_state)
         .with_listing_sources(listing_sources_state)
         .with_webhooks(WebhooksState::new(
             Arc::new(intake_woocommerce_product),
@@ -1778,6 +1803,31 @@ async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
         .connect()
         .await
         .map_err(|_| PostgresConnectError::Connect)?)
+}
+
+fn ingestion_queue_url_from_env() -> Result<String, ApiStateError> {
+    let url = std::env::var(PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV).map_err(|_| {
+        ApiStateError::MissingEnv {
+            name: PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV,
+        }
+    })?;
+    if !valid_ingestion_queue_url(&url) {
+        return Err(ApiStateError::InvalidIngestionQueueUrl);
+    }
+    Ok(url)
+}
+
+fn valid_ingestion_queue_url(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url
+                .path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
+    })
 }
 
 fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
@@ -1944,6 +1994,8 @@ pub enum ApiStateError {
     InvalidPostgresTlsRootCertificate,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
+    #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]
+    InvalidIngestionQueueUrl,
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
     #[error("failed to configure Cognito JWT authentication: {0}")]
@@ -2096,6 +2148,26 @@ mod tests {
 
         assert!(!error.to_string().contains(sentinel));
         assert!(!format!("{error:?}").contains(sentinel));
+    }
+
+    #[test]
+    fn should_require_valid_fifo_ingestion_queue_url_without_leaking_url() {
+        assert!(valid_ingestion_queue_url(
+            "https://sqs.eu-west-1.amazonaws.com/123456789012/product-listing-ingestion.fifo"
+        ));
+        for value in [
+            "",
+            "https://sqs.eu-west-1.amazonaws.com/123456789012/standard",
+            "https://sqs.eu-west-1.amazonaws.com/123456789012/ingestion.fifo?token=secret",
+            "ftp://sqs.example.test/ingestion.fifo",
+        ] {
+            assert!(!valid_ingestion_queue_url(value));
+        }
+        assert!(
+            !ApiStateError::InvalidIngestionQueueUrl
+                .to_string()
+                .contains("secret")
+        );
     }
 
     struct UnavailableGoogleAdcProvider {
