@@ -20,7 +20,7 @@ Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enab
 
 `server` and `demo` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
-The crawler may run in more than one process; the checked-in deployment configuration does not impose a single-replica guarantee. The server therefore wires the crawler-local Postgres pool into `LocalLockManager`, which uses a session-scoped PostgreSQL advisory lock for each domain. Keep that database available for the scheduler: a lock-coordination error fails the affected work instead of silently allowing concurrent domain fetches. The in-memory lock remains only a same-process fast path.
+The crawler scheduler is deployed as a single process. Its spider and scraper workers may process many domains concurrently, while process-local domain, URL, and ListingSource locks coordinate work inside that process. Different domains remain concurrent; multi-process or horizontally scaled scheduler coordination is outside the current design.
 
 ## Local database
 

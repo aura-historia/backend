@@ -58,18 +58,11 @@ async fn scrape_numeric_price(
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    with_test_scrape_domain(service.scrape_with_fallback_currency(
-        &id,
-        &url,
-        None,
-        None,
-        None,
-        None,
-        fallback_currency,
-    ))
-    .await
-    .unwrap_or_else(|error| panic!("numeric price scrape must succeed: {error}"))
-    .unwrap_or_else(|| panic!("numeric price scrape must produce a raw observation"))
+    service
+        .scrape_with_fallback_currency(&id, &url, None, None, None, None, fallback_currency)
+        .await
+        .unwrap_or_else(|error| panic!("numeric price scrape must succeed: {error}"))
+        .unwrap_or_else(|| panic!("numeric price scrape must produce a raw observation"))
 }
 
 #[tokio::test]

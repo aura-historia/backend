@@ -181,7 +181,12 @@ impl ScraperService for ScraperServiceImpl {
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
         begin_transport_observation();
         let domain_id = current_scrape_domain_id();
-        let mode = current_scrape_mode();
+        let mode = if domain_id.is_some() {
+            current_scrape_mode()
+        } else {
+            // Direct callers retain the backward-compatible primary-only API.
+            ScrapeMode::PrimaryOnly
+        };
         if domain_id.is_none() && mode != ScrapeMode::PrimaryOnly {
             return Err(ScraperError::MissingDomainContext {
                 url: url.clone(),

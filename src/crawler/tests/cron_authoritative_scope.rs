@@ -9,8 +9,8 @@ use crawler::service::listing_source_registration::{
 use crawler::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
 };
-use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
+use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
 use crawler::{CrawlerDomainId, scraper};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
