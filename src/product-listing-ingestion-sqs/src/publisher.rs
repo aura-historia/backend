@@ -528,9 +528,6 @@ async fn wait_for_retry(attempt: usize, deadline: tokio::time::Instant) -> bool 
 }
 
 #[cfg(test)]
-mod sdk_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use std::{collections::VecDeque, sync::Mutex};
