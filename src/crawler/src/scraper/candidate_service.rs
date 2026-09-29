@@ -761,40 +761,20 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         &self,
         request: DomainCircuitOpenRequest,
     ) -> Result<DomainCircuitOpenOutcome, sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
         let url_failure = request.url_failure;
-        let url_result = sqlx::query(
-            "UPDATE listing_source_urls
-             SET failure_count = failure_count + 1,
-                 last_error_kind = $3,
-                 last_error_message = $4,
-                 last_status_code = $5,
-                 next_retry_at = $6,
-                 updated = NOW()
-             WHERE listing_source_id = $1
-               AND url = $2
-               AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
-        )
-        .bind(uuid::Uuid::from(url_failure.listing_source_id))
-        .bind(url_failure.url.to_string())
-        .bind(url_failure.error_kind)
-        .bind(url_failure.error_message)
-        .bind(url_failure.status_code)
-        .bind(url_failure.next_retry_at)
-        .bind(url_failure.expected_last_captured_raw_input_sha256)
-        .execute(&mut *transaction)
-        .await?;
-
-        if url_result.rows_affected() != 1 {
-            transaction.rollback().await?;
-            return Ok(DomainCircuitOpenOutcome {
-                url_failure: CrawlerUrlWriteOutcome::NoopStale,
-                domain_circuit: CrawlerUrlWriteOutcome::NoopStale,
-                persisted_failure_streak: None,
-            });
-        }
+        let url_failure_outcome = self
+            .mark_fetch_failure(
+                &url_failure.listing_source_id,
+                &url_failure.url,
+                &url_failure.error_kind,
+                &url_failure.error_message,
+                url_failure.status_code,
+                url_failure.next_retry_at,
+                url_failure
+                    .expected_last_captured_raw_input_sha256
+                    .as_deref(),
+            )
+            .await?;
 
         let next_streak =
             next_domain_failure_streak(&request.expected_domain_health, request.domain_error_kind);
@@ -822,7 +802,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 .last_scrape_error_kind
                 .as_deref(),
         )
-        .execute(&mut *transaction)
+        .execute(&self.pool)
         .await?;
 
         let domain_circuit = if domain_result.rows_affected() == 1 {
@@ -830,7 +810,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         } else {
             CrawlerUrlWriteOutcome::NoopStale
         };
-        transaction.commit().await?;
 
         if domain_circuit == CrawlerUrlWriteOutcome::NoopStale {
             tracing::debug!(
@@ -839,7 +818,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             );
         }
         Ok(DomainCircuitOpenOutcome {
-            url_failure: CrawlerUrlWriteOutcome::Applied,
+            url_failure: url_failure_outcome,
             domain_circuit,
             persisted_failure_streak: (domain_circuit == CrawlerUrlWriteOutcome::Applied)
                 .then_some(next_streak),

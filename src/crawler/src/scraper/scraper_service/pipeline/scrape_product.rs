@@ -205,7 +205,7 @@ impl ScraperService for ScraperServiceImpl {
                 record_transport_failure(
                     url,
                     FetchFailureSource::Primary,
-                    None,
+                    expected_last_captured_raw_input_sha256,
                     NetworkErrorKind::HttpStatus(status),
                     Some(status),
                     None,
@@ -216,7 +216,14 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
             Err(FetchError::Network { kind, details }) => {
-                record_transport_failure(url, FetchFailureSource::Primary, None, kind, None, None);
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    kind,
+                    None,
+                    None,
+                );
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind,
@@ -232,7 +239,7 @@ impl ScraperService for ScraperServiceImpl {
                 record_transport_failure(
                     url,
                     FetchFailureSource::Primary,
-                    None,
+                    expected_last_captured_raw_input_sha256,
                     kind,
                     status,
                     retry_after,
