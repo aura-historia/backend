@@ -55,8 +55,8 @@ use crawler::scraper::css_selector::product_schema_service::ProductListingSchema
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::scraper_service::{
-    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ReqwestHtmlFetcher, ScraperService,
-    ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ReqwestHtmlFetcher, ScrapeMode, ScrapeRequest,
+    ScraperService, ScraperServiceImpl,
 };
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 
@@ -148,9 +148,20 @@ async fn main() {
                 url = %url
             );
             match service
-                .scrape(&listing_source_id, &url, None, None, None, None)
+                .scrape(ScrapeRequest {
+                    domain_id: None,
+                    listing_source_id,
+                    url: url.clone(),
+                    product_url_pattern: None,
+                    last_scraped_hash: None,
+                    last_scraped_schema_fingerprint: None,
+                    expected_last_captured_raw_input_sha256: None,
+                    fallback_currency: None,
+                    mode: ScrapeMode::PrimaryOnly,
+                })
                 .instrument(scrape_span)
                 .await
+                .result
             {
                 Ok(Some(scraped)) => {
                     info!(

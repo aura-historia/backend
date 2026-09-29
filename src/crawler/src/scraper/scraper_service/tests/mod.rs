@@ -2,6 +2,7 @@ use listing_source_core::ListingSourceId;
 mod bookkeeping;
 mod budget;
 mod cached_schema_selection;
+mod contract;
 mod fallback_currency;
 mod fresh_schema_generation;
 mod happy_path;
@@ -34,11 +35,11 @@ use crate::scraper::normalization::product_normalization_service::{
     MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
     PreparedProduct,
 };
-use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::domain::product::with_scrape_observation;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
+use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperService};
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
 use localization::Language;
 use localization::Localized;
@@ -57,6 +58,54 @@ pub(super) fn listing_source_id() -> ListingSourceId {
 
 pub(super) fn product_url() -> Url {
     Url::parse("https://example.com/products/123").unwrap()
+}
+
+pub(super) fn primary_only_request(
+    listing_source_id: &ListingSourceId,
+    url: &Url,
+) -> ScrapeRequest {
+    ScrapeRequest {
+        domain_id: None,
+        listing_source_id: *listing_source_id,
+        url: url.clone(),
+        product_url_pattern: None,
+        last_scraped_hash: None,
+        last_scraped_schema_fingerprint: None,
+        expected_last_captured_raw_input_sha256: None,
+        fallback_currency: None,
+        mode: ScrapeMode::PrimaryOnly,
+    }
+}
+
+pub(super) fn primary_only_request_with_pattern(
+    listing_source_id: &ListingSourceId,
+    url: &Url,
+    product_url_pattern: &str,
+) -> ScrapeRequest {
+    ScrapeRequest {
+        product_url_pattern: Some(product_url_pattern.to_owned()),
+        ..primary_only_request(listing_source_id, url)
+    }
+}
+
+pub(super) fn normal_request(listing_source_id: &ListingSourceId, url: &Url) -> ScrapeRequest {
+    ScrapeRequest {
+        domain_id: Some(crate::CrawlerDomainId::new()),
+        mode: ScrapeMode::Normal,
+        ..primary_only_request(listing_source_id, url)
+    }
+}
+
+pub(super) fn normal_request_with_pattern(
+    listing_source_id: &ListingSourceId,
+    url: &Url,
+    product_url_pattern: &str,
+) -> ScrapeRequest {
+    ScrapeRequest {
+        domain_id: Some(crate::CrawlerDomainId::new()),
+        mode: ScrapeMode::Normal,
+        ..primary_only_request_with_pattern(listing_source_id, url, product_url_pattern)
+    }
 }
 
 pub(super) fn sample_html() -> String {
@@ -86,7 +135,7 @@ pub(super) async fn with_test_scrape_domain<F, T>(future: F) -> T
 where
     F: Future<Output = T>,
 {
-    let (result, _) = with_scrape_observation(Some(crate::CrawlerDomainId::new()), future).await;
+    let (result, _) = with_scrape_observation(future).await;
     result
 }
 

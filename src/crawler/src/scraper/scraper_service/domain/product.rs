@@ -88,8 +88,29 @@ pub struct ScrapeOutcome {
     pub fetch_failure: Option<FetchFailureContext>,
 }
 
+impl ScrapeOutcome {
+    #[cfg(test)]
+    pub(crate) fn unwrap(self) -> Option<ScrapedProduct> {
+        self.result.unwrap()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unwrap_err(self) -> ScraperError {
+        self.result.unwrap_err()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expect_err(self, message: &str) -> ScraperError {
+        self.result.expect_err(message)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_ok(&self) -> bool {
+        self.result.is_ok()
+    }
+}
+
 struct ScrapeObservationState {
-    domain_id: Option<CrawlerDomainId>,
     transport_health: Option<DomainFetchHealth>,
     fetch_failure: Option<FetchFailureContext>,
 }
@@ -98,21 +119,16 @@ tokio::task_local! {
     static SCRAPE_OBSERVATION: RefCell<ScrapeObservationState>;
 }
 
-/// Runs a scrape with the persisted domain identity and returns the transport
-/// observation collected by the primary/seed fetches. Test doubles that do not
-/// participate in this context return `None` and retain the legacy fallback at
-/// the caller boundary.
-pub(crate) async fn with_scrape_observation<F, T>(
-    domain_id: Option<CrawlerDomainId>,
-    future: F,
-) -> (T, Option<DomainFetchHealth>)
+/// Runs a scrape and returns the transport observation collected by the
+/// primary/seed fetches. Execution configuration lives in `ScrapeRequest`; this
+/// scoped state is only for nested transport observations.
+pub(crate) async fn with_scrape_observation<F, T>(future: F) -> (T, Option<DomainFetchHealth>)
 where
     F: Future<Output = T>,
 {
     SCRAPE_OBSERVATION
         .scope(
             RefCell::new(ScrapeObservationState {
-                domain_id,
                 transport_health: None,
                 fetch_failure: None,
             }),
@@ -124,13 +140,6 @@ where
             },
         )
         .await
-}
-
-pub(crate) fn current_scrape_domain_id() -> Option<CrawlerDomainId> {
-    SCRAPE_OBSERVATION
-        .try_with(|state| state.borrow().domain_id)
-        .ok()
-        .flatten()
 }
 
 pub(crate) fn begin_transport_observation() {
@@ -275,68 +284,9 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait ScraperService: Send + Sync {
-    /// Fetch the product page at `url`, extract structured data using the CSS
-    /// selector schema for `listing_source_id`, validate a plausible extraction, and return a
-    /// [`ScrapedProduct`]. The caller captures it before calling
-    /// [`crate::scraper::candidate_service::ScraperCandidateService::mark_as_scraped`].
-    async fn scrape(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-    ) -> Result<Option<ScrapedProduct>, ScraperError>;
-
-    #[allow(clippy::too_many_arguments)]
-    async fn scrape_with_fallback_currency(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        fallback_currency: Option<Currency>,
-    ) -> Result<Option<ScrapedProduct>, ScraperError> {
-        let _ = fallback_currency;
-        self.scrape(
-            listing_source_id,
-            url,
-            product_url_pattern,
-            last_scraped_hash,
-            last_scraped_schema_fingerprint,
-            expected_last_captured_raw_input_sha256,
-        )
-        .await
-    }
-
-    /// Executes one scrape while reporting the independent transport health
-    /// observation used by the domain circuit. The default keeps existing
-    /// implementations and test doubles compatible.
-    async fn scrape_with_mode(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let result = self
-            .scrape_with_fallback_currency(
-                &request.listing_source_id,
-                &request.url,
-                request.product_url_pattern.as_deref(),
-                request.last_scraped_hash.as_deref(),
-                request.last_scraped_schema_fingerprint.as_deref(),
-                request.expected_last_captured_raw_input_sha256.as_deref(),
-                request.fallback_currency,
-            )
-            .await;
-        let domain_health = match &result {
-            Ok(_) => DomainFetchHealth::Responsive,
-            Err(error) => domain_health_for_scraper_error(error),
-        };
-        ScrapeOutcome {
-            result,
-            domain_health,
-            fetch_failure: None,
-        }
-    }
+    /// Executes one scrape request and returns both the product result and the
+    /// transport observation used by the domain circuit.
+    async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome;
 }
 
 #[cfg(test)]
@@ -375,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn pre_fetch_application_error_stays_not_observed() {
-        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
+        let (_, observation) = with_scrape_observation(async {
             begin_transport_observation();
             Err::<(), _>("schema lookup failed")
         })
@@ -386,7 +336,7 @@ mod tests {
 
     #[tokio::test]
     async fn downstream_error_cannot_erase_responsive_primary_fetch() {
-        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
+        let (_, observation) = with_scrape_observation(async {
             begin_transport_observation();
             record_transport_success();
             Err::<(), _>("pending schema review")
@@ -398,7 +348,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_transport_failure_is_recorded_independently_of_final_error() {
-        let (_, observation) = with_scrape_observation(Some(CrawlerDomainId::new()), async {
+        let (_, observation) = with_scrape_observation(async {
             begin_transport_observation();
             record_transport_fetch_error(NetworkErrorKind::Timeout, None, None);
             Err::<(), _>("timeout")

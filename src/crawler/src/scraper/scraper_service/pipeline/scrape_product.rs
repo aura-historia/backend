@@ -6,8 +6,8 @@ use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, Scraper
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, FetchFailureSource, ScrapeMode, ScrapeOutcome, ScrapeRequest,
     ScrapedProduct, ScraperService, begin_transport_observation, current_fetch_failure,
-    current_scrape_domain_id, current_transport_observation, domain_health_for_scraper_error,
-    record_transport_failure, record_transport_success, with_scrape_observation,
+    current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
+    record_transport_success, with_scrape_observation,
 };
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
@@ -126,77 +126,62 @@ impl ScraperServiceImpl {
     }
 }
 
-tokio::task_local! {
-    static SCRAPE_MODE: ScrapeMode;
-}
-
-pub(crate) fn current_scrape_mode() -> ScrapeMode {
-    SCRAPE_MODE
-        .try_with(|mode| *mode)
-        .unwrap_or(ScrapeMode::Normal)
-}
-
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
-    #[tracing::instrument(skip(self, last_scraped_hash, last_scraped_schema_fingerprint, expected_last_captured_raw_input_sha256), fields(listing_source_id = %listing_source_id, url = %url))]
-    async fn scrape(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-    ) -> Result<Option<ScrapedProduct>, ScraperError> {
-        let mode = if current_scrape_domain_id().is_some() {
-            ScrapeMode::Normal
-        } else {
-            ScrapeMode::PrimaryOnly
-        };
-        SCRAPE_MODE
-            .scope(
-                mode,
-                self.scrape_with_fallback_currency(
-                    listing_source_id,
-                    url,
-                    product_url_pattern,
-                    last_scraped_hash,
-                    last_scraped_schema_fingerprint,
-                    expected_last_captured_raw_input_sha256,
-                    None,
-                ),
-            )
-            .await
-    }
-
-    async fn scrape_with_fallback_currency(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        fallback_currency: Option<money::Currency>,
-    ) -> Result<Option<ScrapedProduct>, ScraperError> {
-        begin_transport_observation();
-        let domain_id = current_scrape_domain_id();
-        let mode = if domain_id.is_some() {
-            current_scrape_mode()
-        } else {
-            // Direct callers retain the backward-compatible primary-only API.
-            ScrapeMode::PrimaryOnly
-        };
-        if domain_id.is_none() && mode != ScrapeMode::PrimaryOnly {
-            return Err(ScraperError::MissingDomainContext {
-                url: url.clone(),
-                mode: match mode {
-                    ScrapeMode::Normal => "normal",
-                    ScrapeMode::DomainProbe => "domain probe",
-                    ScrapeMode::PrimaryOnly => "primary-only",
-                },
-            });
+    #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
+    async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
+        if request.mode != ScrapeMode::PrimaryOnly && request.domain_id.is_none() {
+            return ScrapeOutcome {
+                result: Err(ScraperError::MissingDomainContext {
+                    url: request.url,
+                    mode: match request.mode {
+                        ScrapeMode::Normal => "normal",
+                        ScrapeMode::DomainProbe => "domain probe",
+                        ScrapeMode::PrimaryOnly => "primary-only",
+                    },
+                }),
+                domain_health: DomainFetchHealth::NotObserved,
+                fetch_failure: None,
+            };
         }
+
+        let (result, observed_domain_health, fetch_failure) = with_scrape_observation(async {
+            let result = self.scrape_request(&request).await;
+            let observed = current_transport_observation();
+            let fetch_failure = current_fetch_failure();
+            (result, observed, fetch_failure)
+        })
+        .await
+        .0;
+        let domain_health = observed_domain_health.unwrap_or_else(|| match &result {
+            Ok(_) => DomainFetchHealth::Responsive,
+            Err(error) => domain_health_for_scraper_error(error),
+        });
+        ScrapeOutcome {
+            result,
+            domain_health,
+            fetch_failure,
+        }
+    }
+}
+
+impl ScraperServiceImpl {
+    async fn scrape_request(
+        &self,
+        request: &ScrapeRequest,
+    ) -> Result<Option<ScrapedProduct>, ScraperError> {
+        let listing_source_id = &request.listing_source_id;
+        let url = &request.url;
+        let product_url_pattern = request.product_url_pattern.as_deref();
+        let last_scraped_hash = request.last_scraped_hash.as_deref();
+        let last_scraped_schema_fingerprint = request.last_scraped_schema_fingerprint.as_deref();
+        let expected_last_captured_raw_input_sha256 =
+            request.expected_last_captured_raw_input_sha256.as_deref();
+        let fallback_currency = request.fallback_currency;
+        let domain_id = request.domain_id;
+        let mode = request.mode;
+
+        begin_transport_observation();
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
@@ -320,7 +305,7 @@ impl ScraperService for ScraperServiceImpl {
                 product_url_pattern,
                 &html,
                 domain_id.as_ref(),
-                current_scrape_mode(),
+                mode,
             )
             .await?;
         let stored_schema_fingerprint = fingerprint_scraper_context(
@@ -422,39 +407,5 @@ impl ScraperService for ScraperServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
         }))
-    }
-
-    async fn scrape_with_mode(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let (result, observed_domain_health, fetch_failure) =
-            with_scrape_observation(request.domain_id, async {
-                let result = SCRAPE_MODE
-                    .scope(
-                        request.mode,
-                        self.scrape_with_fallback_currency(
-                            &request.listing_source_id,
-                            &request.url,
-                            request.product_url_pattern.as_deref(),
-                            request.last_scraped_hash.as_deref(),
-                            request.last_scraped_schema_fingerprint.as_deref(),
-                            request.expected_last_captured_raw_input_sha256.as_deref(),
-                            request.fallback_currency,
-                        ),
-                    )
-                    .await;
-                let observed = current_transport_observation();
-                let fetch_failure = current_fetch_failure();
-                (result, observed, fetch_failure)
-            })
-            .await
-            .0;
-        let domain_health = observed_domain_health.unwrap_or_else(|| match &result {
-            Ok(_) => DomainFetchHealth::Responsive,
-            Err(error) => domain_health_for_scraper_error(error),
-        });
-        ScrapeOutcome {
-            result,
-            domain_health,
-            fetch_failure,
-        }
     }
 }

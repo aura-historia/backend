@@ -507,57 +507,24 @@ async fn run_candidate_scrape(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeOutcome {
-    let is_domain_probe = candidate.is_domain_probe;
+    let mode = if candidate.is_domain_probe {
+        ScrapeMode::DomainProbe
+    } else {
+        ScrapeMode::Normal
+    };
     let (mut outcome, observed_domain_health) =
-        with_scrape_observation(Some(candidate.domain_id), async {
-            if is_domain_probe {
-                ctx.scraper
-                    .scrape_with_mode(scrape_request(candidate, ScrapeMode::DomainProbe))
-                    .await
-            } else {
-                let result = match candidate.fallback_currency {
-                    Some(fallback_currency) => {
-                        ctx.scraper
-                            .scrape_with_fallback_currency(
-                                &candidate.listing_source_id,
-                                &candidate.url,
-                                candidate.url_pattern.as_deref(),
-                                candidate.last_scraped_hash.as_deref(),
-                                candidate.last_scraped_schema_fingerprint.as_deref(),
-                                candidate.last_captured_raw_input_sha256.as_deref(),
-                                Some(fallback_currency),
-                            )
-                            .await
-                    }
-                    None => {
-                        ctx.scraper
-                            .scrape(
-                                &candidate.listing_source_id,
-                                &candidate.url,
-                                candidate.url_pattern.as_deref(),
-                                candidate.last_scraped_hash.as_deref(),
-                                candidate.last_scraped_schema_fingerprint.as_deref(),
-                                candidate.last_captured_raw_input_sha256.as_deref(),
-                            )
-                            .await
-                    }
-                };
-                ScrapeOutcome {
-                    result,
-                    domain_health: DomainFetchHealth::NotObserved,
-                    fetch_failure: current_fetch_failure(),
-                }
-            }
-        })
-        .await;
-    outcome.domain_health = observed_domain_health
-        .or_else(|| {
-            (!is_domain_probe).then(|| match &outcome.result {
-                Ok(_) => DomainFetchHealth::Responsive,
-                Err(error) => domain_health_for_scraper_error(error),
-            })
-        })
-        .unwrap_or(outcome.domain_health);
+        with_scrape_observation(ctx.scraper.scrape(scrape_request(candidate, mode))).await;
+    if outcome.fetch_failure.is_none() {
+        outcome.fetch_failure = current_fetch_failure();
+    }
+    if mode != ScrapeMode::DomainProbe
+        && matches!(outcome.domain_health, DomainFetchHealth::NotObserved)
+    {
+        outcome.domain_health = observed_domain_health.unwrap_or_else(|| match &outcome.result {
+            Ok(_) => DomainFetchHealth::Responsive,
+            Err(error) => domain_health_for_scraper_error(error),
+        });
+    }
     outcome
 }
 
@@ -1456,6 +1423,22 @@ mod tests {
         }
     }
 
+    fn successful_scrape_outcome() -> ScrapeOutcome {
+        ScrapeOutcome {
+            result: Ok(None),
+            domain_health: DomainFetchHealth::NotObserved,
+            fetch_failure: None,
+        }
+    }
+
+    fn scrape_outcome(result: Result<Option<ScrapedProduct>, ScraperError>) -> ScrapeOutcome {
+        ScrapeOutcome {
+            result,
+            domain_health: DomainFetchHealth::NotObserved,
+            fetch_failure: None,
+        }
+    }
+
     fn item(listing_source_id: ListingSourceId, product_id: &str) -> ProductListingRawCaptureItem {
         let url = url::Url::parse(&format!("https://example.test/products/{product_id}"))
             .unwrap_or_else(|error| panic!("test URL: {error}"));
@@ -1906,17 +1889,9 @@ mod tests {
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
-            .expect_scrape_with_mode()
+            .expect_scrape()
             .once()
-            .returning(|_| {
-                Box::pin(async {
-                    ScrapeOutcome {
-                        result: Ok(None),
-                        domain_health: DomainFetchHealth::NotObserved,
-                        fetch_failure: None,
-                    }
-                })
-            });
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
         let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
         let retry_context = ScrapeDomainContext {
             scraper: Arc::new(scraper_service),
@@ -1987,7 +1962,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -2037,18 +2012,16 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::HttpError {
-                        url,
-                        kind: crate::network::policy::NetworkErrorKind::Timeout,
-                        details: "timeout".to_string(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: crate::network::policy::NetworkErrorKind::Timeout,
+                    details: "timeout".to_string(),
+                }))
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -2120,10 +2093,10 @@ mod tests {
         let raw_input = crawler_verified_removal_input(&url)
             .unwrap_or_else(|error| panic!("test raw input: {error}"));
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().once().return_once(move |_, _, _, _, _, expected_raw_input_sha256| {
-            assert_eq!(expected_raw_input_sha256, Some(&[3; 32][..]));
+        scraper_service.expect_scrape().once().return_once(move |request| {
+            assert_eq!(request.expected_last_captured_raw_input_sha256.as_deref(), Some(&[3; 32][..]));
             Box::pin(async move {
-                Ok(Some(ScrapedProduct {
+                scrape_outcome(Ok(Some(ScrapedProduct {
                     raw_input,
                     availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
                         product_listing_core::listing_availability::ListingAvailability::SoldOut,
@@ -2131,7 +2104,7 @@ mod tests {
                     hash: "sold-hash".to_owned(),
                     schema_fingerprint: "sold-schema".to_owned(),
                     raw_input_sha256: vec![3; 32],
-                }))
+                })))
             })
         });
 
@@ -2228,19 +2201,16 @@ mod tests {
             });
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(500),
-                        details: "internal server error".to_string(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::HttpStatus(500),
+                    details: "internal server error".to_string(),
+                }))
+            })
+        });
 
         let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 
@@ -2276,19 +2246,16 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(429),
-                        details: "too many requests".to_string(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::HttpStatus(429),
+                    details: "too many requests".to_string(),
+                }))
+            })
+        });
 
         let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 
@@ -2341,20 +2308,20 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(move |_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(move |request| {
+                let url = request.url;
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
                     if attempt == 0 {
-                        Err(ScraperError::HttpError {
+                        scrape_outcome(Err(ScraperError::HttpError {
                             url,
                             kind: crate::network::policy::NetworkErrorKind::HttpStatus(500),
                             details: "internal server error".to_string(),
-                        })
+                        }))
                     } else {
                         let raw_input = crawler_verified_removal_input(&url)
                             .unwrap_or_else(|error| panic!("test raw input: {error}"));
-                        Ok(Some(ScrapedProduct {
+                        scrape_outcome(Ok(Some(ScrapedProduct {
                             raw_input,
                             availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
                                 product_listing_core::listing_availability::ListingAvailability::SoldOut,
@@ -2362,7 +2329,7 @@ mod tests {
                             hash: "success-hash".to_owned(),
                             schema_fingerprint: "success-schema".to_owned(),
                             raw_input_sha256: vec![2; 32],
-                        }))
+                        })))
                     }
                 })
             });
@@ -2440,15 +2407,15 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(move |_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(move |request| {
+                let url = request.url;
                 scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
-                    Err(ScraperError::HttpError {
+                    scrape_outcome(Err(ScraperError::HttpError {
                         url,
                         kind: NetworkErrorKind::HttpStatus(500),
                         details: "internal server error".to_owned(),
-                    })
+                    }))
                 })
             });
 
@@ -2497,8 +2464,8 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(4)
-            .returning(move |_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(move |request| {
+                let url = request.url;
                 let status = url
                     .path_segments()
                     .and_then(|mut segments| segments.next_back())
@@ -2507,17 +2474,17 @@ mod tests {
                     .unwrap();
                 Box::pin(async move {
                     match status {
-                        2 => Ok(None),
-                        3 => Err(ScraperError::HttpError {
+                        2 => scrape_outcome(Ok(None)),
+                        3 => scrape_outcome(Err(ScraperError::HttpError {
                             url,
                             kind: NetworkErrorKind::HttpStatus(502),
                             details: "bad gateway".to_owned(),
-                        }),
-                        _ => Err(ScraperError::HttpError {
+                        })),
+                        _ => scrape_outcome(Err(ScraperError::HttpError {
                             url,
                             kind: NetworkErrorKind::HttpStatus(500),
                             details: "internal server error".to_owned(),
-                        }),
+                        })),
                     }
                 })
             });
@@ -2565,15 +2532,19 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(move |_, url, _, _, _, _| {
-                let status = if url == &other_url_for_mock { 502 } else { 500 };
-                let url = url.clone();
+            .returning(move |request| {
+                let status = if request.url == other_url_for_mock {
+                    502
+                } else {
+                    500
+                };
+                let url = request.url;
                 Box::pin(async move {
-                    Err(ScraperError::HttpError {
+                    scrape_outcome(Err(ScraperError::HttpError {
                         url,
                         kind: NetworkErrorKind::HttpStatus(status),
                         details: "server error".to_owned(),
-                    })
+                    }))
                 })
             });
 
@@ -2615,19 +2586,16 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(429),
-                        details: "too many requests".to_owned(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::HttpStatus(429),
+                    details: "too many requests".to_owned(),
+                }))
+            })
+        });
 
         let (command_tx, _command_rx) = mpsc::channel(1);
         let outcome = scrape_domain_candidates(
@@ -2693,18 +2661,18 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(1)
-            .returning(move |_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(move |request| {
+                let url = request.url;
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
                     if attempt == 0 {
-                        Err(ScraperError::HttpError {
+                        scrape_outcome(Err(ScraperError::HttpError {
                             url,
                             kind: crate::network::policy::NetworkErrorKind::HttpStatus(429),
                             details: "too many requests".to_string(),
-                        })
+                        }))
                     } else {
-                        Ok(None)
+                        scrape_outcome(Ok(None))
                     }
                 })
             });
@@ -2741,19 +2709,17 @@ mod tests {
             });
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .returning(|listing_source_id, url, _, _, _, _| {
-                let url = url.clone();
-                let listing_source_id = *listing_source_id;
-                Box::pin(async move {
-                    Err(ScraperError::LlmBudgetExceeded {
-                        listing_source_id,
-                        url,
-                        max_calls: 5,
-                    })
-                })
-            });
+        scraper_service.expect_scrape().returning(|request| {
+            let url = request.url;
+            let listing_source_id = request.listing_source_id;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::LlmBudgetExceeded {
+                    listing_source_id,
+                    url,
+                    max_calls: 5,
+                }))
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -2807,18 +2773,15 @@ mod tests {
             });
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::PendingSchemaReview {
-                        url,
-                        review_id: crate::CrawlerReviewId::new(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::PendingSchemaReview {
+                    url,
+                    review_id: crate::CrawlerReviewId::new(),
+                }))
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -2853,16 +2816,16 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(|request| {
+                let url = request.url;
                 Box::pin(async move {
-                    Err(ScraperError::FreshSchemaNormalizationFailed {
+                    scrape_outcome(Err(ScraperError::FreshSchemaNormalizationFailed {
                         url,
                         attempts: 3,
                         last_norm_error: Box::new(
                             crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
                         ),
-                    })
+                    }))
                 })
             });
 
@@ -2910,18 +2873,15 @@ mod tests {
         scraper_candidates.expect_mark_scraper_failure().never();
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, url, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::SchemaClassificationRejected {
-                        url,
-                        details: "removed classification requires HIGH confidence".to_string(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::SchemaClassificationRejected {
+                    url,
+                    details: "removed classification requires HIGH confidence".to_string(),
+                }))
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -2954,7 +2914,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -3016,8 +2976,8 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(move |_, url, _, _, _, _| {
-                let url = url.clone();
+            .returning(move |request| {
+                let url = request.url;
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
                 let refill_started = Arc::clone(&refill_started_for_mock);
@@ -3039,7 +2999,7 @@ mod tests {
                         }
                         release_slow.notify_one();
                     }
-                    Ok(None)
+                    scrape_outcome(Ok(None))
                 })
             });
 
@@ -3077,15 +3037,12 @@ mod tests {
             }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(|_, _, _, _, _, _| {
-                Box::pin(async {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    Ok(None)
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|_| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                successful_scrape_outcome()
+            })
+        });
 
         let job = scraper_job(
             CrawlerCronConfig {
@@ -3121,7 +3078,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(1)
-            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
 
         let lock_manager = Arc::new(LocalLockManager::new());
         let prelocked = url::Url::parse("https://domain-a.com/product/1").unwrap();
@@ -3168,7 +3125,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -3197,22 +3154,17 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape_with_mode()
-            .once()
-            .returning(|_| {
-                Box::pin(async move {
-                    ScrapeOutcome {
-                        result: Err(ScraperError::SchemaServiceError(
-                            ProductListingSchemaServiceError::DatabaseError(
-                                sqlx::Error::RowNotFound,
-                            ),
-                        )),
-                        domain_health: DomainFetchHealth::NotObserved,
-                        fetch_failure: None,
-                    }
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|_| {
+            Box::pin(async move {
+                ScrapeOutcome {
+                    result: Err(ScraperError::SchemaServiceError(
+                        ProductListingSchemaServiceError::DatabaseError(sqlx::Error::RowNotFound),
+                    )),
+                    domain_health: DomainFetchHealth::NotObserved,
+                    fetch_failure: None,
+                }
+            })
+        });
 
         let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
         ctx.domain_id = candidate.domain_id;
@@ -3250,22 +3202,19 @@ mod tests {
             .returning(|_, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape_with_mode()
-            .once()
-            .returning(|request| {
-                let url = request.url.clone();
-                Box::pin(async move {
-                    ScrapeOutcome {
-                        result: Err(ScraperError::PendingSchemaReview {
-                            url,
-                            review_id: crate::CrawlerReviewId::new(),
-                        }),
-                        domain_health: DomainFetchHealth::Responsive,
-                        fetch_failure: None,
-                    }
-                })
-            });
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url.clone();
+            Box::pin(async move {
+                ScrapeOutcome {
+                    result: Err(ScraperError::PendingSchemaReview {
+                        url,
+                        review_id: crate::CrawlerReviewId::new(),
+                    }),
+                    domain_health: DomainFetchHealth::Responsive,
+                    fetch_failure: None,
+                }
+            })
+        });
 
         let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
         ctx.domain_id = candidate.domain_id;
@@ -3305,28 +3254,27 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
-            .once()
-            .returning(move |_, _, _, _, _, _| {
-                let seed_url = seed_url.clone();
-                let seed_fence = seed_fence.clone();
-                Box::pin(async move {
-                    record_transport_failure(
-                        &seed_url,
-                        FetchFailureSource::SchemaSeed,
-                        Some(seed_fence.as_slice()),
-                        NetworkErrorKind::HttpStatus(429),
-                        Some(429),
-                        None,
-                    );
-                    Err(ScraperError::HttpError {
-                        url: seed_url,
-                        kind: NetworkErrorKind::HttpStatus(429),
-                        details: "seed rate limited".to_owned(),
-                    })
-                })
-            });
+        scraper_service.expect_scrape().once().returning(move |_| {
+            let seed_url = seed_url.clone();
+            let seed_fence = seed_fence.clone();
+            Box::pin(async move {
+                record_transport_failure(
+                    &seed_url,
+                    FetchFailureSource::SchemaSeed,
+                    Some(seed_fence.as_slice()),
+                    NetworkErrorKind::HttpStatus(429),
+                    Some(429),
+                    None,
+                );
+                let mut outcome = scrape_outcome(Err(ScraperError::HttpError {
+                    url: seed_url,
+                    kind: NetworkErrorKind::HttpStatus(429),
+                    details: "seed rate limited".to_owned(),
+                }));
+                outcome.fetch_failure = current_fetch_failure();
+                outcome
+            })
+        });
 
         let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
         let outcome = scrape_candidate(candidate, &ctx).await;

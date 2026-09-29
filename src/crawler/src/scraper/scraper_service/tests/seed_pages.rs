@@ -103,7 +103,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(&id, &url, None, None, None, None))
+    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -175,7 +175,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(&id, &url, None, None, None, None))
+    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -240,7 +240,7 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let error = with_test_scrape_domain(service.scrape(&id, &url, None, None, None, None))
+    let error = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
         .expect_err("a domain-opening seed failure must propagate to the scheduler");
     assert!(matches!(
@@ -335,11 +335,14 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result =
-        with_test_scrape_domain(service.scrape(&id, &url, Some(r"/products/"), None, None, None))
-            .await
-            .unwrap()
-            .unwrap();
+    let result = with_test_scrape_domain(service.scrape(normal_request_with_pattern(
+        &id,
+        &url,
+        r"/products/",
+    )))
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         result.availability,
         ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
@@ -400,11 +403,11 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        1,
+        3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(&id, &url, None, None, None, None)).await;
+    let result = with_test_scrape_domain(service.scrape(primary_only_request(&id, &url))).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_some());
 }

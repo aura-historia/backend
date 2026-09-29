@@ -21,7 +21,6 @@ use std::sync::{
 };
 use std::time::Duration;
 use test_api::*;
-use url::Url;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
@@ -62,16 +61,8 @@ struct NoWorkScraper {
 impl scraper::scraper_service::ScraperService for NoWorkScraper {
     async fn scrape(
         &self,
-        _: &ListingSourceId,
-        _: &Url,
-        _: Option<&str>,
-        _: Option<&str>,
-        _: Option<&str>,
-        _: Option<&[u8]>,
-    ) -> Result<
-        Option<scraper::scraper_service::ScrapedProduct>,
-        scraper::scraper_service::ScraperError,
-    > {
+        _: scraper::scraper_service::ScrapeRequest,
+    ) -> scraper::scraper_service::ScrapeOutcome {
         self.started.store(true, Ordering::SeqCst);
         unreachable!("disabled crawler source must not start scraper work")
     }

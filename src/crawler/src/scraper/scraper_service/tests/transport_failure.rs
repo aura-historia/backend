@@ -2,7 +2,7 @@ use super::*;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind};
 use crate::scraper::scraper_service::domain::product::{DomainFetchHealth, FetchFailureSource};
 use crate::scraper::scraper_service::service::FetchError;
-use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperError, ScraperService};
+use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperError};
 use std::time::Duration;
 
 fn service_for_primary_failure(error: FetchError) -> ScraperServiceImpl {
@@ -28,7 +28,7 @@ fn primary_request(
     fence: Vec<u8>,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: Some(crate::CrawlerDomainId::new()),
+        domain_id: None,
         listing_source_id,
         url,
         product_url_pattern: None,
@@ -36,7 +36,7 @@ fn primary_request(
         last_scraped_schema_fingerprint: None,
         expected_last_captured_raw_input_sha256: Some(fence),
         fallback_currency: None,
-        mode: ScrapeMode::Normal,
+        mode: ScrapeMode::PrimaryOnly,
     }
 }
 
@@ -50,7 +50,7 @@ async fn primary_network_failure_preserves_non_null_raw_input_fence() {
         details: "rate limited".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape_with_mode(primary_request(
+    let outcome = with_test_scrape_domain(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
@@ -95,7 +95,7 @@ async fn primary_network_failure_with_metadata_preserves_fence_and_retry_after()
         details: "rate limited".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape_with_mode(primary_request(
+    let outcome = with_test_scrape_domain(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
@@ -131,7 +131,7 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
         details: "not found".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape_with_mode(primary_request(
+    let outcome = with_test_scrape_domain(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
