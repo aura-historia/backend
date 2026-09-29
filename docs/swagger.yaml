@@ -1350,6 +1350,173 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AsyncProductListingBatchReport"
+    put:
+      summary: Submit a batch of product-listing upserts asynchronously (Partner API)
+      operationId: putAsyncPartnerProductListings
+      tags: [ProductListings]
+      description: |
+        Submits the same JSON array of up to 100 `UpsertProductListingData` items as the
+        synchronous PUT. Accepts a partner user's Cognito access JWT or Aura access token;
+        delegated access requires `product-listings:write`. No client-supplied queue or authority
+        metadata is accepted. After whole-request JSON/array/size validation, items are parsed
+        and validated independently; invalid items do not prevent eligible siblings from being
+        queued. For a new listing, omitted or null availability, price and estimates create no
+        value; `auction` may be omitted or asserted as an object, not null. For an existing
+        listing, omitted availability, price, estimates and auction facts preserve their values;
+        null clears clearable values and nested auction leaves. `auction.auctionId` may be omitted
+        to preserve membership, null to clear it or an ID to set it. `images: []` clears images,
+        while `images: null` and `auction: null` are invalid. An omitted or null `url` preserves
+        an existing URL; a URL value replaces it. Title and description apply on creation only.
+        Auction existence, listing state, partnership/source authority, lifecycle and other
+        business conflicts are decided downstream, not as an
+        immediate item failure or synchronous `404`.
+
+        Only confirmed queue admission counts as accepted. `202` means admission, not an applied
+        upsert, rollback, or immediate search visibility. An unconfirmed send may already have
+        been queued. `submissionId` is an opaque correlation identifier, not a job ID; there is
+        no submission status endpoint, batch-level deduplication, or Location header. No created
+        or updated listing IDs or synchronous mutation results are returned.
+
+        For a non-empty evaluated batch, at least one confirmed acceptance yields `202`, even
+        with item failures. With zero accepted, an unconfirmed send or retryable send/deadline/FIFO
+        blocked outcome yields `503`; otherwise internal/configuration failures yield `500`;
+        otherwise all encoded-message-size failures yield `413`; remaining validation/value/size
+        failures yield `400`. An empty array returns `202` after authentication and capability
+        checks, with no sends. Every evaluated report uses the shared async batch JSON schema
+        and echoes the effective `Idempotency-Key`, including non-2xx reports. Before evaluation,
+        bad path/key, malformed JSON, non-array, empty text or over-100 array returns `400`;
+        authentication `401`, insufficient capability `403`, whole-body/front-door limit `413`,
+        and pre-evaluation internal/configuration or transient dependency failure `500` or `503`.
+        These request-wide failures use `ApiError` and send nothing.
+
+        Supply one `Idempotency-Key` for retries; a key is generated if omitted and echoed on
+        evaluated responses. A lost response containing a generated key cannot be recovered.
+        After transport uncertainty retry the exact unchanged ordered logical batch with the
+        same key, including rejected items at their original zero-based indices; never compact,
+        reorder or change its content under that key. Per-command downstream receipts deduplicate
+        independently; the submission ID does not suppress the batch. Correct definitely invalid
+        items separately with a new key, excluding accepted/uncertain siblings. A same-group
+        eligible successor is blocked when its FIFO predecessor is unresolved; unrelated groups
+        may still be accepted. FIFO covers shared-queue acceptance per group, not execution order.
+      parameters:
+        - name: listingSourceId
+          in: path
+          required: true
+          description: Strict `ls_` ListingSource TypeID.
+          schema: { type: string, example: ls_6rd827eqfefsva9teecmwa3ate }
+        - $ref: "#/components/parameters/AsyncProductListingIdempotencyKey"
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        description: Same array and item contract as synchronous PUT; individual invalid items produce report failures, not whole-batch rejection.
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/UpsertProductListingData"
+            example:
+              - sourceListingId: baroque-violin-001
+                title: { text: Baroque Violin, language: en }
+                url: https://my-listing-source.com/product-listings/baroque-violin
+              - sourceListingId: baroque-violin-002
+                images: []
+              - sourceListingId: baroque-violin-003
+                auction: null
+      responses:
+        "202":
+          description: At least one upsert confirmed admitted, or an authorized empty array. May include item-level failures; no upsert completion implied.
+          headers:
+            Idempotency-Key:
+              $ref: "#/components/headers/AsyncProductListingIdempotencyKey"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncProductListingBatchReport"
+              examples:
+                partial_admission:
+                  summary: Three original upserts; indices 0 and 1 confirmed accepted
+                  value:
+                    submissionId: plis1_example
+                    acceptedCount: 2
+                    failures:
+                      - {
+                          index: 2,
+                          sourceListingId: baroque-violin-003,
+                          error: BAD_BODY_VALUE,
+                          retryable: false,
+                        }
+                empty_batch:
+                  summary: Empty authorized batch; no sends
+                  value:
+                    {
+                      submissionId: plis1_example,
+                      acceptedCount: 0,
+                      failures: [],
+                    }
+        "400":
+          description: Pre-evaluation invalid request (ApiError), or zero accepted with only item validation/value/size rejections (batch report).
+          headers:
+            Idempotency-Key:
+              $ref: "#/components/headers/AsyncProductListingIdempotencyKey"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncProductListingBatchReport"
+        "401":
+          description: Missing or invalid bearer credential; no sends.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Insufficient credential capability; no sends.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Whole-body/front-door limit before evaluation (ApiError), or zero accepted with only encoded-message-size item failures (batch report).
+          headers:
+            Idempotency-Key:
+              $ref: "#/components/headers/AsyncProductListingIdempotencyKey"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncProductListingBatchReport"
+        "500":
+          description: Pre-evaluation internal/configuration failure (ApiError), or zero accepted with an item internal/configuration failure and no retryable send outcome (batch report).
+          headers:
+            Idempotency-Key:
+              $ref: "#/components/headers/AsyncProductListingIdempotencyKey"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncProductListingBatchReport"
+        "503":
+          description: Pre-evaluation transient dependency failure (ApiError), or zero accepted with an unconfirmed/retryable send, deadline or blocked outcome (batch report).
+          headers:
+            Idempotency-Key:
+              $ref: "#/components/headers/AsyncProductListingIdempotencyKey"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncProductListingBatchReport"
 
   /api/v1/webhooks/woocommerce/{listingSourceId}:
     post:

@@ -28,6 +28,7 @@ use serde_json::value::RawValue;
 
 const IDEMPOTENCY_KEY: HeaderName = HeaderName::from_static("idempotency-key");
 
+#[allow(clippy::result_large_err)]
 pub(super) async fn authorized_context(
     authenticator: &dyn TokenAuthenticator,
     headers: &HeaderMap,

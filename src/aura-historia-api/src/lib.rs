@@ -711,7 +711,8 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .route(
                     "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
                     post(partner_product_listings::async_create_products::create_products)
-                        .patch(partner_product_listings::async_update_products::update_products),
+                        .patch(partner_product_listings::async_update_products::update_products)
+                        .put(partner_product_listings::async_upsert_products::upsert_products),
                 )
                 .with_state(async_partner_product_listings),
         );

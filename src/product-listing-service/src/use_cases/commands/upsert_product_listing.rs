@@ -603,6 +603,7 @@ mod tests {
         authorization_results: VecDeque<Result<(), PartnerProductListingAuthorizationError>>,
         auction_results: VecDeque<Result<(), AuctionReferenceValidationError>>,
         last_updated_lifecycle: Option<product_listing_core::listing_lifecycle::ListingLifecycle>,
+        last_persisted_listing: Option<ProductListing>,
     }
 
     type SharedState = Arc<Mutex<State>>;
@@ -699,6 +700,7 @@ mod tests {
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let mut state = lock(&self.0);
             state.inserts += 1;
+            state.last_persisted_listing = Some(product.clone());
             match state.insert_results.pop_front().unwrap_or(Ok(())) {
                 Ok(()) => Ok(Versioned::new(
                     product.clone(),
@@ -718,6 +720,7 @@ mod tests {
             let mut state = lock(&self.0);
             state.updates += 1;
             state.last_updated_lifecycle = Some(product.lifecycle());
+            state.last_persisted_listing = Some(product.clone());
             match state.update_results.pop_front().unwrap_or(Ok(())) {
                 Ok(()) => Ok(Versioned::new(product.clone(), expected_version.next())),
                 Err(error) => Err(error),
@@ -842,8 +845,11 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("source-listing")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            title: None,
-            description: None,
+            title: Some(Localized::new(Language::En, Title::from("Original title"))),
+            description: Some(Localized::new(
+                Language::En,
+                Description::from("Original description"),
+            )),
             pricing: ProductListingPricing::default(),
             availability: None,
             url: Url::parse("https://example.com/listing")
@@ -935,6 +941,26 @@ mod tests {
                 state.authorizations
             ),
             (1, 1, 0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_create_with_placeholder_url_when_url_is_absent() {
+        let state = Arc::new(Mutex::new(State::default()));
+
+        let result = handler(&state).execute(&context(), command()).await;
+
+        assert!(matches!(result, Ok(UpsertProductListingResult::Created(_))));
+        let state = lock(&state);
+        let persisted = state
+            .last_persisted_listing
+            .as_ref()
+            .expect("inserted listing");
+        assert_eq!(persisted.url().as_str(), "https://not-provided.invalid/");
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (state.inserts, state.updates, state.event_appends),
+            (1, 0, 1)
         );
     }
 
@@ -1205,6 +1231,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_preserve_existing_text_and_url_when_upserting_active_listing() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing())]),
+            ..Default::default()
+        }));
+        let command = UpsertProductListingCommand {
+            title: Some(Localized::new(
+                Language::En,
+                Title::from("Replacement title"),
+            )),
+            description: Some(Localized::new(
+                Language::En,
+                Description::from("Replacement description"),
+            )),
+            availability: PatchField::Set(ListingAvailability::Available),
+            ..command()
+        };
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        let persisted = state
+            .last_persisted_listing
+            .as_ref()
+            .expect("updated listing");
+        assert_eq!(persisted.url().as_str(), "https://example.com/listing");
+        assert_eq!(
+            persisted.availability(),
+            Some(ListingAvailability::Available)
+        );
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (state.inserts, state.updates, state.event_appends),
+            (0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
     async fn should_not_revalidate_unchanged_auction_for_lot_only_update() {
         let state = Arc::new(Mutex::new(State {
             finds: VecDeque::from([Some(loaded_listing_with_auction())]),
@@ -1265,6 +1338,63 @@ mod tests {
         assert_eq!(
             state.last_updated_lifecycle,
             Some(product_listing_core::listing_lifecycle::ListingLifecycle::Active)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_restore_withdrawn_listing_without_replacing_text_or_absent_url() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(withdrawn_listing())]),
+            ..Default::default()
+        }));
+        let command = UpsertProductListingCommand {
+            title: Some(Localized::new(
+                Language::En,
+                Title::from("Replacement title"),
+            )),
+            description: Some(Localized::new(
+                Language::En,
+                Description::from("Replacement description"),
+            )),
+            ..command()
+        };
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    outcome: ChangeOutcome::Changed,
+                    ..
+                }
+            ))
+        ));
+        let state = lock(&state);
+        let persisted = state
+            .last_persisted_listing
+            .as_ref()
+            .expect("updated listing");
+        assert_eq!(
+            persisted.lifecycle(),
+            product_listing_core::listing_lifecycle::ListingLifecycle::Active
+        );
+        assert_eq!(
+            persisted.title(),
+            Some(&Localized::new(Language::En, Title::from("Original title")))
+        );
+        assert_eq!(
+            persisted.description(),
+            Some(&Localized::new(
+                Language::En,
+                Description::from("Original description")
+            ))
+        );
+        assert_eq!(persisted.url().as_str(), "https://example.com/listing");
+        assert_eq!((state.begins, state.commits, state.rollbacks), (1, 1, 0));
+        assert_eq!(
+            (state.inserts, state.updates, state.event_appends),
+            (0, 1, 1)
         );
     }
 
