@@ -23,262 +23,558 @@ function workflowStep(file, name) {
   for (let index = run + 1; index < lines.length && (lines[index].startsWith('          ') || lines[index] === ''); index += 1) {
     body.push(lines[index].slice(10));
   }
-  return body.join('\n').replaceAll('${{ vars.AWS_REGION }}', 'us-east-1');
+  return body.join('\n');
 }
 
-function run(command, args, cwd, env) {
-  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8' });
-  assert.equal(result.status, 0, `${command} ${args.join(' ')} failed:\n${result.stdout}\n${result.stderr}`);
-  return result.stdout;
+// No command falls through to an installed AWS, CDK, Docker, or Git executable.
+// Unexpected commands are recorded separately from intentional fixture failures.
+function mockTool() {
+  const assert = require('node:assert/strict');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const env = process.env;
+  const tool = path.basename(process.argv[1]);
+  const args = process.argv.slice(2);
+  const event = { tool, args };
+  const config = JSON.parse(fs.readFileSync('fixture.json', 'utf8'));
+  const entries = JSON.parse(fs.readFileSync('ci/container-images.json', 'utf8'));
+  const events = fs.readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+  const registry = JSON.parse(fs.readFileSync('registry.json', 'utf8'));
+  const tag = `git-${env.DEPLOY_COMMIT_SHA}`;
+  const registryHost = `123456789012.dkr.ecr.${env.AWS_REGION}.amazonaws.com`;
+  const source = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`;
+  const workflow = `${source}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}`;
+  const prefix = `application-${env.STAGE}`;
+  const currentSha = config.computeCommitSha ?? 'c'.repeat(40);
+  const stackNames = ['network', 'data', 'initialize', 'compute', 'api', ...(env.STAGE === 'prod' ? ['observability'] : [])];
+  const failure = (stderr) => ({ stderr, status: 1 });
+  const json = (value) => ({ stdout: JSON.stringify(value) });
+  const imageRef = (entry) => `${registryHost}/${entry.repository}@${config.digests[entry.digestParameter]}`;
+  function handle() {
+    if (tool === 'git') {
+      if (args[0] === 'rev-parse') {
+        assert.deepEqual(args, ['rev-parse', 'HEAD']);
+        return { stdout: env.DEPLOY_COMMIT_SHA };
+      }
+      assert.equal(env.DEPLOY_SCOPE, 'auto', 'Explicit scopes must not compare migration sources');
+      assert.deepEqual(args, [
+        '--no-pager', 'diff', '--quiet', currentSha, env.DEPLOY_COMMIT_SHA,
+        '--', 'migrations', 'infra/sql', 'src/database-migration-lambda',
+      ]);
+      return { status: config.gitDiffExitCode ?? 0 };
+    }
+    if (tool === 'smoke') {
+      const entry = entries.find((entry) => entry.id === args[0]);
+      assert.ok(entry);
+      assert.equal(args.length, 2);
+      assert.ok([
+        `local/${entry.id}:${env.DEPLOY_COMMIT_SHA}`,
+        `local/${entry.id}:${env.DEPLOY_COMMIT_SHA}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`,
+        imageRef(entry),
+      ].includes(args[1]));
+      return config.smokeFailure === true || (config.smokeFailure === 'remote' && args[1].includes('@'))
+        ? failure('Image-owned smoke test failed') : {};
+    }
+    if (tool === 'ensure-dms-vpc-role') {
+      assert.deepEqual(args, []);
+      return {};
+    }
+    if (tool === 'npm') {
+      assert.deepEqual(args.slice(0, 6), ['--prefix', 'infra', 'run', 'cdk', '--', 'deploy']);
+      const stack = stackNames.find((name) => args[6] === `${prefix}-${name}`);
+      assert.ok(stack, 'Unknown deployment stack');
+      const parameters = stack === 'compute' ? { CommitSHA: env.DEPLOY_COMMIT_SHA, ...config.digests }
+        : stack === 'initialize' ? { CommitSHA: env.DEPLOY_COMMIT_SHA } : {};
+      assert.deepEqual(args.slice(7), [
+        ...Object.entries(parameters).flatMap(([key, value]) => ['--parameters', `${prefix}-${stack}:${key}=${value}`]),
+        '--context', `stage=${env.STAGE}`, '--context', `stackNamePrefix=${prefix}`,
+        '--require-approval', 'never', '--method', 'change-set', '--exclusively', '--previous-parameters',
+        '--no-path-metadata', '--no-asset-metadata', '--no-version-reporting', '--no-notices',
+      ]);
+      return {};
+    }
+    if (tool === 'aws') {
+      if (args[0] === 'sts') {
+        assert.deepEqual(args, ['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text']);
+        return { stdout: '123456789012' };
+      }
+      if (args[0] === 'ecr' && args[1] === 'get-login-password') {
+        assert.deepEqual(args, ['ecr', 'get-login-password']);
+        return { stdout: 'mock-password' };
+      }
+      if (args[0] === 'ecr' && args[1] === 'describe-images') {
+        const entry = entries.find((entry) => entry.repository === args[3]);
+        assert.ok(entry, 'Unknown ECR repository');
+        assert.deepEqual(args, ['ecr', 'describe-images', '--repository-name', entry.repository, '--image-ids', `imageTag=${tag}`, '--output', 'json']);
+        if (config.ecrFailure) return failure(`An error occurred (${config.ecrFailure}) when calling DescribeImages`);
+        if (!registry[entry.repository]) return failure('An error occurred (ImageNotFoundException) when calling DescribeImages');
+        return json({ imageDetails: [{
+          imageDigest: config.ecrResponse === 'invalid-digest' ? 'sha256:bad' : registry[entry.repository].digest,
+          imageTags: [config.ecrResponse === 'wrong-tag' ? 'latest' : tag],
+        }] });
+      }
+      if (args[0] === 'cloudformation' && args[1] === 'describe-stacks') {
+        const stack = stackNames.find((name) => args[3] === `${prefix}-${name}`);
+        assert.ok(stack, 'Unknown CloudFormation stack');
+        assert.deepEqual(args, ['cloudformation', 'describe-stacks', '--stack-name', `${prefix}-${stack}`, '--output', 'json']);
+        if (config.deniedStack === stack) return failure('An error occurred (AccessDeniedException) when calling DescribeStacks');
+        const deployed = events.some((event) => event.tool === 'npm' && event.args.includes(`${prefix}-${stack}`));
+        if (config.absentStacks?.includes(stack) && !deployed) {
+          return failure(`An error occurred (ValidationError) when calling DescribeStacks: Stack with id ${prefix}-${stack} does not exist`);
+        }
+        return json({ Stacks: [{
+          StackStatus: config.stackStatuses?.[stack] ?? 'UPDATE_COMPLETE',
+          Parameters: [
+            ...(stack === 'compute' && config.computeCommitSha === null ? [] : [{
+              ParameterKey: 'CommitSHA', ParameterValue: stack === 'compute' ? currentSha : 'c'.repeat(40),
+            }]),
+            ...entries.map((entry) => ({ ParameterKey: entry.digestParameter, ParameterValue: `sha256:${'c'.repeat(64)}` })),
+            ...entries.filter((entry) => entry.activationParameter).map((entry, index) => ({
+              ParameterKey: entry.activationParameter, ParameterValue: index === 0 ? 'true' : 'false',
+            })),
+            { ParameterKey: 'CdcRouterEnabled', ParameterValue: 'true' },
+          ],
+          Outputs: entries.map((entry) => ({
+            OutputKey: entry.taskDefinitionOutput,
+            OutputValue: `arn:aws:ecs:${env.AWS_REGION}:123456789012:task-definition/${entry.id}:1`,
+          })),
+        }] });
+      }
+    }
+    if (tool === 'docker') {
+      const entry = entries.find((entry) => entry.id === env.IMAGE_ID);
+      assert.ok(entry);
+      const uri = `${registryHost}/${entry.repository}`;
+      const local = `local/${entry.id}:${env.DEPLOY_COMMIT_SHA}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
+      if (args[0] === 'login') {
+        assert.deepEqual(args, ['login', '--username', 'AWS', '--password-stdin', registryHost]);
+        assert.equal(fs.readFileSync(0, 'utf8').trim(), 'mock-password');
+        return {};
+      }
+      if (args[0] === 'build') {
+        const ref = args.at(-2);
+        assert.ok([local, `local/${entry.id}:${env.DEPLOY_COMMIT_SHA}`].includes(ref));
+        assert.deepEqual(args, [
+          'build', '--platform', entry.platform, '-f', entry.dockerfile,
+          '--build-arg', `SOURCE_REVISION=${env.DEPLOY_COMMIT_SHA}`, '--build-arg', `BUILD_WORKFLOW_IDENTITY=${workflow}`,
+          '--label', `org.opencontainers.image.source=${source}`, '--label', `org.opencontainers.image.revision=${env.DEPLOY_COMMIT_SHA}`,
+          '--label', `org.opencontainers.image.title=${entry.binary}`, '--label', `com.aura-historia.build-workflow=${workflow}`,
+          '-t', ref, '.',
+        ]);
+        return {};
+      }
+      if (args[0] === 'image' && args[1] === 'inspect') {
+        assert.equal(args.length, 3);
+        const remote = args[2] === imageRef(entry);
+        assert.ok(remote || args[2] === local);
+        const metadata = {
+          Os: 'linux', Architecture: entry.platform.split('/')[1], Config: { Labels: {
+            'org.opencontainers.image.revision': env.DEPLOY_COMMIT_SHA,
+            'org.opencontainers.image.source': source,
+            'org.opencontainers.image.title': entry.binary,
+            'com.aura-historia.build-workflow': remote ? registry[entry.repository].workflow : workflow,
+          } },
+        };
+        if (config.badMetadata && (config.badMetadataPhase === 'local' ? !remote : remote)) {
+          if (['Os', 'Architecture'].includes(config.badMetadata)) metadata[config.badMetadata] = 'invalid';
+          else metadata.Config.Labels[config.badMetadata] = 'untrusted';
+        }
+        return json([metadata]);
+      }
+      if (args[0] === 'pull') {
+        assert.deepEqual(args, ['pull', '--platform', entry.platform, imageRef(entry)]);
+        assert.ok(registry[entry.repository]);
+        return {};
+      }
+      if (args[0] === 'tag') {
+        assert.deepEqual(args, ['tag', local, `${uri}:${tag}`]);
+        return {};
+      }
+      if (args[0] === 'push') {
+        assert.deepEqual(args, ['push', `${uri}:${tag}`]);
+        assert.equal(registry[entry.repository], undefined, 'An existing immutable tag must never be overwritten');
+        assert.ok(events.some((event) => event.tool === 'smoke' && event.args[1] === local), 'Smoke must precede publication');
+        if (config.pushFailure === 'missing') return failure('Registry push failed');
+        registry[entry.repository] = {
+          digest: config.digests[entry.digestParameter],
+          workflow: config.pushFailure === 'competing' ? `${source}/actions/runs/456/attempts/2` : workflow,
+        };
+        fs.writeFileSync('registry.json', JSON.stringify(registry));
+        return config.pushFailure === 'competing' ? failure('ImageTagAlreadyExistsException') : {};
+      }
+    }
+    throw new Error(`Unexpected mocked command: ${tool} ${args.join(' ')}`);
+  }
+  try {
+    const result = handle();
+    if (result.stdout !== undefined) process.stdout.write(`${result.stdout}\n`);
+    if (result.stderr) process.stderr.write(`${result.stderr}\n`);
+    process.exitCode = result.status ?? 0;
+  } catch (error) {
+    event.unexpected = error.message;
+    process.stderr.write(`${error.stack}\n`);
+    process.exitCode = 99;
+  } finally {
+    fs.appendFileSync(env.TEST_LOG, `${JSON.stringify(event)}\n`);
+  }
 }
 
-function writeFixture(directory) {
+function fixture(t, options = {}) {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'container-workflows-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const mkdir = (relative) => mkdirSync(path.join(directory, relative), { recursive: true });
-  mkdir('ci/container-images/periodic-matcher');
-  mkdir('ci/container-images/second-image');
-  mkdir('src/search-filter-periodic-match/src');
-  mkdir('src/second-image/src');
-  mkdir('.github/actions/resolve-container-images');
-  mkdir('bin');
-  copyFileSync(path.join(root, 'ci/container-images.cjs'), path.join(directory, 'ci/container-images.cjs'));
-  copyFileSync(path.join(root, '.github/actions/resolve-container-images/resolve.mjs'), path.join(directory, '.github/actions/resolve-container-images/resolve.mjs'));
-  writeFileSync(path.join(directory, 'src/search-filter-periodic-match/Cargo.toml'), '[package]\nname = "search-filter-periodic-match"\n');
-  writeFileSync(path.join(directory, 'src/search-filter-periodic-match/src/main.rs'), 'fn main() {}\n');
-  writeFileSync(path.join(directory, 'src/search-filter-periodic-match/Dockerfile'), 'FROM scratch\n');
-  writeFileSync(path.join(directory, 'src/second-image/Cargo.toml'), '[package]\nname = "second-image"\n');
-  writeFileSync(path.join(directory, 'src/second-image/src/main.rs'), 'fn main() {}\n');
-  writeFileSync(path.join(directory, 'src/second-image/Dockerfile'), 'FROM scratch\n');
+  const write = (relative, text) => writeFileSync(path.join(directory, relative), text);
+  for (const dir of ['ci', 'infra/scripts', '.github/actions/resolve-container-images', 'bin']) mkdir(dir);
+  for (const file of ['ci/container-images.cjs', 'ci/publish-container.sh', 'ci/deploy-stacks.sh', '.github/actions/resolve-container-images/resolve.mjs']) {
+    copyFileSync(path.join(root, file), path.join(directory, file));
+  }
   const entries = [
     require('./container-images.json')[0],
-    { id: 'second-image', crate: 'src/second-image', binary: 'second-image', dockerfile: 'src/second-image/Dockerfile', platform: 'linux/amd64', repository: 'aura-historia-second-image', digestParameter: 'SecondImageDigest', activationParameter: 'SecondImageEnabled', taskDefinitionOutput: 'SecondTaskDefinitionArn' },
+    { id: 'second-image', crate: 'src/second-image', binary: 'second-image', dockerfile: 'src/second-image/Dockerfile', platform: 'linux/arm64', repository: 'aura-historia-second-image', digestParameter: 'SecondImageDigest', activationParameter: 'SecondImageEnabled', taskDefinitionOutput: 'SecondTaskDefinitionArn' },
   ];
-  writeFileSync(path.join(directory, 'ci/container-images.json'), JSON.stringify(entries));
   for (const entry of entries) {
-    const smoke = path.join(directory, `ci/container-images/${entry.id}/smoke.sh`);
-    writeFileSync(smoke, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s %s\\n' '${entry.id}' "$1" >> "$TEST_SMOKE_LOG"\n`);
-    chmodSync(smoke, 0o755);
+    mkdir(`${entry.crate}/src`);
+    mkdir(`ci/container-images/${entry.id}`);
+    write(`${entry.crate}/Cargo.toml`, `[package]\nname = "${entry.binary}"\n`);
+    write(`${entry.crate}/src/main.rs`, 'fn main() {}\n');
+    write(entry.dockerfile, 'FROM scratch\n');
+    const smoke = `ci/container-images/${entry.id}/smoke.sh`;
+    write(smoke, `#!/usr/bin/env bash\nset -euo pipefail\nsmoke '${entry.id}' "$@"\n`);
+    chmodSync(path.join(directory, smoke), 0o755);
   }
-  const mock = path.join(directory, 'bin/mock');
-  writeFileSync(mock, `#!/usr/bin/env node
-const fs = require('node:fs');
-const path = require('node:path');
-const tool = path.basename(process.argv[1]);
-const args = process.argv.slice(2);
-const log = process.env.TEST_LOG;
-const events = fs.readFileSync(log, 'utf8').trim().split('\\n').filter(Boolean).map(JSON.parse);
-fs.appendFileSync(log, JSON.stringify({ tool, args }) + '\\n');
-if (tool === 'git' && args[0] === 'rev-parse') { console.log('${sha}'); process.exit(0); }
-if (tool === 'npm') process.exit(0); // Never run CDK or deploy anything.
-if (tool === 'docker') {
-  if (args[0] === 'image' && args[1] === 'inspect') {
-    console.log(JSON.stringify([{ Os: 'linux', Architecture: 'amd64', Config: { Labels: {
-      'org.opencontainers.image.revision': process.env.DEPLOY_COMMIT_SHA,
-      'org.opencontainers.image.source': process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY,
-      'org.opencontainers.image.title': process.env.IMAGE_BINARY,
-      'com.aura-historia.build-workflow': process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/123/attempts/1',
-    } } }]));
-  }
-  process.exit(0);
-}
-if (tool === 'aws') {
-  if (args[0] === 'sts') { console.log('123456789012'); process.exit(0); }
-  if (args[0] === 'ecr' && args[1] === 'get-login-password') { console.log('stub'); process.exit(0); }
-  if (args[0] === 'ecr' && args[1] === 'describe-images') {
-    const repository = args[args.indexOf('--repository-name') + 1];
-    const tag = args[args.indexOf('--image-ids') + 1].slice('imageTag='.length);
-    if (!events.some((event) => event.tool === 'docker' && event.args[0] === 'push' && event.args[1].endsWith('/' + repository + ':' + tag))) {
-      console.error('ImageNotFoundException'); process.exit(254);
-    }
-    const digest = repository === 'aura-historia-second-image' ? '${secondDigest}' : '${firstDigest}';
-    console.log(JSON.stringify({ imageDetails: [{ imageDigest: digest, imageTags: [tag] }] }));
-    process.exit(0);
-  }
-  if (args[0] === 'cloudformation' && args[1] === 'describe-stacks') {
-    if (args.includes('--query')) {
-      const name = args[args.indexOf('--stack-name') + 1];
-      console.log(process.env.TEST_ARCHIVE_IMPORT && name === 'application-dev-compute' ? 'REVIEW_IN_PROGRESS' : 'UPDATE_COMPLETE');
-      process.exit(0);
-    }
-    if (process.env.TEST_ARCHIVE_IMPORT && !events.some((event) => event.tool === 'npm' && event.args.includes('--import-existing-resources'))) {
-      const name = args[args.indexOf('--stack-name') + 1];
-      if (name === 'application-dev-api') { console.error('An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id ' + name + ' does not exist'); process.exit(254); }
-      console.log(JSON.stringify({ Stacks: [{ StackStatus: name === 'application-dev-compute' ? 'REVIEW_IN_PROGRESS' : 'CREATE_COMPLETE', Parameters: [{ ParameterKey: 'CommitSHA', ParameterValue: process.env.DEPLOY_COMMIT_SHA }] }] }));
-      process.exit(0);
-    }
-    console.log(JSON.stringify({ Stacks: [{ Outputs: [
-      { OutputKey: 'PeriodicMatcherTaskDefinitionArn', OutputValue: 'arn:aws:ecs:us-east-1:123456789012:task-definition/matcher:1' },
-      { OutputKey: 'SecondTaskDefinitionArn', OutputValue: 'arn:aws:ecs:us-east-1:123456789012:task-definition/second:1' },
-    ] }] }));
-    process.exit(0);
-  }
-  if (args[0] === 'cloudformation' && args[1] === 'list-stack-resources') { console.log('0'); process.exit(0); }
-  if (args[0] === 'cloudformation' && args[1] === 'describe-stack-resources') { console.error('An error occurred (ValidationError) when calling the DescribeStackResources operation: Stack for aura-historia-cdc-router-failures-dev does not exist'); process.exit(254); }
-  if (args[0] === 'cloudformation' && args[1] === 'describe-change-set') {
-    console.log(JSON.stringify({ Status: 'CREATE_COMPLETE', ExecutionStatus: 'AVAILABLE', Changes: [{ ResourceChange: {
-      Action: 'Import', LogicalResourceId: process.env.TEST_BAD_IMPORT ? 'OtherBucket' : 'EventingCdcRouterFailureArchive599BCB3E',
-      ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: 'aura-historia-cdc-router-failures-dev',
-    } }] }));
-    process.exit(0);
-  }
-  if (args[0] === 'cloudformation' && (args[1] === 'execute-change-set' || args[1] === 'wait')) process.exit(0);
-  if (args[0] === 's3api') {
-    if (args[1] === 'head-bucket') process.exit(0);
-    if (args[1] === 'get-bucket-location') { console.log('us-east-1'); process.exit(0); }
-    if (args[1] === 'get-public-access-block') { console.log(JSON.stringify({ PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true } })); process.exit(0); }
-    if (args[1] === 'get-bucket-encryption') { console.log(JSON.stringify({ ServerSideEncryptionConfiguration: { Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] } })); process.exit(0); }
-    if (args[1] === 'get-bucket-lifecycle-configuration') { console.log(JSON.stringify({ Rules: [{ Status: 'Enabled', Expiration: { Days: 90 }, Filter: { Prefix: '' } }] })); process.exit(0); }
-  }
-  if (args[0] === 'lambda' && args[1] === 'wait') process.exit(0);
-  if (args[0] === 'lambda' && args[1] === 'invoke') {
-    const result = args.find((arg) => arg === 'migration-result.json' || arg === 'fxrate-result.json');
-    fs.writeFileSync(result, result === 'migration-result.json' ? '{"status":"ready"}' : 'null');
-    console.log(JSON.stringify({ StatusCode: 200 }));
-    process.exit(0);
-  }
-}
-console.error('Unexpected mocked command: ' + tool + ' ' + args.join(' '));
-process.exit(1);
-`);
-  chmodSync(mock, 0o755);
-  for (const tool of ['aws', 'docker', 'git', 'npm']) symlinkSync(mock, path.join(directory, 'bin', tool));
-  writeFileSync(path.join(directory, 'commands.log'), '');
-  writeFileSync(path.join(directory, 'smoke.log'), '');
-  writeFileSync(path.join(directory, 'github-output'), '');
-  writeFileSync(path.join(directory, 'summary'), '');
-  return entries;
+  write('ci/container-images.json', JSON.stringify(entries));
+  write('infra/scripts/ensure-dms-vpc-role.sh', '#!/usr/bin/env bash\nset -euo pipefail\nensure-dms-vpc-role "$@"\n');
+  write('bin/mock', `#!/usr/bin/env node\n(${mockTool.toString()})();\n`);
+  chmodSync(path.join(directory, 'bin/mock'), 0o755);
+  for (const tool of ['aws', 'docker', 'git', 'npm', 'smoke', 'ensure-dms-vpc-role']) symlinkSync('mock', path.join(directory, 'bin', tool));
+  for (const file of ['commands.log', 'github-output', 'summary']) write(file, '');
+  const digests = { [entries[0].digestParameter]: firstDigest, [entries[1].digestParameter]: secondDigest };
+  write('fixture.json', JSON.stringify({ ...options, digests }));
+  write('registry.json', JSON.stringify(options.existingImages ? Object.fromEntries(entries.map((entry) => [entry.repository, {
+    digest: digests[entry.digestParameter], workflow: 'https://github.com/org/repo/actions/runs/100/attempts/1',
+  }])) : {}));
+  // Deliberately do not inherit AWS credentials, SDK configuration, or shell startup hooks.
+  const env = {
+    PATH: `${path.join(directory, 'bin')}${path.delimiter}${process.env.PATH}`,
+    HOME: directory,
+    TEST_LOG: path.join(directory, 'commands.log'),
+    GITHUB_WORKSPACE: directory,
+    GITHUB_OUTPUT: path.join(directory, 'github-output'),
+    GITHUB_STEP_SUMMARY: path.join(directory, 'summary'),
+    GITHUB_SHA: sha,
+    DEPLOY_COMMIT_SHA: sha,
+    CONTAINER_COMMIT_SHA: sha,
+    CONTAINER_IMAGE_DIGESTS: JSON.stringify(digests),
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'org/repo',
+    GITHUB_RUN_ID: '123',
+    GITHUB_RUN_ATTEMPT: '1',
+    AWS_REGION: 'eu-central-1',
+    STAGE: 'dev',
+    DEPLOY_SCOPE: 'auto',
+  };
+  const read = (file) => readFileSync(path.join(directory, file), 'utf8');
+  const events = () => read('commands.log').trim().split('\n').filter(Boolean).map(JSON.parse);
+  const invoke = (command, args, extraEnv = {}) => {
+    const result = spawnSync(command, args, { cwd: directory, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.error, undefined);
+    for (const event of events()) assert.equal(event.unexpected, undefined, event.unexpected);
+    return result;
+  };
+  const run = (command, args, extraEnv = {}) => {
+    const result = invoke(command, args, extraEnv);
+    assert.equal(result.status, 0, `${command} ${args.join(' ')} failed:\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const imageEnv = (entry) => ({ IMAGE_ID: entry.id, IMAGE_BINARY: entry.binary, IMAGE_PLATFORM: entry.platform, IMAGE_DOCKERFILE: entry.dockerfile, IMAGE_REPOSITORY: entry.repository });
+  const publish = (entry = entries[1]) => invoke('bash', ['ci/publish-container.sh'], imageEnv(entry));
+  const deploy = (extraEnv) => invoke('bash', ['ci/deploy-stacks.sh'], extraEnv);
+  return { entries, digests, read, events, run, imageEnv, publish, deploy };
 }
 
-test('every deployment reconciles artifact repositories before publishing and deploying', () => {
+function assertDeployments(f, expected, stage = 'dev') {
+  const events = f.events();
+  const deployments = events.filter((event) => event.tool === 'npm');
+  assert.deepEqual(deployments.map((event) => event.args[6]), expected.map((stack) => `application-${stage}-${stack}`));
+  assert.equal(events.filter((event) => event.tool === 'ensure-dms-vpc-role').length, 1);
+  for (const event of deployments) {
+    assert.ok(event.args.includes('--previous-parameters'));
+    assert.ok(event.args.includes('--exclusively'));
+    assert.equal(event.args[event.args.indexOf('--method') + 1], 'change-set');
+    for (const key of ['CdcRouterEnabled', ...f.entries.map((entry) => entry.activationParameter)]) {
+      assert.ok(!event.args.some((arg) => arg.includes(`${key}=`)), `Activation override: ${key}`);
+    }
+    assert.ok(!event.args.some((arg) => /import|hotswap/.test(arg)));
+  }
+  assert.ok(events.filter((event) => event.tool === 'aws').every((event) => !['lambda', 'ecs'].includes(event.args[0])));
+  return deployments;
+}
+
+function assertNoMutation(f, expectedGitDiffs = 0) {
+  const events = f.events();
+  assert.ok(events.every((event) =>
+    (event.tool === 'aws' && event.args[0] === 'cloudformation' && event.args[1] === 'describe-stacks') ||
+    (event.tool === 'git' && event.args[0] === '--no-pager' && event.args[1] === 'diff')));
+  assert.equal(events.filter((event) => event.tool === 'git').length, expectedGitDiffs);
+  assert.equal(f.read('summary'), '');
+}
+
+test('deployment publishers use the catalog on every trigger and gate AWS jobs with environments', () => {
   const workflow = readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8');
-  const artifactJob = workflow.split('  aws-container-artifacts:')[1].split('  aws-push-container-images:')[0];
-  const publisherJob = workflow.split('  aws-push-container-images:')[1].split('  aws-push-lambda:')[0];
-  const deployJob = workflow.split('  aws-cdk-deploy:')[1];
-  assert.doesNotMatch(workflow, /reconcile_artifact_stack|Detect repository definition changes/);
-  assert.match(artifactJob, /needs: \[infra-test\]/);
-  assert.doesNotMatch(artifactJob, /^    if:/m);
-  assert.match(artifactJob, /github\.event_name == 'workflow_dispatch' && inputs\.stage/);
-  assert.match(publisherJob, /if: github\.event_name == 'push'/);
-  assert.match(publisherJob, /needs: \[infra-test, aws-container-artifacts\]/);
-  assert.match(deployJob, /needs\.aws-container-artifacts\.result == 'success'/);
-  assert.match(deployJob, /github\.event_name == 'workflow_dispatch'[\s\S]*needs\.aws-push-container-images\.result == 'skipped'/);
-  assert.match(deployJob, /aws-push-container-images,/);
-  const resolve = deployJob.indexOf('uses: ./.github/actions/resolve-container-images');
-  const preflight = deployJob.indexOf('name: Preflight stage artifacts and deployed stack state');
-  const update = deployJob.indexOf('name: Update artifact SHA and image digests with previous CloudFormation templates');
-  assert.ok(resolve >= 0 && preflight > resolve && update > preflight);
+  const jobs = Object.fromEntries([...workflow.matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|(?![\s\S]))/gm)].map((match) => [match[1], match[2]]));
+  const publisher = jobs['aws-push-container-images'];
+  assert.ok(publisher);
+  const needs = publisher.match(/^    needs: \[([^\]]+)\]/m)?.[1].split(',').map((name) => name.trim());
+  assert.deepEqual(new Set(needs), new Set(['infra-test', 'aws-container-artifacts']));
+  assert.match(publisher, /matrix: \$\{\{ fromJSON\(needs\.infra-test\.outputs\.container_matrix\) \}\}/);
+  assert.match(publisher, /run: bash ci\/publish-container\.sh/);
+  assert.match(jobs['infra-test'], /^      stage: \$\{\{ env\.STAGE \}\}$/m);
+  for (const [name, job] of Object.entries(jobs).filter(([name]) => name.startsWith('aws-'))) {
+    assert.match(job, /^    environment:\n      name: aws-\$\{\{ needs\.infra-test\.outputs\.stage \}\}$/m, `${name} must use the resolved stage's approved environment`);
+    assert.doesNotMatch(job, /^    if:.*github\.event_name == 'push'/m, `${name} must not be push-only`);
+    if (name === 'aws-container-artifacts') {
+      assert.match(job, /^          ref: develop$/m);
+      assert.match(job, /^    concurrency:\n      group: aws-container-artifact-stack\n      cancel-in-progress: false$/m);
+    } else {
+      assert.match(job, /^      DEPLOY_COMMIT_SHA: \$\{\{ needs\.infra-test\.outputs\.commit_sha \}\}$/m, `${name} must select the resolved release SHA`);
+      assert.match(job, /^          ref: \$\{\{ env\.DEPLOY_COMMIT_SHA \}\}$/m, `${name} must check out the selected release`);
+    }
+  }
+  assert.match(jobs['infra-test'], /^      lambda_matrix: \$\{\{ steps\.lambda-catalog\.outputs\.matrix \}\}$/m);
+  assert.ok(jobs['infra-test'].includes('require("./ci/lambda-binaries.json")'));
+  assert.match(jobs['aws-push-lambda'], /matrix: \$\{\{ fromJSON\(needs\.infra-test\.outputs\.lambda_matrix\) \}\}/);
+  for (const field of ['id', 'binary', 'repository', 'dockerfile', 'platform']) {
+    assert.ok(publisher.includes(`IMAGE_${field.toUpperCase()}: \${{ matrix.${field} }}`));
+  }
+  assert.match(jobs['aws-cdk-deploy'], /^          ref: \$\{\{ env\.DEPLOY_COMMIT_SHA \}\}\n          fetch-depth: 0$/m);
+  assert.match(jobs['aws-cdk-deploy'], /run: bash ci\/deploy-stacks\.sh/);
+  assert.match(jobs['aws-cdk-deploy'], /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);
 });
 
-test('a second catalog image builds, publishes, resolves, and reaches deploy without contacting AWS', () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), 'container-workflows-'));
-  try {
-    const entries = writeFixture(directory);
-    const env = {
-      ...process.env,
-      PATH: `${path.join(directory, 'bin')}${path.delimiter}${process.env.PATH}`,
-      TEST_LOG: path.join(directory, 'commands.log'),
-      TEST_SMOKE_LOG: path.join(directory, 'smoke.log'),
-      GITHUB_WORKSPACE: directory,
-      GITHUB_OUTPUT: path.join(directory, 'github-output'),
-      GITHUB_STEP_SUMMARY: path.join(directory, 'summary'),
-      GITHUB_SHA: sha,
-      DEPLOY_COMMIT_SHA: sha,
-      CONTAINER_COMMIT_SHA: sha,
-      GITHUB_SERVER_URL: 'https://github.com',
-      GITHUB_REPOSITORY: 'org/repo',
-      GITHUB_RUN_ID: '123',
-      GITHUB_RUN_ATTEMPT: '1',
-      STAGE: 'dev',
-      STACK_NAME_PREFIX: 'application-dev',
-      CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: '',
-    };
-    const catalogWorkflow = readFileSync(path.join(root, '.github/workflows/container-images.yml'), 'utf8');
-    const deployWorkflow = readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8');
-    const initializeWorkflow = readFileSync(path.join(root, '.github/workflows/initialize.yml'), 'utf8');
-    assert.match(catalogWorkflow, /matrix: \$\{\{ fromJSON\(needs\.catalog\.outputs\.container_matrix\) \}\}/);
-    assert.match(deployWorkflow, /matrix: \$\{\{ fromJSON\(needs\.infra-test\.outputs\.container_matrix\) \}\}/);
-    assert.match(deployWorkflow, /needs\.aws-push-container-images\.result == 'success'/);
-    const publisherJob = deployWorkflow.split('  aws-push-container-images:')[1].split('  aws-push-lambda:')[0];
-    assert.doesNotMatch(publisherJob, /^    environment:/m, 'immutable image publication must not require a separate environment approval');
-    for (const workflow of [deployWorkflow, initializeWorkflow]) {
-      assert.match(workflow, /uses: \.\/\.github\/actions\/resolve-container-images/);
-      assert.match(workflow, /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);
-    }
-    const build = workflowStep('container-images.yml', 'Build local image');
-    assert.match(build, /bash ci\/container-images\/\$\{IMAGE_ID\}\/smoke\.sh "\$IMAGE"/);
-    assert.doesNotMatch(build, /periodic-matcher|search-filter-periodic-match|matcher-smoke/);
-    run(process.execPath, ['ci/container-images.cjs', 'validate'], directory, env);
-    const matrix = JSON.parse(run(process.execPath, ['ci/container-images.cjs', 'matrix'], directory, env).trim().slice('matrix='.length)).include;
-    assert.deepEqual(matrix, entries);
-    for (const entry of matrix) {
-      const imageEnv = { ...env, IMAGE_ID: entry.id, IMAGE_BINARY: entry.binary, IMAGE_PLATFORM: entry.platform, IMAGE_DOCKERFILE: entry.dockerfile, IMAGE_REPOSITORY: entry.repository };
-      run('bash', ['-e', '-c', build], directory, imageEnv);
-      run('bash', ['-e', '-c', workflowStep('deploy.yml', 'Publish tested image or reuse immutable SHA tag')], directory, imageEnv);
-    }
-    assert.deepEqual(readFileSync(path.join(directory, 'smoke.log'), 'utf8').trim().split('\n'), matrix.flatMap((entry) => [
-      `${entry.id} local/${entry.id}:${sha}`,
-      `${entry.id} local/${entry.id}:${sha}-123-1`,
-    ]));
-    const pushes = readFileSync(path.join(directory, 'commands.log'), 'utf8').trim().split('\n').map(JSON.parse)
-      .filter((event) => event.tool === 'docker' && event.args[0] === 'push');
-    assert.equal(pushes.length, 2);
-    for (const entry of entries) assert.ok(pushes.some((event) => event.args[1].endsWith(`/${entry.repository}:git-${sha}`)));
-
-    run(process.execPath, ['.github/actions/resolve-container-images/resolve.mjs'], directory, env);
-    const digests = JSON.parse(readFileSync(env.GITHUB_OUTPUT, 'utf8').trim().slice('digests='.length));
-    assert.deepEqual(digests, { PeriodicMatcherImageDigest: firstDigest, SecondImageDigest: secondDigest });
-    const stack = path.join(directory, 'compute-stack.json');
-    const digestFile = path.join(directory, 'digests.json');
-    writeFileSync(stack, '');
-    writeFileSync(digestFile, JSON.stringify(digests));
-    const initialized = JSON.parse(run(process.execPath, ['ci/container-images.cjs', 'initialize-update', '--stack-file', stack, '--commit-sha', sha, '--digests', digestFile], directory, env));
-    assert.deepEqual(initialized.parameters, { CommitSHA: sha, ...digests });
-
-    run('bash', ['-e', '-c', workflowStep('deploy.yml', 'Deploy foundation or migrate and update initialized application')], directory, { ...env, CONTAINER_IMAGE_DIGESTS: JSON.stringify(digests) });
-    const commands = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
-    const compute = commands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
-    assert.equal(compute.length, 1);
-    const expectedParameters = [`application-dev-compute:CommitSHA=${sha}`, ...Object.entries(digests).map(([key, value]) => `application-dev-compute:${key}=${value}`)].sort();
-    const passedParameters = (args) => args.flatMap((arg, index) => arg === '--parameters' ? [args[index + 1]] : []).sort();
-    assert.deepEqual(passedParameters(compute[0].args), expectedParameters);
-    assert.match(readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'), /second-image: arn:aws:ecs:/);
-
-    writeFileSync(path.join(directory, 'initialize-compute-update.json'), JSON.stringify(initialized));
-    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], directory, env);
-    const afterInitialize = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
-    const initializeCompute = afterInitialize.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
-    assert.equal(initializeCompute.length, 2);
-    assert.deepEqual(passedParameters(initializeCompute[1].args), expectedParameters);
-    assert.match(readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'), /Initialized container image release/);
-    assert.ok(!initializeCompute[1].args.includes('--import-existing-resources'));
-
-    const importEnv = { ...env, TEST_ARCHIVE_IMPORT: '1', CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: 'aura-historia-cdc-router-failures-dev', AWS_REGION: 'us-east-1', CONTAINER_IMAGE_DIGESTS: JSON.stringify(digests) };
-    const beforeFoundation = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse).filter((event) => event.tool === 'aws' && event.args[0] === 'lambda' && event.args[1] === 'invoke').length;
-    run('bash', ['-e', '-c', workflowStep('deploy.yml', 'Deploy foundation or migrate and update initialized application')], directory, importEnv);
-    const afterFoundation = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse).filter((event) => event.tool === 'aws' && event.args[0] === 'lambda' && event.args[1] === 'invoke').length;
-    assert.equal(afterFoundation, beforeFoundation, 'Deploy must leave import and migration to Initialize');
-    const invalid = spawnSync('bash', ['-e', '-c', workflowStep('initialize.yml', 'Require deployed foundation at the selected SHA')], { cwd: directory, env: { ...importEnv, CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: 'unexpected-bucket' }, encoding: 'utf8' });
-    assert.notEqual(invalid.status, 0);
-    assert.match(invalid.stderr, /expected stage bucket/);
-    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Require deployed foundation at the selected SHA')], directory, importEnv);
-    assert.equal(readFileSync(stack, 'utf8'), '');
-    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], directory, importEnv);
-    const importedCommands = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
-    const importedCompute = importedCommands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
-    assert.equal(importedCompute.length, 3);
-    assert.ok(importedCompute[2].args.includes('--import-existing-resources'));
-    assert.ok(importedCompute[2].args.includes('prepare-change-set'));
-    assert.deepEqual(passedParameters(importedCompute[2].args), expectedParameters);
-    assert.ok(importedCommands.some((event) => event.tool === 'aws' && event.args[0] === 'cloudformation' && event.args[1] === 'execute-change-set'));
-    const importedApi = importedCommands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-api'));
-    assert.ok(importedApi.every((event) => !event.args.includes('--import-existing-resources')));
-
-    writeFileSync(stack, '');
-    const unsafe = spawnSync('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], { cwd: directory, env: { ...importEnv, TEST_BAD_IMPORT: '1' }, encoding: 'utf8' });
-    assert.notEqual(unsafe.status, 0);
-    assert.match(unsafe.stderr, /does not import exactly/);
-    const afterUnsafe = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
-    assert.equal(afterUnsafe.filter((event) => event.tool === 'aws' && event.args[1] === 'execute-change-set').length, 1);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
+test('a second catalog image builds, publishes, reuses, resolves, and reaches the real deploy script', (t) => {
+  const f = fixture(t);
+  const build = workflowStep('container-images.yml', 'Build local image');
+  f.run(process.execPath, ['ci/container-images.cjs', 'validate']);
+  const matrix = JSON.parse(f.run(process.execPath, ['ci/container-images.cjs', 'matrix']).trim().slice('matrix='.length)).include;
+  assert.deepEqual(matrix, f.entries);
+  for (const entry of matrix) {
+    f.run('bash', ['-e', '-c', build], f.imageEnv(entry));
+    const result = f.publish(entry);
+    assert.equal(result.status, 0, result.stderr);
   }
+  const pushes = () => f.events().filter((event) => event.tool === 'docker' && event.args[0] === 'push');
+  assert.equal(pushes().length, matrix.length);
+  for (const entry of matrix) assert.ok(pushes().some((event) => event.args[1].endsWith(`/${entry.repository}:git-${sha}`)));
+  assert.deepEqual(f.events().filter((event) => event.tool === 'smoke').map((event) => event.args), matrix.flatMap((entry) => [
+    [entry.id, `local/${entry.id}:${sha}`], [entry.id, `local/${entry.id}:${sha}-123-1`],
+  ]));
+
+  const beforeReuse = f.events().length;
+  for (const entry of matrix) {
+    const result = f.publish(entry);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const reused = f.events().slice(beforeReuse);
+  assert.ok(!reused.some((event) => event.tool === 'smoke' || (event.tool === 'docker' && ['build', 'tag', 'push'].includes(event.args[0]))));
+  assert.equal(reused.filter((event) => event.tool === 'docker' && event.args[0] === 'pull').length, matrix.length);
+  assert.equal(reused.filter((event) => event.tool === 'docker' && event.args[0] === 'image').length, matrix.length);
+
+  f.run(process.execPath, ['.github/actions/resolve-container-images/resolve.mjs']);
+  const digests = JSON.parse(f.read('github-output').trim().slice('digests='.length));
+  assert.deepEqual(digests, f.digests);
+  const result = f.deploy({ CONTAINER_IMAGE_DIGESTS: JSON.stringify(digests) });
+  assert.equal(result.status, 0, result.stderr);
+  const deployments = assertDeployments(f, ['network', 'data', 'initialize', 'compute', 'api']);
+  const compute = deployments.find((event) => event.args[6] === 'application-dev-compute');
+  const parameters = compute.args.flatMap((arg, index) => arg === '--parameters' ? [compute.args[index + 1]] : []);
+  assert.deepEqual(parameters.sort(), Object.entries({ CommitSHA: sha, ...digests }).map(([key, value]) => `application-dev-compute:${key}=${value}`).sort());
+  for (const entry of matrix) {
+    assert.ok(f.read('summary').includes(`- Registry digest: ${digests[entry.digestParameter]}`));
+    assert.ok(f.read('summary').includes(`${entry.id}: arn:aws:ecs:eu-central-1:123456789012:task-definition/${entry.id}:1 (${entry.taskDefinitionOutput})`));
+  }
+});
+
+test('a competing immutable publisher is verified and smoke-tested without retrying the push', (t) => {
+  const f = fixture(t, { pushFailure: 'competing' });
+  const result = f.publish();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.events().filter((event) => event.tool === 'docker' && event.args[0] === 'push').length, 1);
+  assert.deepEqual(f.events().filter((event) => event.tool === 'smoke').map((event) => event.args[1]), [
+    `local/second-image:${sha}-123-1`, `123456789012.dkr.ecr.eu-central-1.amazonaws.com/aura-historia-second-image@${secondDigest}`,
+  ]);
+  assert.match(f.read('summary'), /Build workflow identity: https:\/\/github.com\/org\/repo\/actions\/runs\/456\/attempts\/2/);
+});
+
+for (const options of [{ smokeFailure: 'remote' }, { badMetadata: 'com.aura-historia.build-workflow' }]) {
+  test(`a competing publication must pass ${options.smokeFailure ? 'its own smoke test' : 'provenance verification'}`, (t) => {
+    const f = fixture(t, { pushFailure: 'competing', ...options });
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /smoke test failed|Image metadata does not match/);
+    assert.equal(f.events().filter((event) => event.tool === 'docker' && event.args[0] === 'push').length, 1);
+    assert.equal(f.read('summary'), '');
+  });
+}
+
+test('a failed push with no trusted registry image stops without retrying or claiming success', (t) => {
+  const f = fixture(t, { pushFailure: 'missing' });
+  const result = f.publish();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /No trusted registry image/);
+  assert.equal(f.events().filter((event) => event.tool === 'docker' && event.args[0] === 'push').length, 1);
+  assert.equal(f.read('summary'), '');
+});
+
+for (const ecrFailure of ['AccessDeniedException', 'RepositoryNotFoundException']) {
+  test(`publication never treats ${ecrFailure} as a missing image`, (t) => {
+    const f = fixture(t, { ecrFailure });
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(ecrFailure));
+    assert.ok(!f.events().some((event) => event.tool === 'docker' && ['build', 'tag', 'push'].includes(event.args[0])));
+    assert.equal(f.read('summary'), '');
+  });
+}
+
+for (const ecrResponse of ['invalid-digest', 'wrong-tag']) {
+  test(`publication rejects ${ecrResponse} rather than replacing an immutable image`, (t) => {
+    const f = fixture(t, { existingImages: true, ecrResponse });
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /invalid digest or tag association/);
+    assert.ok(!f.events().some((event) => event.tool === 'docker' && event.args[0] !== 'login'));
+    assert.equal(f.read('summary'), '');
+  });
+}
+
+for (const badMetadata of ['Os', 'Architecture', 'org.opencontainers.image.revision', 'org.opencontainers.image.source', 'org.opencontainers.image.title', 'com.aura-historia.build-workflow']) {
+  test(`reusing an image verifies ${badMetadata} without overwriting it`, (t) => {
+    const f = fixture(t, { existingImages: true, badMetadata });
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Image metadata does not match/);
+    assert.ok(!f.events().some((event) => event.tool === 'docker' && ['build', 'tag', 'push'].includes(event.args[0])));
+    assert.equal(f.read('summary'), '');
+  });
+}
+
+for (const options of [{ smokeFailure: true }, { badMetadata: 'org.opencontainers.image.revision', badMetadataPhase: 'local' }]) {
+  test(`new images must pass ${options.smokeFailure ? 'smoke tests' : 'metadata verification'} before publication`, (t) => {
+    const f = fixture(t, options);
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /smoke test failed|Image metadata does not match/);
+    assert.ok(!f.events().some((event) => event.tool === 'docker' && ['tag', 'push'].includes(event.args[0])));
+    assert.equal(f.read('summary'), '');
+  });
+}
+
+const absentStacks = ['network', 'data', 'initialize', 'compute', 'api'];
+for (const scenario of [
+  { name: 'first-time auto scope deploys foundation only', options: { absentStacks }, env: {}, expected: ['network', 'data', 'initialize'] },
+  { name: 'explicit all scope admits first-time compute and API', options: { absentStacks }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
+  { name: 'foundation scope skips compute and API without comparing migration sources', options: { gitDiffExitCode: 128 }, env: { DEPLOY_SCOPE: 'foundation' }, expected: ['network', 'data', 'initialize'] },
+  { name: 'production application deployment includes observability', options: {}, env: { STAGE: 'prod' }, expected: ['network', 'data', 'initialize', 'compute', 'api', 'observability'] },
+]) {
+  test(scenario.name, (t) => {
+    const f = fixture(t, scenario.options);
+    const result = f.deploy(scenario.env);
+    assert.equal(result.status, 0, result.stderr);
+    assertDeployments(f, scenario.expected, scenario.env.STAGE ?? 'dev');
+    assert.match(f.read('summary'), scenario.expected.includes('compute') ? /Application deployed/ : /Foundation deployed — application not deployed/);
+    const events = f.events();
+    const firstMutation = events.findIndex((event) => event.tool === 'ensure-dms-vpc-role');
+    const preflight = events.slice(0, firstMutation).filter((event) => event.tool === 'aws');
+    assert.equal(preflight.length, scenario.env.STAGE === 'prod' ? 6 : 5, 'All stacks must be preflighted before mutation');
+    const comparesSources = (scenario.env.DEPLOY_SCOPE ?? 'auto') === 'auto' && !scenario.options.absentStacks?.includes('compute');
+    assert.equal(events.filter((event) => event.tool === 'git').length, comparesSources ? 1 : 0);
+    if (!scenario.expected.includes('compute')) assert.doesNotMatch(f.read('summary'), /task-definition\//);
+  });
+}
+
+for (const gitDiffExitCode of [0, 1]) {
+  test(`auto scope ${gitDiffExitCode === 0 ? 'updates the application when migration sources are unchanged' : 'deploys only foundation when migration sources changed'}`, (t) => {
+    const currentSha = 'd'.repeat(40);
+    const f = fixture(t, { computeCommitSha: currentSha, gitDiffExitCode });
+    const result = f.deploy();
+    assert.equal(result.status, 0, result.stderr);
+    assertDeployments(f, gitDiffExitCode === 0 ? ['network', 'data', 'initialize', 'compute', 'api'] : ['network', 'data', 'initialize']);
+    const events = f.events();
+    assert.deepEqual(events.filter((event) => event.tool === 'git').map((event) => event.args), [[
+      '--no-pager', 'diff', '--quiet', currentSha, sha,
+      '--', 'migrations', 'infra/sql', 'src/database-migration-lambda',
+    ]]);
+    const diffIndex = events.findIndex((event) => event.tool === 'git');
+    assert.equal(diffIndex, 5, 'All stacks must be inspected before comparing migration sources');
+    assert.ok(diffIndex < events.findIndex((event) => event.tool === 'ensure-dms-vpc-role'));
+    if (gitDiffExitCode === 1) {
+      assert.match(f.read('summary'), /Foundation deployed — application not deployed/);
+      assert.match(f.read('summary'), /Migration sources changed: true/);
+      assert.match(f.read('summary'), /scope=all/);
+      assert.doesNotMatch(f.read('summary'), /task-definition\//);
+    } else {
+      assert.match(f.read('summary'), /Application deployed/);
+    }
+  });
+}
+
+test('explicit all scope acknowledges migration readiness without comparing sources', (t) => {
+  const f = fixture(t, { gitDiffExitCode: 1 });
+  const result = f.deploy({ DEPLOY_SCOPE: 'all' });
+  assert.equal(result.status, 0, result.stderr);
+  assertDeployments(f, ['network', 'data', 'initialize', 'compute', 'api']);
+  assert.equal(f.events().filter((event) => event.tool === 'git').length, 0);
+  assert.match(f.read('summary'), /Application deployed/);
+});
+
+test('a Git lookup failure halts auto deployment before any mutation', (t) => {
+  const f = fixture(t, { gitDiffExitCode: 128 });
+  const result = f.deploy();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot compare migration sources; no stacks were changed/);
+  assertNoMutation(f, 1);
+});
+
+for (const computeCommitSha of [null, '', 'a'.repeat(39), 'A'.repeat(40), 'g'.repeat(40)]) {
+  test(`auto scope rejects ${computeCommitSha === null ? 'a missing' : `invalid ${JSON.stringify(computeCommitSha)}`} compute CommitSHA before Git or mutations`, (t) => {
+    const f = fixture(t, { computeCommitSha });
+    const result = f.deploy();
+    assert.notEqual(result.status, 0);
+    if (computeCommitSha !== null) assert.match(result.stderr, /malformed CommitSHA/);
+    assertNoMutation(f);
+  });
+}
+
+test('stack permission errors halt before the DMS role or any deployment is changed', (t) => {
+  const f = fixture(t, { deniedStack: 'api' });
+  const result = f.deploy();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /AccessDeniedException/);
+  assertNoMutation(f);
+});
+
+for (const status of ['CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_FAILED', 'CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS', 'REVIEW_IN_PROGRESS', 'DELETE_IN_PROGRESS']) {
+  test(`${status} stacks halt before any mutation, including foundation-only deployment`, (t) => {
+    const f = fixture(t, { stackStatuses: { compute: status } });
+    const result = f.deploy({ DEPLOY_SCOPE: 'foundation' });
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(`compute is ${status}; repair it before deployment.`));
+    assertNoMutation(f);
+  });
+}
+
+test('production observability is checked before mutating foundation', (t) => {
+  const f = fixture(t, { stackStatuses: { observability: 'UPDATE_IN_PROGRESS' } });
+  const result = f.deploy({ STAGE: 'prod' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /observability is UPDATE_IN_PROGRESS/);
+  assertNoMutation(f);
+});
+
+test('an incomplete catalog digest set halts before any mutation', (t) => {
+  const f = fixture(t);
+  const result = f.deploy({ CONTAINER_IMAGE_DIGESTS: JSON.stringify({ [f.entries[0].digestParameter]: firstDigest }) });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Resolved digest map must contain exactly/);
+  assertNoMutation(f);
 });

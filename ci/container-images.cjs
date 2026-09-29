@@ -248,43 +248,6 @@ function prepareNewTemplateUpdate(stackDocument, sha, digestByParameter, catalog
   });
 }
 
-function preparePreviousTemplateUpdate(stackDocument, sha, digestByParameter, catalog) {
-  requireString(sha, 'source commit SHA', SHA_PATTERN);
-  validateDigestMap(digestByParameter, catalog);
-  const stack = stackDocument?.Stacks?.[0];
-  const parameters = stack?.Parameters;
-  if (!Array.isArray(parameters)) throw new Error('Previous-template compute stack has no valid Parameters array.');
-  const present = validateNewTemplateParameters(parameters, catalog);
-  const commitSha = parameterValues(parameters, 'CommitSHA');
-  if (commitSha.length !== 1 || typeof commitSha[0].ParameterValue !== 'string' || !SHA_PATTERN.test(commitSha[0].ParameterValue)) {
-    throw new Error('Compute stack must have exactly one valid CommitSHA parameter.');
-  }
-  for (const key of activationParameters(catalog)) {
-    if (!present.has(key)) throw new Error(`Unsupported historical compute template: missing ${key}; deploy an infrastructure-bearing release first.`);
-  }
-  for (const image of catalog) {
-    if (!present.has(image.digestParameter)) {
-      throw new Error(`Unsupported historical compute template: missing ${image.digestParameter}; deploy an infrastructure-bearing release first.`);
-    }
-  }
-  const outputs = stack.Outputs;
-  for (const image of catalog) {
-    const matches = Array.isArray(outputs) ? outputs.filter((output) => output && output.OutputKey === image.taskDefinitionOutput) : [];
-    if (matches.length !== 1 || !validTaskDefinitionArn(matches[0].OutputValue)) {
-      throw new Error(`Unsupported historical compute template: missing or invalid ${image.taskDefinitionOutput}; deploy an infrastructure-bearing release first.`);
-    }
-  }
-  const unchanged = commitSha[0].ParameterValue === sha && catalog.every((image) => present.get(image.digestParameter) === digestByParameter[image.digestParameter]);
-  const updates = parameters.map((parameter) => {
-    if (parameter.ParameterKey === 'CommitSHA') return { ParameterKey: 'CommitSHA', ParameterValue: sha };
-    if (Object.prototype.hasOwnProperty.call(digestByParameter, parameter.ParameterKey)) {
-      return { ParameterKey: parameter.ParameterKey, ParameterValue: digestByParameter[parameter.ParameterKey] };
-    }
-    return { ParameterKey: parameter.ParameterKey, UsePreviousValue: true };
-  });
-  return Object.freeze({ unchanged, parameters: updates });
-}
-
 function validTaskDefinitionArn(value) {
   return typeof value === 'string' && /^arn:[^:]+:ecs:[^:]+:\d{12}:task-definition\/[A-Za-z0-9_-]+:\d+$/.test(value);
 }
@@ -352,25 +315,14 @@ function main(argv = process.argv.slice(2)) {
     for (const result of results) process.stdout.write(`- ${result.id}: ${result.value} (${result.output})\n`);
     return;
   }
-  if (command === 'validate-new-template') {
-    const stackDocument = JSON.parse(fs.readFileSync(options['stack-file'], 'utf8'));
-    validateNewTemplateParameters(stackDocument?.Stacks?.[0]?.Parameters, catalog);
-    return;
-  }
-  if (command === 'initialize-update') {
+  if (command === 'deploy-parameters') {
     const stackText = fs.readFileSync(options['stack-file'], 'utf8');
     const stackDocument = stackText.trim() ? JSON.parse(stackText) : null;
     const digests = JSON.parse(fs.readFileSync(options.digests, 'utf8'));
     process.stdout.write(`${JSON.stringify(prepareNewTemplateUpdate(stackDocument, options['commit-sha'], digests, catalog))}\n`);
     return;
   }
-  if (command === 'previous-update') {
-    const stackDocument = JSON.parse(fs.readFileSync(options['stack-file'], 'utf8'));
-    const digests = JSON.parse(fs.readFileSync(options.digests, 'utf8'));
-    process.stdout.write(`${JSON.stringify(preparePreviousTemplateUpdate(stackDocument, options['commit-sha'], digests, catalog))}\n`);
-    return;
-  }
-  throw new Error('Usage: container-images.cjs validate|matrix|resolve-one|resolve-all|task-outputs|validate-new-template|initialize-update|previous-update [options].');
+  throw new Error('Usage: container-images.cjs validate|matrix|resolve-one|resolve-all|task-outputs|deploy-parameters [options].');
 }
 
 if (require.main === module) {
@@ -390,7 +342,6 @@ module.exports = {
   extractTaskDefinitionOutputs,
   loadCatalog,
   prepareNewTemplateUpdate,
-  preparePreviousTemplateUpdate,
   resolveImage,
   resolveImages,
   validateCatalog,

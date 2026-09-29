@@ -84,6 +84,7 @@ Synth creates these stacks per stage:
 
 - `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
 - `application-{stage}-data` — private RDS PostgreSQL and DMS/Kinesis CDC in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
+- `application-{stage}-initialize` — real-stage private PostgreSQL migrator and FX Lambdas; deployment does not invoke them
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and (real stages only) the periodic matcher task
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
@@ -95,7 +96,7 @@ The network stack is absent for `ephemeral`: LocalStack synthesis does not decla
 npm run cdk -- deploy application-prod-network -c stage=prod -c account=123456789012 -c region=eu-central-1
 ```
 
-The app rejects a non-12-digit account context and an explicitly selected real-stage region other than `eu-central-1`. Template-only synth without an account ignores an ambient CI runner region and uses `eu-central-1`; a deployment must select the approved account explicitly. Deploy network, then data, then compute; data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
+The app rejects a non-12-digit account context and an explicitly selected real-stage region other than `eu-central-1`. Template-only synth without an account ignores an ambient CI runner region and uses `eu-central-1`; a deployment must select the approved account explicitly. Deploy network, then data and initialize; create compute only through the [first-time stage procedure](#first-time-stage). Data imports the VPC for RDS and compute imports the RDS endpoint plus runtime credential dynamic references. The `cloudwatch-log-retention-lambda` remains outside the VPC. This F3/F4 declaration started from `develop` SHA `dc1ae85af84ee53cf1e8c678e7453017da1ccd56`; it is not live-provisioning evidence.
 
 The `dev` AWS environment is configured to serve the staging API at `https://api.stage.aura-historia.com`
 with only the exact CloudFront alias `api.stage.aura-historia.com`; it does not own
@@ -109,29 +110,20 @@ Neither synth nor this README verifies live certificates, alias ownership, or DN
 See [HTTP API front door](../docs/http-api-front-door.md#deployment-cutover-and-rollback)
 for the approval, cutover, consumer handoff, smoke-check, and rollback gates.
 
-Forward deployment uses CDK CloudFormation change sets (`--method change-set`),
-never hotswap. Manual artifact rollback uses the existing CloudFormation templates,
-not historical CDK source or infrastructure templates.
+For stage stacks, every Deploy trigger, including rollback, uses the selected
+source's CDK CloudFormation change sets (`--method change-set`), never hotswap or an
+artifact-only update of previous templates. See [deployment inputs](#deployment-inputs)
+for source selection, scopes and operator gates.
 
-A retained CDC router failure-archive bucket can outlive a failed/deleted compute
-stack. For a reviewed one-time recovery, set the repository GitHub variable
-`S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_DEV` (or the `_PROD` counterpart) to
-exactly `aura-historia-cdc-router-failures-<stage>`. Protected Initialize verifies
-that the bucket is in the deploy role's account and region, unowned by another
-CloudFormation stack, publicly blocked, AES-256 encrypted, and configured with
-90-day expiry. It accepts an empty `REVIEW_IN_PROGRESS` compute stack left by a
-failed CREATE change set. Push Deploy advances only the foundation when that
-empty shell exists, leaving migrations and import to Initialize. Only when
-compute is missing or empty does Initialize prepare an import-enabled compute
-change set, verify that its sole imported resource is
-the expected archive bucket, and then execute it. API and ordinary Deploy never
-import. CloudFormation then owns the original bucket and its retained contents;
-do not delete or rename it. CDK's import switch can adopt **any** eligible named
-resource, so a change set containing other imports fails closed for operator
-review. If the bucket is owned by another stack, repair that ownership
-separately. Clear the variable after a successful import. Initialize still runs
-migrations, captures FX, and activates compute consumers; obtain the usual
-environment/handoff approvals first.
+Normal Deploy, Migrate and Initialize never import retained resources. A CDC
+router failure-archive bucket left by a failed/deleted compute stack requires
+[explicit operator CloudFormation resource import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery).
+The former `S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_DEV` / `_PROD` GitHub
+variables are no longer used. Automatic adoption was removed because CDK's broad
+import switch can adopt unrelated named resources; normal release approval is
+not resource-ownership recovery approval.
+
+### Release artifact contract
 
 Deployments do not require a full CDK bootstrap stack in the target account/region.
 Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
@@ -142,58 +134,43 @@ referenced by digest in each real-stage compute stack; it is not a Lambda ZIP or
 CDK Docker asset. The stage-neutral ECR owner is independently synthesizable without
 compute parameters, Docker, AWS lookups, or secret values.
 
-A push builds and uploads 19 Lambda ZIPs as `<binary>-<stage>-<commit-sha>.zip`
-and the tracked MJML templates as `<stage>/<commit-sha>/mjml/<template-path>.html`
-(for example, `dev/<sha>/mjml/watchlist/product-update/price/en.html`).
-`CommitSHA` is the full Git commit SHA, not the PR head SHA. The compiler is installed
-with `npm --prefix mjml ci` from the checked-in lockfile. These artifacts remain
-stage-local; manual Deploy selects existing keys and never builds or copies across
-stages. Ordinary S3 ZIP/template uploads can overwrite an existing SHA key and do
-not guarantee byte immutability.
+Every Deploy trigger, including rollback, pins all application jobs to the resolved
+full `CommitSHA`: source, lockfiles, helper tools and stage CDK code. **After the
+selected-release checkout**, source-versioned `ci/lambda-binaries.json` and
+`ci/container-images.json` generate the Lambda and container publishing matrices.
+Lambda ZIPs use `<binary>-<stage>-<commit-sha>.zip`; compiled MJML uses
+`<stage>/<commit-sha>/mjml/<template-path>.html`. The MJML compiler comes from that
+source's lockfile via `npm --prefix mjml ci`.
 
-ECS images are described by the non-secret `ci/container-images.json` catalog. CDK
-validation exposes that catalog as the publishing matrix. Every Deploy (CD) run
-reconciles the independent retained ECR artifact stack after infrastructure tests,
-before publishing images (on push) or deploying the application. Manual
-`workflow_dispatch` updates and rollbacks skip image publication: they resolve
-already-published immutable SHA tags in the reconciled repositories and preflight
-stage mail artifacts. Stage-specific Lambda ZIPs must also have been uploaded for
-the selected SHA; the manual path does not build or upload them. A failed artifact
-reconciliation or missing registry image blocks deployment before compute changes.
-Each push publishes every catalog entry through the same generic job; immutable
-image publication itself does not select a protected deployment environment. For a
-new SHA tag, that job builds one local image, runs the image-owned `ci/container-images/<id>/smoke.sh`, and only then
-adds and pushes the immutable `git-<full-sha>` release tag. Existing tags are reused
-without rebuilding. The registry digest is resolved from ECR; it is not inferred
-from a local image ID. Deploy, Initialize, and manual artifact rollback use the
-shared resolver to query every required repository/SHA tag and pass a complete
-parameter-to-digest map. Matrix jobs do not publish a colliding shared digest job
-output. The container PR workflow builds and tests images without AWS credentials.
-All required artifacts must resolve before migration or compute/API admission.
+ZIPs and mail templates remain stage-local, never copied between stages. Existing
+stage/SHA objects are reused and **never overwritten**; missing artifacts are
+rebuilt from the selected source and first uploaded with conditional S3
+`If-None-Match: *` (`--if-none-match '*'`) writes. A concurrent publisher must not
+fall back to an unconditional overwrite. This rule also applies to manual Deploy
+and rollback; it does not retroactively prove legacy-object provenance.
 
-For a compatible artifact rollback, manually dispatch Deploy with `stage` and an
-older, already uploaded `commit_sha`. The current workflow definition runs the
-operation; the supplied SHA selects artifacts, not historical CDK code or workflow
-logic. It requires complete application stacks and uses their *previous
-CloudFormation templates*, updating initialization `CommitSHA` and compute
-`CommitSHA` plus every digest parameter in the selected image catalog, while
-preserving every other compute parameter, including `PeriodicMatcherEnabled` and
-`CdcRouterEnabled`. The previous compute template must already support every catalog
-digest parameter and the stable task-definition output; otherwise Deploy stops with an
-infrastructure-upgrade instruction before changing either stack.
-The no-op check compares the source SHA and the complete digest map. Rollback does not
-execute the older embedded migrator or initial FX, alter schema history, or roll back
-network, data, domain or API policy. SQLx 0.9.0 rejects migrations absent from or
-changed in the embedded migration set; normal forward migrations retain this
-validation. Choose artifacts compatible with the current templates, newer database
-schema, retained schema-2 jobs and provider/template contracts; arbitrary historical
-infrastructure rollback or old releases missing required binaries are not supported.
-Adding a catalog image changes the compute release contract. Historical commits
-without a compatible retained image for every current catalog entry are not
-automatically rollback-compatible. Use a separately reviewed infrastructure/template
-compatibility path; never substitute `latest` or rebuild a missing historical artifact.
-This two-stack update is not atomic; already committed writes, email and provider
-effects are not undone.
+Existing immutable ECR `git-<full-sha>` images are reused across stages. A missing
+image is built from the selected release, passes its
+`ci/container-images/<id>/smoke.sh`, then receives the immutable tag; never substitute
+`latest`. Deploy resolves registry digests for the complete selected catalog and
+passes the parameter-to-digest map to CDK. Unresolved required artifacts or failed
+repository reconciliation block deployment.
+
+**Shared ECR ownership exception:** `aura-historia-container-artifacts` is
+stage-neutral account infrastructure, not release infrastructure. After acquiring
+the global `aws-container-artifact-stack` job concurrency slot and passing the
+`aws-<stage>` environment gate, its job checks out **latest `develop`**, builds/tests
+the shared artifact infrastructure, then reconciles repositories. Never deploy a
+historical release's repository definitions during application rollback: that can
+orphan newer retained repositories and make later recreation fail. Keep the shared
+repository catalog **append-only** unless an operator explicitly reviews resource
+removal/import. Application matrices, publishing and stage deployment still use
+the selected release SHA, not this shared-infrastructure checkout.
+
+All AWS jobs, including shared ECR reconciliation and every image/ZIP/mail publisher,
+pass the stage environment policy before obtaining credentials. The container PR
+workflow builds/tests without AWS credentials. Migrate and FX-only Initialize
+invoke deployed functions only; neither publishes artifacts nor updates compute.
 
 ## Periodic saved-filter matcher (#1843)
 
@@ -201,7 +178,7 @@ The real-stage compute stack declares a standalone `aura-historia-periodic-match
 
 The compute stack owns one named scheduled ECS cluster per real stage and injects it into each `ScheduledEcsJob`. The cluster's logical ID `PeriodicMatcherCluster207C1F86` is frozen to preserve the CloudFormation resource during the move from matcher-owned to shared cluster; removing the override requires a CloudFormation migration. This is a migration-specific exception, not a pattern for future scheduled ECS jobs. `infra/src/constructs/scheduled-ecs-job.ts` owns each job's private Fargate task, Scheduler, IAM, DLQ, lifecycle-log and output resources. Jobs select CPU/memory and the catalog image platform (amd64 or arm64), and may add task-role grants; the matcher retains its 1024 CPU / 2048 MiB amd64 task and empty task role. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
 
-The matcher schedule is `cron(0 15 * * ? *)`, timezone `UTC`, flexible window `OFF`, task count one, Fargate platform `1.4.0`. The `PeriodicMatcherEnabled` compute parameter defaults to `false` on first creation. New-template push deploys and Initialize may introduce newly added digest parameters on an older valid compute stack; existing activation values are preserved, while a newly introduced matcher enablement parameter uses its `false` default. Manual artifact rollback changes `CommitSHA` and every catalog digest together while retaining all other parameters and using the deployed CloudFormation template. A pre-feature compute template that lacks a required digest parameter cannot use artifact-only rollback; it must first receive an infrastructure-bearing release. Push publication resolves/reuses an immutable artifact or builds and smoke-tests the selected source once before publishing its final tag. Initialize and manual Deploy only resolve existing registry artifacts and never rebuild, pull, or repeat application-specific image smoke tests. The shared resolver fails on missing or malformed artifacts before migration/admission; it never turns manual or initialization paths into a build.
+The matcher schedule is `cron(0 15 * * ? *)`, timezone `UTC`, flexible window `OFF`, task count one, Fargate platform `1.4.0`. `PeriodicMatcherEnabled` defaults to `false` on first creation; Deploy preserves its prior value on updates. Image publication and shared repository ownership follow the [release artifact contract](#release-artifact-contract); historical releases require the [rollback compatibility review](#rollback-and-stack-recovery).
 
 The image is a normal Linux/amd64 executable, not a Lambda runtime. ECS starts `search-filter-periodic-match` with no arguments; it matches once and exits. Do not set an ECS command override or use an automatic restart loop. The task starts at CPU 1024 / 2048 MiB, uses the existing private application subnets and exactly the existing `ApplicationSecurityGroup`, has no public IP, and has a separate empty task role. Its execution role retrieves only the staged runtime PostgreSQL secret and OpenSearch/Google parameters, pulls this ECR repository, and writes the named application log group. The application receives PostgreSQL JSON `username`/`password` from `/aura-historia/<stage>/postgres/runtime`; OpenSearch reader credentials and ADC are injected through ECS secret references, not plaintext CloudFormation environment values. It uses the committed public RDS CA at `/opt/aura-historia/rds-ca/global-bundle.pem`, read-only root filesystem, non-root UID/GID `10001`, and a task-local writable `/tmp` volume for private ADC materialization.
 
@@ -212,7 +189,7 @@ There are two independent failure channels:
 - Scheduler target-delivery failures go to `aura-historia-periodic-matcher-delivery-<stage>`, a dedicated encrypted Standard SQS DLQ with 14-day retention. Production alarms on visible messages through the existing `cloudwatch-alarms-prod` topic. The queue has no automatic consumer or replay.
 - ECS STOPPED events for the task-family prefix are written to `/aura-historia/<stage>/periodic-matcher-lifecycle`; production sends whitelisted nonzero-container and startup/interruption notifications through the existing alarm topic. Each EventBridge Logs target emits a JSON envelope with exactly a `timestamp` and a string `message`, for example `classification=interruption taskArn=... taskDefinitionArn=... clusterArn=... status=STOPPED stopCode=TaskFailedToStart`. The stopped and nonzero-exit rules omit `stopCode`; only the interruption rule includes it. The application log group is `/aura-historia/<stage>/periodic-matcher`. Retention is 30 days in dev and 90 days in prod. For lifecycle evidence use Logs Insights `fields @timestamp, @message | sort @timestamp desc`; filter with `@message like /classification=interruption/` or `@message like /classification=application-container-nonzero/`. Application logs are JSON; query `job = "search-filter-periodic-match"`, `stage`, `revision`, `outcome`, `duration_ms`, `window_end`, `filters_selected`, `filters_completed`, and `filters_failed`, and inspect the `message` field values `cron.matching.started`, `cron.matching.report`, `cron.matching.finished`, and `cron.matching.terminal`. A report with failed filters is incomplete and exits nonzero. `SkippedAlreadyRunning` exits successfully as an explicit exclusion, not a matched run.
 
-Neither a clear Scheduler DLQ nor these logs prove that the expected daily task completed; there is no missing-heartbeat detector or durable completion journal. Investigate a missing expected occurrence and inspect the named `periodic-matcher` container's exit/startup reason and task-definition revision. The compute stack exposes the stable `PeriodicMatcherTaskDefinitionArn` output consumed by Deploy, Initialize, and rollback summaries, alongside the matcher cluster/task/schedule/log details. Do not depend on generated nested-construct output keys for operator automation.
+Neither a clear Scheduler DLQ nor these logs prove that the expected daily task completed; there is no missing-heartbeat detector or durable completion journal. Investigate a missing expected occurrence and inspect the named `periodic-matcher` container's exit/startup reason and task-definition revision. The compute stack exposes the stable `PeriodicMatcherTaskDefinitionArn` output for release verification, alongside the matcher cluster/task/schedule/log details. FX-only Initialize does not inspect or deploy this task. Do not depend on generated nested-construct output keys for operator automation.
 
 Pause or enable future invocations only by updating `PeriodicMatcherEnabled` through the approved CloudFormation deployment path while preserving all other parameters. Do not issue `scheduler update-schedule` with a partial target. Pausing does not stop an accepted/in-flight task or retract a delivered invocation; inspect task state and retries before cutover or rollback. The planned rollout still requires separate owner approval for disabled infrastructure deployment, an approved manual task smoke, retirement/drain of any prior native trigger before enabling Scheduler, and inspection of the next daily result. Synthesis, image checks, and workflow completion are not live AWS acceptance evidence. Dev's standalone private-subnet connectivity test remains waived, not passed; the approved destination-CIDR, DNS and TLS review still applies (`docs/opensearch-stage.md`).
 
@@ -240,8 +217,8 @@ cargo lambda build --locked --release \
   --output-format zip
 ```
 
-`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI copies it to
-`<binary>-<stage>-<commit-sha>.zip`, which exactly matches
+`cargo-lambda` produces `target/lambda/<binary>/bootstrap.zip`; CI conditionally
+uploads it under `<binary>-<stage>-<commit-sha>.zip`, which exactly matches
 `src/constructs/lambdas.ts`. `aura-historia-api` is one `512 MiB` / `15 s` Rust
 Lambda package. It uses `lambda_http` for HTTP API v2 envelopes, preserves the
 native Axum router, and applies a `14 s` application request deadline. The same
@@ -338,11 +315,11 @@ npm --prefix infra test
 
 Before an approved isolated-RDS smoke, use an RDS endpoint and DNS name covered by its server certificate, inject the CA bundle path through `POSTGRES_TLS_ROOT_CERT`, and record only acquisition/reconnect durations. Prove one successful trusted connection and failure for wrong CA, wrong hostname, and plaintext; do not log credentials, connection strings, or raw provider data. Restart/credential-rotation tests require separate approval and the #1780 refresh handoff.
 
-### Credentials and protected initialization
+### Credentials and manual PostgreSQL migration
 
 The data stack generates private Secrets Manager secrets for `aura_admin`, `aura_runtime`, `aura_migrator`, and `aura_replication`. It emits no secret ARN, value, password, username, or connection string as an output. Real application PostgreSQL Lambdas receive the runtime secret ARN only, with direct `GetSecretValue` permission on that one secret and through the dedicated application endpoint. They request `AWSCURRENT` at invocation start, key a full pool-and-handler/router composition cache by secret version ID, and do not close a leased old pool beneath active work. AWS secret rotation itself remains an operator-owned action; this code does not create or mutate a rotation schedule.
 
-Real stages also include `database-migration-lambda-<stage>`. It has no public URL, API route, schedule, or event source. It runs in private application subnets with `MigrationSecurityGroup`, reads exactly the four role-secret ARNs through the private endpoint, uses the committed RDS CA with `VerifyFull`, holds a PostgreSQL advisory lock, bootstraps roles/extensions as `aura_admin`, then applies embedded root SQLx migrations as `aura_migrator`. It returns only safe success/failure categories. Protected `Initialize (CD)` and later approved push Deploys invoke it synchronously before new application admission; manual artifact-only Deploy never invokes it. CloudFormation and runtime never invoke migrations. The CI deploy role needs exact `lambda:InvokeFunction` access to it and `fxrate-lambda-<stage>` (FX for Initialize only); it never reads database secrets.
+Real stages also include `database-migration-lambda-<stage>`. It has no public URL, API route, schedule, or event source. It runs in private application subnets with `MigrationSecurityGroup`, reads exactly the four role-secret ARNs through the private endpoint, uses the committed RDS CA with `VerifyFull`, holds a PostgreSQL advisory lock, bootstraps roles/extensions as `aura_admin`, then applies embedded root SQLx migrations as `aura_migrator`. It returns only safe success/failure categories. Only manual `Migrate (CD)` (`.github/workflows/migrate.yml`) invokes it synchronously. Deploy never runs migrations; `Initialize (CD)` invokes only FX. CloudFormation and business application startup never invoke migrations; crawler-local startup migrations are outside this AWS deployment contract. The CI deploy role needs exact `lambda:InvokeFunction` access to the stage migrator and `fxrate-lambda-<stage>` for their respective manual operations; it never reads database secrets. See [manual operations](#manual-operations) for deployed-SHA and result checks.
 
 `sql/rds-bootstrap-roles.sql` remains a break-glass psql wrapper around the same static core SQL. Use approved secret injection, never command-line or shell-history passwords. The RDS administrator receives membership in `aura_migrator`, and `aura_migrator` receives database `CREATE`, before public-schema ownership changes. The core roles remain scoped: `aura_migrator` owns `public` and creates schema objects; `aura_runtime` has runtime DML and sequence privileges; `aura_replication` has source-table read privileges plus `rds_replication`, but no DDL. The initial migration uses standard RDS `pg_trgm` and `unaccent`; it does not require `pg_ttl_index`.
 
@@ -352,7 +329,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis plus shared Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Neither deployment workflow starts, resets, creates, or recreates a task, slot, or checkpoint. Before push deployment of the data stack, the protected Deploy workflow bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Deploy may declare a new stopped task; no workflow starts/resets an existing task or creates/replaces a slot or checkpoint. Before data-stack deployment, Deploy bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
 
 From `infra/`, the existing configuration checks are:
 
@@ -366,12 +343,12 @@ They do not deploy or exercise AWS. The AWS fixture procedure is documented/manu
 
 ## Target artifact boundary
 
-On pushes, `Deploy (CD)` builds and publishes only the Rust Lambda ZIP catalog
-referenced by CDK, including the ten scoped worker Lambdas and `cdc-router-lambda`,
-and the compiled mail templates. The approved deploy job references the stage-local
-uploaded artifacts by `CommitSHA`. Neither path
-builds, uploads, configures, or deploys the legacy native `aura-historia-worker`
-artifact or Sequin ingress. Native process deployment remains externally owned;
+On every trigger, `Deploy (CD)` builds/reuses the selected source's Rust Lambda
+ZIP catalog referenced by CDK, including the ten scoped worker Lambdas and
+`cdc-router-lambda`, compiled mail templates, and cataloged ECS images. Deployment
+references stage-local S3 artifacts by `CommitSHA` and images by registry digest.
+It never builds, uploads, configures, or deploys the legacy native
+`aura-historia-worker` artifact or Sequin ingress. Native process deployment remains externally owned;
 this change does not pause consumers or activate the DMS/Kinesis path.
 
 ## Worker queue contract
@@ -382,8 +359,8 @@ queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
 `product-embedding`, `product-translation`, `search-filter-projection`,
 `search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`, and
 `notification-delivery` queues have retained Lambda mappings in every compute stack.
-Compute is created only by Initialize after migration and initial FX; these mappings
-are active when created. This catalog remains separate from Shopify resources and wiring.
+First compute creation requires manual Deploy `scope=all` after verified migration,
+initial FX and the other operator prerequisites; these mappings are active when created. This catalog remains separate from Shopify resources and wiring.
 
 Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 
@@ -417,12 +394,12 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-listing-normalization` | `ProductListingNormalization` | 270s |
 | `notification-delivery` | `NotificationDelivery` | 330s |
 
-`product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings default to disabled; each resource, function version, queue pair, and IAM role stay present while off. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
+`product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings are active at compute creation; an operator-approved pause must preserve each resource, function version, queue pair and IAM role. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
 only after pausing the corresponding native consumer and settling in-flight work:
-Initialize creates compute with the Lambda mappings already active. Never run both
+manual Deploy `scope=all` creates compute with the Lambda mappings already active. Never run both
 consumers. Returning control to native work needs an explicitly reviewed mapping
 change before resuming a compatible native consumer. Backlog remains durable in the retained source queue and
 uses its ordinary retry/DLQ rules. Standard SQS may duplicate/reorder messages; handlers
@@ -487,92 +464,236 @@ DLQ, so operators should not assume a fresh 14-day recovery window on arrival.
 
 This retains the ProductListing Lambda code target, execution role, scoped
 PostgreSQL/OpenSearch environment, generic Lambda error alarm, partner EventBridge
-rules and Shopify mapping. Compute creation after protected initialization creates
-active ProductListing consumers and the FX schedule; initial FX is a direct,
-idempotent Lambda invocation, not a CloudFormation custom resource. It does not change
+rules and Shopify mapping. Manual Deploy `scope=all`, after separate migration,
+OpenSearch setup and initial FX, creates active ProductListing consumers and the
+FX schedule; initial FX is a direct, idempotent Lambda invocation by Initialize,
+not a CloudFormation custom resource. It does not change
 Sequin subscriptions, publish a new production CDC path, start DMS, grant runtime
 redrive/purge power, or prove live AWS behavior. Legacy native worker deployment remains
 external. Synthesis alone does not establish durable delivery or AWS acceptance evidence.
 
 ## Deployment inputs
 
-The compute stack exposes `CommitSHA` and the one independent default-false
-`CdcRouterEnabled` parameter. Initialize creates compute only after migrations and
-initial FX; its ten SQS consumers, partner rules and maintenance schedules then
-become active without a separate release flag. Before running Initialize, approve
-any external-provider/SES exposure and verify private dev OpenSearch connectivity
-(#1850), quotas and native-consumer handoff. The router remains off until the
-separately approved DMS slot/task-start and delivery gates. A router parameter
-change does not recreate queues, the DMS task, slot, stream or checkpoints.
+### Workflow and source contract
 
-`Deploy (CD)` builds and publishes artifacts on pushes to `develop`/`prod`, then
-waits for the protected `aws-dev`/`aws-prod` GitHub environment approval before
-upserting the stage stacks. A manual dispatch with `stage` and a previously
-published full `CommitSHA` remains available for a reviewed rollback. Configure
-required environment reviewers and branch restrictions before running. The
-workflow executes CDK change sets after environment approval; it does **not**
-provide a separate pre-execution inspection of actual change sets. For a change
-requiring that level of review, hold the run and use an operator-controlled
-CloudFormation review instead of treating approval alone as that evidence.
-Review the account, region, potential replacements, Lambda version/alias targets,
-queues, CDC router value, secret/endpoint references and DMS capture parameters.
-Configure existing OIDC `CI_DEPLOY_ROLE_ARN` for uploads and the protected
-Deploy/Initialize jobs, with required stage-bucket upload/read, CloudFormation/CDK
-and exact stage migration/FX invoke permissions. Push Deploy additionally needs
+| Workflow / trigger | Inputs / source | Operation |
+| --- | --- | --- |
+| `Deploy (CD)` — `.github/workflows/deploy.yml`, push to `develop` | Push commit → `dev`; `scope=auto` | Source-pinned build/publish/CDK; no migration or initial FX invocation. |
+| `Deploy (CD)`, push release tag | Valid UTC CalVer `YYYYMMDD-HHMM` → `prod`; `scope=auto` | Same path; tag must resolve to a commit reachable from `origin/develop`. No `prod` branch. |
+| `Deploy (CD)`, manual dispatch from `develop` | Required `stage=dev/prod`; `ref` and `scope` below | Same path, including rollback; not a previous-template artifact update. |
+| `Migrate (CD)` — `.github/workflows/migrate.yml`, manual PostgreSQL migration | Required `stage=dev/prod` and `commit_sha` | Invoke only the already-deployed private PostgreSQL migrator. |
+| `Initialize (CD)` — `.github/workflows/initialize.yml`, manual FX bootstrap | Same required inputs as Migrate | Invoke only the already-deployed FX Lambda; no schema or infrastructure changes. |
+
+For manual Deploy, dev `ref` is optional (defaults to `develop`) and accepts only
+`develop` or a full 40-character commit SHA. Prod `ref` is required and must be an
+**existing** valid CalVer tag, not a branch or raw SHA. The timestamp is UTC with
+an actual calendar date and valid hour/minute, not just a digit-shaped name
+(for example, `20260230-1200` is invalid). Every selected source, on every trigger,
+must be an ancestor of fetched `origin/develop`. Resolve once to the full SHA and
+pin application jobs to it, with only the [shared ECR ownership exception](#release-artifact-contract).
+The dispatch branch controls which
+workflow runs; it does not replace validation of the selected source. Legacy
+refs lacking the current CDK layout or workflow helper tools are unsupported.
+
+| Deploy `scope` | Stage-stack behavior after artifact preparation |
+| --- | --- |
+| `auto` (default on all triggers) | After preflight, deploy network, data and initialize. Stop at **foundation only** if compute is absent or migration sources differ from its deployed SHA; otherwise deploy application stacks. |
+| `foundation` (manual) | Explicitly deploy only network, data and initialize, including migrator/FX code. Never updates application stacks or invokes either operation. |
+| `all` (manual) | Foundation then compute, API and prod observability; permits first compute creation and bypasses the migration-source comparison. Explicitly acknowledges schema compatibility and all applicable operator prerequisites. |
+
+After stack preflight, `auto` compares the current compute stack's `CommitSHA`
+with the selected SHA using `git diff` over `migrations`, `infra/sql` and
+`src/database-migration-lambda`. The CDK job checks out full Git history; SHA lookup
+or diff errors fail before any stage-stack changes. A difference stops after
+foundation even with existing compute. The summary directs **forward releases**
+to Migrate at that SHA, then Deploy the same ref with `scope=all`; new stages also
+need OpenSearch setup and initial FX. This is a **source-change safety gate**, not
+database introspection or a readiness marker. Rerunning `auto` after migration
+still stops until `all` advances compute's SHA; compatibility remains operator-owned.
+
+CDK preserves previous activation parameters on updates, including
+`CdcRouterEnabled` and `PeriodicMatcherEnabled`; both default to `false` on first
+creation. DMS start-position compatibility parameters likewise retain prior
+approved values. Scope is not an activation override. Compute creation activates
+the ten worker mappings, partner integrations and FX/cleanup schedules together;
+there is no separate release flag for them and **no built-in readiness marker**
+proving migrations, FX, OpenSearch or handoff are complete. Neither stack existence
+nor a successful foundation summary proves application readiness.
+
+### First-time stage
+
+1. Run Deploy `auto` (automatic or manual) or manual `foundation` for the selected
+   ref. Record the resolved SHA and verify completed network/data/initialize stacks.
+2. Run **Migrate Postgres** (`Migrate (CD)`) with that stage and exact deployed
+   initialization `CommitSHA`; require confirmed success.
+3. Have the OpenSearch host owner perform [first setup](../docs/opensearch-stage.md#reproducible-host-setup)
+   if needed, or verify existing mappings, pipeline, scoped roles, TLS and network
+   prerequisites under its [external manual contract](../docs/opensearch-stage.md#release-and-schema-change-contract).
+4. Run **Initialize FX** (`Initialize (CD)`) with the same stage and SHA; verify
+   successful persisted initial capture. It does not deploy application stacks.
+5. Before manual Deploy **the same ref**, `scope=all`, verify matching migrations,
+   initial FX, OpenSearch readiness, native-consumer handoff (old consumers stopped
+   and in-flight/backlog work settled or preserved), and explicit SES/provider
+   consent, recipients, quotas and credentials. Verify certificate/DNS and other
+   required stage configuration. Hold `all` if any prerequisite is unverified.
+   It creates active compute, not an inactive preview. Keep DMS/router activation
+   separately approved; never run two consumers of one queue.
+
+Use the pinned full SHA for dev continuation rather than a now-moving `develop`;
+prod continues with the same immutable tag. After deployment record actual
+function versions/aliases, mapping/rule states, `/ready`/reader and relevant
+projector/percolator smoke from private workloads, certificate/DNS state, queues
+and DMS checkpoint/WAL/retention. Required pre-activation connectivity checks need
+an approved private probe path; if unavailable, hold `all`, not a speculative
+compute deployment. Host-local checks and the waived standalone NAT test are not
+AWS workload evidence. Record failed/waived checks explicitly and hold dependent
+traffic/cutover. See the [OpenSearch gate](../docs/opensearch-stage.md#dev-private-subnet-egress-and-release-gate-1850)
+and [worker handoff](../docs/durable-worker-runbook.md#activation-and-legacy-handoff).
+
+### Routine and schema-dependent releases
+
+Routine `develop` pushes deploy dev automatically; release maintainers promote a
+reviewed merged source by pushing a valid UTC CalVer tag for prod. Deploy **never
+invokes migration** or initial FX. The source-change guard does not prove schema
+compatibility: releases still require expand-and-contract compatibility with
+running code and retained jobs. Foundation leaves existing consumers and schedules
+running, including the FX function's stable unqualified ARN; updated FX code must
+tolerate the pre-migration schema.
+
+For a forward release with migration-source changes:
+
+1. Merge with required CI into `develop` (dev), or push a release tag of the merged
+   SHA (prod). Automatic Deploy builds/reuses artifacts, deploys foundation and
+   stops with an **application not deployed** summary. Record the resolved SHA.
+2. Run Migrate with the matching deployed initialization `CommitSHA`; require
+   confirmed success. Complete any external OpenSearch changes with its host owner.
+3. After compatibility/prerequisite review, manually Deploy **the same ref with
+   `scope=all`**, even for existing compute. Use the pinned full SHA for dev or the
+   same immutable prod tag. First-time stages also follow the FX/handoff gates above.
+
+No temporary environment gate or cancellation is needed for this sequence; normal
+stage approval policy still applies. Manual `foundation` remains available for
+explicit preparation. Changes outside the compared paths (including OpenSearch-only
+changes) are not covered by this guard. If another release requires manual gating,
+**cancel blocked automatic runs before dispatching manual operations** and confirm
+the stage concurrency slot is released: Deploy, Migrate and Initialize share it.
+Do not leave a gated automatic run holding the slot while waiting for a manual run.
+
+Do not run down migrations on rollback. Contract/removal changes wait until old
+binaries, in-flight work, retained queues/replay and the rollback window no longer
+need the old schema. Crawler startup migrations are [separately owned](../docs/crawler/operations.md#runtime-prerequisites),
+not AWS business migrations.
+
+### Manual operations
+
+Migrate and Initialize accept a required full 40-character lowercase `commit_sha`:
+this is an assertion of the **already-deployed**
+`application-<stage>-initialize` stack's `CommitSHA`, not source selection or a
+request to deploy it. Their shared helper checks a complete stack
+(`CREATE_COMPLETE`, `UPDATE_COMPLETE` or `UPDATE_ROLLBACK_COMPLETE`) and exact SHA
+match, waits for the function update, then invokes synchronously. It requires
+invocation status 200 without `FunctionError` and strictly validates the result:
+exactly `{"status":"ready"}` for migration, exactly JSON `null` for FX. CLI success
+alone is not operation success. A missing/mismatched stack, malformed result or
+Lambda failure fails closed; inspect restricted logs without publishing payloads
+or secrets. An invocation timeout can leave completion unknown; inspect before
+retrying. Deploy and these operations share stage serialization, not a distributed
+transaction or a lock across the entire multi-run release procedure.
+
+Initialize always uses `deployment:fxrate:initial:{stage}:v1`, including retries
+at a later SHA. Retries may call the FX provider again but deduplicate the persisted
+`fx_rates.source_event_id` row; this is not an exactly-once provider call. It is
+first-time FX bootstrap, not recurring refresh. Neither manual workflow builds,
+publishes, deploys CDK, imports resources, manages OpenSearch, or activates compute.
+
+### Rollback and stack recovery
+
+For prod rollback, **after compatibility review**, dispatch Deploy from `develop`
+with `stage=prod`, `ref` set to an older existing supported CalVer tag, and prefer
+`scope=all` to acknowledge readiness. Dev can select an older full merged SHA.
+`auto` may stop at foundation when migration sources differ; the summary's Migrate
+step is for forward releases only. **Never invoke an older migrator as rollback.**
+The same source-pinned
+build/reuse/publish/CDK path runs, so **rollback may change stage infrastructure**,
+not just artifacts; [shared ECR ownership stays on latest develop](#release-artifact-contract).
+Review the selected source's CDK diff, replacements, API policy,
+Lambda versions/aliases, current database compatibility, retained queues/jobs,
+provider/template contracts and already committed effects before approval. Hold
+for separate operator-controlled change-set inspection when needed; environment
+approval is not inspection of an actual prepared change set. CDK execution is not
+an atomic cross-stack rollback. It does not undo database writes, send cancellations,
+email or other provider effects, and it never runs down migrations.
+
+The previous-template artifact-only rollback path was removed to avoid mixing old
+artifacts with unrelated newer infrastructure. Legacy tags without the required
+layout/tools are unsupported; use a reviewed forward fix rather than retagging,
+substituting `latest`, or bypassing validation. SQLx rejects missing/changed applied
+migrations; the newer schema must remain compatible with the selected application.
+
+In-progress, `UPDATE_ROLLBACK_FAILED`, failed `ROLLBACK_COMPLETE`, post-import
+`IMPORT_COMPLETE`, or empty `REVIEW_IN_PROGRESS` shells require operator-owned
+CloudFormation inspection and recovery; an archive-only import or empty shell is
+not initialized compute. A usable
+`UPDATE_ROLLBACK_COMPLETE` stack may be retried after inspection. Failed creation
+cannot simply be updated. Inventory retained resources before any approved stack
+cleanup; no workflow deletes or automatically imports them. Follow the
+[archive resource-import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery)
+when applicable. After partial application creation, inspect what is already
+active before resuming Deploy; Initialize is not a stack-repair workflow. If only
+post-deploy output resolution failed, inspect parameters and rerun the missing
+verification where possible rather than blindly redeploying. Never purge queues
+or replace RDS to get a release through. No workflow manages external OpenSearch
+host/index/security or starts/resets DMS; first start and recovery remain separately
+approved operations using the actual slot/LSN and later `resume-processing`.
+
+### GitHub / IAM repository-admin checklist (#1549)
+
+These are manual repository/identity administration tasks, **not actions performed
+by the workflows or this documentation change**. Record completion and evidence
+in issue #1549 before relying on the release model:
+
+- [ ] Make `develop` the default and protected source branch; require the relevant
+  successful `Integrate (CI)` checks before merging. Enable **squash merge only**;
+  disable merge commits and rebase merging so release SHAs identify merged source.
+- [ ] Migrate applicable protections from `prod` to `develop`, review references
+  and confirm `prod` is unused, then manually delete the old `prod` branch. No
+  workflow or documentation edit deletes it; production is released by tags.
+- [ ] Create an active tag ruleset matching release tags with the GitHub **digit glob**
+  `[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]`.
+  Enforce update and deletion restrictions with **no bypass**, including admins
+  and automation. Restrict creation separately to release maintainers (a creation
+  exception must not bypass immutability). The glob checks shape only; Deploy
+  additionally validates the UTC calendar timestamp and `origin/develop` ancestry.
+- [ ] Configure `aws-dev` for automatic dev deployments: **no required reviewers or
+  manual approvals** under normal operator policy, with deployment source restricted
+  to `develop`. Ordinary schema releases use the source-change guard, not a temporary
+  environment gate.
+- [ ] Configure `aws-prod` with required reviewers and deployment rules allowing
+  the release-tag glob **and `develop` for workflow dispatch**, not arbitrary
+  branches. The dispatch input `ref` still must pass prod tag validation; an allowed
+  workflow branch is not permission to deploy that branch as prod source.
+- [ ] Every AWS-using job must select `aws-<stage>` and pass that environment's
+  policy before assuming credentials: artifact-stack reconciliation, image/ZIP/mail
+  publication, CDK deployment, Migrate and Initialize. Scope secrets/variables so
+  these jobs receive the correct stage role, buckets and region. Prod approval
+  must not be deferred until after an unprotected AWS publishing job.
+- [ ] Verify OIDC trust for audience `sts.amazonaws.com` and exact subjects
+  `repo:aura-historia/backend:environment:aws-dev` /
+  `repo:aura-historia/backend:environment:aws-prod`, with stage-appropriate IAM.
+  Environment jobs use environment subjects, not branch/tag subjects; GitHub
+  environment restrictions and source validation enforce ref policy. Do not
+  authorize arbitrary repositories/environments or use stored AWS keys.
+
+The existing `CI_DEPLOY_ROLE_ARN` needs stage-scoped artifact read/conditional-write,
+ECR, CloudFormation/CDK, staging-bucket/KMS (where applicable), stack/function
+inspection and exact migrator/FX invocation permissions. Deploy also requires
 `iam:GetRole`, `iam:ListAttachedRolePolicies`, `iam:CreateRole` and
-`iam:AttachRolePolicy` for the account-level `dms-vpc-role` (attach only
-`arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole`). A permission
-failure or unexpected role trust blocks data deployment; an operator must repair
-trust out of band rather than let CI overwrite it. The protected jobs select
-`aws-dev` or `aws-prod` with required reviewers; configure the existing GitHub
-secrets and variables so the push upload jobs can assume the role as well. Scope
-OIDC trust and IAM to approved repository/workflows/stages, including staging-bucket
-and KMS permissions where applicable. No new upload role or stored AWS keys are
-required; live IAM permissions have not been verified here.
-
-On the first approved push, successful infrastructure tests and both uploads
-precede environment approval. Deploy creates only network, data and initialization
-stacks, including the private migration and FX Lambdas. Its success reports
-**foundation only**, not a running backend. Run `Initialize (CD)` manually with
-the same `stage` and SHA: it checks foundation/source identity, migrates, captures
-initial FX and only then creates compute, API and prod observability. Compute
-creation activates worker consumers, partner integrations and maintenance schedules;
-it is not an inactive preview. Migration or FX failure blocks application creation.
-
-Later approved push Deploys recognize complete compute/API stacks (plus observability in
-prod), update the migration Lambda to the selected SHA, migrate before updating
-compute/API, and preserve the approved `CdcRouterEnabled` value. After partial creation (for example compute succeeded but API failed), a corrected
-push may advance stable foundation to its new SHA without migration or application
-update. Then Initialize with that SHA performs migration/initial-FX checks and
-completes creation. A stack in `UPDATE_ROLLBACK_COMPLETE` can be retried; in-progress,
-`UPDATE_ROLLBACK_FAILED` or failed `ROLLBACK_COMPLETE` stacks require operator-owned
-CloudFormation recovery (failed creation cannot simply be updated). No workflow
-automatically deletes retained resources. After a failed initial data-stack creation,
-inspect retained resources and have an operator delete the `ROLLBACK_COMPLETE` stack
-before retrying Deploy; CDK cannot update it. If CloudFormation deployment succeeds
-but post-deploy output resolution fails, do not rerun deployment blindly: inspect
-current stack parameters first and rerun only the missing output/verification step
-if possible. There is no SSM readiness flag or separate
-worker/partner/maintenance activation flag. Migration
-failure does not undo work already in flight on the previous release; only approve
-schema changes compatible with running work and retained schema-2 jobs. Before
-first Initialize, verify native-consumer handoff, SES/provider consent and quotas,
-and the dev OpenSearch TCP 9443 private-workload/TLS gate; otherwise hold that run.
-Neither workflow starts/resets DMS, replaces RDS, purges queues or manages external
-OpenSearch host/index/security. #1843 owns periodic Fargate matching; a first CDC
-start needs the approved slot/LSN and later recovery uses `resume-processing` per
-[Migration F7](../docs/migration-f7-dms.md).
-
-For a dev handoff, record the stage-local artifact SHA, workflow runs, operator and
-UTC approval, the reviewed changes and deployed function versions/alias targets,
-`api.stage.aura-historia.com` certificate/DNS state, four `/opensearch/dev/`
-role references, private-workload `/ready`/reader and relevant projector smoke,
-initial FX, mapping/rule states, queues and DMS checkpoint/WAL/retention. Record
-failed or waived checks explicitly; do not call synth, the host-only connectivity
-check, or a waived standalone NAT test live proof. On failure hold further
-activation, account for retained state and reconcile side effects before an
-approved compatible SHA rollback. Provider/SES smoke and live AWS spend require
-separate authorization.
+`iam:AttachRolePolicy` for the account-level `dms-vpc-role`, attaching only
+`arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole`. Unexpected role
+trust or permission failure blocks deployment; repair trust out of band, never
+let CI overwrite it. Review account, region and actual change sets/replacements
+under the stage policy. No live GitHub rules, OIDC trust or IAM permissions are
+verified by source review, tests or synthesis.
 
 The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 
@@ -617,15 +738,16 @@ The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, a
 The initialization-stack `fxrate-lambda-<stage>` resolves `/fxratesapi/<stage>/api-token`.
 Compute's recurring Scheduler target and invoke permission use its stable unqualified
 function ARN, with no release-dependent FX version export/import. Initial FX is
-synchronous after migration; subsequent pushes update FX code before migrations
-while the recurring schedule may still run. FX changes must tolerate the
-pre-migration schema in that interval. An unqualified target follows deployed
-function code rather than pinning a separate scheduler version. If live stacks
+synchronous in manual Initialize after a separate successful Migrate; subsequent
+Deploys update FX code without running migrations while the recurring schedule
+may still run. FX changes must tolerate the currently deployed schema. An
+unqualified target follows deployed function code rather than pinning a separate
+scheduler version. If live stacks
 still import the prior FX version export or own an old compute FX function, plan
 the resource-specific import/ownership transition separately before updating;
 CloudFormation cannot remove an in-use export.
-Protected manual `Initialize (CD)` invokes it after database migration and before
-creating active compute, with stable source ID
+Environment-gated manual `Initialize (CD)` invokes only FX after database migration
+and before a separate manual Deploy `scope=all` creates active compute, with stable source ID
 `deployment:fxrate:initial:{stage}:v1`. This is not a CloudFormation custom resource;
 later normal deployments do not recapture it. `ephemeral` has no real FX initialization
 flow. The ephemeral stage uses local/mock values for third-party integrations where
