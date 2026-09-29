@@ -675,10 +675,13 @@ CloudFormation inspection and recovery; an archive-only import or empty shell is
 not initialized compute. A usable
 `UPDATE_ROLLBACK_COMPLETE` stack may be retried after inspection. Failed creation
 cannot simply be updated. Inventory retained resources before any approved stack
-cleanup; no workflow deletes or automatically imports them. Follow the
-[archive resource-import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery)
-when applicable. After partial application creation, inspect what is already
-active before resuming Deploy; Initialize is not a stack-repair workflow. If only
+cleanup; no workflow deletes or automatically imports them. A failed first
+compute creation can retain both the CDC failure archive and named periodic-matcher
+log groups; clearing only the bucket will not make a repeat creation safe. Follow
+the [archive resource-import recovery](../docs/durable-worker-runbook.md#retained-cdc-archive-resource-import-recovery)
+and separately reconcile other retained resources when applicable. After partial
+application creation, inspect what is already active before resuming Deploy;
+Initialize is not a stack-repair workflow. If only
 post-deploy output resolution failed, inspect parameters and rerun the missing
 verification where possible rather than blindly redeploying. Never purge queues
 or replace RDS to get a release through. No workflow manages external OpenSearch
