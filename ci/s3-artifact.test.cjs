@@ -14,9 +14,15 @@ const bucket = 'test-binary-artifacts';
 const binary = 'aura-historia-api';
 const existing = { stdout: JSON.stringify({ AcceptRanges: 'bytes', ContentLength: 123, ETag: '"test-etag"', Metadata: {} }) + '\n', exitCode: 0 };
 const missing = { stderr: 'An error occurred (404) when calling the HeadObject operation: Not Found\n', exitCode: 254 };
+const prefixedMissing = { stderr: '\naws: [ERROR]: An error occurred (404) when calling the HeadObject operation: Not Found\n', exitCode: 254 };
 const failures = [
   { name: '403 forbidden', stderr: 'An error occurred (403) when calling the HeadObject operation: Forbidden\n', exitCode: 254 },
   { name: 'access denied', stderr: 'An error occurred (AccessDenied) when calling the HeadObject operation: Access Denied\n', exitCode: 254 },
+  { name: 'throttling', stderr: 'An error occurred (SlowDown) when calling the HeadObject operation: Please reduce your request rate\n', exitCode: 254 },
+  { name: 'prefixed 403 containing a 404 key', stderr: '\naws: [ERROR]: An error occurred (403) when calling the HeadObject operation: Forbidden key archive/(404).zip\n', exitCode: 254 },
+  { name: 'prefixed access denied containing a 404 key', stderr: '\naws: [ERROR]: An error occurred (AccessDenied) when calling the HeadObject operation: denied key archive/(404).zip\n', exitCode: 254 },
+  { name: 'prefixed throttling', stderr: '\naws: [ERROR]: An error occurred (SlowDown) when calling the HeadObject operation: Please reduce your request rate\n', exitCode: 254 },
+  { name: 'prefixed network failure', stderr: '\naws: [ERROR]: Could not connect to the endpoint URL: "https://s3.invalid/archive/(404).zip"\n', exitCode: 255 },
   { name: 'network failure', stderr: 'Could not connect to the endpoint URL: "https://s3.invalid/"\n', exitCode: 255 },
   { name: 'timeout', stderr: 'Read timeout on endpoint URL: "https://s3.invalid/"\n', exitCode: 255 },
   { name: 'missing credentials', stderr: 'Unable to locate credentials.\n', exitCode: 253 },
@@ -32,6 +38,13 @@ const misleadingErrors = [
   { name: 'AccessDenied message containing a 404 key', stderr: 'An error occurred (AccessDenied) when calling the HeadObject operation: denied key archive/(404).zip\n', exitCode: 254 },
   { name: 'network error containing a NotFound key', stderr: 'Could not connect to the endpoint URL: "https://s3.invalid/archive/(NotFound).zip"\n', exitCode: 255 },
   { name: 'non-HeadObject NoSuchKey error', stderr: 'An error occurred (NoSuchKey) when calling the GetObject operation: wrong operation\n', exitCode: 254 },
+  { name: 'prefixed non-HeadObject 404 error', stderr: '\naws: [ERROR]: An error occurred (404) when calling the GetObject operation: Not Found\n', exitCode: 254 },
+  { name: 'prefixed non-HeadObject NoSuchKey error', stderr: '\naws: [ERROR]: An error occurred (NoSuchKey) when calling the GetObject operation: wrong operation\n', exitCode: 254 },
+  { name: 'malformed prefixed error containing a parenthesized 404', stderr: '\naws: [ERROR]: Proxy response could not be parsed (404)\n', exitCode: 255 },
+  { name: 'arbitrary prefix before a legacy missing-object error', stderr: `Proxy response: ${missing.stderr}`, exitCode: 255 },
+  { name: 'arbitrary prefix before an AWS CLI missing-object error', stderr: `Proxy response: aws: [ERROR]: ${missing.stderr}`, exitCode: 255 },
+  { name: 'unrecognized AWS CLI prefix', stderr: `aws: [WARNING]: ${missing.stderr}`, exitCode: 254 },
+  { name: 'malformed AWS CLI prefix separator', stderr: `aws: [ERROR]:${missing.stderr}`, exitCode: 254 },
 ];
 
 // There is no AWS fallback. Check every argument and reject extra calls, then
@@ -140,13 +153,15 @@ test('a valid existing S3 object emits exactly true, not the HeadObject payload'
 });
 
 for (const code of ['404', 'NoSuchKey', 'NotFound']) {
-  test(`an explicit HeadObject ${code} is genuine absence and emits exactly false`, (t) => {
-    const result = runCheck(t, { ...missing, stderr: `An error occurred (${code}) when calling the HeadObject operation: Not Found\n` });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, 'false\n');
-    assert.equal(result.stderr, '');
-    assert.equal(result.output, 'previous=value\n');
-  });
+  for (const [shape, prefix] of [['legacy', ''], ['AWS CLI-prefixed', 'aws: [ERROR]: '], ['AWS CLI-prefixed after a blank line', '\naws: [ERROR]: ']]) {
+    test(`an explicit ${shape} HeadObject ${code} is genuine absence and emits exactly false`, (t) => {
+      const result = runCheck(t, { ...missing, stderr: `${prefix}An error occurred (${code}) when calling the HeadObject operation: Not Found\n` });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, 'false\n');
+      assert.equal(result.stderr, '');
+      assert.equal(result.output, 'previous=value\n');
+    });
+  }
 }
 
 for (const response of [...failures, ...misleadingErrors]) {
@@ -176,7 +191,7 @@ test('Lambda workflow assigns the helper result before echo, rather than swallow
   ].join('\n'));
 });
 
-for (const [name, response, expected] of [['existing', existing, 'true'], ['absent', missing, 'false']]) {
+for (const [name, response, expected] of [['existing', existing, 'true'], ['absent', missing, 'false'], ['absent with run 36571574640 stderr', prefixedMissing, 'false']]) {
   test(`real Lambda workflow ${name} lookup appends the exact exists output`, (t) => {
     const result = runCheck(t, response, { workflow: true });
     assert.equal(result.status, 0, result.stderr);
@@ -186,7 +201,7 @@ for (const [name, response, expected] of [['existing', existing, 'true'], ['abse
   });
 }
 
-for (const response of failures) {
+for (const response of [...failures, ...misleadingErrors]) {
   test(`real Lambda workflow preserves ${response.name} failure before writing GITHUB_OUTPUT`, (t) => {
     const result = runCheck(t, response, { workflow: true });
     assert.equal(result.status, 1);

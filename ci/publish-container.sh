@@ -3,6 +3,23 @@ set -euo pipefail
 tag="git-${DEPLOY_COMMIT_SHA}"
 account="$(aws sts get-caller-identity --query Account --output text)"
 uri="${account}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_REPOSITORY}"
+if ! repository="$(aws ecr describe-repositories --repository-names "$IMAGE_REPOSITORY" --output json)"; then
+  echo "Cannot read ECR repository ${IMAGE_REPOSITORY} in ${account}/${AWS_REGION}; if missing, provision it using infra/README.md#container-repository-setup; otherwise inspect the AWS error above." >&2
+  exit 1
+fi
+if ! jq -se --arg account "$account" --arg name "$IMAGE_REPOSITORY" --arg uri "$uri" \
+  'length == 1 and (.[0].repositories |
+   type == "array" and length == 1 and
+   .[0].registryId == $account and
+   .[0].repositoryName == $name and
+   .[0].repositoryUri == $uri and
+   .[0].imageTagMutability == "IMMUTABLE" and
+   ((.[0].imageTagMutabilityExclusionFilters // []) == []) and
+   .[0].encryptionConfiguration.encryptionType == "AES256")' \
+  <<< "$repository" >/dev/null; then
+  echo "Invalid ECR repository configuration: expected exactly one repository at ${uri} in account ${account}, IMMUTABLE without exclusions and AES256 encryption. No repository configuration was changed." >&2
+  exit 1
+fi
 aws ecr get-login-password | docker login --username AWS --password-stdin "${uri%/*}"
 resolve_tag() {
   node ci/container-images.cjs resolve-one --id "$IMAGE_ID" --commit-sha "$DEPLOY_COMMIT_SHA" "$@"

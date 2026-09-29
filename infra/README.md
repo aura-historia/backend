@@ -88,7 +88,7 @@ Synth creates these stacks per stage:
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and (real stages only) the periodic matcher task
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
-- `aura-historia-container-artifacts` — stage-neutral retained ECR owner for the image catalog, synthesized separately by `bin/artifacts.ts`
+- `aura-historia-container-artifacts` — stage-neutral retained ECR setup stack for the image catalog, synthesized separately by `bin/artifacts.ts`; not part of normal Deploy
 
 The network stack is absent for `ephemeral`: LocalStack synthesis does not declare a VPC, NAT, EIP, gateway endpoint, or workload security groups. Real-stage stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
 
@@ -131,8 +131,8 @@ Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucke
 templates and any future file assets under the stage prefix (`${stage}/`). Lambda ZIPs are referenced as prebuilt S3 artifacts keyed by `CommitSHA`, not as
 CDK-managed assets. The periodic matcher is a separate immutable ECR artifact,
 referenced by digest in each real-stage compute stack; it is not a Lambda ZIP or a
-CDK Docker asset. The stage-neutral ECR owner is independently synthesizable without
-compute parameters, Docker, AWS lookups, or secret values.
+CDK Docker asset. The standalone ECR setup stack is independently synthesizable
+without compute parameters, Docker, AWS lookups, or secret values.
 
 Every Deploy trigger, including rollback, pins all application jobs to the resolved
 full `CommitSHA`: source, lockfiles, helper tools and stage CDK code. **After the
@@ -147,34 +147,64 @@ stage/SHA objects are reused and **never overwritten**; missing artifacts are
 rebuilt from the selected source and first uploaded with conditional S3
 `If-None-Match: *` (`--if-none-match '*'`) writes. A concurrent publisher must not
 fall back to an unconditional overwrite. This rule also applies to manual Deploy
-and rollback; it does not retroactively prove legacy-object provenance.
+and rollback; it does not retroactively prove legacy-object provenance. For the
+configured existing bucket, a confirmed S3 `HeadObject` 404 means the object is
+missing; authorization, transport and other unexpected failures must block
+publication, not be treated as absence.
 
+ECR repositories are prerequisites, not release-created resources. Before image
+reuse or publication, the publisher validates the existing named repository
+read-only: catalog name, account/region identity and expected URI, `IMMUTABLE` tag
+mutability and `AES256` encryption must match. A missing repository or invalid
+configuration fails closed with a pointer to [repository setup](#container-repository-setup);
+publishing never creates/imports repositories or changes their configuration.
 Existing immutable ECR `git-<full-sha>` images are reused across stages. A missing
 image is built from the selected release, passes its
 `ci/container-images/<id>/smoke.sh`, then receives the immutable tag; never substitute
 `latest`. Deploy resolves registry digests for the complete selected catalog and
 passes the parameter-to-digest map to CDK. Unresolved required artifacts or failed
-repository reconciliation block deployment.
+repository validation block deployment.
 
-**Shared ECR ownership exception:** `aura-historia-container-artifacts` is
-stage-neutral account infrastructure, not release infrastructure. After acquiring
-the global `aws-container-artifact-stack` job concurrency slot and passing the
-`aws-<stage>` environment gate, its job checks out **latest `develop`**, builds/tests
-the shared artifact infrastructure, then reconciles repositories. Never deploy a
-historical release's repository definitions during application rollback: that can
-orphan newer retained repositories and make later recreation fail. Keep the shared
-repository catalog **append-only** unless an operator explicitly reviews resource
-removal/import. Application matrices, publishing and stage deployment still use
-the selected release SHA, not this shared-infrastructure checkout.
+Only the final `aws-cdk-deploy` job in Deploy selects the `aws-<stage>` environment
+and passes its policy before changing stage stacks. Image/ZIP/mail publishers run
+without an environment, before this checkpoint; their writes only create missing
+SHA-scoped immutable artifacts, not infrastructure. Normal Deploy has no
+`aws-container-artifacts` job, shared latest-`develop` checkout, repository
+reconciliation or global artifact-stack lock. All application jobs remain pinned
+to the selected release SHA. The container PR workflow builds/tests without AWS
+credentials. Migrate and FX-only Initialize retain their protected manual-operation
+environments and invoke deployed functions only; neither publishes artifacts nor
+updates compute. See the [admin checklist](#github--iam-repository-admin-checklist-1549)
+for OIDC trust and the shared-role approval boundary.
 
-All AWS jobs, including shared ECR reconciliation and every image/ZIP/mail publisher,
-pass the stage environment policy before obtaining credentials. The container PR
-workflow builds/tests without AWS credentials. Migrate and FX-only Initialize
-invoke deployed functions only; neither publishes artifacts nor updates compute.
+### Container repository setup
+
+The infrastructure provisioning owner must prepare catalog repositories in the
+approved account/region **outside normal releases**, under separate setup approval:
+
+1. Inspect each physical repository (currently `aura-historia-periodic-matcher`),
+   its configuration and any CloudFormation owner. Reuse a valid existing repository
+   without attempting to create it; publishing does not require ownership by
+   `aura-historia-container-artifacts`.
+2. If absent, provision through the retained standalone `infra/bin/artifacts.ts`
+   stack (`aura-historia-container-artifacts`) from a reviewed, pinned `develop`
+   source, not a historical release. The entrypoint and `infra/test/artifact-stack.test.ts`
+   remain for separately approved setup. Review the synthesized catalog and change
+   set against physical inventory before execution; the stack declares retained,
+   immutable, AES256 repositories and must not recreate another existing catalog entry.
+3. An unmanaged repository or one owned by another stack requires a separate reviewed
+   import/ownership migration **if ownership is to change**. Normal publication neither
+   imports nor transfers ownership. Never create a duplicate or delete repositories
+   or image history to clear an `already exists` failure. Keep the setup catalog
+   append-only unless removal/import is explicitly reviewed.
+4. Inspect and recover any failed empty `REVIEW_IN_PROGRESS` artifact-stack shell
+   separately, including its pending change sets and actual resources. A shell is
+   not proof of repository ownership; normal publishing depends on the valid physical
+   repository, not that stack's existence or status.
 
 ## Periodic saved-filter matcher (#1843)
 
-The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; the shared artifact stack owns that retained, immutable repository. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images. The undeployed artifact stack uses the generic CloudFormation name `aura-historia-container-artifacts`. The matcher repository's physical name, construct identity, retention, and export name remain unchanged.
+The real-stage compute stack declares a standalone `aura-historia-periodic-matcher-{dev,prod}` Fargate task and a disabled-by-default EventBridge Scheduler target. The image catalog maps the `periodic-matcher` source crate/binary to the stable stage-neutral ECR repository `aura-historia-periodic-matcher`; [repository setup](#container-repository-setup) verifies physical configuration and ownership separately from releases. Images use `git-<full-source-sha>` tags, while compute task definitions use `repositoryUri@sha256:<registry-digest>`, never a mutable tag. Dev-to-prod promotion reuses the same retained digest. The independently synthesized artifact stack declares all catalog repositories but does not build or select images or run during normal Deploy. Its CloudFormation name is `aura-historia-container-artifacts`; synthesis does not establish live ownership. The matcher repository's physical name, construct identity, retention, and export name remain unchanged.
 
 The compute stack owns one named scheduled ECS cluster per real stage and injects it into each `ScheduledEcsJob`. The cluster's logical ID `PeriodicMatcherCluster207C1F86` is frozen to preserve the CloudFormation resource during the move from matcher-owned to shared cluster; removing the override requires a CloudFormation migration. This is a migration-specific exception, not a pattern for future scheduled ECS jobs. `infra/src/constructs/scheduled-ecs-job.ts` owns each job's private Fargate task, Scheduler, IAM, DLQ, lifecycle-log and output resources. Jobs select CPU/memory and the catalog image platform (amd64 or arm64), and may add task-role grants; the matcher retains its 1024 CPU / 2048 MiB amd64 task and empty task role. The `periodic-matcher.ts` wrapper supplies the matcher image, credentials, environment, schedule and stable resource names; future jobs should use their own wrappers, not extend `aura-historia-cron`.
 
@@ -490,7 +520,7 @@ For manual Deploy, dev `ref` is optional (defaults to `develop`) and accepts onl
 an actual calendar date and valid hour/minute, not just a digit-shaped name
 (for example, `20260230-1200` is invalid). Every selected source, on every trigger,
 must be an ancestor of fetched `origin/develop`. Resolve once to the full SHA and
-pin application jobs to it, with only the [shared ECR ownership exception](#release-artifact-contract).
+pin all application jobs to it, including artifact publishing and stage CDK.
 The dispatch branch controls which
 workflow runs; it does not replace validation of the selected source. Legacy
 refs lacking the current CDK layout or workflow helper tools are unsupported.
@@ -522,6 +552,9 @@ nor a successful foundation summary proves application readiness.
 
 ### First-time stage
 
+Confirm [container repository setup](#container-repository-setup) before running
+Deploy; even foundation-only releases prepare the selected artifact catalog.
+
 1. Run Deploy `auto` (automatic or manual) or manual `foundation` for the selected
    ref. Record the resolved SHA and verify completed network/data/initialize stacks.
 2. Run **Migrate Postgres** (`Migrate (CD)`) with that stage and exact deployed
@@ -552,9 +585,11 @@ and [worker handoff](../docs/durable-worker-runbook.md#activation-and-legacy-han
 
 ### Routine and schema-dependent releases
 
-Routine `develop` pushes deploy dev automatically; release maintainers promote a
-reviewed merged source by pushing a valid UTC CalVer tag for prod. Deploy **never
-invokes migration** or initial FX. The source-change guard does not prove schema
+Routine `develop` pushes trigger dev Deploy; release maintainers promote a
+reviewed merged source by pushing a valid UTC CalVer tag for prod. Both prepare
+artifacts before the final CDK job's stage-environment policy, including any
+configured required reviewers. Deploy **never invokes migration** or initial FX.
+The source-change guard does not prove schema
 compatibility: releases still require expand-and-contract compatibility with
 running code and retained jobs. Foundation leaves existing consumers and schedules
 running, including the FX function's stable unqualified ARN; updated FX code must
@@ -597,8 +632,10 @@ exactly `{"status":"ready"}` for migration, exactly JSON `null` for FX. CLI succ
 alone is not operation success. A missing/mismatched stack, malformed result or
 Lambda failure fails closed; inspect restricted logs without publishing payloads
 or secrets. An invocation timeout can leave completion unknown; inspect before
-retrying. Deploy and these operations share stage serialization, not a distributed
-transaction or a lock across the entire multi-run release procedure.
+retrying. Migrate and Initialize keep `aws-<stage>` environment protection before
+assuming credentials and invoking functions. Deploy and these operations share
+stage serialization, not a distributed transaction or a lock across the entire
+multi-run release procedure.
 
 Initialize always uses `deployment:fxrate:initial:{stage}:v1`, including retries
 at a later SHA. Retries may call the FX provider again but deduplicate the persisted
@@ -615,7 +652,8 @@ with `stage=prod`, `ref` set to an older existing supported CalVer tag, and pref
 step is for forward releases only. **Never invoke an older migrator as rollback.**
 The same source-pinned
 build/reuse/publish/CDK path runs, so **rollback may change stage infrastructure**,
-not just artifacts; [shared ECR ownership stays on latest develop](#release-artifact-contract).
+not just artifacts; [repository setup and ownership](#container-repository-setup)
+remain outside the release/rollback path.
 Review the selected source's CDK diff, replacements, API policy,
 Lambda versions/aliases, current database compatibility, retained queues/jobs,
 provider/template contracts and already committed effects before approval. Hold
@@ -664,29 +702,54 @@ in issue #1549 before relying on the release model:
   and automation. Restrict creation separately to release maintainers (a creation
   exception must not bypass immutability). The glob checks shape only; Deploy
   additionally validates the UTC calendar timestamp and `origin/develop` ancestry.
-- [ ] Configure `aws-dev` for automatic dev deployments: **no required reviewers or
-  manual approvals** under normal operator policy, with deployment source restricted
-  to `develop`. Ordinary schema releases use the source-change guard, not a temporary
-  environment gate.
+- [ ] Restrict `aws-dev` deployment sources to `develop`. Required reviewers are
+  optional under the owner's dev policy; keep configured reviewers when required.
+  In Deploy they gate only the final CDK job, not artifact preparation. Ordinary
+  schema releases still use the source-change guard.
 - [ ] Configure `aws-prod` with required reviewers and deployment rules allowing
   the release-tag glob **and `develop` for workflow dispatch**, not arbitrary
   branches. The dispatch input `ref` still must pass prod tag validation; an allowed
   workflow branch is not permission to deploy that branch as prod source.
-- [ ] Every AWS-using job must select `aws-<stage>` and pass that environment's
-  policy before assuming credentials: artifact-stack reconciliation, image/ZIP/mail
-  publication, CDK deployment, Migrate and Initialize. Scope secrets/variables so
-  these jobs receive the correct stage role, buckets and region. Prod approval
-  must not be deferred until after an unprotected AWS publishing job.
-- [ ] Verify OIDC trust for audience `sts.amazonaws.com` and exact subjects
-  `repo:aura-historia/backend:environment:aws-dev` /
-  `repo:aura-historia/backend:environment:aws-prod`, with stage-appropriate IAM.
-  Environment jobs use environment subjects, not branch/tag subjects; GitHub
-  environment restrictions and source validation enforce ref policy. Do not
-  authorize arbitrary repositories/environments or use stored AWS keys.
+- [ ] Keep `aws-<stage>` on Deploy's final `aws-cdk-deploy` job and on the separate
+  manual Migrate/Initialize operations, not on image/ZIP/mail publishers. Only that
+  final Deploy job changes stage stacks, after artifact preparation and environment
+  approval where configured.
+- [ ] Keep the existing `CI_DEPLOY_ROLE_ARN` secret and `AWS_REGION`,
+  `S3_BINARY_ARTIFACTS_BUCKET_NAME` and `S3_MAIL_TEMPLATE_BUCKET_NAME` variables
+  available at repository or organization scope for publishers without environments.
+  No new mandatory role or secret is needed. Confirm account, region and bucket
+  targets when reviewing configuration.
+- [ ] Review OIDC trust for audience `sts.amazonaws.com` and these explicit subjects:
+  - Publishers on develop pushes and manual dispatch from develop:
+    `repo:aura-historia/backend:ref:refs/heads/develop` (exact match).
+  - Publishers on release-tag pushes:
+    `repo:aura-historia/backend:ref:refs/tags/????????-????` (`StringLike` pattern).
+    IAM `?` matches any single character, not just digits; the protected GitHub tag
+    ruleset and workflow UTC CalVer/ancestry checks enforce valid release sources.
+    Do not copy GitHub's `[0-9]` glob into IAM or allow arbitrary `refs/tags/*`.
+  - Final Deploy, Migrate and Initialize retain the exact environment subjects
+    `repo:aura-historia/backend:environment:aws-dev` /
+    `repo:aura-historia/backend:environment:aws-prod`. Environment jobs do not use
+    branch/tag subjects; their environment restrictions enforce the triggering-ref
+    policy. Checking out a selected SHA does not change a job's OIDC subject.
+  Do not authorize arbitrary repositories/environments or use stored AWS keys.
+- [ ] Review publisher IAM for ECR validation/read/pull/push: `ecr:DescribeRepositories`,
+  `ecr:DescribeImages`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`,
+  `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`,
+  `ecr:CompleteLayerUpload` and `ecr:PutImage` on the catalog repositories, plus
+  `ecr:GetAuthorizationToken` for login. S3 needs `s3:GetObject` for HEAD,
+  `s3:ListBucket` to distinguish missing keys, and `s3:PutObject` / `s3:PutObjectTagging`
+  for SHA-scoped conditional creation in the existing artifact/template buckets.
+  Publication requires no repository/bucket creation, import, deletion or
+  configuration administration; missing/invalid repositories require separate setup.
 
-The existing `CI_DEPLOY_ROLE_ARN` needs stage-scoped artifact read/conditional-write,
-ECR, CloudFormation/CDK, staging-bucket/KMS (where applicable), stack/function
-inspection and exact migrator/FX invocation permissions. Deploy also requires
+The existing `CI_DEPLOY_ROLE_ARN` is a shared CI role, **not an artifact-only role**:
+its deployment/operation use also needs CloudFormation/CDK, staging-bucket/KMS
+(where applicable), stack/function inspection and exact migrator/FX invocation
+permissions. Environment approval is a **workflow checkpoint, not an isolated IAM
+boundary** while publishers assume the same role. Separating least-privilege
+publisher and deployment roles is an optional, separately reviewed out-of-band
+hardening change, not a prerequisite introduced here. Deploy also requires
 `iam:GetRole`, `iam:ListAttachedRolePolicies`, `iam:CreateRole` and
 `iam:AttachRolePolicy` for the account-level `dms-vpc-role`, attaching only
 `arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole`. Unexpected role

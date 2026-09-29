@@ -55,7 +55,6 @@ jobs:
     outputs:
       stage: ${{ env.STAGE }}
       commit_sha: ${{ steps.source.outputs.commit_sha }}
-
       lambda_matrix: ${{ steps.lambda-catalog.outputs.matrix }}
       container_matrix: ${{ steps.container-catalog.outputs.matrix }}
     steps:
@@ -70,7 +69,6 @@ jobs:
         env:
           REQUESTED_REF: ${{ inputs.ref }}
         run: node ci/release-source.cjs
-
       - name: Check out the exact release
         uses: actions/checkout@v7
         with:
@@ -93,51 +91,11 @@ jobs:
         run: |
           node -e 'console.log("matrix=" + JSON.stringify({binary: require("./ci/lambda-binaries.json")}))' >> "$GITHUB_OUTPUT"
 
-  aws-container-artifacts:
-    name: Reconcile shared image repositories
-    needs: [infra-test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: aws-container-artifact-stack
-      cancel-in-progress: false
-    environment:
-      name: aws-${{ needs.infra-test.outputs.stage }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # Shared retained repositories move forward, never back with an application rollback.
-          ref: develop
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - run: npm --prefix infra ci
-      - name: Test shared artifact infrastructure
-        run: |
-          echo "Shared repository definitions: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-          npm --prefix infra run build
-          npm --prefix infra test -- artifact-stack.test.ts
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Reconcile retained image repositories
-        run: |
-          npm --prefix infra run cdk -- deploy aura-historia-container-artifacts \
-            --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts' \
-            --require-approval never --method change-set --exclusively \
-            --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices
-
   aws-push-container-images:
     name: Publish or reuse image ${{ matrix.id }}
-    needs: [infra-test, aws-container-artifacts]
+    needs: [infra-test]
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment:
-      name: aws-${{ needs.infra-test.outputs.stage }}
     permissions:
       contents: read
       id-token: write
@@ -171,8 +129,6 @@ jobs:
     needs: [infra-test]
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment:
-      name: aws-${{ needs.infra-test.outputs.stage }}
     permissions:
       contents: read
       id-token: write
@@ -235,8 +191,6 @@ jobs:
     needs: [infra-test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: aws-${{ needs.infra-test.outputs.stage }}
     permissions:
       contents: read
       id-token: write
@@ -281,7 +235,6 @@ jobs:
     needs:
       [
         infra-test,
-        aws-container-artifacts,
         aws-push-container-images,
         aws-push-lambda,
         aws-push-mail-templates,

@@ -130,38 +130,45 @@ describe("deployment workflow boundaries", () => {
     expect(infra).not.toMatch(/configure-aws-credentials|id-token:\s*write/);
   });
 
-  test.each(awsDeployJobs)("protects %s with the validated stage environment", (name) => {
+  test.each(awsDeployJobs)("configures %s for AWS and gates only the final deployment", (name) => {
     const awsJob = job(deployWorkflow, name);
     expect(needs(awsJob)).toContain("infra-test");
-    expect(block(awsJob, "environment", 4)).toContain("name: aws-${{ needs.infra-test.outputs.stage }}");
+    if (name === "aws-cdk-deploy") {
+      expect(block(awsJob, "environment", 4)).toContain("name: aws-${{ needs.infra-test.outputs.stage }}");
+    } else {
+      expect(awsJob).not.toMatch(/^    environment:/m);
+      expect(awsJob).not.toMatch(/\bcdk\b|cloudformation|deploy-stacks\.sh|ensure-dms-vpc-role/);
+    }
     expect(awsJob).toMatch(/id-token:\s*write/);
     expect(awsJob).toContain("secrets.CI_DEPLOY_ROLE_ARN");
     expect(awsJob).toContain("vars.AWS_REGION");
   });
 
-  test.each(awsDeployJobs.filter((name) => name !== "aws-container-artifacts"))("pins application job %s to the resolved release", (name) => {
+  test.each(awsDeployJobs)("pins application job %s to the resolved release", (name) => {
     const awsJob = job(deployWorkflow, name);
     expect(awsJob).toContain("DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}");
     expectInOrder(awsJob, "ref: ${{ env.DEPLOY_COMMIT_SHA }}", "aws-actions/configure-aws-credentials@");
     expect(awsJob).not.toMatch(/github\.sha|ref:\s*(?:develop|\$\{\{\s*(?:inputs\.ref|github\.ref))/);
   });
 
-  test("reconciles shared retained repositories from latest develop under the job lock, not a historical release", () => {
-    const artifacts = job(deployWorkflow, "aws-container-artifacts");
-    const concurrency = block(artifacts, "concurrency", 4);
-    expect(concurrency).toContain("group: aws-container-artifact-stack");
-    expect(concurrency).toMatch(/cancel-in-progress:\s*false/);
-    expect([...artifacts.matchAll(/^\s+ref:\s*(.+)$/gm)].map((match) => match[1])).toEqual(["develop"]);
-    expectInOrder(artifacts, "ref: develop", "npm --prefix infra ci", "npm --prefix infra run build", "npm --prefix infra test -- artifact-stack.test.ts", "aws-actions/configure-aws-credentials@", "deploy aura-historia-container-artifacts");
-    expect(artifacts).not.toMatch(/DEPLOY_COMMIT_SHA|outputs\.commit_sha/);
-    expect(deployWorkflow).not.toContain("artifact_sha");
+  test("uses pre-provisioned repositories without deploying or importing an artifact stack", () => {
+    expect(deployWorkflow).not.toMatch(/aws-container-artifacts|aura-historia-container-artifacts|bin\/artifacts\.ts/);
+    expect(publishHelper).not.toMatch(/cloudformation|create-repository|put-image-tag-mutability|\bcdk\b/);
+    expectInOrder(publishHelper, "aws ecr describe-repositories", '.[0].imageTagMutability == "IMMUTABLE"', "docker login");
+    expect(publishHelper).toContain('.[0].registryId == $account');
+    expect(publishHelper).toContain('.[0].repositoryUri == $uri');
+    expect(publishHelper).toContain('.[0].encryptionConfiguration.encryptionType == "AES256"');
+    expect(publishHelper).toContain("infra/README.md#container-repository-setup");
   });
 
   test("uses one dependency graph for every trigger and requires every publisher to succeed before CDK", () => {
-    const prerequisites = ["aws-container-artifacts", "aws-push-container-images", "aws-push-lambda", "aws-push-mail-templates"];
-    expect(awsDeployJobs).toEqual(expect.arrayContaining([...prerequisites, "aws-cdk-deploy"]));
-    expect(needs(job(deployWorkflow, "aws-push-container-images"))).toContain("aws-container-artifacts");
-    expect(needs(job(deployWorkflow, "aws-cdk-deploy"))).toEqual(expect.arrayContaining(["infra-test", ...prerequisites]));
+    const prerequisites = ["aws-push-container-images", "aws-push-lambda", "aws-push-mail-templates"];
+    expect(awsDeployJobs).toEqual([...prerequisites, "aws-cdk-deploy"]);
+    for (const name of prerequisites) {
+      expect(needs(job(deployWorkflow, name))).toEqual(["infra-test"]);
+    }
+    expect(needs(job(deployWorkflow, "aws-cdk-deploy"))).toEqual(["infra-test", ...prerequisites]);
+    expect(jobNames(deployWorkflow).filter((name) => /^    environment:/m.test(job(deployWorkflow, name)))).toEqual(["aws-cdk-deploy"]);
     for (const name of jobNames(deployWorkflow)) {
       const body = job(deployWorkflow, name);
       // GitHub's default success condition blocks failed or skipped dependencies.
@@ -170,11 +177,11 @@ describe("deployment workflow boundaries", () => {
     }
   });
 
-  test("shares stage locks with operations but serializes only repository reconciliation globally", () => {
+  test("shares stage locks with operations without a global artifact-stack lock", () => {
     const concurrency = block(deployWorkflow, "concurrency");
     expect(concurrency).toMatch(/group:\s*aws-deploy-.*inputs.stage.*refs\/tags\/.*'prod'.*'dev'/);
     expect(concurrency).toMatch(/cancel-in-progress:\s*false/);
-    expect(block(job(deployWorkflow, "aws-container-artifacts"), "concurrency", 4)).toContain("group: aws-container-artifact-stack");
+    expect(deployWorkflow).not.toContain("aws-container-artifact-stack");
     expect(job(deployWorkflow, "aws-push-container-images")).not.toMatch(/^    concurrency:/m);
   });
 
@@ -261,13 +268,11 @@ describe("immutable artifact publication", () => {
     expect(artifactHelper).toMatch(/else\s+cat[^\n]+\n\s+exit 1/);
   });
 
-  test("delegates catalog-driven publication to the generic helper after reconciling repositories", () => {
+  test("delegates catalog-driven publication to the generic helper without deploying repositories", () => {
     const infra = job(deployWorkflow, "infra-test");
-    const artifacts = job(deployWorkflow, "aws-container-artifacts");
     const publisher = job(deployWorkflow, "aws-push-container-images");
     expect(infra).toContain("container_matrix: ${{ steps.container-catalog.outputs.matrix }}");
     expect(infra).toContain("node ci/container-images.cjs matrix");
-    expect(artifacts).toContain("deploy aura-historia-container-artifacts");
     expect(publisher).toContain("matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}");
     for (const field of ["id", "binary", "repository", "dockerfile", "platform"]) {
       expect(publisher).toContain(`IMAGE_${field.toUpperCase()}: \${{ matrix.${field} }}`);

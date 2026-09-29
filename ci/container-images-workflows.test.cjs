@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } = require('node:fs');
+const { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -97,6 +97,22 @@ function mockTool() {
       if (args[0] === 'sts') {
         assert.deepEqual(args, ['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text']);
         return { stdout: '123456789012' };
+      }
+      if (args[0] === 'ecr' && args[1] === 'describe-repositories') {
+        const entry = entries.find((entry) => entry.repository === env.IMAGE_REPOSITORY);
+        assert.ok(entry, 'Unknown ECR repository');
+        assert.deepEqual(args, ['ecr', 'describe-repositories', '--repository-names', entry.repository, '--output', 'json']);
+        if (config.repositoryFailure) return failure(config.repositoryFailure);
+        if (config.repositoryResponse !== undefined) return { stdout: config.repositoryResponse };
+        const repository = {
+          registryId: '123456789012',
+          repositoryName: entry.repository,
+          repositoryUri: `${registryHost}/${entry.repository}`,
+          imageTagMutability: 'IMMUTABLE',
+          encryptionConfiguration: { encryptionType: 'AES256' },
+          ...config.repository,
+        };
+        return json({ repositories: Array(config.repositoryCount ?? 1).fill(repository) });
       }
       if (args[0] === 'ecr' && args[1] === 'get-login-password') {
         assert.deepEqual(args, ['ecr', 'get-login-password']);
@@ -319,26 +335,25 @@ function assertNoMutation(f, expectedGitDiffs = 0) {
   assert.equal(f.read('summary'), '');
 }
 
-test('deployment publishers use the catalog on every trigger and gate AWS jobs with environments', () => {
+test('deployment publishers use the release catalogs on every trigger before the only environment gate at final deploy', () => {
   const workflow = readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8');
-  const jobs = Object.fromEntries([...workflow.matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|(?![\s\S]))/gm)].map((match) => [match[1], match[2]]));
+  const jobs = Object.fromEntries([...workflow.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:\n|(?![\s\S]))/gm)].map((match) => [match[1], match[2]]));
+  const publishers = ['aws-push-container-images', 'aws-push-lambda', 'aws-push-mail-templates'];
+  assert.deepEqual(Object.keys(jobs), ['infra-test', ...publishers, 'aws-cdk-deploy']);
+  const needs = (job) => job.match(/^    needs:\s*\[([^\]]+)\]/m)?.[1].split(',').map((name) => name.trim()).filter(Boolean);
+  for (const name of publishers) assert.deepEqual(needs(jobs[name]), ['infra-test'], `${name} must depend only on infrastructure tests`);
+  assert.deepEqual(new Set(needs(jobs['aws-cdk-deploy'])), new Set(['infra-test', ...publishers]));
+  assert.deepEqual(Object.entries(jobs).filter(([, job]) => /^    environment:/m.test(job)).map(([name]) => name), ['aws-cdk-deploy']);
+  assert.match(jobs['aws-cdk-deploy'], /^    environment:\n      name: aws-\$\{\{ needs\.infra-test\.outputs\.stage \}\}$/m);
   const publisher = jobs['aws-push-container-images'];
-  assert.ok(publisher);
-  const needs = publisher.match(/^    needs: \[([^\]]+)\]/m)?.[1].split(',').map((name) => name.trim());
-  assert.deepEqual(new Set(needs), new Set(['infra-test', 'aws-container-artifacts']));
   assert.match(publisher, /matrix: \$\{\{ fromJSON\(needs\.infra-test\.outputs\.container_matrix\) \}\}/);
   assert.match(publisher, /run: bash ci\/publish-container\.sh/);
   assert.match(jobs['infra-test'], /^      stage: \$\{\{ env\.STAGE \}\}$/m);
   for (const [name, job] of Object.entries(jobs).filter(([name]) => name.startsWith('aws-'))) {
-    assert.match(job, /^    environment:\n      name: aws-\$\{\{ needs\.infra-test\.outputs\.stage \}\}$/m, `${name} must use the resolved stage's approved environment`);
     assert.doesNotMatch(job, /^    if:.*github\.event_name == 'push'/m, `${name} must not be push-only`);
-    if (name === 'aws-container-artifacts') {
-      assert.match(job, /^          ref: develop$/m);
-      assert.match(job, /^    concurrency:\n      group: aws-container-artifact-stack\n      cancel-in-progress: false$/m);
-    } else {
-      assert.match(job, /^      DEPLOY_COMMIT_SHA: \$\{\{ needs\.infra-test\.outputs\.commit_sha \}\}$/m, `${name} must select the resolved release SHA`);
-      assert.match(job, /^          ref: \$\{\{ env\.DEPLOY_COMMIT_SHA \}\}$/m, `${name} must check out the selected release`);
-    }
+    assert.match(job, /^      DEPLOY_COMMIT_SHA: \$\{\{ needs\.infra-test\.outputs\.commit_sha \}\}$/m, `${name} must select the resolved release SHA`);
+    assert.match(job, /^          ref: \$\{\{ env\.DEPLOY_COMMIT_SHA \}\}$/m, `${name} must check out the selected release`);
+    assert.equal([...job.matchAll(/uses: actions\/checkout@/g)].length, 1, `${name} must not check out another source`);
   }
   assert.match(jobs['infra-test'], /^      lambda_matrix: \$\{\{ steps\.lambda-catalog\.outputs\.matrix \}\}$/m);
   assert.ok(jobs['infra-test'].includes('require("./ci/lambda-binaries.json")'));
@@ -350,6 +365,100 @@ test('deployment publishers use the catalog on every trigger and gate AWS jobs w
   assert.match(jobs['aws-cdk-deploy'], /run: bash ci\/deploy-stacks\.sh/);
   assert.match(jobs['aws-cdk-deploy'], /CONTAINER_IMAGE_DIGESTS: \$\{\{ steps\.container-images\.outputs\.digests \}\}/);
 });
+
+test('no workflow reconciles, creates, imports, or configures container repositories', () => {
+  for (const file of readdirSync(path.join(root, '.github/workflows')).filter((file) => /\.ya?ml$/.test(file))) {
+    const workflow = readFileSync(path.join(root, '.github/workflows', file), 'utf8');
+    assert.doesNotMatch(workflow, /aws-container-artifacts|aws-container-artifact-stack|aura-historia-container-artifacts|bin\/artifacts\.ts/, file);
+    assert.doesNotMatch(workflow, /\b(?:create-repository|delete-repository|put-image-tag-mutability|put-image-scanning-configuration|put-registry-scanning-configuration|set-repository-policy|delete-repository-policy|put-lifecycle-policy|delete-lifecycle-policy)\b/, file);
+    assert.doesNotMatch(workflow, /--import-existing-resources|\bcdk\s+(?:--\s+)?import\b/, file);
+  }
+});
+
+function assertRepositoryPreflight(f, entry = f.entries[1]) {
+  assert.deepEqual(f.events().slice(0, 2), [
+    { tool: 'aws', args: ['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text'] },
+    { tool: 'aws', args: ['ecr', 'describe-repositories', '--repository-names', entry.repository, '--output', 'json'] },
+  ]);
+}
+
+function assertRepositoryValidationOnly(f) {
+  assertRepositoryPreflight(f);
+  assert.equal(f.events().length, 2, 'Repository validation must fail before Docker login, build, push, or any repository mutation');
+  assert.equal(f.read('summary'), '');
+}
+
+for (const existingImages of [false, true]) {
+  test(`publication ${existingImages ? 'reuses a trusted image' : 'builds a missing image'} in an existing repository without CloudFormation ownership checks`, (t) => {
+    const f = fixture(t, { existingImages });
+    const result = f.publish();
+    assert.equal(result.status, 0, result.stderr);
+    assertRepositoryPreflight(f);
+    assert.ok(f.events().every((event) => ['aws', 'docker', 'smoke'].includes(event.tool)));
+    assert.ok(f.events().filter((event) => event.tool === 'aws').every((event) => ['sts', 'ecr'].includes(event.args[0])));
+    assert.equal(f.events().filter((event) => event.tool === 'docker' && event.args[0] === 'push').length, existingImages ? 0 : 1);
+    assert.ok(f.read('summary').includes(`- Registry digest: ${secondDigest}`));
+  });
+}
+
+for (const scanOnPush of [false, true]) {
+  test(`repository scanOnPush=${scanOnPush} does not change the publication contract`, (t) => {
+    const f = fixture(t, { existingImages: true, repository: { imageScanningConfiguration: { scanOnPush }, imageTagMutabilityExclusionFilters: [] } });
+    const result = f.publish();
+    assert.equal(result.status, 0, result.stderr);
+    assertRepositoryPreflight(f);
+  });
+}
+
+for (const repositoryFailure of [
+  'An error occurred (RepositoryNotFoundException) when calling DescribeRepositories: repository does not exist',
+  'An error occurred (AccessDeniedException) when calling DescribeRepositories: not authorized',
+  'Could not connect to the endpoint URL: https://api.ecr.eu-central-1.amazonaws.com',
+]) {
+  test(`repository lookup fails closed without hiding the AWS error: ${repositoryFailure}`, (t) => {
+    const f = fixture(t, { repositoryFailure });
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(repositoryFailure));
+    assert.match(result.stderr, /Cannot read ECR repository aura-historia-second-image in 123456789012\/eu-central-1/);
+    assert.match(result.stderr, /if missing, provision it using infra\/README\.md#container-repository-setup; otherwise inspect the AWS error/);
+    assertRepositoryValidationOnly(f);
+  });
+}
+
+for (const { name, options } of [
+  { name: 'malformed JSON', options: { repositoryResponse: '{broken' } },
+  { name: 'empty output', options: { repositoryResponse: '' } },
+  { name: 'missing repositories', options: { repositoryResponse: '{}' } },
+  { name: 'null repositories', options: { repositoryResponse: '{"repositories":null}' } },
+  { name: 'non-array repositories', options: { repositoryResponse: '{"repositories":{}}' } },
+  { name: 'zero repositories', options: { repositoryCount: 0 } },
+  { name: 'multiple repositories', options: { repositoryCount: 2 } },
+  { name: 'wrong registry account', options: { repository: { registryId: '210987654321' } } },
+  { name: 'missing registry account', options: { repository: { registryId: null } } },
+  { name: 'wrong repository name', options: { repository: { repositoryName: 'aura-historia-other' } } },
+  { name: 'wrong URI account', options: { repository: { repositoryUri: '210987654321.dkr.ecr.eu-central-1.amazonaws.com/aura-historia-second-image' } } },
+  { name: 'wrong URI region', options: { repository: { repositoryUri: '123456789012.dkr.ecr.us-east-1.amazonaws.com/aura-historia-second-image' } } },
+  { name: 'wrong URI repository', options: { repository: { repositoryUri: '123456789012.dkr.ecr.eu-central-1.amazonaws.com/aura-historia-other' } } },
+  ...['MUTABLE', 'MUTABLE_WITH_EXCLUSION', 'IMMUTABLE_WITH_EXCLUSION', null].map((imageTagMutability) => ({
+    name: `tag mutability ${imageTagMutability}`, options: { repository: { imageTagMutability } },
+  })),
+  { name: 'tag mutability exclusions', options: { repository: { imageTagMutabilityExclusionFilters: [{ filterType: 'WILDCARD', filter: 'git-*' }] } } },
+  ...['KMS', 'KMS_DSSE', null].map((encryptionType) => ({
+    name: `encryption ${encryptionType}`, options: { repository: { encryptionConfiguration: { encryptionType } } },
+  })),
+  { name: 'missing encryption configuration', options: { repository: { encryptionConfiguration: null } } },
+]) {
+  test(`repository validation rejects ${name} before any publication or repository mutation`, (t) => {
+    const f = fixture(t, options);
+    const result = f.publish();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid ECR repository configuration: expected exactly one repository at 123456789012\.dkr\.ecr\.eu-central-1\.amazonaws\.com\/aura-historia-second-image/);
+    assert.match(result.stderr, /IMMUTABLE without exclusions and AES256 encryption/);
+    assert.doesNotMatch(result.stderr, /Cannot read ECR repository/);
+    assertRepositoryValidationOnly(f);
+  });
+}
 
 test('a second catalog image builds, publishes, reuses, resolves, and reaches the real deploy script', (t) => {
   const f = fixture(t);
