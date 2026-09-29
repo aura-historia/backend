@@ -275,7 +275,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       expect(producer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL)
         .toEqual(expectedQueueUrl);
       expect(producer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
-        .toContainEqual({ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn });
+        .toEqual(name === `shopify-lambda-${stage}`
+          ? [
+              { Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn },
+              { Action: ["sqs:ReceiveMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+                Effect: "Allow", Resource: stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: `shopify-lambda-queue-${stage}` })) },
+            ]
+          : [{ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn }]);
     }
     expect(consumer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
     expect(consumer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
@@ -374,8 +380,17 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"]
         : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
     );
-    expect(JSON.stringify(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL))
-      .toContain(`product-listing-ingestion-queue-${stage}.fifo`);
+    expect(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual({ "Fn::Sub": [
+      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
+      { QueueName: `product-listing-ingestion-queue-${stage}.fifo` },
+    ] });
+    if (stage !== "ephemeral") {
+      const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
+      expect(lambda.Properties.VpcConfig).toBeDefined();
+      expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+        .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
+          Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
+    }
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const shopifyMapping = mappings.find((mapping) =>

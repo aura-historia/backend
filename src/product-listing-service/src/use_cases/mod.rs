@@ -54,6 +54,7 @@ pub use commands::submit_product_listing_ingestion::{
     ProductListingIngestionSubmissionError, ProductListingIngestionSubmissionResult,
     SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
     SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
+    product_listing_ingestion_identity,
 };
 pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,
