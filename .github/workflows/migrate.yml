@@ -1,10 +1,10 @@
-name: Initialize (CD)
+name: Migrate (CD)
 
 on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "First-time FX bootstrap only, after Migrate; retries reuse the stable event ID (no deployment)"
+        description: "Stage to migrate using its already-deployed migration Lambda (no deployment)"
         required: true
         type: choice
         options:
@@ -24,8 +24,8 @@ env:
   DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
 
 jobs:
-  initialize:
-    name: First-time FX bootstrap for ${{ inputs.stage }}
+  migrate:
+    name: Migrate ${{ inputs.stage }}
     environment:
       name: aws-${{ inputs.stage }}
     runs-on: ubuntu-latest
@@ -49,8 +49,8 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Capture initial FX snapshot (idempotent retry)
+      - name: Run deployed database migrations
         shell: bash
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
-        run: bash ci/invoke-operation.sh initialize
+        run: bash ci/invoke-operation.sh migrate

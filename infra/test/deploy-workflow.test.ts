@@ -1,136 +1,389 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(process.cwd(), "..");
-const deployWorkflow = readFileSync(resolve(root, ".github", "workflows", "deploy.yml"), "utf8");
-const initializeWorkflow = readFileSync(resolve(root, ".github", "workflows", "initialize.yml"), "utf8");
-const imageWorkflow = readFileSync(resolve(root, ".github", "workflows", "container-images.yml"), "utf8");
+const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
+const deployWorkflow = read(".github/workflows/deploy.yml");
+const imageWorkflow = read(".github/workflows/container-images.yml");
+const operationWorkflows = ["migrate", "initialize"].map((operation) => ({
+  operation,
+  workflow: read(`.github/workflows/${operation}.yml`),
+}));
+const deployHelper = read("ci/deploy-stacks.sh");
+const publishHelper = read("ci/publish-container.sh");
+const operationHelper = read("ci/invoke-operation.sh");
+const artifactHelper = read("ci/s3-artifact-exists.sh");
+const { resolveSource, validateReleaseTag }: {
+  resolveSource: (env: Record<string, string>, git: (args: string[]) => string) => { sha: string; ref: string };
+  validateReleaseTag: (tag: string) => string;
+} = require(resolve(root, "ci/release-source.cjs"));
 
-function job(workflow: string, name: string, next?: string): string {
-  const start = workflow.indexOf(`  ${name}:`);
-  const end = next ? workflow.indexOf(`  ${next}:`, start + 1) : workflow.length;
+// Bound assertions to YAML sections without depending on the next job's name or action versions.
+function block(source: string, key: string, indent = 0): string {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.startsWith(`${" ".repeat(indent)}${key}:`));
   expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  return workflow.slice(start, end);
+  const end = lines.findIndex((line, index) => index > start && new RegExp(`^ {0,${indent}}\\S`).test(line));
+  return lines.slice(start, end < 0 ? undefined : end).join("\n");
 }
 
-describe("container release workflow behavior", () => {
-  test("keeps Lambda ZIP packaging separate from ECS image publication", () => {
-    const lambdaJob = job(deployWorkflow, "aws-push-lambda", "aws-push-mail-templates");
-    expect(lambdaJob).toContain("target/lambda/${BINARY}/bootstrap.zip");
-    expect(lambdaJob).not.toMatch(/search-filter-periodic-match|aura-historia-cron/);
-    expect(deployWorkflow).toContain("aws-push-lambda.result == 'success'");
-    expect(deployWorkflow).not.toContain("aws-push-periodic-matcher");
+function job(workflow: string, name: string): string {
+  return block(block(workflow, "jobs"), name, 2);
+}
+
+function jobNames(workflow: string): string[] {
+  return [...block(workflow, "jobs").matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
+}
+
+function needs(source: string): string[] {
+  const match = block(source, "needs", 4).match(/needs:\s*\[([^\]]*)\]/);
+  expect(match).not.toBeNull();
+  return match![1].split(",").map((name) => name.trim()).filter(Boolean);
+}
+
+function expectInOrder(source: string, ...parts: string[]): void {
+  let previous = -1;
+  for (const part of parts) {
+    const position = source.indexOf(part);
+    expect(position).toBeGreaterThan(previous);
+    previous = position;
+  }
+}
+
+const awsDeployJobs = jobNames(deployWorkflow).filter((name) =>
+  job(deployWorkflow, name).includes("aws-actions/configure-aws-credentials@"));
+const sha = "a".repeat(40);
+const releaseTag = "20260929-1200";
+
+describe("release source contract", () => {
+  test("deploys develop to dev and CalVer tags to prod, with manual source and scope selection", () => {
+    const triggers = block(deployWorkflow, "on");
+    const push = block(triggers, "push", 2);
+    expect(push).toMatch(/branches:\s*\[develop\]/);
+    expect(push).toContain(`tags: ["${"[0-9]".repeat(8)}-${"[0-9]".repeat(4)}"]`);
+    const dispatch = block(triggers, "workflow_dispatch", 2);
+    expect(block(dispatch, "stage", 6)).toMatch(/options:\s*\[dev, prod\]/);
+    expect(block(dispatch, "ref", 6)).toMatch(/type:\s*string/);
+    expect(block(dispatch, "scope", 6)).toMatch(/default:\s*auto/);
+    expect(block(dispatch, "scope", 6)).toMatch(/options:\s*\[auto, foundation, all\]/);
+    expect(block(deployWorkflow, "env")).toMatch(/STAGE:.*workflow_dispatch.*inputs.stage.*refs\/tags\/.*'prod'.*'dev'/);
+    expect(job(deployWorkflow, "aws-cdk-deploy")).toContain("DEPLOY_SCOPE: ${{ inputs.scope || 'auto' }}");
   });
 
-  test("catalog, resolver, and image-test changes trigger release validation", () => {
-    for (const file of ["ci/container-images.json", "ci/container-images.cjs", "ci/container-images*.test.cjs", "ci/container-images/**", ".github/actions/resolve-container-images/**"]) {
-      expect(deployWorkflow).toContain(`"${file}"`);
-      expect(imageWorkflow).toContain(`"${file}"`);
+  test.each([
+    ["dev", "push", "", "refs/heads/develop", sha],
+    ["prod", "push", "", `refs/tags/${releaseTag}`, `refs/tags/${releaseTag}`],
+    ["dev", "workflow_dispatch", "", "", "refs/remotes/origin/develop"],
+    ["dev", "workflow_dispatch", "develop", "", "refs/remotes/origin/develop"],
+    ["dev", "workflow_dispatch", sha, "", sha],
+    ["prod", "workflow_dispatch", releaseTag, "", `refs/tags/${releaseTag}`],
+  ])("resolves %s %s source '%s' once and requires develop ancestry", (stage, event, requested, ref, selected) => {
+    const git = jest.fn(() => sha);
+    expect(resolveSource({ STAGE: stage, GITHUB_EVENT_NAME: event, REQUESTED_REF: requested, GITHUB_REF: ref, GITHUB_SHA: sha }, git))
+      .toEqual({ sha, ref: selected });
+    expect(git).toHaveBeenCalledWith(["rev-parse", "--verify", `${selected}^{commit}`]);
+    expect(git).toHaveBeenLastCalledWith(["merge-base", "--is-ancestor", sha, "refs/remotes/origin/develop"]);
+  });
+
+  test.each([
+    ["dev", "feature-branch"], ["dev", "abc123"], ["dev", "A".repeat(40)],
+    ["prod", ""], ["prod", "develop"], ["prod", sha],
+  ])("rejects invalid manual %s source '%s' before Git resolution", (stage, requested) => {
+    const git = jest.fn(() => sha);
+    expect(() => resolveSource({ STAGE: stage, GITHUB_EVENT_NAME: "workflow_dispatch", REQUESTED_REF: requested }, git)).toThrow();
+    expect(git).not.toHaveBeenCalled();
+  });
+
+  test("rejects an unsupported stage before resolving the source", () => {
+    const git = jest.fn(() => sha);
+    expect(() => resolveSource({ STAGE: "staging", GITHUB_EVENT_NAME: "workflow_dispatch" }, git)).toThrow(/Stage/);
+    expect(git).not.toHaveBeenCalled();
+  });
+
+  test.each(["20260230-1200", "20260929-2400", "20260929-1260", "v20260929-1200"])("rejects invalid UTC CalVer tag %s", (tag) => {
+    expect(() => validateReleaseTag(tag)).toThrow();
+  });
+
+  test("fails closed for moved tags and sources outside develop", () => {
+    expect(validateReleaseTag("20240229-2359")).toBe("20240229-2359");
+    const env = { STAGE: "prod", GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/${releaseTag}`, GITHUB_SHA: sha };
+    const movedTag = jest.fn().mockReturnValueOnce(sha).mockReturnValueOnce("b".repeat(40));
+    expect(() => resolveSource(env, movedTag)).toThrow(/triggering commit/);
+    const unrelatedSource = jest.fn((args: string[]) => {
+      if (args[0] === "merge-base") throw new Error("Not an ancestor");
+      return sha;
+    });
+    expect(() => resolveSource(env, unrelatedSource)).toThrow("Not an ancestor");
+  });
+});
+
+describe("deployment workflow boundaries", () => {
+  test("resolves and validates the source without credentials before testing the pinned checkout", () => {
+    const infra = job(deployWorkflow, "infra-test");
+    expect(infra).toContain("fetch-depth: 0");
+    expect(infra).toContain("REQUESTED_REF: ${{ inputs.ref }}");
+    expect(block(infra, "outputs", 4)).toContain("stage: ${{ env.STAGE }}");
+    expect(infra).toContain("commit_sha: ${{ steps.source.outputs.commit_sha }}");
+    expect(block(infra, "steps", 4)).not.toMatch(/^\s+STAGE:/m);
+    expectInOrder(infra, "node ci/release-source.cjs", "ref: ${{ steps.source.outputs.commit_sha }}", "npm --prefix infra ci", "npm --prefix infra test");
+    expect(infra).toContain("node --test ci/*.test.cjs");
+    expect(infra).not.toMatch(/configure-aws-credentials|id-token:\s*write/);
+  });
+
+  test.each(awsDeployJobs)("protects %s with the validated stage environment", (name) => {
+    const awsJob = job(deployWorkflow, name);
+    expect(needs(awsJob)).toContain("infra-test");
+    expect(block(awsJob, "environment", 4)).toContain("name: aws-${{ needs.infra-test.outputs.stage }}");
+    expect(awsJob).toMatch(/id-token:\s*write/);
+    expect(awsJob).toContain("secrets.CI_DEPLOY_ROLE_ARN");
+    expect(awsJob).toContain("vars.AWS_REGION");
+  });
+
+  test.each(awsDeployJobs.filter((name) => name !== "aws-container-artifacts"))("pins application job %s to the resolved release", (name) => {
+    const awsJob = job(deployWorkflow, name);
+    expect(awsJob).toContain("DEPLOY_COMMIT_SHA: ${{ needs.infra-test.outputs.commit_sha }}");
+    expectInOrder(awsJob, "ref: ${{ env.DEPLOY_COMMIT_SHA }}", "aws-actions/configure-aws-credentials@");
+    expect(awsJob).not.toMatch(/github\.sha|ref:\s*(?:develop|\$\{\{\s*(?:inputs\.ref|github\.ref))/);
+  });
+
+  test("reconciles shared retained repositories from latest develop under the job lock, not a historical release", () => {
+    const artifacts = job(deployWorkflow, "aws-container-artifacts");
+    const concurrency = block(artifacts, "concurrency", 4);
+    expect(concurrency).toContain("group: aws-container-artifact-stack");
+    expect(concurrency).toMatch(/cancel-in-progress:\s*false/);
+    expect([...artifacts.matchAll(/^\s+ref:\s*(.+)$/gm)].map((match) => match[1])).toEqual(["develop"]);
+    expectInOrder(artifacts, "ref: develop", "npm --prefix infra ci", "npm --prefix infra run build", "npm --prefix infra test -- artifact-stack.test.ts", "aws-actions/configure-aws-credentials@", "deploy aura-historia-container-artifacts");
+    expect(artifacts).not.toMatch(/DEPLOY_COMMIT_SHA|outputs\.commit_sha/);
+    expect(deployWorkflow).not.toContain("artifact_sha");
+  });
+
+  test("uses one dependency graph for every trigger and requires every publisher to succeed before CDK", () => {
+    const prerequisites = ["aws-container-artifacts", "aws-push-container-images", "aws-push-lambda", "aws-push-mail-templates"];
+    expect(awsDeployJobs).toEqual(expect.arrayContaining([...prerequisites, "aws-cdk-deploy"]));
+    expect(needs(job(deployWorkflow, "aws-push-container-images"))).toContain("aws-container-artifacts");
+    expect(needs(job(deployWorkflow, "aws-cdk-deploy"))).toEqual(expect.arrayContaining(["infra-test", ...prerequisites]));
+    for (const name of jobNames(deployWorkflow)) {
+      const body = job(deployWorkflow, name);
+      // GitHub's default success condition blocks failed or skipped dependencies.
+      expect(body).not.toMatch(/^    if:/m);
+      expect(body).not.toMatch(/continue-on-error:\s*true|\balways\(\)/);
     }
   });
 
-  test("reconciles catalog repositories once and publishes a real catalog matrix", () => {
-    const infra = job(deployWorkflow, "infra-test", "aws-container-artifacts");
-    const artifacts = job(deployWorkflow, "aws-container-artifacts", "aws-push-container-images");
-    const publisher = job(deployWorkflow, "aws-push-container-images", "aws-push-lambda");
+  test("shares stage locks with operations but serializes only repository reconciliation globally", () => {
+    const concurrency = block(deployWorkflow, "concurrency");
+    expect(concurrency).toMatch(/group:\s*aws-deploy-.*inputs.stage.*refs\/tags\/.*'prod'.*'dev'/);
+    expect(concurrency).toMatch(/cancel-in-progress:\s*false/);
+    expect(block(job(deployWorkflow, "aws-container-artifacts"), "concurrency", 4)).toContain("group: aws-container-artifact-stack");
+    expect(job(deployWorkflow, "aws-push-container-images")).not.toMatch(/^    concurrency:/m);
+  });
+
+  test("keeps release validation responsive to workflows, helper scripts and catalog changes", () => {
+    const push = block(block(deployWorkflow, "on"), "push", 2);
+    for (const path of [".github/workflows/**", ".github/actions/**", "ci/**"]) expect(push).toContain(`"${path}"`);
+    for (const path of ["ci/container-images.json", "ci/container-images.cjs", "ci/container-images*.test.cjs", "ci/container-images/**", ".github/actions/resolve-container-images/**"]) {
+      expect(imageWorkflow).toContain(`"${path}"`);
+    }
+  });
+});
+
+describe("immutable artifact publication", () => {
+  test("reads the Lambda matrix from the release-pinned catalog instead of the running workflow", () => {
+    const infra = job(deployWorkflow, "infra-test");
+    expect(block(infra, "outputs", 4)).toContain("lambda_matrix: ${{ steps.lambda-catalog.outputs.matrix }}");
+    expectInOrder(infra, "ref: ${{ steps.source.outputs.commit_sha }}", "id: lambda-catalog", "./ci/lambda-binaries.json");
+    const catalogStep = infra.split(/^      - /m).find((step) => step.includes("id: lambda-catalog"));
+    expect(catalogStep).toContain('JSON.stringify({binary: require("./ci/lambda-binaries.json")})');
+    expect(catalogStep).toContain('"matrix="');
+    expect(catalogStep).toContain('>> "$GITHUB_OUTPUT"');
+    const lambda = job(deployWorkflow, "aws-push-lambda");
+    expect(block(lambda, "strategy", 4)).toContain("matrix: ${{ fromJSON(needs.infra-test.outputs.lambda_matrix) }}");
+    expect(block(lambda, "strategy", 4)).not.toMatch(/^\s+binary:/m);
+    expect(lambda).toContain("BINARY: ${{ matrix.binary }}");
+  });
+
+  test("catalogs unique workspace binary crates with matching package names and source entry points", () => {
+    const binaries: string[] = JSON.parse(read("ci/lambda-binaries.json"));
+    expect(Array.isArray(binaries)).toBe(true);
+    expect(binaries.length).toBeGreaterThan(0);
+    expect(new Set(binaries).size).toBe(binaries.length);
+    const members = read("Cargo.toml").match(/\[workspace\]\s*members\s*=\s*\[([^\]]*)\]/)?.[1];
+    expect(members).toBeDefined();
+    for (const binary of binaries) {
+      expect(binary).toMatch(/^[a-z][a-z0-9-]*$/);
+      const crate = `src/${binary}`;
+      expect(members).toContain(`"${crate}"`);
+      const manifest = read(`${crate}/Cargo.toml`);
+      expect(manifest.match(/^name\s*=\s*"([^"]+)"/m)?.[1]).toBe(binary);
+      expect(manifest).not.toMatch(/^autobins\s*=\s*false/m);
+      expect(existsSync(resolve(root, crate, "src/main.rs"))).toBe(true);
+    }
+  });
+
+  test("matches the CDK runtime definitions and initialization ZIP artifacts without another full synth", () => {
+    const binaries: string[] = JSON.parse(read("ci/lambda-binaries.json"));
+    const definitions = read("infra/src/constructs/lambdas.ts");
+    // The definitions are private; include both the runtime catalog and direct initialization S3 keys.
+    const runtimeBinaries = [...definitions.matchAll(/\bbinaryName:\s*"([^"]+)"/g)].map((match) => match[1]);
+    const initializationBinaries = [...definitions.matchAll(/`([a-z][a-z0-9-]+)-\$\{[^}]+\}-\$\{[^}]+\}\.zip`/g)].map((match) => match[1]);
+    expect(runtimeBinaries.length).toBeGreaterThan(0);
+    expect(initializationBinaries.length).toBeGreaterThan(0);
+    expect([...binaries].sort()).toEqual([...runtimeBinaries, ...initializationBinaries].sort());
+  });
+
+  test("keeps Lambda ZIPs separate from catalog images and builds/uploads only missing ZIPs", () => {
+    const lambda = job(deployWorkflow, "aws-push-lambda");
+    expect(lambda).toContain("target/lambda/${BINARY}/bootstrap.zip");
+    expect(lambda).not.toMatch(/search-filter-periodic-match|aura-historia-cron|docker build/);
+    expect(lambda).toContain('bash ci/s3-artifact-exists.sh "$BUCKET" "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
+    const steps = lambda.split(/^      - /m);
+    for (const command of ["cargo lambda build", "aws s3api put-object"]) {
+      const step = steps.find((candidate) => candidate.includes(command));
+      expect(step).toBeDefined();
+      expect(step).toContain("if: steps.artifact.outputs.exists == 'false'");
+    }
+    expect(lambda).toContain("--if-none-match '*'");
+    expect(lambda).not.toMatch(/aws s3 (?:cp|sync|rm)|s3api delete-object/);
+  });
+
+  test("compiles and conditionally uploads only missing SHA-scoped mail templates", () => {
+    const mail = job(deployWorkflow, "aws-push-mail-templates");
+    expectInOrder(mail, 'key="${STAGE}/${DEPLOY_COMMIT_SHA}/${template%.mjml}.html"', "bash ci/s3-artifact-exists.sh", 'if [ "$exists" = false ]; then', "aws s3api put-object");
+    const missing = mail.match(/if \[ "\$exists" = false \]; then([\s\S]*?)^\s*fi$/m)?.[1];
+    expect(missing).toBeDefined();
+    expect(missing).toContain('mjml/node_modules/.bin/mjml "$template"');
+    expect(missing).toContain('aws s3api put-object --bucket "$BUCKET" --key "$key"');
+    expect(missing).toContain("--if-none-match '*'");
+    expect(mail).not.toMatch(/aws s3 (?:cp|sync|rm)|s3api delete-object/);
+    expect(artifactHelper).toContain("aws s3api head-object");
+    expect(artifactHelper).toContain("404|NoSuchKey|NotFound");
+    expect(artifactHelper).toMatch(/then\s+echo true/);
+    expect(artifactHelper).toMatch(/else\s+cat[^\n]+\n\s+exit 1/);
+  });
+
+  test("delegates catalog-driven publication to the generic helper after reconciling repositories", () => {
+    const infra = job(deployWorkflow, "infra-test");
+    const artifacts = job(deployWorkflow, "aws-container-artifacts");
+    const publisher = job(deployWorkflow, "aws-push-container-images");
     expect(infra).toContain("container_matrix: ${{ steps.container-catalog.outputs.matrix }}");
-    expect(infra).toContain("node ci/container-images.cjs matrix >> \"$GITHUB_OUTPUT\"");
-    expect(artifacts).toContain("group: aws-container-artifact-stack");
-    expect(artifacts).toContain("aura-historia-container-artifacts");
-    expect(publisher).toContain("needs: [infra-test, aws-container-artifacts]");
+    expect(infra).toContain("node ci/container-images.cjs matrix");
+    expect(artifacts).toContain("deploy aura-historia-container-artifacts");
     expect(publisher).toContain("matrix: ${{ fromJSON(needs.infra-test.outputs.container_matrix) }}");
-    expect(publisher).not.toMatch(/outputs:\s*[\s\S]{0,100}image_digest/);
-    expect(publisher).not.toMatch(/periodic-matcher|POSTGRES_|GOOGLE_APPLICATION_CREDENTIALS|VERTEX_AI/);
-    expect(publisher).toContain("IMAGE_BINARY: ${{ matrix.binary }}");
-    expect(deployWorkflow).not.toContain("aws-periodic-matcher-artifact-apply");
+    for (const field of ["id", "binary", "repository", "dockerfile", "platform"]) {
+      expect(publisher).toContain(`IMAGE_${field.toUpperCase()}: \${{ matrix.${field} }}`);
+    }
+    expect(publisher).toContain("bash ci/publish-container.sh");
+    expect(publisher).not.toMatch(/docker (?:build|push)|periodic-matcher|POSTGRES_|GOOGLE_APPLICATION_CREDENTIALS|VERTEX_AI/);
+    expect(publishHelper).not.toMatch(/periodic-matcher|FROM rust:|FROM debian:/);
   });
 
-  test("bootstraps the account-wide DMS VPC role before deploying the data stack, without changing manual rollback", () => {
-    const bootstrap = deployWorkflow.indexOf("bash infra/scripts/ensure-dms-vpc-role.sh");
-    const network = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-network"');
-    const data = deployWorkflow.indexOf('deploy "${STACK_NAME_PREFIX}-data"');
-    expect(bootstrap).toBeGreaterThanOrEqual(0);
-    expect(network).toBeGreaterThan(bootstrap);
-    expect(data).toBeGreaterThan(network);
-    expect(deployWorkflow).toMatch(/name: Ensure account-level DMS VPC role\n\s+if: github.event_name == 'push'/);
+  test("reuses trusted immutable images and smoke-tests new images before tagging and digest verification", () => {
+    expect(publishHelper).toContain('tag="git-${DEPLOY_COMMIT_SHA}"');
+    expect(publishHelper).toContain("node ci/container-images.cjs resolve-one");
+    expectInOrder(publishHelper, 'initial="$(resolve_tag --allow-missing)"', 'verify_image "${uri}@${digest}" reused-image.json', "docker build");
+    expectInOrder(publishHelper, 'bash "ci/container-images/${IMAGE_ID}/smoke.sh" "$local_ref"', 'docker tag "$local_ref" "${uri}:${tag}"', 'docker push "${uri}:${tag}"', 'published="$(resolve_tag --allow-missing)"', 'verify_image "${uri}@${digest}" published-image.json');
+    expect(publishHelper).toContain('docker pull --platform "$IMAGE_PLATFORM" "${uri}@${digest}"');
+    expect(publishHelper).toContain("push_succeeded=false");
+    expect(publishHelper).toContain('bash "ci/container-images/${IMAGE_ID}/smoke.sh" "${uri}@${digest}"');
+    expect(publishHelper).toContain("^sha256:[0-9a-f]{64}$");
+    expect(publishHelper).not.toMatch(/batch-delete-image|put-image-tag-mutability/);
   });
 
-  test("manual rollback reuses deployed templates without invoking migrations", () => {
-    const rollback = deployWorkflow.split('      - name: Preflight stage artifacts and deployed stack state')[1];
-    expect(rollback).toBeDefined();
-    expect(rollback).toContain('--use-previous-template');
-    expect(rollback).toContain('for stack in initialize compute; do');
-    expect(rollback).not.toContain('database-migration-lambda');
-    expect(rollback).not.toMatch(/aws lambda invoke|invoke_function|npm --prefix infra run cdk -- deploy/);
-  });
-
-  test("tests a local image before adding its final immutable SHA tag", () => {
-    const publisher = job(deployWorkflow, "aws-push-container-images", "aws-push-lambda");
-    const smoke = publisher.indexOf('bash "ci/container-images/${IMAGE_ID}/smoke.sh" "$local_ref"');
-    const finalTag = publisher.indexOf('docker tag "$local_ref" "${uri}:${tag}"');
-    const push = publisher.indexOf('docker push "${uri}:${tag}"');
-    expect(smoke).toBeGreaterThanOrEqual(0);
-    expect(finalTag).toBeGreaterThan(smoke);
-    expect(push).toBeGreaterThan(finalTag);
-    expect(publisher).toContain("push_succeeded=false");
-    expect(publisher).toContain("bash \"ci/container-images/${IMAGE_ID}/smoke.sh\" \"${uri}@${digest}\"");
-    expect(publisher).toContain("node ci/container-images.cjs resolve-one");
-    expect(publisher).toContain("--allow-missing");
-    expect(publisher).toContain("docker pull --platform \"$IMAGE_PLATFORM\" \"${uri}@${digest}\"");
-    expect(publisher).toContain("Registry digest: ${digest}");
-    expect(publisher).not.toMatch(/sed -nE|FROM rust:|FROM debian:/);
-  });
-
-  test("builds and smoke-tests catalog images on unprivileged PR CI", () => {
-    expect(imageWorkflow).toContain("pull_request:");
-    expect(imageWorkflow).toContain("permissions:\n  contents: read");
-    expect(imageWorkflow).not.toContain("id-token: write");
+  test("builds and smoke-tests the catalog on unprivileged PR CI", () => {
+    expect(block(imageWorkflow, "on")).toContain("pull_request:");
+    expect(block(imageWorkflow, "permissions")).toMatch(/contents:\s*read/);
+    expect(imageWorkflow).not.toMatch(/id-token:\s*write|configure-aws-credentials|docker push/);
     expect(imageWorkflow).toContain("node --test ci/container-images*.test.cjs");
-    expect(imageWorkflow).toContain("docker build --platform \"$IMAGE_PLATFORM\"");
-    expect(imageWorkflow).toContain('bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"');
+    expect(imageWorkflow).toContain("fromJSON(needs.catalog.outputs.container_matrix)");
+    expectInOrder(imageWorkflow, 'docker build --platform "$IMAGE_PLATFORM"', 'bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"');
   });
+});
 
-  test("resolves the full digest map before deployment, initialization, or rollback", () => {
+describe("CDK deployment responsibility", () => {
+  test("resolves the pinned image map then delegates deployment, never manual operations or imports", () => {
     const deploy = job(deployWorkflow, "aws-cdk-deploy");
-    expect(deploy).toContain("uses: ./.github/actions/resolve-container-images");
-    expect(deploy).toContain("steps.container-images.outputs.digests");
-    expect(deploy).toContain("needs.aws-push-container-images.result == 'success'");
-    expect(deploy).toContain("task-outputs --stack-file compute-stack.json");
-    expect(deploy).toContain("do not rerun migrations or launch another task");
-
-    expect(initializeWorkflow).toContain("uses: ./.github/actions/resolve-container-images");
-    expect(initializeWorkflow).toContain("node ci/container-images.cjs initialize-update");
-    expect(initializeWorkflow).toContain(".parameters | to_entries[] | \"\\(.key)=\\(.value)\"");
-    expect(initializeWorkflow.indexOf("initialize-update")).toBeLessThan(initializeWorkflow.indexOf("Migrate and capture FX"));
-    expect(initializeWorkflow).toContain("task-outputs --stack-file compute-stack.json");
-    expect(initializeWorkflow).toContain("do not rerun migrations or launch another task");
-    expect(initializeWorkflow).not.toContain("aws-periodic-matcher-artifact-apply");
+    const checkout = deploy.split(/^      - /m).find((step) => step.includes("uses: actions/checkout@"));
+    expect(checkout).toContain("ref: ${{ env.DEPLOY_COMMIT_SHA }}");
+    expect(checkout).toMatch(/fetch-depth:\s*0/);
+    expectInOrder(deploy, "uses: ./.github/actions/resolve-container-images", "bash ci/deploy-stacks.sh");
+    expect(deploy).toContain("commit-sha: ${{ env.DEPLOY_COMMIT_SHA }}");
+    expect(deploy).toContain("CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}");
+    expect(deployHelper).toContain('npm --prefix infra run cdk -- deploy "$@"');
+    for (const source of [deployWorkflow, deployHelper]) {
+      expect(source).not.toMatch(/aws lambda invoke|invoke-operation\.sh|--use-previous-template|--resources-to-import|--change-set-type\s+IMPORT|\bcdk\s+import\b/);
+    }
   });
 
-  test("scopes the one-time CDC archive import variable to the selected stage", () => {
-    expect(deployWorkflow).toContain("vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', github.ref == 'refs/heads/prod' && 'PROD' || 'DEV')]");
-    expect(initializeWorkflow).toContain("vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', inputs.stage == 'prod' && 'PROD' || 'DEV')]");
-    expect(initializeWorkflow).toContain(".[0].ResourceType == \"AWS::S3::Bucket\" and .[0].PhysicalResourceId == $bucket");
+  test("compares deployed and selected migration sources only in auto, failing closed before mutations", () => {
+    const gate = deployHelper.match(/^if \[ "\$DEPLOY_SCOPE" = auto \] && \[ "\$application_exists" = true \]; then[\s\S]*?^fi$/m)?.[0];
+    expect(gate).toBeDefined();
+    expect(gate).toContain('select(.ParameterKey == "CommitSHA")');
+    expect(gate).toContain("compute-stack.json");
+    expect(gate).toContain('[[ "$current_sha" =~ ^[0-9a-f]{40}$ ]]');
+    expect(gate).toContain('git --no-pager diff --quiet "$current_sha" "$DEPLOY_COMMIT_SHA"');
+    expect(gate).toContain("-- migrations infra/sql src/database-migration-lambda");
+    expectInOrder(gate!, "compute-stack.json", '[[ "$current_sha"', "git --no-pager diff", "status=$?", 'if [ "$status" != 1 ]; then', "exit 1", "migration_changed=true");
+    // Explicit all scope bypasses this source-only check, not an assertion of database readiness.
+    expectInOrder(deployHelper, "migration_changed=false", gate!, "bash infra/scripts/ensure-dms-vpc-role.sh", 'deploy "${STACK_NAME_PREFIX}-network"');
   });
 
-  test("keeps manual artifact rollback on previous templates without image builds or migrations", () => {
-    const preflight = deployWorkflow.split("- name: Preflight stage artifacts and deployed stack state")[1]?.split("- name: Update artifact SHA and image digests")[0];
-    const rollback = deployWorkflow.split("- name: Update artifact SHA and image digests")[1];
-    expect(preflight).toBeDefined();
-    expect(rollback).toContain("--use-previous-template");
-    expect(rollback).toContain("previous-update");
-    expect(rollback).toContain("compute-previous-update.json");
-    expect(rollback).not.toMatch(/docker build|docker pull|database-migration-lambda|fxrate-lambda|invoke_function/);
-    expect(preflight).not.toMatch(/docker build|docker pull|docker run|sed -nE/);
-    expect(preflight).toContain("previous-update");
+  test("stops at foundation for new stages or changed migration sources until explicit all acknowledgement", () => {
+    expect(deployHelper).toContain('case "$DEPLOY_SCOPE" in auto|foundation|all)');
+    expect(deployHelper).toContain("application_exists=false");
+    expect(deployHelper).toContain('if [ "$stack" = compute ]; then application_exists=true; fi');
+    const guard = deployHelper.match(/^if .*"\$DEPLOY_SCOPE".*foundation[\s\S]*?^fi$/m)?.[0];
+    expect(guard).toBeDefined();
+    expect(guard).toContain('[ "$DEPLOY_SCOPE" = auto ] && [ "$application_exists" = false ]');
+    expect(guard).toContain('|| [ "$migration_changed" = true ] ||');
+    expect(guard).toContain("exit 0");
+    expect(guard).toContain("scope=all");
+    expectInOrder(deployHelper, "aws cloudformation describe-stacks", "bash infra/scripts/ensure-dms-vpc-role.sh", 'deploy "${STACK_NAME_PREFIX}-network"', 'deploy "${STACK_NAME_PREFIX}-data"', 'deploy "${STACK_NAME_PREFIX}-initialize"', guard!, 'deploy "${STACK_NAME_PREFIX}-compute"', 'deploy "${STACK_NAME_PREFIX}-api"');
+    expect(deployHelper).toMatch(/if \[ "\$STAGE" = prod \]; then deploy "\$\{STACK_NAME_PREFIX\}-observability"/);
   });
 
-  test("shares only per-stage deployment locks and does not serialize image publishers globally", () => {
-    expect(deployWorkflow).toContain("group: aws-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.stage");
-    expect(initializeWorkflow).toContain("group: aws-deploy-${{ inputs.stage }}");
-    const publisher = job(deployWorkflow, "aws-push-container-images", "aws-push-lambda");
-    expect(publisher).not.toContain("concurrency:");
-    expect(initializeWorkflow).not.toContain("concurrency:\n      group:");
+  test("preserves existing activation parameters while updating source and image digests", () => {
+    expect(deployHelper).toContain("--previous-parameters");
+    expect(deployHelper).toContain("--exclusively");
+    expect(deployHelper).toContain("node ci/container-images.cjs deploy-parameters");
+    expect(deployHelper).toContain('--commit-sha "$DEPLOY_COMMIT_SHA"');
+    expect(deployHelper).toContain("--digests container-image-digests.json");
+    expect(deployHelper).toContain('deploy "${STACK_NAME_PREFIX}-compute" "${compute_parameters[@]}"');
+    expect(deployHelper).not.toMatch(/(?:CdcRouterEnabled|PeriodicMatcherEnabled)=/);
+  });
+});
+
+describe("manual operations responsibility", () => {
+  test.each(operationWorkflows)("$operation is manual-only, environment-gated, serialized and invocation-only", ({ operation, workflow }) => {
+    const events = [...block(workflow, "on").matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
+    expect(events).toEqual(["workflow_dispatch"]);
+    expect(block(workflow, "commit_sha", 6)).toMatch(/required:\s*true/);
+    expect(block(workflow, "commit_sha", 6)).toMatch(/type:\s*string/);
+    expect(block(workflow, "env")).toContain("STAGE: ${{ inputs.stage }}");
+    expect(block(workflow, "env")).toContain("DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}");
+    const concurrency = block(workflow, "concurrency");
+    expect(concurrency).toContain("group: aws-deploy-${{ inputs.stage }}");
+    expect(concurrency).toMatch(/cancel-in-progress:\s*false/);
+    for (const name of jobNames(workflow)) {
+      const operationJob = job(workflow, name);
+      expect(block(operationJob, "environment", 4)).toContain("name: aws-${{ inputs.stage }}");
+      expect(operationJob).toMatch(/id-token:\s*write/);
+      expect(operationJob).toContain("secrets.CI_DEPLOY_ROLE_ARN");
+      expectInOrder(operationJob, "ref: ${{ github.sha }}", "aws-actions/configure-aws-credentials@", `bash ci/invoke-operation.sh ${operation}`);
+    }
+    expect(workflow).not.toMatch(/ref:\s*\$\{\{\s*inputs\.commit_sha|\bnpm\b|\bcdk\b|resolve-container-images|release-source|publish-container|docker|deploy-stacks/);
+    expect(workflow).not.toContain(`invoke-operation.sh ${operation === "migrate" ? "initialize" : "migrate"}`);
+  });
+
+  test("checks the deployed initialization SHA before invoking only the selected operation", () => {
+    expect(operationHelper).toContain("^[0-9a-f]{40}$");
+    expect(operationHelper).toContain('stack_name="application-${STAGE}-initialize"');
+    expectInOrder(operationHelper, "aws cloudformation describe-stacks", 'json_matches stack "$work_dir/stack.json"', 'json_matches sha "$work_dir/stack.json" "$DEPLOY_COMMIT_SHA"', "aws lambda wait function-updated", "aws lambda invoke");
+    expect(operationHelper).toContain("parameter.ParameterKey === 'CommitSHA'");
+    expect(operationHelper).toContain("commits.length === 1 && commits[0].ParameterValue === expected");
+    expect(operationHelper).toContain('function_name="database-migration-lambda-${STAGE}"');
+    expect(operationHelper).toContain('function_name="fxrate-lambda-${STAGE}"');
+    expect(operationHelper).toContain("deployment:fxrate:initial:${process.env.STAGE}:v1");
+    expect(operationHelper).toContain("--invocation-type RequestResponse");
+    expect(operationHelper).not.toMatch(/\bnpm\b|\bcdk\b|resolve-container-images|deploy-stacks|aws cloudformation (?:deploy|update-stack|create-stack|create-change-set|execute-change-set)/);
   });
 });

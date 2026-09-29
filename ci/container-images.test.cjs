@@ -36,15 +36,15 @@ test('all catalog entries resolve by their own repository, SHA tag, and digest p
   assert.notEqual(resolved.OneDigest, resolved.TwoDigest);
 });
 
-test('the Initialize parameter selector handles absent and older compute stacks without activation toggles', () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), 'initialize-parameters-'));
+test('the deploy parameter selector handles absent and older compute stacks without activation toggles', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'deploy-parameters-'));
   try {
     const stackPath = path.join(directory, 'compute-stack.json');
     const digestsPath = path.join(directory, 'digests.json');
     const script = path.join(__dirname, 'container-images.cjs');
     const digests = { [image.digestParameter]: digest };
     writeFileSync(digestsPath, JSON.stringify(digests));
-    const runSelector = () => spawnSync(process.execPath, [script, 'initialize-update', '--stack-file', stackPath, '--commit-sha', sha, '--digests', digestsPath], { encoding: 'utf8' });
+    const runSelector = () => spawnSync(process.execPath, [script, 'deploy-parameters', '--stack-file', stackPath, '--commit-sha', sha, '--digests', digestsPath], { encoding: 'utf8', timeout: 15000 });
 
     writeFileSync(stackPath, '');
     const absent = runSelector();
@@ -56,15 +56,17 @@ test('the Initialize parameter selector handles absent and older compute stacks 
 
     writeFileSync(stackPath, JSON.stringify({ Stacks: [{ Parameters: [
       { ParameterKey: 'CommitSHA', ParameterValue: sha },
-      { ParameterKey: 'PeriodicMatcherEnabled', ParameterValue: 'true' },
+      { ParameterKey: image.activationParameter, ParameterValue: 'true' },
+      { ParameterKey: 'CdcRouterEnabled', ParameterValue: 'false' },
     ] }] }));
     const older = runSelector();
     assert.equal(older.status, 0, older.stderr);
     assert.deepEqual(JSON.parse(older.stdout).parameters, { CommitSHA: sha, [image.digestParameter]: digest });
-    assert.equal(JSON.parse(older.stdout).parameters.PeriodicMatcherEnabled, undefined);
+    assert.equal(JSON.parse(older.stdout).parameters[image.activationParameter], undefined);
+    assert.equal(JSON.parse(older.stdout).parameters.CdcRouterEnabled, undefined);
 
     writeFileSync(stackPath, JSON.stringify({ Stacks: [{ Parameters: [
-      { ParameterKey: 'PeriodicMatcherImageDigest', ParameterValue: 'sha256:bad' },
+      { ParameterKey: image.digestParameter, ParameterValue: 'sha256:bad' },
     ] }] }));
     const malformed = runSelector();
     assert.notEqual(malformed.status, 0);
