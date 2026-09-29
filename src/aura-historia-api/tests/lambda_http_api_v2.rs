@@ -266,6 +266,10 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let _environment = EnvironmentGuard::set(&[
             ("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9"),
+            (
+                "PRODUCT_LISTING_INGESTION_QUEUE_URL",
+                "http://127.0.0.1:9/lambda-test-product-listing-ingestion.fifo",
+            ),
             ("STAGE", "ephemeral"),
             (
                 "GOOGLE_APPLICATION_CREDENTIALS",
