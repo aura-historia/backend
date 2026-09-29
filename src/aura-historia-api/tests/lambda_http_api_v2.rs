@@ -163,20 +163,18 @@ async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_ht
         assert_eq!(serde_json::json!(""), response["body"]);
         assert_eq!(serde_json::json!(false), response["isBase64Encoded"]);
 
+        let messages = api_support::woocommerce_ingestion_messages(ListingSourceId::try_from(listing_source_uuid)?);
+        assert_eq!(1, messages.len());
+        let product_listing_service::use_cases::ProductListingIngestionIntent::CaptureRaw(command) = &messages[0].intent else {
+            panic!("expected WooCommerce raw capture intent");
+        };
+        assert_eq!("901", command.source_record_key);
+        assert_eq!(Some("lambda-http-api-v2-901"), command.source_event_id.as_deref());
+        assert_eq!(serde_json::json!("é"), command.input.source_payload().value()["futureWooKey"]);
         let pool = get_postgres_client().await;
-        let source_payload: serde_json::Value = sqlx::query_scalar(
-            "SELECT revision.source_payload \
-             FROM product_listing_raw_revisions revision \
-             JOIN product_listing_raw_streams stream \
-               ON stream.product_listing_raw_stream_id = revision.product_listing_raw_stream_id \
-             WHERE stream.listing_source_id = $1 \
-               AND stream.ingestion_method = 'WOOCOMMERCE' \
-               AND stream.source_record_key = '901'",
-        )
-        .bind(listing_source_uuid)
-        .fetch_one(&pool)
-        .await?;
-        assert_eq!(serde_json::json!("é"), source_payload["futureWooKey"]);
+        let raw_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product_listing_raw_streams WHERE listing_source_id = $1")
+            .bind(listing_source_uuid).fetch_one(&pool).await?;
+        assert_eq!(0, raw_count);
         Ok(())
     }
     .await;

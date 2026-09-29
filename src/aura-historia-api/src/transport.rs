@@ -79,13 +79,18 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
 }
 
 async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {
+    let path = request.uri().path();
     let async_ingestion = matches!(
         request.method(),
         &Method::POST | &Method::PATCH | &Method::PUT | &Method::DELETE
-    ) && request.uri().path().starts_with("/api/v1/listing-sources/")
-        && request.uri().path().ends_with("/product-listings/async");
+    ) && path.starts_with("/api/v1/listing-sources/")
+        && path.ends_with("/product-listings/async");
+    let woocommerce_webhook = request.method() == Method::POST
+        && path
+            .strip_prefix("/api/v1/webhooks/woocommerce/")
+            .is_some_and(|source| !source.is_empty() && !source.contains('/'));
     let response = next.run(request).await;
-    if async_ingestion
+    if (async_ingestion || woocommerce_webhook)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
             .headers()
@@ -150,9 +155,9 @@ fn valid_correlation_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
+    use axum::body::{Body, Bytes, to_bytes};
     use axum::http::{Request, StatusCode};
-    use axum::routing::get;
+    use axum::routing::{get, post};
     use tower::ServiceExt;
 
     fn app() -> Router {
@@ -160,6 +165,36 @@ mod tests {
             Router::new().route("/", get(|| async { "ok" })),
             NATIVE_REQUEST_TIMEOUT,
         )
+    }
+
+    #[tokio::test]
+    async fn should_return_api_error_for_oversized_woocommerce_body() {
+        let app = with_transport_middleware(
+            Router::new().route(
+                "/api/v1/webhooks/woocommerce/{source}",
+                post(|_: Bytes| async { StatusCode::NO_CONTENT }),
+            ),
+            NATIVE_REQUEST_TIMEOUT,
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/webhooks/woocommerce/ls_test")
+                    .body(Body::from(vec![b'a'; MAX_REQUEST_BODY_BYTES + 1]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, response.status());
+        assert_eq!(
+            "application/problem+json",
+            response.headers()[header::CONTENT_TYPE]
+        );
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!("BAD_BODY_VALUE", body["error"]);
     }
 
     #[test]

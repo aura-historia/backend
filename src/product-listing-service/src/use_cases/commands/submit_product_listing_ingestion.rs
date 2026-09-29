@@ -19,7 +19,10 @@ use application::operation_context::{
 use listing_source_core::ListingSourceId;
 
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 const SUBMISSION_IDENTITY_DOMAIN: &[u8] = b"aura.product-listing-ingestion.submission.v1";
 const COMMAND_IDENTITY_DOMAIN: &[u8] = b"aura.product-listing-ingestion.command.v1";
@@ -86,6 +89,20 @@ pub trait SubmitPartnerProductListingIngestionUseCase: Send + Sync {
         context: &OperationContext,
         submission: ProductListingIngestionSubmission,
     ) -> Result<ProductListingIngestionSubmissionResult, ProductListingIngestionSubmissionError>;
+}
+
+#[async_trait::async_trait]
+impl<T: SubmitPartnerProductListingIngestionUseCase + ?Sized>
+    SubmitPartnerProductListingIngestionUseCase for Arc<T>
+{
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        submission: ProductListingIngestionSubmission,
+    ) -> Result<ProductListingIngestionSubmissionResult, ProductListingIngestionSubmissionError>
+    {
+        (**self).execute(context, submission).await
+    }
 }
 
 /// Internal intake contract for trusted Service and System principals.

@@ -42,20 +42,20 @@ use product_listing_service::{
     },
     product_listing_auction_patch::ProductListingAuctionPatch,
     use_cases::{
-        CaptureProductListingRawObservationCommand, CaptureProductListingRawObservationResult,
-        CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
-        CreateProductListingUseCase, IndexedProductListingIngestionIntent,
-        ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
-        ProductListingIngestionCompletion, ProductListingIngestionEffect,
-        ProductListingIngestionEnvelope, ProductListingIngestionError,
-        ProductListingIngestionFingerprint, ProductListingIngestionIdempotencyKey,
-        ProductListingIngestionIntent, ProductListingIngestionItemOutcome,
-        ProductListingIngestionMessage, ProductListingIngestionOutcome,
-        ProductListingIngestionSubmission, SubmitInternalProductListingIngestionHandler,
-        SubmitInternalProductListingIngestionUseCase, SubmitPartnerProductListingIngestionHandler,
-        SubmitPartnerProductListingIngestionUseCase, UpdateProductListingCommand,
-        UpdateProductListingError, UpsertProductListingCommand, UpsertProductListingResult,
-        WithdrawProductListingError,
+        CaptureProductListingRawObservationCommand, CaptureProductListingRawObservationError,
+        CaptureProductListingRawObservationResult, CreateProductListingCommand,
+        CreateProductListingError, CreateProductListingHandler, CreateProductListingUseCase,
+        IndexedProductListingIngestionIntent, ProcessProductListingIngestionHandler,
+        ProcessProductListingIngestionUseCase, ProductListingIngestionCompletion,
+        ProductListingIngestionEffect, ProductListingIngestionEnvelope,
+        ProductListingIngestionError, ProductListingIngestionFingerprint,
+        ProductListingIngestionIdempotencyKey, ProductListingIngestionIntent,
+        ProductListingIngestionItemOutcome, ProductListingIngestionMessage,
+        ProductListingIngestionOutcome, ProductListingIngestionSubmission,
+        SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
+        SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
+        UpdateProductListingCommand, UpdateProductListingError, UpsertProductListingCommand,
+        UpsertProductListingResult, WithdrawProductListingError,
     },
 };
 use serde_json::json;
@@ -377,6 +377,79 @@ fn raw_capture(
     })
 }
 
+fn woocommerce_raw_capture(
+    source: ListingSourceId,
+    title: &str,
+    delivery_id: &str,
+    occurred_at: i64,
+) -> ProductListingIngestionIntent {
+    let timestamp = OffsetDateTime::from_unix_timestamp(occurred_at).unwrap();
+    let source_payload = SourcePayload::new(json!({
+        "id": 123,
+        "status": "publish",
+        "name": title,
+        "permalink": "https://example.test/products/123",
+        "date_modified_gmt": timestamp.format(&time::format_description::well_known::Rfc3339).unwrap(),
+    }))
+    .unwrap();
+    let evidence = source_payload.canonical_sha256().unwrap();
+    let input = ProductListingNormalizationInput::new(
+        RawProductListingOperation::Upsert,
+        RawProductListingPayloadFormat::WoocommerceProduct,
+        1,
+        1,
+        source_payload,
+        RawProductListingValues::new(json!({
+            "sourceListingId": "123",
+            "priceFormat": "MACHINE_DECIMAL",
+            "title": {"action": "SET", "value": title},
+            "description": {"action": "CLEAR"},
+            "price": {"action": "CLEAR"},
+            "priceEstimateMin": {"action": "UNCHANGED"},
+            "priceEstimateMax": {"action": "UNCHANGED"},
+            "availability": {"action": "UNCHANGED"},
+            "url": {"action": "SET", "value": "https://example.test/products/123"},
+            "images": {"action": "SET", "value": []},
+        }))
+        .unwrap(),
+        NormalizationContext::new(json!({
+            "baseUrl": "https://example.test/products/123",
+            "fallbackCurrency": "USD",
+            "fallbackLanguage": "en",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    ProductListingIngestionIntent::CaptureRaw(CaptureProductListingRawObservationCommand {
+        listing_source_id: source,
+        ingestion_method: ProductListingRawIngestionMethod::Woocommerce,
+        source_record_key: "123".into(),
+        input,
+        provenance: RawProductListingProvenance::new(json!({
+            "topic": "product.updated",
+            "deliveryId": delivery_id,
+        }))
+        .unwrap(),
+        source_event_id: Some(delivery_id.into()),
+        source_occurred_at: Some(timestamp),
+        provider_receipt: Some(
+            ProductListingRawProviderReceipt::new(
+                ProviderReceiptScope::new("product.updated".into()).unwrap(),
+                delivery_id.into(),
+                SourceEvidenceSha256::new(*evidence.as_bytes()),
+            )
+            .unwrap(),
+        ),
+    })
+}
+
+fn verified(envelope: ProductListingIngestionEnvelope) -> ProductListingIngestionEnvelope {
+    codec::decode(&codec::encode(&envelope.message).unwrap())
+        .unwrap()
+        .into_service_envelope()
+        .unwrap()
+}
+
 async fn prepared(
     source: ListingSourceId,
     principal: Principal,
@@ -440,6 +513,54 @@ async fn seed_source(pool: &sqlx::PgPool) -> ListingSourceId {
         .await
         .unwrap();
     source
+}
+
+async fn seed_partner(pool: &sqlx::PgPool, source: ListingSourceId) -> (UserId, uuid::Uuid) {
+    let actor = UserId::new();
+    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'FREE', 'USER')")
+        .bind(actor.into_uuid())
+        .bind(format!("{actor}@example.test"))
+        .execute(pool)
+        .await
+        .unwrap();
+    let party: uuid::Uuid = sqlx::query_scalar(
+        "SELECT operator_party_id FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let partnership = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+        .bind(partnership)
+        .bind(party)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO partnership_members (user_id, partnership_id) VALUES ($1, $2)")
+        .bind(actor.into_uuid())
+        .bind(partnership)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id) VALUES ($1, $2)")
+        .bind(partnership)
+        .bind(source.into_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    (actor, partnership)
+}
+
+async fn raw_counts(pool: &sqlx::PgPool) -> (i64, i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT count(*) FROM product_listing_raw_streams), \
+                (SELECT count(*) FROM product_listing_raw_revisions), \
+                (SELECT count(*) FROM product_listing_raw_provider_observation_receipts)",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn counts(pool: &sqlx::PgPool) -> (i64, i64, i64) {
@@ -1413,6 +1534,280 @@ async fn raw_capture_distinguishes_noop_stale_provider_duplicate_and_command_rep
     .await
     .unwrap();
     assert_eq!((revisions, provider_receipts, head), (1, 3, 1));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn woocommerce_raw_command_replay_commits_only_one_capture_and_receipt() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let (actor, _) = seed_partner(&pool, source).await;
+    let command = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-delivery-one",
+            vec![woocommerce_raw_capture(source, "First", "delivery-one", 20)],
+        )
+        .await
+        .remove(0),
+    );
+
+    assert!(matches!(
+        handler(&pool).execute(command.clone()).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Changed { revision: 1, .. }
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (0, 0, 1));
+    assert_eq!(raw_counts(&pool).await, (1, 1, 1));
+    let stored: (String, String, i64, Option<i64>) = sqlx::query_as(
+        "SELECT ingestion_method, source_record_key, latest_revision, latest_provider_source_epoch_seconds \
+         FROM product_listing_raw_streams WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ("WOOCOMMERCE".into(), "123".into(), 1, Some(20)));
+    let revision: (String, String, Option<String>, serde_json::Value) = sqlx::query_as(
+        "SELECT payload_format, operation, source_event_id, provenance FROM product_listing_raw_revisions",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(revision.0, "WOOCOMMERCE_PRODUCT");
+    assert_eq!(revision.1, "UPSERT");
+    assert_eq!(revision.2.as_deref(), Some("delivery-one"));
+    assert_eq!(revision.3["topic"], "product.updated");
+    let receipt: (String, String) = sqlx::query_as(
+        "SELECT provider_scope, provider_delivery_id FROM product_listing_raw_provider_observation_receipts",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt, ("product.updated".into(), "delivery-one".into()));
+
+    assert_eq!(
+        handler(&pool).execute(command).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert_eq!(counts(&pool).await, (0, 0, 1));
+    assert_eq!(raw_counts(&pool).await, (1, 1, 1));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_of_revisions() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let (actor, _) = seed_partner(&pool, source).await;
+    let processor = handler(&pool);
+    let first = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-newer",
+            vec![woocommerce_raw_capture(
+                source,
+                "Newer",
+                "delivery-newer",
+                20,
+            )],
+        )
+        .await
+        .remove(0),
+    );
+    let stale = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-stale",
+            vec![woocommerce_raw_capture(
+                source,
+                "Older",
+                "delivery-older",
+                10,
+            )],
+        )
+        .await
+        .remove(0),
+    );
+    let provider_duplicate = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-stale-new-command",
+            vec![woocommerce_raw_capture(
+                source,
+                "Older",
+                "delivery-older",
+                10,
+            )],
+        )
+        .await
+        .remove(0),
+    );
+    let equal_time_conflict = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-equal-time-conflict",
+            vec![woocommerce_raw_capture(
+                source,
+                "Different",
+                "delivery-different",
+                20,
+            )],
+        )
+        .await
+        .remove(0),
+    );
+    let delivery_conflict = verified(
+        prepared(
+            source,
+            Principal::User(actor),
+            "woo-delivery-conflict",
+            vec![woocommerce_raw_capture(
+                source,
+                "Changed",
+                "delivery-newer",
+                30,
+            )],
+        )
+        .await
+        .remove(0),
+    );
+    assert_ne!(
+        first.message.metadata.command_id,
+        stale.message.metadata.command_id
+    );
+    assert_ne!(
+        stale.message.metadata.command_id,
+        provider_duplicate.message.metadata.command_id
+    );
+
+    assert!(matches!(
+        processor.execute(first).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Changed { revision: 1, .. }
+        ))
+    ));
+    assert!(matches!(
+        processor.execute(stale.clone()).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Stale {
+                latest_revision: 1,
+                ..
+            }
+        ))
+    ));
+    assert!(matches!(
+        processor.execute(provider_duplicate).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Duplicate {
+                latest_revision: 1,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(
+        processor.execute(stale).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert!(matches!(
+        processor.execute(equal_time_conflict.clone()).await,
+        Err(ProductListingIngestionError::CaptureRaw(
+            CaptureProductListingRawObservationError::ProviderSourceOrderConflict
+        ))
+    ));
+    assert!(matches!(
+        processor.execute(delivery_conflict.clone()).await,
+        Err(ProductListingIngestionError::CaptureRaw(
+            CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (0, 0, 3));
+    assert_eq!(raw_counts(&pool).await, (1, 1, 2));
+    let head: (i64, Option<i64>) = sqlx::query_as(
+        "SELECT latest_revision, latest_provider_source_epoch_seconds \
+         FROM product_listing_raw_streams WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(head, (1, Some(20)));
+    for conflict in [equal_time_conflict, delivery_conflict] {
+        let receipt_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_command_receipts WHERE command_id = $1",
+        )
+        .bind(conflict.message.metadata.command_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(receipt_count, 0);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn revoked_woocommerce_partner_cannot_mutate_raw_or_insert_new_receipts() {
+    let pool = get_postgres_client().await;
+    let source = seed_source(&pool).await;
+    let (actor, partnership) = seed_partner(&pool, source).await;
+    let mut commands = prepared(
+        source,
+        Principal::User(actor),
+        "woo-revoke-batch",
+        vec![
+            woocommerce_raw_capture(source, "Before", "delivery-before", 20),
+            woocommerce_raw_capture(source, "After", "delivery-after", 30),
+        ],
+    )
+    .await;
+    let first = verified(commands.remove(0));
+    let second = verified(commands.remove(0));
+    let processor = handler(&pool);
+    assert!(matches!(
+        processor.execute(first.clone()).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Changed { revision: 1, .. }
+        ))
+    ));
+    sqlx::query("DELETE FROM partnership_listing_source_grants WHERE partnership_id = $1 AND listing_source_id = $2")
+        .bind(partnership)
+        .bind(source.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        processor.execute(second.clone()).await,
+        Err(ProductListingIngestionError::CaptureRaw(
+            CaptureProductListingRawObservationError::Forbidden
+        ))
+    ));
+    assert_eq!(counts(&pool).await, (0, 0, 1));
+    assert_eq!(raw_counts(&pool).await, (1, 1, 1));
+    let head: i64 = sqlx::query_scalar(
+        "SELECT latest_revision FROM product_listing_raw_streams WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(head, 1);
+    let new_receipt: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_command_receipts WHERE command_id = $1",
+    )
+    .bind(second.message.metadata.command_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(new_receipt, 0);
+    assert_eq!(
+        processor.execute(first).await.unwrap(),
+        ProductListingIngestionCompletion::AlreadyCompleted
+    );
+    assert_eq!(counts(&pool).await, (0, 0, 1));
+    assert_eq!(raw_counts(&pool).await, (1, 1, 1));
 }
 
 fn assert_fresh_receipt_lookup(receipts: &TracingReceiptFactory) {

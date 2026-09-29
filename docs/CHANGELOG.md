@@ -1,5 +1,11 @@
 # API contract changelog
 
+## 2026-09-29 — WooCommerce webhook shared-queue admission (#1865)
+
+- `POST /api/v1/webhooks/woocommerce/{listingSourceId}` keeps required partner bearer/capability checks, source configuration lookup, and WooCommerce HMAC over the exact untouched request bytes. Authorized ignored create/update statuses remain bodyless no-op `204` without queue submission or provider receipt, after an immediate partner/source grant check. Mapped commands check the current partner/source grant in the consumer. For mapped observations, bodyless `204` means **confirmed admission** of one `CAPTURE_RAW` command to the shared ProductListing FIFO, not raw capture or canonical completion.
+- Removed immediate capture/receipt/source-order `409` responses in favor of downstream consumer failure/retry/DLQ handling. Failed, oversized, unconfirmed, or not-attempted queue admission is not acknowledged (`413`, `503`, or `500` as appropriate); a lost send reply can still mean queued work. Preserve the signed request and delivery identity on retry, and inspect FIFO/receipts before redrive. The shared consumer commits raw evidence and its command receipt later; this is not a distributed transaction with the HTTP acknowledgment.
+- CDK already configures the API Lambda with the stage-local shared FIFO URL and source-ARN-only `sqs:SendMessage` permission, so no infrastructure change is required. The API and WooCommerce service now use the existing shared publisher; deploy the shared resources and compatible consumer before the API producer cutover. Source changes do not prove live deployment.
+
 ## 2026-09-29 — Async partner product-listing withdrawal front door (#1863)
 
 - Added `DELETE /api/v1/listing-sources/{listingSourceId}/product-listings/async` to the exact Gateway route catalog with the same Partner application-bearer policy and unmodified request-body forwarding as async POST/PATCH/PUT. Axum submits individual WITHDRAW intents through the shared async admission use case; synchronous DELETE remains unchanged.
