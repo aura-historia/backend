@@ -1,20 +1,80 @@
 //! Shared HTTP admission envelope and result mapping for partner ingestion verbs.
 use super::types::MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE;
-use crate::error::{ApiError, BAD_BODY_VALUE, BAD_HEADER_VALUE};
+use crate::{
+    auth::{TokenAuthenticator, protected_context},
+    error::{
+        ApiError, BAD_BODY_VALUE, BAD_HEADER_VALUE, FORBIDDEN, INVALID_CREDENTIALS,
+        INVALID_OBJECT_ID, PRODUCT_LISTING_INTERNAL_ERROR, PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE,
+    },
+};
+use application::operation_context::{
+    CredentialAuthorizationError, CredentialCapability, OperationContext,
+};
 use axum::{
     Json,
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_service::use_cases::{
-    ProductListingIngestionIdempotencyKey, ProductListingIngestionItemOutcome,
+    IndexedProductListingIngestionIntent, ProductListingIngestionIdempotencyKey,
+    ProductListingIngestionIntent, ProductListingIngestionItemOutcome,
     ProductListingIngestionNotAttemptedReason, ProductListingIngestionOutcome,
-    ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionResult,
+    ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionError,
+    ProductListingIngestionSubmissionResult,
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
 
 const IDEMPOTENCY_KEY: HeaderName = HeaderName::from_static("idempotency-key");
+
+pub(super) async fn authorized_context(
+    authenticator: &dyn TokenAuthenticator,
+    headers: &HeaderMap,
+) -> Result<OperationContext, Response> {
+    let (context, _) = protected_context(authenticator, headers)
+        .await
+        .map_err(|response| *response)?;
+    context
+        .require_credential_capability(CredentialCapability::ProductListingsWrite)
+        .map_err(|error| {
+            match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    ApiError::unauthorized(INVALID_CREDENTIALS)
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    ApiError::forbidden(FORBIDDEN)
+                }
+            }
+            .into_response()
+        })?;
+    Ok(context)
+}
+
+pub(super) fn submission_error(error: ProductListingIngestionSubmissionError) -> Response {
+    match error {
+        ProductListingIngestionSubmissionError::AuthenticationRequired => {
+            ApiError::unauthorized(INVALID_CREDENTIALS)
+        }
+        ProductListingIngestionSubmissionError::Forbidden => ApiError::forbidden(FORBIDDEN),
+        ProductListingIngestionSubmissionError::PublisherNotStarted { .. } => {
+            ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
+        }
+        ProductListingIngestionSubmissionError::InconsistentInputIndices => {
+            ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+        }
+    }
+    .into_response()
+}
+
+pub(super) fn safe_source_id(value: &str) -> Option<String> {
+    if value.len() > 128 || value.chars().any(char::is_control) {
+        return None;
+    }
+    SourceListingId::try_from(value)
+        .ok()
+        .map(|id| id.to_string())
+}
 
 pub(super) fn idempotency_key(
     headers: &HeaderMap,
@@ -48,6 +108,44 @@ pub(super) fn parse_envelope(body: &str) -> Result<Vec<Box<RawValue>>, ApiError>
         )));
     }
     Ok(items)
+}
+
+pub(super) fn parse_items<T: DeserializeOwned>(
+    raw_items: Vec<Box<RawValue>>,
+    source_id: impl Fn(&T) -> &str,
+    into_intent: impl Fn(T) -> Result<ProductListingIngestionIntent, ApiError>,
+) -> (
+    Vec<IndexedProductListingIngestionIntent>,
+    Vec<Option<String>>,
+    Vec<BatchFailure>,
+) {
+    let mut items = Vec::with_capacity(raw_items.len());
+    let mut source_ids = vec![None; raw_items.len()];
+    let mut failures = Vec::new();
+    for (index, raw) in raw_items.into_iter().enumerate() {
+        let product: T = match serde_json::from_str(raw.get()) {
+            Ok(product) => product,
+            Err(_) => {
+                failures.push(BatchFailure::invalid(index, None, "BAD_BODY_VALUE"));
+                continue;
+            }
+        };
+        // Index is authoritative; echo only a short, printable, valid listing key.
+        source_ids[index] = safe_source_id(source_id(&product));
+        match into_intent(product) {
+            Ok(intent) => items.push(IndexedProductListingIngestionIntent { index, intent }),
+            Err(error) => failures.push(BatchFailure::invalid(
+                index,
+                source_ids[index].clone(),
+                if error.code() == INVALID_OBJECT_ID {
+                    "INVALID_OBJECT_ID"
+                } else {
+                    "BAD_BODY_VALUE"
+                },
+            )),
+        }
+    }
+    (items, source_ids, failures)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

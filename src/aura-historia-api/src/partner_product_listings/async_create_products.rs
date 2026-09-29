@@ -1,25 +1,17 @@
 use super::{
-    async_batch::{self, BatchFailure},
+    async_batch,
     types::{CreateProductListingData, parse_listing_source_id},
 };
-use crate::{
-    auth::protected_context,
-    error::{
-        ApiError, FORBIDDEN, INVALID_CREDENTIALS, INVALID_OBJECT_ID,
-        PRODUCT_LISTING_INTERNAL_ERROR, PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE,
-    },
-    state::AsyncPartnerProductListingsState,
-};
-use application::operation_context::{CredentialAuthorizationError, CredentialCapability};
+use crate::state::AsyncPartnerProductListingsState;
+
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use product_listing_core::source_listing_id::SourceListingId;
+
 use product_listing_service::use_cases::{
-    IndexedProductListingIngestionIntent, ProductListingIngestionIntent,
-    ProductListingIngestionSubmission, ProductListingIngestionSubmissionError,
+    ProductListingIngestionIntent, ProductListingIngestionSubmission,
 };
 
 pub async fn create_products(
@@ -36,57 +28,25 @@ pub async fn create_products(
         Ok(key) => key,
         Err(error) => return error.into_response(),
     };
-    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(context) => context,
-        Err(response) => return *response,
-    };
-    if let Err(error) =
-        context.require_credential_capability(CredentialCapability::ProductListingsWrite)
-    {
-        return match error {
-            CredentialAuthorizationError::AuthenticationRequired(_) => {
-                ApiError::unauthorized(INVALID_CREDENTIALS)
-            }
-            CredentialAuthorizationError::InsufficientCapability { .. } => {
-                ApiError::forbidden(FORBIDDEN)
-            }
-        }
-        .into_response();
-    }
+    let context =
+        match async_batch::authorized_context(state.authenticator.as_ref(), &headers).await {
+            Ok(context) => context,
+            Err(response) => return response,
+        };
     let raw_items = match async_batch::parse_envelope(&body) {
         Ok(items) => items,
         Err(error) => return error.into_response(),
     };
     let count = raw_items.len();
-    let mut items = Vec::with_capacity(count);
-    let mut source_ids = vec![None; count];
-    let mut failures = Vec::new();
-    for (index, raw) in raw_items.into_iter().enumerate() {
-        let product: CreateProductListingData = match serde_json::from_str(raw.get()) {
-            Ok(product) => product,
-            Err(_) => {
-                failures.push(BatchFailure::invalid(index, None, "BAD_BODY_VALUE"));
-                continue;
-            }
-        };
-        // Echo only a short, printable, valid key. Index remains authoritative.
-        source_ids[index] = safe_source_id(&product.source_listing_id);
-        match product.into_command(listing_source_id) {
-            Ok(command) => items.push(IndexedProductListingIngestionIntent {
-                index,
-                intent: ProductListingIngestionIntent::Create(command),
-            }),
-            Err(error) => failures.push(BatchFailure::invalid(
-                index,
-                source_ids[index].clone(),
-                if error.code() == INVALID_OBJECT_ID {
-                    "INVALID_OBJECT_ID"
-                } else {
-                    "BAD_BODY_VALUE"
-                },
-            )),
-        }
-    }
+    let (items, source_ids, failures) = async_batch::parse_items::<CreateProductListingData>(
+        raw_items,
+        |product| &product.source_listing_id,
+        |product| {
+            product
+                .into_command(listing_source_id)
+                .map(ProductListingIngestionIntent::Create)
+        },
+    );
     let result = state
         .submit
         .execute(
@@ -101,29 +61,8 @@ pub async fn create_products(
         .await;
     match result {
         Ok(result) => async_batch::report(result, failures, &source_ids),
-        Err(error) => match error {
-            ProductListingIngestionSubmissionError::AuthenticationRequired => {
-                ApiError::unauthorized(INVALID_CREDENTIALS)
-            }
-            ProductListingIngestionSubmissionError::Forbidden => ApiError::forbidden(FORBIDDEN),
-            ProductListingIngestionSubmissionError::PublisherNotStarted { .. } => {
-                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
-            }
-            ProductListingIngestionSubmissionError::InconsistentInputIndices => {
-                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-            }
-        }
-        .into_response(),
+        Err(error) => async_batch::submission_error(error),
     }
-}
-
-fn safe_source_id(value: &str) -> Option<String> {
-    if value.len() > 128 || value.chars().any(char::is_control) {
-        return None;
-    }
-    SourceListingId::try_from(value)
-        .ok()
-        .map(|id| id.to_string())
 }
 
 #[cfg(test)]

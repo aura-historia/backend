@@ -16,8 +16,8 @@ type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
 };
 
-const ASYNC_CREATE_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
-const ASYNC_CREATE_KEY = "POST /api/v1/listing-sources/{}/product-listings/async";
+const ASYNC_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
+
 
 const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/lib.rs",
@@ -113,30 +113,31 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(97);
+    expect(catalog).toHaveLength(98);
     expect(new Set(catalog).size).toBe(catalog.length);
-    // The async HTTP handler and OpenAPI operation are owned by separate work; keep all existing routes in lockstep.
-    expect(catalog.filter((key) => key !== ASYNC_CREATE_KEY && !key.endsWith(" /health") && !key.endsWith(" /ready")))
-      .toEqual(swagger.filter((key) => key !== ASYNC_CREATE_KEY));
-    expect(catalog.filter((key) => key !== ASYNC_CREATE_KEY)).toEqual(axum.filter((key) => key !== ASYNC_CREATE_KEY));
+    expect(catalog.filter((key) => !key.endsWith(" /health") && !key.endsWith(" /ready")))
+      .toEqual(swagger);
+    expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
   });
 
-  test("adds only the exact async create route with application bearer and Partner policy", () => {
-    expect(API_ROUTE_CATALOG.filter((route) => route.path === ASYNC_CREATE_PATH)).toEqual([{
-      method: "POST",
-      path: ASYNC_CREATE_PATH,
-      lambda: "auraHistoriaApi",
-      auth: RouteAuthPolicy.ApplicationBearer,
-      policy: {
-        bearer: "REQUIRED",
-        authorization: RouteAuthorizationClass.Partner,
-        oauthCredentials: OAuthCredentialRequirement.None,
-        providerProof: ProviderProofRequirement.None,
-      },
-    }]);
+  test("adds only POST and PATCH on the exact async route with application bearer and Partner policy", () => {
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === ASYNC_PATH)).toEqual(
+      ["POST", "PATCH"].map((method) => ({
+        method,
+        path: ASYNC_PATH,
+        lambda: "auraHistoriaApi",
+        auth: RouteAuthPolicy.ApplicationBearer,
+        policy: {
+          bearer: "REQUIRED",
+          authorization: RouteAuthorizationClass.Partner,
+          oauthCredentials: OAuthCredentialRequirement.None,
+          providerProof: ProviderProofRequirement.None,
+        },
+      })),
+    );
     expect(API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/product-listings/async")))
-      .toHaveLength(1);
+      .toHaveLength(2);
     expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listing_source_id}/product-listings")
       .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE"]);
   });
@@ -218,9 +219,11 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(97);
-    expect(routes.filter((route) => route.Properties.RouteKey === `POST ${ASYNC_CREATE_PATH}`))
-      .toEqual([expect.objectContaining({ Properties: expect.objectContaining({ AuthorizationType: "NONE" }) })]);
+    expect(routes).toHaveLength(98);
+    for (const method of ["POST", "PATCH"]) {
+      expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
+        .toEqual([expect.objectContaining({ Properties: expect.objectContaining({ AuthorizationType: "NONE" }) })]);
+    }
     expect(routes.every((route) => route.Properties.RouteKey !== "$default" && !String(route.Properties.RouteKey).includes("/{proxy+}"))).toBe(true);
     expect(routes.every((route) => route.Properties.AuthorizationType === "NONE")).toBe(true);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
