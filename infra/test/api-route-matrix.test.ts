@@ -9,13 +9,15 @@ import {
   ProviderProofRequirement,
   RouteAuthPolicy,
   RouteAuthorizationClass,
-
 } from "../src/constructs/api";
 import { STAGES, stageConfig, type StageName } from "../src/config";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
 };
+
+const ASYNC_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
+
 
 const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/lib.rs",
@@ -111,11 +113,33 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(96);
+    expect(catalog).toHaveLength(99);
     expect(new Set(catalog).size).toBe(catalog.length);
-    expect(catalog.filter((key) => !key.endsWith(" /health") && !key.endsWith(" /ready"))).toEqual(swagger);
+    expect(catalog.filter((key) => !key.endsWith(" /health") && !key.endsWith(" /ready")))
+      .toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
+  });
+
+  test("adds only POST, PATCH and PUT on the exact async route with application bearer and Partner policy", () => {
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === ASYNC_PATH)).toEqual(
+      ["POST", "PATCH", "PUT"].map((method) => ({
+        method,
+        path: ASYNC_PATH,
+        lambda: "auraHistoriaApi",
+        auth: RouteAuthPolicy.ApplicationBearer,
+        policy: {
+          bearer: "REQUIRED",
+          authorization: RouteAuthorizationClass.Partner,
+          oauthCredentials: OAuthCredentialRequirement.None,
+          providerProof: ProviderProofRequirement.None,
+        },
+      })),
+    );
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.endsWith("/product-listings/async")))
+      .toHaveLength(3);
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listing_source_id}/product-listings")
+      .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE"]);
   });
 
   test("models the application-owned authorization and compound credential contracts", () => {
@@ -195,7 +219,11 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(96);
+    expect(routes).toHaveLength(99);
+    for (const method of ["POST", "PATCH", "PUT"]) {
+      expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
+        .toEqual([expect.objectContaining({ Properties: expect.objectContaining({ AuthorizationType: "NONE" }) })]);
+    }
     expect(routes.every((route) => route.Properties.RouteKey !== "$default" && !String(route.Properties.RouteKey).includes("/{proxy+}"))).toBe(true);
     expect(routes.every((route) => route.Properties.AuthorizationType === "NONE")).toBe(true);
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
@@ -223,6 +251,17 @@ describe("HTTP API route policy matrix", () => {
         ]],
       },
     });
+  });
+
+  test.each(STAGES)("allows Idempotency-Key requests and exposes the response header in %s Gateway CORS", (stage) => {
+    const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
+    const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
+
+    expect(cors.AllowHeaders).toContain("Idempotency-Key");
+    expect(cors.AllowHeaders).toContain("Authorization");
+    expect(cors.AllowMethods).toEqual(["*"]);
+    expect(cors.AllowOrigins).toEqual(stageConfig(stage).apiCorsAllowOrigins);
+    expect(cors.ExposeHeaders).toContain("Idempotency-Key");
   });
 
   test.each(["dev", "prod"] as const)("imports the %s compute alias ARN for integration and permission", (stage) => {

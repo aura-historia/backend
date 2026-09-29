@@ -61,7 +61,8 @@ use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase,
     GetProductListingUseCase, GetSimilarProductListingsUseCase, SearchProductListingsUseCase,
-    UpdateProductListingUseCase, UpsertProductListingUseCase, WithdrawProductListingUseCase,
+    SubmitPartnerProductListingIngestionUseCase, UpdateProductListingUseCase,
+    UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -115,6 +116,7 @@ pub struct AppState {
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
+    pub(crate) async_partner_product_listings: Option<AsyncPartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) admin_overview: Option<AdminOverviewState>,
     pub(crate) parties: Option<PartiesState>,
@@ -144,6 +146,7 @@ impl AppState {
             readiness: Arc::new(AlwaysReady),
             product_listings: None,
             partner_product_listings: None,
+            async_partner_product_listings: None,
             listing_sources: None,
             admin_overview: None,
             parties: None,
@@ -177,6 +180,14 @@ impl AppState {
         partner_product_listings: PartnerProductListingsState,
     ) -> Self {
         self.partner_product_listings = Some(partner_product_listings);
+        self
+    }
+
+    pub fn with_async_partner_product_listings(
+        mut self,
+        async_partner_product_listings: AsyncPartnerProductListingsState,
+    ) -> Self {
+        self.async_partner_product_listings = Some(async_partner_product_listings);
         self
     }
 
@@ -703,6 +714,24 @@ impl PartnerProductListingsState {
             update,
             upsert,
             withdraw,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AsyncPartnerProductListingsState {
+    pub(crate) submit: Arc<dyn SubmitPartnerProductListingIngestionUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl AsyncPartnerProductListingsState {
+    pub fn new(
+        submit: Arc<dyn SubmitPartnerProductListingIngestionUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            submit,
             authenticator,
         }
     }

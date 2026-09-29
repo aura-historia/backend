@@ -1,9 +1,10 @@
 use crate::auth::RequestMetadata;
+use crate::error::{ApiError, BAD_BODY_VALUE};
 use axum::Router;
 use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -16,6 +17,7 @@ pub(crate) const CORRELATION_ID_HEADER: HeaderName = HeaderName::from_static("x-
 
 const WOOCOMMERCE_DELIVERY_ID_HEADER: HeaderName =
     HeaderName::from_static("x-wc-webhook-delivery-id");
+const IDEMPOTENCY_KEY_HEADER: HeaderName = HeaderName::from_static("idempotency-key");
 const MAX_CORRELATION_ID_LENGTH: usize = 128;
 const MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -39,12 +41,14 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
             header::COOKIE,
             HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-wc-webhook-signature"),
+            IDEMPOTENCY_KEY_HEADER,
         ]))
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
             request_timeout,
         ))
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
+        .layer(axum::middleware::from_fn(async_ingestion_body_limit_error))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -63,10 +67,40 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                     HeaderName::from_static("x-wc-webhook-signature"),
                     WOOCOMMERCE_DELIVERY_ID_HEADER,
                     CORRELATION_ID_HEADER,
+                    IDEMPOTENCY_KEY_HEADER,
                 ])
-                .expose_headers([REQUEST_ID_HEADER, CORRELATION_ID_HEADER]),
+                .expose_headers([
+                    REQUEST_ID_HEADER,
+                    CORRELATION_ID_HEADER,
+                    IDEMPOTENCY_KEY_HEADER,
+                ]),
         )
         .layer(axum::middleware::from_fn(request_metadata))
+}
+
+async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {
+    let async_ingestion = matches!(
+        request.method(),
+        &Method::POST | &Method::PATCH | &Method::PUT
+    ) && request.uri().path().starts_with("/api/v1/listing-sources/")
+        && request.uri().path().ends_with("/product-listings/async");
+    let response = next.run(request).await;
+    if async_ingestion
+        && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
+        && response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|value| value == "text/plain; charset=utf-8")
+    {
+        ApiError::new(
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "Payload Too Large",
+            BAD_BODY_VALUE,
+        )
+        .into_response()
+    } else {
+        response
+    }
 }
 
 fn safe_request_path(path: &str) -> &str {
@@ -237,6 +271,57 @@ mod tests {
                 .trim()
                 .eq_ignore_ascii_case(WOOCOMMERCE_DELIVERY_ID_HEADER.as_str())
         }));
+    }
+
+    #[tokio::test]
+    async fn should_allow_and_expose_idempotency_key_for_cors_requests() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/")
+                    .header(header::ORIGIN, "https://example.test")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, Method::POST.as_str())
+                    .header(
+                        header::ACCESS_CONTROL_REQUEST_HEADERS,
+                        IDEMPOTENCY_KEY_HEADER.as_str(),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert!(
+            response.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS]
+                .to_str()
+                .unwrap()
+                .split(',')
+                .any(|value| value
+                    .trim()
+                    .eq_ignore_ascii_case(IDEMPOTENCY_KEY_HEADER.as_str()))
+        );
+
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(header::ORIGIN, "https://example.test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                .to_str()
+                .unwrap()
+                .split(',')
+                .any(|value| value
+                    .trim()
+                    .eq_ignore_ascii_case(IDEMPOTENCY_KEY_HEADER.as_str()))
+        );
     }
 
     #[tokio::test]
