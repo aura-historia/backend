@@ -23,6 +23,7 @@ env:
   STAGE: ${{ inputs.stage }}
   STACK_NAME_PREFIX: application-${{ inputs.stage }}
   DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+  CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: ${{ vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', inputs.stage == 'prod' && 'PROD' || 'DEV')] }}
 
 jobs:
   initialize:
@@ -105,18 +106,48 @@ jobs:
 
           # A failed or partial first initialization can be retried, but never invoke
           # migrations while an existing application stack is mid-update or failed.
+          if [ -n "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" ] \
+            && [ "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" != "aura-historia-cdc-router-failures-${STAGE}" ]; then
+            echo 'The CDC archive import variable must name the expected stage bucket.' >&2; exit 1
+          fi
           for stack in compute api; do
             if aws cloudformation describe-stacks --stack-name "${STACK_NAME_PREFIX}-${stack}" \
               --output json > "${stack}-stack.json" 2>error.txt; then
               status="$(jq -r '.Stacks[0].StackStatus // empty' "${stack}-stack.json")"
               case "$status" in
                 CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+                REVIEW_IN_PROGRESS)
+                  if [ "$stack" != compute ] || [ -z "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" ] \
+                    || [ "$(aws cloudformation list-stack-resources --stack-name "${STACK_NAME_PREFIX}-compute" --query 'length(StackResourceSummaries)' --output text)" != 0 ]; then
+                    echo 'Only an empty compute REVIEW_IN_PROGRESS stack can be resumed for archive import.' >&2; exit 1
+                  fi
+                  # A failed CREATE change set leaves an empty stack shell, not a deployed compute stack.
+                  : > compute-stack.json ;;
                 *) echo "${stack} stack is ${status:-missing}; repair it before Initialize." >&2; exit 1 ;;
               esac
             elif ! grep -Eq '\(ValidationError\).*does not exist' error.txt; then
               cat error.txt >&2; exit 1
             fi
           done
+          if [ -n "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" ] && [ ! -s compute-stack.json ]; then
+            account="$(aws sts get-caller-identity --query Account --output text)"
+            aws s3api head-bucket --bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --expected-bucket-owner "$account"
+            region="$(aws s3api get-bucket-location --bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --expected-bucket-owner "$account" --query LocationConstraint --output text)"
+            if [ "$region" != "$AWS_REGION" ]; then
+              echo 'CDC archive is not in the selected AWS region.' >&2; exit 1
+            fi
+            if aws cloudformation describe-stack-resources --physical-resource-id "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --output json > archive-owner.json 2>error.txt; then
+              echo 'CDC archive is already owned by a CloudFormation stack; do not auto-import it.' >&2; exit 1
+            elif ! grep -Eq '\(ValidationError\).*Stack for .* does not exist' error.txt; then
+              cat error.txt >&2; exit 1
+            fi
+            aws s3api get-public-access-block --bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --expected-bucket-owner "$account" --output json \
+              | jq -e '.PublicAccessBlockConfiguration | .BlockPublicAcls and .IgnorePublicAcls and .BlockPublicPolicy and .RestrictPublicBuckets' >/dev/null
+            aws s3api get-bucket-encryption --bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --expected-bucket-owner "$account" --output json \
+              | jq -e '.ServerSideEncryptionConfiguration.Rules | any(.[]; .ApplyServerSideEncryptionByDefault.SSEAlgorithm == "AES256")' >/dev/null
+            aws s3api get-bucket-lifecycle-configuration --bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" --expected-bucket-owner "$account" --output json \
+              | jq -e '.Rules | any(.[]; .Status == "Enabled" and .Expiration.Days == 90 and (.Filter.Prefix == "" or .Prefix == ""))' >/dev/null
+          fi
           printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
           node ci/container-images.cjs initialize-update \
             --stack-file compute-stack.json --commit-sha "$DEPLOY_COMMIT_SHA" \
@@ -146,7 +177,7 @@ jobs:
               --context stage="${STAGE}" \
               --context stackNamePrefix="${STACK_NAME_PREFIX}" \
               --require-approval never \
-              --method change-set \
+              --method "${CDK_DEPLOY_METHOD:-change-set}" \
               --exclusively \
               --no-path-metadata \
               --no-asset-metadata \
@@ -210,7 +241,29 @@ jobs:
           while IFS= read -r assignment; do
             compute_parameters+=(--parameters "${STACK_NAME_PREFIX}-compute:${assignment}")
           done < <(jq -r '.parameters | to_entries[] | "\(.key)=\(.value)"' initialize-compute-update.json)
-          deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters "${compute_parameters[@]}"
+          # Auto-import is broad: inspect the prepared change set and admit exactly the archive.
+          if [ -n "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" ] && [ ! -s compute-stack.json ]; then
+            change_set=cdc-router-archive-import
+            CDK_DEPLOY_METHOD=prepare-change-set deploy "${STACK_NAME_PREFIX}-compute" \
+              --previous-parameters "${compute_parameters[@]}" \
+              --import-existing-resources --change-set-name "$change_set"
+            aws cloudformation describe-change-set --stack-name "${STACK_NAME_PREFIX}-compute" \
+              --change-set-name "$change_set" --output json > archive-change-set.json
+            if ! jq -e --arg bucket "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" '
+              .Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and
+              ([.Changes[]?.ResourceChange | select(.Action == "Import")] |
+               length == 1 and .[0].LogicalResourceId == "EventingCdcRouterFailureArchive599BCB3E" and
+               .[0].ResourceType == "AWS::S3::Bucket" and .[0].PhysicalResourceId == $bucket)
+            ' archive-change-set.json >/dev/null; then
+              echo 'Compute change set does not import exactly the approved CDC archive; inspect it before any execution.' >&2
+              exit 1
+            fi
+            aws cloudformation execute-change-set --stack-name "${STACK_NAME_PREFIX}-compute" \
+              --change-set-name "$change_set"
+            aws cloudformation wait stack-create-complete --stack-name "${STACK_NAME_PREFIX}-compute"
+          else
+            deploy "${STACK_NAME_PREFIX}-compute" --previous-parameters "${compute_parameters[@]}"
+          fi
 
           stacks=("${STACK_NAME_PREFIX}-api")
           if [ "${STAGE}" = "prod" ]; then

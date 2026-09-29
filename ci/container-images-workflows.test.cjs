@@ -94,12 +94,39 @@ if (tool === 'aws') {
     process.exit(0);
   }
   if (args[0] === 'cloudformation' && args[1] === 'describe-stacks') {
-    if (args.includes('--query')) { console.log('UPDATE_COMPLETE'); process.exit(0); }
+    if (args.includes('--query')) {
+      const name = args[args.indexOf('--stack-name') + 1];
+      console.log(process.env.TEST_ARCHIVE_IMPORT && name === 'application-dev-compute' ? 'REVIEW_IN_PROGRESS' : 'UPDATE_COMPLETE');
+      process.exit(0);
+    }
+    if (process.env.TEST_ARCHIVE_IMPORT && !events.some((event) => event.tool === 'npm' && event.args.includes('--import-existing-resources'))) {
+      const name = args[args.indexOf('--stack-name') + 1];
+      if (name === 'application-dev-api') { console.error('An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id ' + name + ' does not exist'); process.exit(254); }
+      console.log(JSON.stringify({ Stacks: [{ StackStatus: name === 'application-dev-compute' ? 'REVIEW_IN_PROGRESS' : 'CREATE_COMPLETE', Parameters: [{ ParameterKey: 'CommitSHA', ParameterValue: process.env.DEPLOY_COMMIT_SHA }] }] }));
+      process.exit(0);
+    }
     console.log(JSON.stringify({ Stacks: [{ Outputs: [
       { OutputKey: 'PeriodicMatcherTaskDefinitionArn', OutputValue: 'arn:aws:ecs:us-east-1:123456789012:task-definition/matcher:1' },
       { OutputKey: 'SecondTaskDefinitionArn', OutputValue: 'arn:aws:ecs:us-east-1:123456789012:task-definition/second:1' },
     ] }] }));
     process.exit(0);
+  }
+  if (args[0] === 'cloudformation' && args[1] === 'list-stack-resources') { console.log('0'); process.exit(0); }
+  if (args[0] === 'cloudformation' && args[1] === 'describe-stack-resources') { console.error('An error occurred (ValidationError) when calling the DescribeStackResources operation: Stack for aura-historia-cdc-router-failures-dev does not exist'); process.exit(254); }
+  if (args[0] === 'cloudformation' && args[1] === 'describe-change-set') {
+    console.log(JSON.stringify({ Status: 'CREATE_COMPLETE', ExecutionStatus: 'AVAILABLE', Changes: [{ ResourceChange: {
+      Action: 'Import', LogicalResourceId: process.env.TEST_BAD_IMPORT ? 'OtherBucket' : 'EventingCdcRouterFailureArchive599BCB3E',
+      ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: 'aura-historia-cdc-router-failures-dev',
+    } }] }));
+    process.exit(0);
+  }
+  if (args[0] === 'cloudformation' && (args[1] === 'execute-change-set' || args[1] === 'wait')) process.exit(0);
+  if (args[0] === 's3api') {
+    if (args[1] === 'head-bucket') process.exit(0);
+    if (args[1] === 'get-bucket-location') { console.log('us-east-1'); process.exit(0); }
+    if (args[1] === 'get-public-access-block') { console.log(JSON.stringify({ PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true } })); process.exit(0); }
+    if (args[1] === 'get-bucket-encryption') { console.log(JSON.stringify({ ServerSideEncryptionConfiguration: { Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] } })); process.exit(0); }
+    if (args[1] === 'get-bucket-lifecycle-configuration') { console.log(JSON.stringify({ Rules: [{ Status: 'Enabled', Expiration: { Days: 90 }, Filter: { Prefix: '' } }] })); process.exit(0); }
   }
   if (args[0] === 'lambda' && args[1] === 'wait') process.exit(0);
   if (args[0] === 'lambda' && args[1] === 'invoke') {
@@ -162,6 +189,7 @@ test('a second catalog image builds, publishes, resolves, and reaches deploy wit
       GITHUB_RUN_ATTEMPT: '1',
       STAGE: 'dev',
       STACK_NAME_PREFIX: 'application-dev',
+      CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: '',
     };
     const catalogWorkflow = readFileSync(path.join(root, '.github/workflows/container-images.yml'), 'utf8');
     const deployWorkflow = readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8');
@@ -221,6 +249,35 @@ test('a second catalog image builds, publishes, resolves, and reaches deploy wit
     assert.equal(initializeCompute.length, 2);
     assert.deepEqual(passedParameters(initializeCompute[1].args), expectedParameters);
     assert.match(readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'), /Initialized container image release/);
+    assert.ok(!initializeCompute[1].args.includes('--import-existing-resources'));
+
+    const importEnv = { ...env, TEST_ARCHIVE_IMPORT: '1', CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: 'aura-historia-cdc-router-failures-dev', AWS_REGION: 'us-east-1', CONTAINER_IMAGE_DIGESTS: JSON.stringify(digests) };
+    const beforeFoundation = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse).filter((event) => event.tool === 'aws' && event.args[0] === 'lambda' && event.args[1] === 'invoke').length;
+    run('bash', ['-e', '-c', workflowStep('deploy.yml', 'Deploy foundation or migrate and update initialized application')], directory, importEnv);
+    const afterFoundation = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse).filter((event) => event.tool === 'aws' && event.args[0] === 'lambda' && event.args[1] === 'invoke').length;
+    assert.equal(afterFoundation, beforeFoundation, 'Deploy must leave import and migration to Initialize');
+    const invalid = spawnSync('bash', ['-e', '-c', workflowStep('initialize.yml', 'Require deployed foundation at the selected SHA')], { cwd: directory, env: { ...importEnv, CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: 'unexpected-bucket' }, encoding: 'utf8' });
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /expected stage bucket/);
+    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Require deployed foundation at the selected SHA')], directory, importEnv);
+    assert.equal(readFileSync(stack, 'utf8'), '');
+    run('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], directory, importEnv);
+    const importedCommands = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
+    const importedCompute = importedCommands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-compute'));
+    assert.equal(importedCompute.length, 3);
+    assert.ok(importedCompute[2].args.includes('--import-existing-resources'));
+    assert.ok(importedCompute[2].args.includes('prepare-change-set'));
+    assert.deepEqual(passedParameters(importedCompute[2].args), expectedParameters);
+    assert.ok(importedCommands.some((event) => event.tool === 'aws' && event.args[0] === 'cloudformation' && event.args[1] === 'execute-change-set'));
+    const importedApi = importedCommands.filter((event) => event.tool === 'npm' && event.args.includes('application-dev-api'));
+    assert.ok(importedApi.every((event) => !event.args.includes('--import-existing-resources')));
+
+    writeFileSync(stack, '');
+    const unsafe = spawnSync('bash', ['-e', '-c', workflowStep('initialize.yml', 'Migrate and capture FX before deploying compute and API')], { cwd: directory, env: { ...importEnv, TEST_BAD_IMPORT: '1' }, encoding: 'utf8' });
+    assert.notEqual(unsafe.status, 0);
+    assert.match(unsafe.stderr, /does not import exactly/);
+    const afterUnsafe = readFileSync(env.TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(afterUnsafe.filter((event) => event.tool === 'aws' && event.args[1] === 'execute-change-set').length, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

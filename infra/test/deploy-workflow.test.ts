@@ -108,6 +108,12 @@ describe("container release workflow behavior", () => {
     expect(initializeWorkflow).not.toContain("aws-periodic-matcher-artifact-apply");
   });
 
+  test("scopes the one-time CDC archive import variable to the selected stage", () => {
+    expect(deployWorkflow).toContain("vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', github.ref == 'refs/heads/prod' && 'PROD' || 'DEV')]");
+    expect(initializeWorkflow).toContain("vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', inputs.stage == 'prod' && 'PROD' || 'DEV')]");
+    expect(initializeWorkflow).toContain(".[0].ResourceType == \"AWS::S3::Bucket\" and .[0].PhysicalResourceId == $bucket");
+  });
+
   test("keeps manual artifact rollback on previous templates without image builds or migrations", () => {
     const preflight = deployWorkflow.split("- name: Preflight stage artifacts and deployed stack state")[1]?.split("- name: Update artifact SHA and image digests")[0];
     const rollback = deployWorkflow.split("- name: Update artifact SHA and image digests")[1];

@@ -457,6 +457,7 @@ jobs:
         shell: bash
         env:
           CONTAINER_IMAGE_DIGESTS: ${{ steps.container-images.outputs.digests }}
+          CDC_ROUTER_FAILURE_ARCHIVE_BUCKET: ${{ vars[format('S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_{0}', github.ref == 'refs/heads/prod' && 'PROD' || 'DEV')] }}
         run: |
           set -euo pipefail
           printf '%s\n' "$CONTAINER_IMAGE_DIGESTS" > container-image-digests.json
@@ -494,6 +495,12 @@ jobs:
           # Initialize after the foundation advances; failed/in-progress stacks require operator repair.
           for stack in compute api; do
             status="$(stack_status "$stack")"
+            if [ "$stack" = compute ] && [ "$status" = REVIEW_IN_PROGRESS ] \
+              && [ "$CDC_ROUTER_FAILURE_ARCHIVE_BUCKET" = "aura-historia-cdc-router-failures-${STAGE}" ] \
+              && [ "$(aws cloudformation list-stack-resources --stack-name "${STACK_NAME_PREFIX}-compute" --query 'length(StackResourceSummaries)' --output text)" = 0 ]; then
+              # Failed CREATE change set: no resources were admitted. Initialize owns archive import.
+              status=missing
+            fi
             case "$status" in
               missing|CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
               *) echo "Application stack ${stack} is ${status}; repair it before Deploy." >&2; exit 1 ;;

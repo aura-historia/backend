@@ -113,6 +113,26 @@ Forward deployment uses CDK CloudFormation change sets (`--method change-set`),
 never hotswap. Manual artifact rollback uses the existing CloudFormation templates,
 not historical CDK source or infrastructure templates.
 
+A retained CDC router failure-archive bucket can outlive a failed/deleted compute
+stack. For a reviewed one-time recovery, set the repository GitHub variable
+`S3_CDC_ROUTER_FAILURE_ARCHIVE_BUCKET_NAME_DEV` (or the `_PROD` counterpart) to
+exactly `aura-historia-cdc-router-failures-<stage>`. Protected Initialize verifies
+that the bucket is in the deploy role's account and region, unowned by another
+CloudFormation stack, publicly blocked, AES-256 encrypted, and configured with
+90-day expiry. It accepts an empty `REVIEW_IN_PROGRESS` compute stack left by a
+failed CREATE change set. Push Deploy advances only the foundation when that
+empty shell exists, leaving migrations and import to Initialize. Only when
+compute is missing or empty does Initialize prepare an import-enabled compute
+change set, verify that its sole imported resource is
+the expected archive bucket, and then execute it. API and ordinary Deploy never
+import. CloudFormation then owns the original bucket and its retained contents;
+do not delete or rename it. CDK's import switch can adopt **any** eligible named
+resource, so a change set containing other imports fails closed for operator
+review. If the bucket is owned by another stack, repair that ownership
+separately. Clear the variable after a successful import. Initialize still runs
+migrations, captures FX, and activates compute consumers; obtain the usual
+environment/handoff approvals first.
+
 Deployments do not require a full CDK bootstrap stack in the target account/region.
 Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
