@@ -1,5 +1,5 @@
 use application::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use listing_source_core::ListingSourceId;
 use listing_source_service::ports::{
@@ -20,7 +20,12 @@ use product_listing_service::ports::{
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureError, AuthorizeProductListingRawCaptureRequest,
     AuthorizeProductListingRawCaptureUseCase, CaptureProductListingRawObservationCommand,
-    CaptureProductListingRawObservationError, CaptureProductListingRawObservationUseCase,
+    IndexedProductListingIngestionIntent, ProductListingIngestionActor,
+    ProductListingIngestionIdempotencyKey, ProductListingIngestionIntent,
+    ProductListingIngestionOperation, ProductListingIngestionOutcome,
+    ProductListingIngestionRejectionReason, ProductListingIngestionSubmission,
+    ProductListingIngestionSubmissionError, SubmitPartnerProductListingIngestionUseCase,
+    product_listing_ingestion_identity,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -28,6 +33,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const DELETE_BASE_URL: &str = "https://woocommerce.invalid/";
+const SUBMISSION_IDENTITY_DOMAIN: &str = "aura.woocommerce.ingestion.delivery.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WoocommerceProductEventKind {
@@ -79,8 +85,24 @@ pub enum WoocommerceWebhookIntakeError {
     ListingSourceRead(#[source] ListingSourceReadError),
     #[error("WooCommerce raw product capture authorization failed")]
     Authorize(#[source] AuthorizeProductListingRawCaptureError),
-    #[error("WooCommerce raw product capture failed")]
-    Capture(#[source] CaptureProductListingRawObservationError),
+    #[error("WooCommerce product ingestion submission failed")]
+    Submit(#[source] ProductListingIngestionSubmissionError),
+    #[error("WooCommerce product ingestion submission identity is invalid")]
+    InvalidSubmissionIdentity,
+    #[error("WooCommerce product ingestion was not confirmed")]
+    ForwardUnconfirmed,
+    #[error("WooCommerce product ingestion was not attempted")]
+    ForwardNotAttempted { retryable: bool },
+    #[error("WooCommerce product ingestion was rejected by the publisher")]
+    ForwardTransportRejected { retryable: bool },
+    #[error("WooCommerce product ingestion message exceeds the publisher size limit")]
+    ForwardTooLarge,
+    #[error("WooCommerce product ingestion configuration or encoding is invalid")]
+    ForwardConfiguration,
+    #[error("WooCommerce product ingestion input was rejected")]
+    ForwardInputRejected,
+    #[error("WooCommerce product ingestion returned an inconsistent report")]
+    InvalidForwardReport,
 }
 
 #[async_trait::async_trait]
@@ -92,30 +114,30 @@ pub trait WoocommerceWebhookIntakeUseCase: Send + Sync {
     ) -> Result<(), WoocommerceWebhookIntakeError>;
 }
 
-pub struct WoocommerceWebhookIntake<S, V, C, A> {
+pub struct WoocommerceWebhookIntake<S, V, I, A> {
     sources: S,
     signature_verifier: V,
-    capture: C,
+    intake: I,
     authorize: A,
 }
 
-impl<S, V, C, A> WoocommerceWebhookIntake<S, V, C, A> {
-    pub fn new(sources: S, signature_verifier: V, capture: C, authorize: A) -> Self {
+impl<S, V, I, A> WoocommerceWebhookIntake<S, V, I, A> {
+    pub fn new(sources: S, signature_verifier: V, intake: I, authorize: A) -> Self {
         Self {
             sources,
             signature_verifier,
-            capture,
+            intake,
             authorize,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<S, V, C, A> WoocommerceWebhookIntakeUseCase for WoocommerceWebhookIntake<S, V, C, A>
+impl<S, V, I, A> WoocommerceWebhookIntakeUseCase for WoocommerceWebhookIntake<S, V, I, A>
 where
     S: WoocommerceSourceReader,
     V: WoocommerceSignatureVerifier,
-    C: CaptureProductListingRawObservationUseCase,
+    I: SubmitPartnerProductListingIngestionUseCase,
     A: AuthorizeProductListingRawCaptureUseCase,
 {
     #[tracing::instrument(
@@ -199,24 +221,121 @@ where
         }))
         .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
 
-        self.capture
+        // The request ID identifies this attempt when WooCommerce supplies no delivery ID.
+        // Such a retry cannot recover the previous command identity after a lost response.
+        let idempotency_key = submission_key(
+            source.listing_source_id,
+            kind,
+            delivery_id
+                .as_deref()
+                .unwrap_or(context.request_id.as_str()),
+            delivery_id.is_some(),
+        )?;
+        let actor = match &context.principal {
+            Principal::User(user_id) => ProductListingIngestionActor::User(*user_id),
+            Principal::DelegatedUser { user_id, .. } => {
+                ProductListingIngestionActor::DelegatedUser(*user_id)
+            }
+            _ => return Err(WoocommerceWebhookIntakeError::Forbidden),
+        };
+        let (expected_submission_id, expected_command_id) = product_listing_ingestion_identity(
+            &actor,
+            source.listing_source_id,
+            &idempotency_key,
+            ProductListingIngestionOperation::CaptureRaw,
+            0,
+        );
+        let result = self
+            .intake
             .execute(
                 context,
-                CaptureProductListingRawObservationCommand {
+                ProductListingIngestionSubmission {
                     listing_source_id: source.listing_source_id,
-                    ingestion_method: ProductListingRawIngestionMethod::Woocommerce,
-                    source_record_key,
-                    input,
-                    provenance,
-                    source_event_id: delivery_id,
-                    source_occurred_at,
-                    provider_receipt,
+                    original_input_count: 1,
+                    idempotency_key: Some(idempotency_key.clone()),
+                    items: vec![IndexedProductListingIngestionIntent {
+                        index: 0,
+                        intent: ProductListingIngestionIntent::CaptureRaw(
+                            CaptureProductListingRawObservationCommand {
+                                listing_source_id: source.listing_source_id,
+                                ingestion_method: ProductListingRawIngestionMethod::Woocommerce,
+                                source_record_key,
+                                input,
+                                provenance,
+                                source_event_id: delivery_id,
+                                source_occurred_at,
+                                provider_receipt,
+                            },
+                        ),
+                    }],
                 },
             )
             .await
-            .map(|_| ())
-            .map_err(WoocommerceWebhookIntakeError::Capture)
+            .map_err(WoocommerceWebhookIntakeError::Submit)?;
+        if result.original_input_count != 1
+            || result.idempotency_key != idempotency_key
+            || result.submission_id != expected_submission_id
+            || result.items.len() != 1
+            || result.items[0].index != 0
+            || result.items[0].command_id != expected_command_id
+        {
+            return Err(WoocommerceWebhookIntakeError::InvalidForwardReport);
+        }
+        match &result.items[0].outcome {
+            ProductListingIngestionOutcome::Accepted => Ok(()),
+            ProductListingIngestionOutcome::Unconfirmed => {
+                Err(WoocommerceWebhookIntakeError::ForwardUnconfirmed)
+            }
+            ProductListingIngestionOutcome::NotAttempted { retryable, .. } => {
+                Err(WoocommerceWebhookIntakeError::ForwardNotAttempted {
+                    retryable: *retryable,
+                })
+            }
+            ProductListingIngestionOutcome::Rejected { reason, retryable } => Err(match reason {
+                ProductListingIngestionRejectionReason::Publisher { code }
+                    if code == "INVALID_MESSAGE_SIZE" =>
+                {
+                    WoocommerceWebhookIntakeError::ForwardTooLarge
+                }
+                ProductListingIngestionRejectionReason::Publisher { code }
+                    if code == "ENCODING_FAILED" =>
+                {
+                    WoocommerceWebhookIntakeError::ForwardConfiguration
+                }
+                ProductListingIngestionRejectionReason::Publisher { .. } => {
+                    WoocommerceWebhookIntakeError::ForwardTransportRejected {
+                        retryable: *retryable,
+                    }
+                }
+                _ => WoocommerceWebhookIntakeError::ForwardInputRejected,
+            }),
+        }
     }
+}
+
+fn submission_key(
+    listing_source_id: ListingSourceId,
+    kind: WoocommerceProductEventKind,
+    identity: &str,
+    has_delivery_id: bool,
+) -> Result<ProductListingIngestionIdempotencyKey, WoocommerceWebhookIntakeError> {
+    let scope = SourcePayload::new(json!({
+        "domain": SUBMISSION_IDENTITY_DOMAIN,
+        "listingSourceId": listing_source_id.to_string(),
+        "topic": kind.as_topic(),
+        "identityKind": if has_delivery_id { "delivery" } else { "attempt" },
+        "identity": identity,
+    }))
+    .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
+    let digest = scope
+        .canonical_sha256()
+        .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
+    let mut key = String::from("woocommerce-");
+    for byte in digest.as_bytes() {
+        key.push_str(&format!("{byte:02x}"));
+    }
+    ProductListingIngestionIdempotencyKey::new(key)
+        .map_err(|_| WoocommerceWebhookIntakeError::InvalidSubmissionIdentity)
 }
 
 fn require_product_listings_write(
@@ -538,6 +657,20 @@ mod tests {
         calls: SignatureVerificationCalls,
     }
 
+    struct InvalidVerifier;
+
+    #[async_trait::async_trait]
+    impl WoocommerceSignatureVerifier for InvalidVerifier {
+        async fn verify(
+            &self,
+            _: ListingSourceId,
+            _: &[u8],
+            _: &[u8],
+        ) -> Result<WoocommerceSignatureVerification, ListingSourceReadError> {
+            Ok(WoocommerceSignatureVerification::Invalid)
+        }
+    }
+
     #[async_trait::async_trait]
     impl WoocommerceSignatureVerifier for RecordingVerifier {
         async fn verify(
@@ -554,29 +687,126 @@ mod tests {
         }
     }
 
-    struct RecordingCapture {
-        commands: Arc<Mutex<Vec<CaptureProductListingRawObservationCommand>>>,
+    #[derive(Clone, Copy)]
+    enum IntakeReply {
+        Accepted,
+        Rejected,
+        TooLarge,
+        EncodingFailed,
+        InvalidInput,
+        Unconfirmed,
+        NotAttempted,
+        Missing,
+        Extra,
+        WrongIndex,
+        WrongCommandId,
+        WrongCount,
+        WrongKey,
+        WrongSubmissionId,
+        Error,
+    }
+
+    struct RecordingIntake {
+        submissions: Arc<Mutex<Vec<(OperationContext, ProductListingIngestionSubmission)>>>,
+        reply: IntakeReply,
     }
 
     #[async_trait::async_trait]
-    impl CaptureProductListingRawObservationUseCase for RecordingCapture {
+    impl SubmitPartnerProductListingIngestionUseCase for RecordingIntake {
         async fn execute(
             &self,
-            _: &OperationContext,
-            command: CaptureProductListingRawObservationCommand,
+            context: &OperationContext,
+            submission: ProductListingIngestionSubmission,
         ) -> Result<
-            product_listing_service::use_cases::CaptureProductListingRawObservationResult,
-            CaptureProductListingRawObservationError,
+            product_listing_service::use_cases::ProductListingIngestionSubmissionResult,
+            ProductListingIngestionSubmissionError,
         > {
-            self.commands
+            self.submissions
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(command);
+                .push((context.clone(), submission.clone()));
+            if matches!(self.reply, IntakeReply::Error) {
+                return Err(ProductListingIngestionSubmissionError::Forbidden);
+            }
+            let key = submission.idempotency_key.clone().expect("key supplied");
+            let actor = match &context.principal {
+                Principal::User(id) => ProductListingIngestionActor::User(*id),
+                Principal::DelegatedUser { user_id, .. } => {
+                    ProductListingIngestionActor::DelegatedUser(*user_id)
+                }
+                _ => panic!("partner principal required"),
+            };
+            let (mut submission_id, mut command_id) = product_listing_ingestion_identity(
+                &actor,
+                submission.listing_source_id,
+                &key,
+                ProductListingIngestionOperation::CaptureRaw,
+                0,
+            );
+            if matches!(self.reply, IntakeReply::WrongCommandId) {
+                command_id = product_listing_ingestion_identity(
+                    &actor,
+                    submission.listing_source_id,
+                    &key,
+                    ProductListingIngestionOperation::CaptureRaw,
+                    1,
+                )
+                .1;
+            }
+            if matches!(self.reply, IntakeReply::WrongSubmissionId) {
+                submission_id = product_listing_ingestion_identity(
+                    &actor,
+                    ListingSourceId::new(),
+                    &key,
+                    ProductListingIngestionOperation::CaptureRaw,
+                    0,
+                )
+                .0;
+            }
+            let outcome = match self.reply {
+                IntakeReply::Rejected | IntakeReply::TooLarge | IntakeReply::EncodingFailed | IntakeReply::InvalidInput => {
+                    let reason = match self.reply {
+                        IntakeReply::Rejected => ProductListingIngestionRejectionReason::Publisher { code: "SQS_SENDER_FAILURE".to_owned() },
+                        IntakeReply::TooLarge => ProductListingIngestionRejectionReason::Publisher { code: "INVALID_MESSAGE_SIZE".to_owned() },
+                        IntakeReply::EncodingFailed => ProductListingIngestionRejectionReason::Publisher { code: "ENCODING_FAILED".to_owned() },
+                        _ => ProductListingIngestionRejectionReason::InvalidNormalizationInput,
+                    };
+                    ProductListingIngestionOutcome::Rejected { reason, retryable: matches!(self.reply, IntakeReply::Rejected) }
+                },
+                IntakeReply::Unconfirmed => ProductListingIngestionOutcome::Unconfirmed,
+                IntakeReply::NotAttempted => ProductListingIngestionOutcome::NotAttempted {
+                    reason: product_listing_service::use_cases::ProductListingIngestionNotAttemptedReason::DeadlineExceeded,
+                    retryable: true,
+                },
+                _ => ProductListingIngestionOutcome::Accepted,
+            };
+            let item = product_listing_service::use_cases::ProductListingIngestionItemOutcome {
+                index: if matches!(self.reply, IntakeReply::WrongIndex) {
+                    1
+                } else {
+                    0
+                },
+                command_id,
+                outcome,
+            };
             Ok(
-                product_listing_service::use_cases::CaptureProductListingRawObservationResult::Unchanged {
-                    product_listing_raw_stream_id:
-                        product_listing_service::ports::ProductListingRawStreamId::new(),
-                    latest_revision: 0,
+                product_listing_service::use_cases::ProductListingIngestionSubmissionResult {
+                    submission_id,
+                    idempotency_key: if matches!(self.reply, IntakeReply::WrongKey) {
+                        ProductListingIngestionIdempotencyKey::new("wrong").unwrap()
+                    } else {
+                        key
+                    },
+                    original_input_count: if matches!(self.reply, IntakeReply::WrongCount) {
+                        2
+                    } else {
+                        1
+                    },
+                    items: match self.reply {
+                        IntakeReply::Missing => vec![],
+                        IntakeReply::Extra => vec![item.clone(), item],
+                        _ => vec![item],
+                    },
                 },
             )
         }
@@ -618,9 +848,9 @@ mod tests {
         }
     }
 
-    fn system_context() -> OperationContext {
+    fn user_context() -> OperationContext {
         OperationContext {
-            principal: Principal::System,
+            principal: Principal::User(UserId::new()),
             request_id: RequestId::new("woocommerce-intake-test"),
             correlation_id: CorrelationId::new("woocommerce-intake-test"),
         }
@@ -667,8 +897,9 @@ mod tests {
             RecordingVerifier {
                 calls: Arc::clone(&verifier_calls),
             },
-            RecordingCapture {
-                commands: Arc::clone(&capture_commands),
+            RecordingIntake {
+                submissions: Arc::clone(&capture_commands),
+                reply: IntakeReply::Accepted,
             },
             RecordingAuthorization {
                 requests: Arc::clone(&authorization_requests),
@@ -720,7 +951,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_preserve_raw_signature_bytes_and_map_receipt_timestamp_to_capture()
+    async fn invalid_signature_cannot_reach_ingestion_or_ignored_status_authorization() {
+        let source = source();
+        let listing_source_id = source.listing_source_id;
+        let submissions = Arc::new(Mutex::new(Vec::new()));
+        let authorization_requests = Arc::new(Mutex::new(Vec::new()));
+        let intake = WoocommerceWebhookIntake::new(
+            TestSourceReader {
+                source,
+                calls: Arc::new(Mutex::new(0)),
+            },
+            InvalidVerifier,
+            RecordingIntake {
+                submissions: Arc::clone(&submissions),
+                reply: IntakeReply::Accepted,
+            },
+            RecordingAuthorization {
+                requests: Arc::clone(&authorization_requests),
+                outcome: AuthorizationOutcome::Allowed,
+            },
+        );
+        for raw_body in [
+            br#"{"id":42,"status":"publish"}"#.as_slice(),
+            br#"{"id":42,"status":"future-status"}"#.as_slice(),
+        ] {
+            let result = intake
+                .execute(
+                    &user_context(),
+                    WoocommerceWebhookIntakeCommand {
+                        listing_source_id,
+                        kind: WoocommerceProductEventKind::Update,
+                        signature: b"invalid".to_vec(),
+                        raw_body: raw_body.to_vec(),
+                        delivery_id: Some("delivery-42".to_owned()),
+                    },
+                )
+                .await;
+            assert!(matches!(
+                result,
+                Err(WoocommerceWebhookIntakeError::InvalidSignature)
+            ));
+        }
+        assert!(submissions.lock().unwrap().is_empty());
+        assert!(authorization_requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_preserve_raw_signature_bytes_and_map_receipt_timestamp_to_submission()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = source();
         let listing_source_id = source.listing_source_id;
@@ -736,8 +1013,9 @@ mod tests {
             RecordingVerifier {
                 calls: Arc::clone(&verifier_calls),
             },
-            RecordingCapture {
-                commands: Arc::clone(&capture_commands),
+            RecordingIntake {
+                submissions: Arc::clone(&capture_commands),
+                reply: IntakeReply::Accepted,
             },
             RecordingAuthorization {
                 requests: Arc::clone(&authorization_requests),
@@ -762,7 +1040,7 @@ mod tests {
 
         intake
             .execute(
-                &system_context(),
+                &user_context(),
                 WoocommerceWebhookIntakeCommand {
                     listing_source_id,
                     kind: WoocommerceProductEventKind::Update,
@@ -795,9 +1073,28 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         assert_eq!(1, commands.len());
-        let command = commands
+        let (forwarded_context, submission) = commands
             .first()
-            .ok_or_else(|| std::io::Error::other("capture command is missing"))?;
+            .ok_or_else(|| std::io::Error::other("submission is missing"))?;
+        assert!(matches!(forwarded_context.principal, Principal::User(_)));
+        assert_eq!(1, submission.original_input_count);
+        assert_eq!(0, submission.items[0].index);
+        let ProductListingIngestionIntent::CaptureRaw(command) = &submission.items[0].intent else {
+            panic!("expected CAPTURE_RAW intent")
+        };
+        assert_eq!(listing_source_id, command.listing_source_id);
+        assert_eq!(
+            ProductListingRawIngestionMethod::Woocommerce,
+            command.ingestion_method
+        );
+        assert_eq!("42", command.source_record_key);
+        assert_eq!(Some("delivery-42"), command.source_event_id.as_deref());
+        assert_eq!("product.updated", command.provenance.value()["topic"]);
+        assert_eq!("delivery-42", command.provenance.value()["deliveryId"]);
+        assert_eq!(
+            true,
+            command.input.source_payload().value()["futureWooKey"]["nested"]
+        );
         let receipt = command
             .provider_receipt
             .as_ref()
@@ -813,6 +1110,232 @@ mod tests {
             command.source_occurred_at
         );
         Ok(())
+    }
+
+    #[test]
+    fn submission_identity_is_delivery_scoped_with_request_attempt_fallback()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source_id = ListingSourceId::new();
+        let other_source = ListingSourceId::new();
+        let key = submission_key(
+            source_id,
+            WoocommerceProductEventKind::Update,
+            "delivery-42",
+            true,
+        )?;
+        assert_eq!(
+            key,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Update,
+                "delivery-42",
+                true
+            )?
+        );
+        assert_ne!(
+            key,
+            submission_key(
+                other_source,
+                WoocommerceProductEventKind::Update,
+                "delivery-42",
+                true
+            )?
+        );
+        assert_ne!(
+            key,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Delete,
+                "delivery-42",
+                true
+            )?
+        );
+        assert_ne!(
+            key,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Update,
+                "delivery-43",
+                true
+            )?
+        );
+        let attempt = submission_key(
+            source_id,
+            WoocommerceProductEventKind::Update,
+            "request-1",
+            false,
+        )?;
+        assert_eq!(
+            attempt,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Update,
+                "request-1",
+                false
+            )?
+        );
+        assert_ne!(
+            attempt,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Update,
+                "request-2",
+                false
+            )?
+        );
+        assert_ne!(
+            attempt,
+            submission_key(
+                source_id,
+                WoocommerceProductEventKind::Update,
+                "request-1",
+                true
+            )?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn only_exact_confirmed_single_item_acks_webhook() {
+        let source = source();
+        let listing_source_id = source.listing_source_id;
+        for (reply, expected) in [
+            (IntakeReply::Accepted, "accepted"),
+            (IntakeReply::Rejected, "transport"),
+            (IntakeReply::TooLarge, "size"),
+            (IntakeReply::EncodingFailed, "configuration"),
+            (IntakeReply::InvalidInput, "input"),
+            (IntakeReply::Unconfirmed, "uncertain"),
+            (IntakeReply::NotAttempted, "not_attempted"),
+            (IntakeReply::Missing, "invalid"),
+            (IntakeReply::Extra, "invalid"),
+            (IntakeReply::WrongIndex, "invalid"),
+            (IntakeReply::WrongCommandId, "invalid"),
+            (IntakeReply::WrongCount, "invalid"),
+            (IntakeReply::WrongKey, "invalid"),
+            (IntakeReply::WrongSubmissionId, "invalid"),
+            (IntakeReply::Error, "submission"),
+        ] {
+            let submissions = Arc::new(Mutex::new(Vec::new()));
+            let intake = WoocommerceWebhookIntake::new(
+                TestSourceReader {
+                    source: source.clone(),
+                    calls: Arc::new(Mutex::new(0)),
+                },
+                RecordingVerifier {
+                    calls: Arc::new(Mutex::new(Vec::new())),
+                },
+                RecordingIntake {
+                    submissions: Arc::clone(&submissions),
+                    reply,
+                },
+                RecordingAuthorization {
+                    requests: Arc::new(Mutex::new(Vec::new())),
+                    outcome: AuthorizationOutcome::Allowed,
+                },
+            );
+            let context =
+                delegated_context(BTreeSet::from([CredentialCapability::ProductListingsWrite]));
+            let result = intake
+                .execute(
+                    &context,
+                    WoocommerceWebhookIntakeCommand {
+                        listing_source_id,
+                        kind: WoocommerceProductEventKind::Create,
+                        signature: b"signature".to_vec(),
+                        raw_body: serde_json::to_vec(&published_product(Some("onbackorder")))
+                            .unwrap(),
+                        delivery_id: Some("delivery-42".to_owned()),
+                    },
+                )
+                .await;
+            let actual = match result {
+                Ok(()) => "accepted",
+                Err(WoocommerceWebhookIntakeError::ForwardTransportRejected {
+                    retryable: true,
+                }) => "transport",
+                Err(WoocommerceWebhookIntakeError::ForwardTooLarge) => "size",
+                Err(WoocommerceWebhookIntakeError::ForwardConfiguration) => "configuration",
+                Err(WoocommerceWebhookIntakeError::ForwardInputRejected) => "input",
+                Err(WoocommerceWebhookIntakeError::ForwardUnconfirmed) => "uncertain",
+                Err(WoocommerceWebhookIntakeError::ForwardNotAttempted { retryable: true }) => {
+                    "not_attempted"
+                }
+                Err(WoocommerceWebhookIntakeError::InvalidForwardReport) => "invalid",
+                Err(WoocommerceWebhookIntakeError::Submit(_)) => "submission",
+                Err(error) => panic!("unexpected result: {error:?}"),
+            };
+            assert_eq!(expected, actual);
+            let calls = submissions.lock().unwrap();
+            assert_eq!(1, calls.len());
+            assert_eq!(context, calls[0].0);
+            let submission = &calls[0].1;
+            assert_eq!(1, submission.original_input_count);
+            assert_eq!(1, submission.items.len());
+            assert_eq!(0, submission.items[0].index);
+            assert!(
+                matches!(&submission.items[0].intent, ProductListingIngestionIntent::CaptureRaw(command)
+                    if command.ingestion_method == ProductListingRawIngestionMethod::Woocommerce
+                        && command.input.operation() == RawProductListingOperation::Upsert
+                        && command.input.raw_values().value()["availability"] == json!({"action":"SET", "value":"https://schema.org/BackOrder"})
+                )
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_delivery_uses_request_attempt_identity_without_provider_receipt() {
+        let source = source();
+        let listing_source_id = source.listing_source_id;
+        let submissions = Arc::new(Mutex::new(Vec::new()));
+        let intake = WoocommerceWebhookIntake::new(
+            TestSourceReader {
+                source,
+                calls: Arc::new(Mutex::new(0)),
+            },
+            RecordingVerifier {
+                calls: Arc::new(Mutex::new(Vec::new())),
+            },
+            RecordingIntake {
+                submissions: Arc::clone(&submissions),
+                reply: IntakeReply::Accepted,
+            },
+            RecordingAuthorization {
+                requests: Arc::new(Mutex::new(Vec::new())),
+                outcome: AuthorizationOutcome::Allowed,
+            },
+        );
+        let mut context = user_context();
+        for request_id in ["attempt-1", "attempt-2"] {
+            context.request_id = RequestId::new(request_id);
+            intake
+                .execute(
+                    &context,
+                    WoocommerceWebhookIntakeCommand {
+                        listing_source_id,
+                        kind: WoocommerceProductEventKind::Delete,
+                        signature: b"signature".to_vec(),
+                        raw_body: br#"{"id":42,"status":"publish"}"#.to_vec(),
+                        delivery_id: None,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let calls = submissions.lock().unwrap();
+        assert_ne!(calls[0].1.idempotency_key, calls[1].1.idempotency_key);
+        for (_, submission) in calls.iter() {
+            let ProductListingIngestionIntent::CaptureRaw(command) = &submission.items[0].intent
+            else {
+                panic!("expected raw capture")
+            };
+            assert_eq!(command.source_event_id, None);
+            assert_eq!(command.provider_receipt, None);
+            assert_eq!(
+                command.input.operation(),
+                RawProductListingOperation::Delete
+            );
+        }
     }
 
     #[test]
@@ -900,8 +1423,9 @@ mod tests {
             RecordingVerifier {
                 calls: Arc::clone(&verifier_calls),
             },
-            RecordingCapture {
-                commands: Arc::clone(&capture_commands),
+            RecordingIntake {
+                submissions: Arc::clone(&capture_commands),
+                reply: IntakeReply::Accepted,
             },
             RecordingAuthorization {
                 requests: Arc::clone(&authorization_requests),
@@ -918,7 +1442,7 @@ mod tests {
                     kind: WoocommerceProductEventKind::Update,
                     signature: b"signature".to_vec(),
                     raw_body,
-                    delivery_id: None,
+                    delivery_id: Some("ignored-delivery".to_owned()),
                 },
             )
             .await?;
@@ -967,8 +1491,9 @@ mod tests {
             RecordingVerifier {
                 calls: Arc::clone(&verifier_calls),
             },
-            RecordingCapture {
-                commands: Arc::clone(&capture_commands),
+            RecordingIntake {
+                submissions: Arc::clone(&capture_commands),
+                reply: IntakeReply::Accepted,
             },
             RecordingAuthorization {
                 requests: Arc::clone(&authorization_requests),

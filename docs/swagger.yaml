@@ -34,7 +34,7 @@ info:
     \ Both headers are CORS-exposed.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /health` is a\
     \ process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
-    \ signed validation. Events that map to raw capture are durably captured; `product.created` and `product.updated` events with missing or unsupported status are acknowledged as ignored. A capture `204` acknowledges a changed, unchanged, duplicate, or stale outcome—not necessarily a new raw revision; canonical normalization is asynchronous; existing partner Product batch writes remain synchronous, while async partner creates report queue admission separately\n\n## Environment\
+    \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
     \ endpoints\n\n- **Development:** `https://api.stage.aura-historia.com`\n- **Production:** `https://api.aura-historia.com`\n\
     \n## Notes for integrators\n\n- Treat Aura Historia identifiers such as `listingSourceId`, `productListingId`, `eventId`,\
     \ `userSearchFilterId`,\n  and `partnershipApplicationId` as opaque values\n- For partner product ingestion, `sourceListingId`\
@@ -1689,7 +1689,7 @@ paths:
 
         - the WooCommerce topic in `x-wc-webhook-topic`, and
 
-        - the base64-encoded HMAC-SHA256 signature of the raw request body in `x-wc-webhook-signature`, and
+        - the base64-encoded HMAC-SHA256 signature over the exact, untouched request body bytes in `x-wc-webhook-signature`, and
 
         - optionally, the WooCommerce delivery identifier in `x-wc-webhook-delivery-id`.
 
@@ -1698,17 +1698,15 @@ paths:
 
         canonical semantic source-payload SHA-256 evidence digest for 90 days. A captured-observation retry with the same
 
-        digest receives `204`; reuse with different evidence returns `409 WOOCOMMERCE_PROVIDER_RECEIPT_DIGEST_CONFLICT`.
+        digest may be deduplicated during downstream capture; reuse with different evidence fails in the consumer, not as an immediate HTTP `409`.
 
         Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance.
 
         A timestamp-free DELETE establishes a restore barrier. A later UPSERT without a provably newer `date_modified_gmt`
 
-        returns `409 WOOCOMMERCE_PROVIDER_SOURCE_ORDER_AMBIGUOUS`; it creates neither a receipt nor a raw revision, so the
+        fails during downstream capture (`WOOCOMMERCE_PROVIDER_SOURCE_ORDER_AMBIGUOUS`), not as an immediate HTTP `409`. Admission does not create a provider receipt or raw revision; investigate the failed FIFO command before reconciliation or redrive.
 
-        original request remains recoverable for reconciliation and retry.
-
-        Authorized ignored create/update events persist no receipt, even when they include a delivery identifier.
+        The service verifies the signature over untouched body bytes before JSON parsing, then submits mapped observations as `CAPTURE_RAW` to the shared FIFO after bearer/capability checks and source configuration lookup. The consumer checks the current partner/source grant for mapped observations; ignored no-ops check it immediately. Only a matching, confirmed queue acceptance permits `204`; rejected, oversized, unconfirmed, and not-attempted submissions are not acknowledged. The FIFO consumer later commits raw capture with the command receipt; provider receipt and source-order decisions occur during that capture. Authorized ignored create/update events are no-op `204` without queue send or receipt, even when they include a delivery identifier. Retry an uncertain submission with the same signed body, topic, source, actor and delivery identifier where provided; without a delivery identifier, retries cannot recover the original command identity after a lost reply and have no provider receipt-based deduplication guarantee. A lost reply may already have enqueued work; never infer rollback from a non-204.
 
 
         Topic-specific payload requirements:
@@ -1780,7 +1778,7 @@ paths:
         - name: x-wc-webhook-delivery-id
           in: header
           required: false
-          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its receipt retains only a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates retries. Reusing the identifier with a different digest returns `409 WOOCOMMERCE_PROVIDER_RECEIPT_DIGEST_CONFLICT`. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update status events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
+          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its downstream provider receipt retains only a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates retries when applied. Reuse with different evidence fails during consumer capture, not as an immediate HTTP conflict. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update status events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
           schema:
             type: string
             minLength: 1
@@ -1792,7 +1790,7 @@ paths:
 
           Every topic requires `id`. For `product.created` and `product.updated`, `status: publish` captures an UPSERT and requires nonblank `name` and `permalink`; `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`. Missing or unsupported create/update statuses are authorized ignored events and require only `id`. `product.deleted` captures a DELETE and requires only `id`; its other fields are optional and ignored when absent.
 
-          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE`. `product.created` and `product.updated` events with missing or unsupported status are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
+          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps are checked for conflicts only during consumer capture. `product.created` and `product.updated` events with missing or unsupported status are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
 
           "
         content:
@@ -1843,7 +1841,7 @@ paths:
       responses:
         "204":
           description:
-            "Webhook capability, signature, and source authorization are validated. A `204` acknowledges an authorized ignored create/update event with missing or unsupported status, or a durably captured changed, unchanged, duplicate, or stale outcome; it does not mean a new raw revision was written. Ignored events do not parse `date_modified_gmt` or construct a provider receipt. A provider receipt exists only for an event that maps to raw capture and carries a delivery ID; authorized ignored events persist no receipt even when a delivery ID is supplied. Source ordering is evaluated only for an event that maps to raw capture with a valid `date_modified_gmt`. When a delivery ID or source timestamp is omitted, no corresponding receipt or source-ordering guarantee is made. Canonical ProductListing normalization runs asynchronously. The backend returns no response body on success.
+            "Webhook bearer/capability, source configuration, and exact-body signature are validated. Current partner/source grant authorization for mapped commands happens at consumer execution; ignored no-ops check it before response. A `204` acknowledges either an authorized ignored create/update status (no queue send or receipt) or matching confirmed acceptance of one `CAPTURE_RAW` command by the shared ProductListing FIFO. It does not confirm raw capture, provider receipt persistence, source-order checks, canonical normalization, or search visibility. Those decisions occur when the consumer executes the command. Ignored events do not parse `date_modified_gmt` or construct a provider receipt. When a delivery ID or source timestamp is omitted, no corresponding receipt or source-ordering guarantee is made. The backend returns no response body on success.
 
             "
           headers:
@@ -1974,33 +1972,25 @@ paths:
                 status: 404
                 title: Not Found
                 error: LISTING_SOURCE_NOT_FOUND
-        "409":
-          description: Conflict — a delivery receipt conflicts with its retained evidence digest (`WOOCOMMERCE_PROVIDER_RECEIPT_DIGEST_CONFLICT`), distinct evidence has the same `date_modified_gmt` timestamp (`WOOCOMMERCE_PROVIDER_SOURCE_ORDER_CONFLICT`), or an UPSERT cannot safely cross a delete ordering boundary (`WOOCOMMERCE_PROVIDER_SOURCE_ORDER_AMBIGUOUS`).
+        "413":
+          description: Payload too large — the HTTP body limit or encoded SQS message limit was exceeded before confirmed admission. No queue acceptance is claimed.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                receipt_digest_conflict:
-                  summary: Delivery ID conflicts with its retained evidence digest
+                body_limit:
                   value:
-                    status: 409
-                    title: Conflict
-                    error: WOOCOMMERCE_PROVIDER_RECEIPT_DIGEST_CONFLICT
-                source_order_conflict:
-                  summary: Source timestamp conflicts with distinct prior evidence
+                    status: 413
+                    title: Payload Too Large
+                    error: BAD_BODY_VALUE
+                encoded_message_limit:
                   value:
-                    status: 409
-                    title: Conflict
-                    error: WOOCOMMERCE_PROVIDER_SOURCE_ORDER_CONFLICT
-                source_order_ambiguous:
-                  summary: Source timestamp cannot prove a post-delete restore is newer
-                  value:
-                    status: 409
-                    title: Conflict
-                    error: WOOCOMMERCE_PROVIDER_SOURCE_ORDER_AMBIGUOUS
+                    status: 413
+                    title: Payload Too Large
+                    error: PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE
         "503":
-          description: Service unavailable — this route emits only `AUTH_TEMPORARILY_UNAVAILABLE`, `LISTING_SOURCE_TEMPORARILY_UNAVAILABLE`, or `PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`.
+          description: Service unavailable — authentication or source lookup is temporarily unavailable, or mapped command admission is rejected retryably, unconfirmed, or not attempted (including timeout). A send may already have succeeded when its acknowledgment was lost; retry unchanged. Uses `AUTH_TEMPORARILY_UNAVAILABLE`, `LISTING_SOURCE_TEMPORARILY_UNAVAILABLE`, or `PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`.
           content:
             application/problem+json:
               schema:
@@ -2019,13 +2009,13 @@ paths:
                     title: Service Unavailable
                     error: LISTING_SOURCE_TEMPORARILY_UNAVAILABLE
                 product_listing_temporarily_unavailable:
-                  summary: Raw ProductListing capture is temporarily unavailable
+                  summary: ProductListing ingestion queue admission is unavailable or unconfirmed
                   value:
                     status: 503
                     title: Service Unavailable
                     error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
         "500":
-          description: Internal server error — this route emits only `AUTH_INTERNAL_ERROR`, `LISTING_SOURCE_INTERNAL_ERROR`, or `PRODUCT_LISTING_INTERNAL_ERROR`.
+          description: Internal server error — authentication/source lookup or a non-retryable ingestion setup/encoding failure prevented confirmed admission. A failed response never proves an attempted send was not queued. Uses `AUTH_INTERNAL_ERROR`, `LISTING_SOURCE_INTERNAL_ERROR`, or `PRODUCT_LISTING_INTERNAL_ERROR`.
           content:
             application/problem+json:
               schema:
@@ -2044,7 +2034,7 @@ paths:
                     title: Internal Server Error
                     error: LISTING_SOURCE_INTERNAL_ERROR
                 product_listing_internal_error:
-                  summary: Raw ProductListing capture failed internally
+                  summary: ProductListing ingestion admission failed internally
                   value:
                     status: 500
                     title: Internal Server Error
