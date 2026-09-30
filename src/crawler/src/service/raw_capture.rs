@@ -32,12 +32,27 @@ impl ProductListingRawCaptureItem {
         input: ProductListingNormalizationInput,
         provenance: RawProductListingProvenance,
     ) -> Self {
+        Self::crawler_with_source_record_key(
+            listing_source_id,
+            candidate_url.as_str(),
+            input,
+            provenance,
+        )
+    }
+
+    pub fn crawler_with_source_record_key(
+        listing_source_id: ListingSourceId,
+        source_record_key: &str,
+        input: ProductListingNormalizationInput,
+        provenance: RawProductListingProvenance,
+    ) -> Self {
         Self {
             command: CaptureProductListingRawObservationCommand {
                 listing_source_id,
                 ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
-                // The configured candidate URL is the crawler source-record identity.
-                source_record_key: candidate_url.to_string(),
+                // The logical crawler source identity is stable across URL moves. The input
+                // itself still carries the effective URL used for extraction and canonical state.
+                source_record_key: source_record_key.to_owned(),
                 input,
                 provenance,
                 source_event_id: None,

@@ -24,6 +24,7 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
     pub(crate) fallback_currency: Option<Currency>,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    pub(crate) raw_source_record_key: &'a str,
 }
 
 impl ScraperServiceImpl {
@@ -68,11 +69,21 @@ impl ScraperServiceImpl {
             };
         let validated_image_urls = validated_raw.images.clone();
 
-        match self
-            .normalization_service
-            .normalize(validated_raw, ctx.url.clone(), ctx.fallback_currency)
-            .await
-        {
+        let normalization = if ctx.raw_source_record_key == ctx.url.as_str() {
+            self.normalization_service
+                .normalize(validated_raw, ctx.url.clone(), ctx.fallback_currency)
+                .await
+        } else {
+            self.normalization_service
+                .normalize_with_raw_source_record_key(
+                    validated_raw,
+                    ctx.url.clone(),
+                    ctx.raw_source_record_key,
+                    ctx.fallback_currency,
+                )
+                .await
+        };
+        match normalization {
             Ok(NormalizationSuccess {
                 prepared,
                 llm_calls_used,

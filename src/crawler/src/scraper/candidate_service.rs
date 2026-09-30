@@ -32,11 +32,27 @@ pub struct ScraperCandidate {
     pub fallback_currency: Option<Currency>,
     pub url_pattern: Option<String>,
     pub url: Url,
+    /// Stable raw-stream identity retained when the crawler URL moves.
+    pub raw_source_record_key: String,
+    pub last_source_listing_id: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
     pub domain_health: DomainHealthSnapshot,
     pub is_domain_probe: bool,
+}
+
+/// Metadata applied after durable raw capture for an HTTP redirect.
+pub struct RedirectedScrapeMetadata {
+    pub listing_source_id: ListingSourceId,
+    pub original_url: Url,
+    pub effective_url: Url,
+    pub hash: String,
+    pub schema_fingerprint: String,
+    pub raw_input_sha256: Vec<u8>,
+    pub source_listing_id: String,
+    pub disposition: CrawlerDisposition,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
 /// A schema-seed URL together with the raw-input fence observed when it was
@@ -154,6 +170,28 @@ pub trait ScraperCandidateService: Send + Sync {
         raw_input_sha256: &[u8],
         disposition: CrawlerDisposition,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+    #[allow(clippy::too_many_arguments)]
+    async fn mark_as_scraped_with_source_listing_id(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        hash: &str,
+        schema_fingerprint: &str,
+        raw_input_sha256: &[u8],
+        source_listing_id: &str,
+        disposition: CrawlerDisposition,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+    /// Check the redirect destination before any raw observation is queued.
+    async fn redirect_destination_is_available(
+        &self,
+        effective_url: &Url,
+    ) -> Result<bool, sqlx::Error>;
+    /// Apply a redirect move only when the destination is still absent.
+    async fn mark_redirected_as_scraped(
+        &self,
+        metadata: RedirectedScrapeMetadata,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Records a durable crawler removal capture and makes the URL eligible for later rechecks.
     async fn mark_removed(
@@ -323,6 +361,7 @@ struct ScraperCandidateRow {
 
     url_pattern: Option<String>,
     url: String,
+    raw_source_record_key: String,
     last_scraped_hash: Option<String>,
     last_scraped_schema_fingerprint: Option<String>,
     last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -330,6 +369,7 @@ struct ScraperCandidateRow {
     last_scrape_error_kind: Option<String>,
     next_scrape_at: Option<OffsetDateTime>,
     is_domain_probe: bool,
+    last_source_listing_id: Option<String>,
 }
 
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
@@ -337,6 +377,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
             s.listing_source_name, s.fallback_currency, sd.url_pattern, su.url,
+            su.raw_source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
             su.last_scraped_schema_fingerprint,
@@ -346,6 +387,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             sd.next_scrape_at,
             (sd.scrape_failure_streak > 0
                 AND (sd.next_scrape_at IS NULL OR sd.next_scrape_at <= NOW())) AS is_domain_probe
+            , su.last_source_listing_id
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         JOIN listing_source_domains sd
@@ -388,10 +430,12 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
     SELECT
         listing_source_id, domain_id, listing_source_domain, listing_source_name,
         fallback_currency, url_pattern, url,
+        raw_source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
-        scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_domain_probe
+        scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_domain_probe,
+        last_source_listing_id
     FROM ranked_urls
     WHERE (is_domain_probe AND domain_url_rank = 1)
        OR (NOT is_domain_probe AND domain_url_rank <= $2)
@@ -444,6 +488,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 fallback_currency,
                 url_pattern: row.url_pattern,
                 url,
+                raw_source_record_key: row.raw_source_record_key,
                 last_scraped_hash: row.last_scraped_hash,
                 last_scraped_schema_fingerprint: row.last_scraped_schema_fingerprint,
                 last_captured_raw_input_sha256: row.last_captured_raw_input_sha256,
@@ -453,6 +498,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                     next_scrape_at: row.next_scrape_at,
                 },
                 is_domain_probe: row.is_domain_probe,
+                last_source_listing_id: row.last_source_listing_id,
             });
         }
 
@@ -522,6 +568,31 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         disposition: CrawlerDisposition,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        self.mark_as_scraped_with_source_listing_id(
+            listing_source_id,
+            url,
+            hash,
+            schema_fingerprint,
+            raw_input_sha256,
+            url.as_ref(),
+            disposition,
+            expected_last_captured_raw_input_sha256,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn mark_as_scraped_with_source_listing_id(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        hash: &str,
+        schema_fingerprint: &str,
+        raw_input_sha256: &[u8],
+        source_listing_id: &str,
+        disposition: CrawlerDisposition,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
 
@@ -531,7 +602,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_hash = $3,
                  last_scraped_schema_fingerprint = $4,
                  last_captured_raw_input_sha256 = $5,
-                 crawler_disposition = $6,
+                 last_source_listing_id = $6,
+                 crawler_disposition = $7,
                  failure_count = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
@@ -542,13 +614,14 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                AND url = $2
                AND url_class = 'product'
                AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $8::bytea",
         )
         .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(hash)
         .bind(schema_fingerprint)
         .bind(raw_input_sha256)
+        .bind(source_listing_id)
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256)
         .execute(&self.pool)
@@ -559,6 +632,118 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         } else {
             CrawlerUrlWriteOutcome::NoopStale
         })
+    }
+
+    async fn redirect_destination_is_available(
+        &self,
+        effective_url: &Url,
+    ) -> Result<bool, sqlx::Error> {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = $1)")
+                .bind(effective_url.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(!exists)
+    }
+
+    async fn mark_redirected_as_scraped(
+        &self,
+        metadata: RedirectedScrapeMetadata,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let RedirectedScrapeMetadata {
+            listing_source_id,
+            original_url,
+            effective_url,
+            hash,
+            schema_fingerprint,
+            raw_input_sha256,
+            source_listing_id,
+            disposition,
+            expected_last_captured_raw_input_sha256,
+        } = metadata;
+        if original_url == effective_url {
+            return Err(sqlx::Error::Protocol(
+                "redirected crawler URL move requires distinct URLs".to_owned(),
+            ));
+        }
+
+        let listing_source_id_uuid: uuid::Uuid = listing_source_id.into();
+        let mut transaction = self.pool.begin().await?;
+        let source_identity: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT last_source_listing_id
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $3::bytea
+             FOR UPDATE",
+        )
+        .bind(listing_source_id_uuid)
+        .bind(original_url.to_string())
+        .bind(expected_last_captured_raw_input_sha256.as_deref())
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        let Some(source_identity) = source_identity else {
+            return Ok(CrawlerUrlWriteOutcome::NoopStale);
+        };
+        if source_identity
+            .as_deref()
+            .is_some_and(|identity| identity != source_listing_id)
+        {
+            return Err(sqlx::Error::Protocol(
+                "redirect source identity conflicts with the established crawler identity"
+                    .to_owned(),
+            ));
+        }
+
+        let destination_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = $1)")
+                .bind(effective_url.to_string())
+                .fetch_one(&mut *transaction)
+                .await?;
+        if destination_exists {
+            return Err(sqlx::Error::Protocol(
+                "redirect destination already known; reconciliation deferred to #1899".to_owned(),
+            ));
+        }
+
+        let moved = sqlx::query(
+            "UPDATE listing_source_urls
+             SET url = $3,
+                 last_source_listing_id = $4,
+                 last_scraped = NOW(),
+                 last_scraped_hash = $5,
+                 last_scraped_schema_fingerprint = $6,
+                 last_captured_raw_input_sha256 = $7,
+                 crawler_disposition = $8,
+                 failure_count = 0,
+                 last_error_kind = NULL,
+                 last_error_message = NULL,
+                 last_status_code = NULL,
+                 next_retry_at = NULL,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $9::bytea",
+        )
+        .bind(listing_source_id_uuid)
+        .bind(original_url.to_string())
+        .bind(effective_url.to_string())
+        .bind(&source_listing_id)
+        .bind(&hash)
+        .bind(&schema_fingerprint)
+        .bind(&raw_input_sha256)
+        .bind(disposition.as_str())
+        .bind(expected_last_captured_raw_input_sha256.as_deref())
+        .execute(&mut *transaction)
+        .await?;
+        if moved.rows_affected() != 1 {
+            return Ok(CrawlerUrlWriteOutcome::NoopStale);
+        }
+        transaction.commit().await?;
+        Ok(CrawlerUrlWriteOutcome::Applied)
     }
 
     async fn mark_removed(

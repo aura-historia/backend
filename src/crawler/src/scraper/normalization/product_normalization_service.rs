@@ -21,6 +21,14 @@ pub trait ProductListingNormalizationService: Send + Sync {
         url: Url,
         fallback_currency: Option<Currency>,
     ) -> ProductListingNormalizationResult;
+
+    async fn normalize_with_raw_source_record_key(
+        &self,
+        raw: RawExtractedProduct,
+        url: Url,
+        raw_source_record_key: &str,
+        fallback_currency: Option<Currency>,
+    ) -> ProductListingNormalizationResult;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,10 +76,26 @@ pub fn prepare_product(
     url: Url,
     fallback_currency: Option<Currency>,
 ) -> Result<PreparedProduct, NormalizationError> {
+    prepare_product_with_raw_source_record_key(raw, url.clone(), url.as_str(), fallback_currency)
+}
+
+pub fn prepare_product_with_raw_source_record_key(
+    raw: RawExtractedProduct,
+    url: Url,
+    raw_source_record_key: &str,
+    fallback_currency: Option<Currency>,
+) -> Result<PreparedProduct, NormalizationError> {
     let availability =
         quick_check_availability(raw.state.as_str()).map_err(map_availability_error)?;
-    let source_listing_id =
-        normalize_source_listing_id_with_url_sha_fallback(&raw.source_listing_id, &url)?;
+    let raw_source_record_url = Url::parse(raw_source_record_key).map_err(|_| {
+        NormalizationError::SourceListingIdInvalid(
+            product_listing_core::source_listing_id::InvalidSourceListingId::Blank,
+        )
+    })?;
+    let source_listing_id = normalize_source_listing_id_with_url_sha_fallback(
+        &raw.source_listing_id,
+        &raw_source_record_url,
+    )?;
     let title = normalize_title(raw.title.as_str())?;
     let title_language = product_listing_normalization::detect_language(title.as_ref());
     let description_language =
@@ -137,7 +161,25 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
         url: Url,
         fallback_currency: Option<Currency>,
     ) -> ProductListingNormalizationResult {
-        let prepared = prepare_product(raw, url, fallback_currency).map_err(failure)?;
+        self.normalize_with_raw_source_record_key(raw, url, "", fallback_currency)
+            .await
+    }
+
+    async fn normalize_with_raw_source_record_key(
+        &self,
+        raw: RawExtractedProduct,
+        url: Url,
+        raw_source_record_key: &str,
+        fallback_currency: Option<Currency>,
+    ) -> ProductListingNormalizationResult {
+        let key = if raw_source_record_key.is_empty() {
+            url.as_str()
+        } else {
+            raw_source_record_key
+        };
+        let prepared =
+            prepare_product_with_raw_source_record_key(raw, url.clone(), key, fallback_currency)
+                .map_err(failure)?;
         Ok(NormalizationSuccess {
             prepared,
             llm_calls_used: 0,

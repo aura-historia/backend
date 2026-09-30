@@ -172,6 +172,7 @@ impl ScraperServiceImpl {
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
         let listing_source_id = &request.listing_source_id;
         let url = &request.url;
+        let raw_source_record_key = &request.raw_source_record_key;
         let product_url_pattern = request.product_url_pattern.as_deref();
         let last_scraped_hash = request.last_scraped_hash.as_deref();
         let last_scraped_schema_fingerprint = request.last_scraped_schema_fingerprint.as_deref();
@@ -265,6 +266,14 @@ impl ScraperServiceImpl {
                 )));
             }
         };
+        let normalized_original_url = CrawledUrl::new(url.clone());
+        let normalized_final_url = CrawledUrl::new(fetched.final_url.clone());
+        let url_moved = normalized_original_url.as_url() != normalized_final_url.as_url();
+        let effective_url = if url_moved {
+            normalized_final_url.as_url().clone()
+        } else {
+            url.clone()
+        };
         if !is_same_logical_host(url, &fetched.final_url) {
             return Err(ScraperError::HttpError {
                 url: url.clone(),
@@ -301,7 +310,7 @@ impl ScraperServiceImpl {
         let listing_source_product_schemas = self
             .obtain_schemas(
                 listing_source_id,
-                url,
+                &effective_url,
                 product_url_pattern,
                 &html,
                 domain_id.as_ref(),
@@ -314,7 +323,8 @@ impl ScraperServiceImpl {
         )
         .map_err(ScraperError::SchemaFingerprint)?;
 
-        if has_main
+        if !url_moved
+            && has_main
             && last_scraped_hash == Some(current_hash.as_str())
             && last_scraped_schema_fingerprint == Some(stored_schema_fingerprint.as_str())
         {
@@ -345,7 +355,8 @@ impl ScraperServiceImpl {
         let selection = match self
             .select_existing_schema_with_normalization(
                 listing_source_id,
-                url,
+                &effective_url,
+                raw_source_record_key,
                 &html,
                 &listing_source_product_schemas.product_schemas,
                 fallback_currency,
@@ -363,8 +374,9 @@ impl ScraperServiceImpl {
                 self.generate_fresh_schema_for_page(FreshSchemaGenerationContext {
                     listing_source_id,
                     domain,
-                    url,
+                    url: &effective_url,
                     html: &html,
+                    raw_source_record_key,
                     existing_schemas: &listing_source_product_schemas.product_schemas,
                     fallback_currency,
                     expected_last_captured_raw_input_sha256,
@@ -382,7 +394,8 @@ impl ScraperServiceImpl {
         let raw_input = crawler_raw_input(
             &selection.raw,
             &selection.validated_image_urls,
-            url,
+            &effective_url,
+            selection.prepared.source_listing_id.as_ref(),
             selection.fallback_currency,
             [
                 selection.prepared.price.is_some(),
@@ -402,6 +415,8 @@ impl ScraperServiceImpl {
         debug!(domain, "Scraping complete");
         Ok(Some(ScrapedProduct {
             raw_input,
+            effective_url,
+            source_listing_id: selection.prepared.source_listing_id.to_string(),
             availability,
             hash: current_hash,
             schema_fingerprint,

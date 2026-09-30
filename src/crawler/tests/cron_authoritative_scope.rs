@@ -118,8 +118,9 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     .unwrap_or_else(|error| panic!("seed crawler domain: {error}"));
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class) \
-         VALUES ($1, $2, 'https://crawler-admission.example/products/1', 'product')",
+         (listing_source_id, domain_id, url, raw_source_record_key, url_class) \
+         VALUES ($1, $2, 'https://crawler-admission.example/products/1', \
+                 'https://crawler-admission.example/products/1', 'product')",
     )
     .bind(listing_source_id.as_uuid())
     .bind(domain_id.as_uuid())

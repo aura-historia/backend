@@ -2,7 +2,7 @@ use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, Raw
 use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
 
 use crate::scraper::normalization::product_normalization_service::{
-    NormalizationFailure, NormalizationSuccess, prepare_product,
+    NormalizationFailure, NormalizationSuccess, prepare_product_with_raw_source_record_key,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
@@ -87,6 +87,7 @@ impl ScraperServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
+        raw_source_record_key: &str,
         html: &str,
         schemas: &[ProductCssSelectorSchema],
         fallback_currency: Option<Currency>,
@@ -129,7 +130,12 @@ impl ScraperServiceImpl {
                     Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                     Err(err) => return Err(ScraperError::NormalizationError(err)),
                 };
-            match prepare_product(validated_raw.clone(), url.clone(), fallback_currency) {
+            match prepare_product_with_raw_source_record_key(
+                validated_raw.clone(),
+                url.clone(),
+                raw_source_record_key,
+                fallback_currency,
+            ) {
                 Ok(prepared) => {
                     let score = score_prepared_product(&validated_raw, &prepared);
                     prepared_candidates.push(PreparedSchemaCandidate {
@@ -182,6 +188,7 @@ impl ScraperServiceImpl {
                     candidate.schema,
                     raw,
                     candidate.validated_raw,
+                    raw_source_record_key,
                     fallback_currency,
                 )
                 .await
@@ -231,6 +238,7 @@ impl ScraperServiceImpl {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn normalize_applied_schema(
         &self,
         listing_source_id: &ListingSourceId,
@@ -238,14 +246,25 @@ impl ScraperServiceImpl {
         selected_schema: &ProductCssSelectorSchema,
         raw: RawExtractedProduct,
         validated_raw: RawExtractedProduct,
+        raw_source_record_key: &str,
         fallback_currency: Option<Currency>,
     ) -> Result<PreparedSchemaSelection, ScraperError> {
         let validated_image_urls = validated_raw.images.clone();
-        match self
-            .normalization_service
-            .normalize(validated_raw, url.clone(), fallback_currency)
-            .await
-        {
+        let normalization = if raw_source_record_key == url.as_str() {
+            self.normalization_service
+                .normalize(validated_raw, url.clone(), fallback_currency)
+                .await
+        } else {
+            self.normalization_service
+                .normalize_with_raw_source_record_key(
+                    validated_raw,
+                    url.clone(),
+                    raw_source_record_key,
+                    fallback_currency,
+                )
+                .await
+        };
+        match normalization {
             Ok(NormalizationSuccess {
                 prepared,
                 llm_calls_used,

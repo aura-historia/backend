@@ -68,6 +68,7 @@ pub(super) fn primary_only_request(
         domain_id: None,
         listing_source_id: *listing_source_id,
         url: url.clone(),
+        raw_source_record_key: url.to_string(),
         product_url_pattern: None,
         last_scraped_hash: None,
         last_scraped_schema_fingerprint: None,
