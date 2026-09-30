@@ -1316,8 +1316,10 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     .await
     .unwrap();
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].0, original_url.as_str());
-    assert_eq!(rows[1].0, effective_url.as_str());
+    assert!(rows.iter().any(|row| row.0 == original_url.as_str()));
+    assert!(rows.iter().any(|row| row.0 == effective_url.as_str()));
+    assert!(rows.iter().any(|row| row.1 == original_url.as_str()));
+    assert!(rows.iter().any(|row| row.1 == effective_url.as_str()));
 }
 
 #[serial]
