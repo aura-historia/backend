@@ -70,10 +70,13 @@ fn readiness_app(postgres: PgPool, opensearch: OpenSearch) -> Router {
 }
 
 async fn get_status(app: Router, path: &str) -> StatusCode {
+    get_response(app, path).await.status()
+}
+
+async fn get_response(app: Router, path: &str) -> axum::response::Response {
     app.oneshot(Request::get(path).body(axum::body::Body::empty()).unwrap())
         .await
         .unwrap()
-        .status()
 }
 
 fn assert_reader_search(request: &str) {
@@ -130,14 +133,33 @@ async fn readiness_requires_successful_reader_search_and_postgres_query() {
         ),
         (
             StatusCode::OK,
+            r#"{"timed_out":false,"_shards":{"total":1,"successful":0,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}"#,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            StatusCode::OK,
+            r#"{"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"unexpected"},"hits":[]}}"#,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            StatusCode::OK,
             r#"{"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"hits":[{}]}}"#,
             StatusCode::SERVICE_UNAVAILABLE,
         ),
     ] {
         let (opensearch, server) = mock_search(Some(upstream_status), body).await;
         let app = readiness_app(postgres.clone(), opensearch);
-        assert_eq!(get_status(app.clone(), "/ready").await, expected);
-        assert_eq!(get_status(app, "/health").await, StatusCode::OK);
+        let response = get_response(app.clone(), "/api/v1/ready").await;
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::SERVICE_UNAVAILABLE {
+            assert!(
+                axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        assert_eq!(get_status(app, "/api/v1/health").await, StatusCode::OK);
         assert_reader_search(&server.await.unwrap());
     }
 
@@ -145,7 +167,7 @@ async fn readiness_requires_successful_reader_search_and_postgres_query() {
     let app = readiness_app(postgres, opensearch);
     let started = tokio::time::Instant::now();
     assert_eq!(
-        get_status(app, "/ready").await,
+        get_status(app, "/api/v1/ready").await,
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert!(started.elapsed() >= READINESS_CHECK_TIMEOUT);
@@ -163,9 +185,45 @@ async fn readiness_fails_when_postgres_query_cannot_run_but_health_stays_live() 
     let (opensearch, server) = mock_search(Some(StatusCode::OK), VALID_SEARCH_RESPONSE).await;
     let app = readiness_app(postgres, opensearch);
     assert_eq!(
-        get_status(app.clone(), "/ready").await,
+        get_status(app.clone(), "/api/v1/ready").await,
         StatusCode::SERVICE_UNAVAILABLE
     );
-    assert_eq!(get_status(app, "/health").await, StatusCode::OK);
+    assert_eq!(get_status(app, "/api/v1/health").await, StatusCode::OK);
     server.abort();
+}
+
+#[tokio::test]
+async fn versioned_probe_paths_are_canonical_and_legacy_paths_are_not_routed() {
+    let app = app(AppState::new());
+    let health = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    assert!(
+        health.headers()[axum::http::header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    assert_eq!(
+        axum::body::to_bytes(health.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+        "ok\n"
+    );
+    assert_eq!(
+        get_status(app.clone(), "/api/v1/ready").await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        get_status(app.clone(), "/health").await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(get_status(app, "/ready").await, StatusCode::NOT_FOUND);
 }

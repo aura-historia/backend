@@ -649,8 +649,8 @@ pub fn app(state: AppState) -> Router {
 
 fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
     let health_routes = Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
+        .route("/api/v1/health", get(health))
+        .route("/api/v1/ready", get(ready))
         .with_state(Arc::clone(&state.readiness));
     let mut routes = health_routes;
 
