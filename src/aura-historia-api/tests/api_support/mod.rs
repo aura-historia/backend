@@ -18,10 +18,11 @@ use aura_historia_api::auth::{
     TransportPrincipal, UserAuthenticationAuthenticator,
 };
 use aura_historia_api::state::{
-    AdminOverviewState, AppState, AuctionsState, BillingState, ListingSourcesState,
-    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
+    ListingSourcesState, NewsletterState, NotificationsState, OAuthState, PartiesState,
+    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, SearchFiltersState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -128,19 +129,23 @@ use product_listing_postgres::{
     SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
     SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingHistoryReaderFactory, SqlxProductListingLifecycleGuardFactory,
-    SqlxProductListingRawCaptureWriterFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingWatchlistDetailsReaderFactory,
+};
+use product_listing_service::ports::{
+    ProductListingIngestionPublishError, ProductListingIngestionPublisher,
 };
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use product_listing_service::use_cases::{
-    AuthorizeProductListingRawCaptureHandler, CaptureProductListingRawObservationHandler,
-    CreateProductListingHandler, GetAuctionCatalogueHandler, GetProductListingHandler,
-    GetProductListingHistoryHandler, GetSimilarProductListingsHandler,
-    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
-    WithdrawProductListingHandler,
+    AuthorizeProductListingRawCaptureHandler, CreateProductListingHandler,
+    GetAuctionCatalogueHandler, GetProductListingHandler, GetProductListingHistoryHandler,
+    GetSimilarProductListingsHandler, ProductListingIngestionItemOutcome,
+    ProductListingIngestionMessage, ProductListingIngestionOutcome, SearchProductListingsHandler,
+    SubmitPartnerProductListingIngestionHandler, UpdateProductListingHandler,
+    UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -327,6 +332,75 @@ impl UserSessionRevoker for SuccessfulUserSessionRevoker {
             });
         }
         Ok(())
+    }
+}
+
+static WOOCOMMERCE_INGESTION_MESSAGES: OnceLock<Mutex<Vec<ProductListingIngestionMessage>>> =
+    OnceLock::new();
+static WOOCOMMERCE_PUBLISHER_OUTCOMES: OnceLock<
+    Mutex<HashMap<ListingSourceId, ProductListingIngestionOutcome>>,
+> = OnceLock::new();
+
+fn woocommerce_messages() -> &'static Mutex<Vec<ProductListingIngestionMessage>> {
+    WOOCOMMERCE_INGESTION_MESSAGES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub fn woocommerce_ingestion_messages(
+    listing_source_id: ListingSourceId,
+) -> Vec<ProductListingIngestionMessage> {
+    captured_ingestion_messages(listing_source_id)
+}
+
+pub fn captured_ingestion_messages(
+    listing_source_id: ListingSourceId,
+) -> Vec<ProductListingIngestionMessage> {
+    woocommerce_messages()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .filter(|message| message.metadata.listing_source_id == listing_source_id)
+        .cloned()
+        .collect()
+}
+
+pub fn set_woocommerce_publisher_outcome(
+    listing_source_id: ListingSourceId,
+    outcome: ProductListingIngestionOutcome,
+) {
+    WOOCOMMERCE_PUBLISHER_OUTCOMES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(listing_source_id, outcome);
+}
+
+struct RecordingWoocommerceIngestionPublisher;
+
+#[async_trait::async_trait]
+impl ProductListingIngestionPublisher for RecordingWoocommerceIngestionPublisher {
+    async fn publish(
+        &self,
+        commands: Vec<ProductListingIngestionMessage>,
+    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
+        tokio::task::yield_now().await;
+        let outcomes = WOOCOMMERCE_PUBLISHER_OUTCOMES.get_or_init(|| Mutex::new(HashMap::new()));
+        let outcomes = outcomes.lock().unwrap_or_else(|error| error.into_inner());
+        let items = commands
+            .iter()
+            .map(|command| ProductListingIngestionItemOutcome {
+                index: command.metadata.index,
+                command_id: command.metadata.command_id.clone(),
+                outcome: outcomes
+                    .get(&command.metadata.listing_source_id)
+                    .cloned()
+                    .unwrap_or(ProductListingIngestionOutcome::Accepted),
+            })
+            .collect();
+        woocommerce_messages()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .extend(commands);
+        Ok(items)
     }
 }
 
@@ -1425,10 +1499,8 @@ async fn test_state(
         Arc::new(WoocommerceWebhookIntake::new(
             SqlxListingSourceReaders::new(pool.clone()),
             SqlxListingSourceReaders::new(pool.clone()),
-            CaptureProductListingRawObservationHandler::new(
-                unit_of_work.clone(),
-                SqlxProductListingRawCaptureWriterFactory::new(),
-                SqlxPartnerProductListingAuthorizerFactory::new(),
+            SubmitPartnerProductListingIngestionHandler::new(
+                RecordingWoocommerceIngestionPublisher,
             ),
             AuthorizeProductListingRawCaptureHandler::new(
                 unit_of_work.clone(),
@@ -1824,6 +1896,12 @@ async fn test_state(
         ))
         .with_products(products_state)
         .with_partner_product_listings(partner_product_listings_state)
+        .with_async_partner_product_listings(AsyncPartnerProductListingsState::new(
+            Arc::new(SubmitPartnerProductListingIngestionHandler::new(
+                RecordingWoocommerceIngestionPublisher,
+            )),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)

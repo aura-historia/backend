@@ -22,6 +22,7 @@ export interface EventingProps {
   readonly functions: LambdaFunctions;
   readonly productListingOpenSearchVersion: lambda.IVersion;
   readonly productListingNormalizationVersion: lambda.IVersion;
+  readonly productListingIngestionVersion: lambda.IVersion;
   readonly productContentAssessmentVersion: lambda.IVersion;
   readonly productEmbeddingVersion: lambda.IVersion;
   readonly productTranslationVersion: lambda.IVersion;
@@ -108,6 +109,7 @@ export class Eventing extends Construct {
       props.workerQueues,
       props.productListingOpenSearchVersion,
       props.productListingNormalizationVersion,
+      props.productListingIngestionVersion,
       props.productContentAssessmentVersion,
       props.productEmbeddingVersion,
       props.productTranslationVersion,
@@ -391,6 +393,7 @@ function createSqsEventSources(
   workerQueues: WorkerQueueCatalog,
   productListingOpenSearchVersion: lambda.IVersion,
   productListingNormalizationVersion: lambda.IVersion,
+  productListingIngestionVersion: lambda.IVersion,
   productContentAssessmentVersion: lambda.IVersion,
   productEmbeddingVersion: lambda.IVersion,
   productTranslationVersion: lambda.IVersion,
@@ -401,6 +404,28 @@ function createSqsEventSources(
   notificationDeliveryVersion: lambda.IVersion,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
+
+  functions.productListingIngestion.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
+    resources: [queues.productListingIngestion.queue.queueArn],
+  }));
+  const ingestionMapping = new lambda.CfnEventSourceMapping(scope, "ProductListingIngestionQueueEventSource", {
+    batchSize: 10,
+    enabled: true,
+    eventSourceArn: queues.productListingIngestion.queue.queueArn,
+    functionName: productListingIngestionVersion.functionArn,
+    functionResponseTypes: ["ReportBatchItemFailures"],
+    scalingConfig: { maximumConcurrency: 2 },
+  });
+  const consumerPolicy = functions.productListingIngestion.role?.node.tryFindChild("DefaultPolicy") as iam.Policy | undefined;
+  if (!consumerPolicy) {
+    throw new Error("Ingestion mapping requires the consumer execution policy.");
+  }
+  ingestionMapping.addResourceDependency(consumerPolicy.node.defaultChild as iam.CfnPolicy);
+  // First creation must establish durable consumption before creating producer functions.
+  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
+    (producer.node.defaultChild as lambda.CfnFunction).addResourceDependency(ingestionMapping);
+  }
 
   const productListingOpenSearch = workerQueues["product-listing-opensearch"];
   if (!productListingOpenSearch) {

@@ -59,6 +59,10 @@ cargo test --workspace --test integration --all-features
 
 ```
 
+## Architecture and contracts
+
+Start with the [documentation map](docs/README.md) to find the owning architecture, domain, storage, API, and worker contracts.
+
 ## Deployment and operations
 
 See the [workflow and release runbook](infra/README.md#deployment-inputs) for

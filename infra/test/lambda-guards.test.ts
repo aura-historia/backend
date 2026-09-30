@@ -32,7 +32,9 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
   test("rejects all unapproved Lambda and SQS concurrency controls", () => {
     for (const template of templatesFor(stage)) {
       for (const resource of resources(template, "AWS::Lambda::Function")) {
-        expect(resource.Properties?.ReservedConcurrentExecutions).toBeUndefined();
+        expect(resource.Properties?.ReservedConcurrentExecutions).toBe(
+          resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2 : undefined,
+        );
       }
 
       for (const resource of resources(template, "AWS::Lambda::Alias")) {
@@ -41,7 +43,11 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
 
       for (const resource of resources(template, "AWS::Lambda::EventSourceMapping")) {
         expect(resource.Properties?.ProvisionedPollerConfig).toBeUndefined();
-        expect(resource.Properties?.ScalingConfig).toBeUndefined();
+        if (JSON.stringify(resource.Properties?.FunctionName).includes("ProductListingIngestionVersion")) {
+          expect(resource.Properties?.ScalingConfig).toEqual({ MaximumConcurrency: 2 });
+        } else {
+          expect(resource.Properties?.ScalingConfig).toBeUndefined();
+        }
       }
     }
   });

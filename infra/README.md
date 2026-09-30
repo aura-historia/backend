@@ -12,7 +12,7 @@ synthesized for:
 
 ## Migration baseline
 
-The [architecture contract](../docs/arch.md#12-cdc-and-projection-architecture) records the target worker ownership and cutover boundaries. [Migration F7](../docs/migration-f7-dms.md) owns the #1781 DMS-to-Kinesis CDC contract. Neither document, this README, nor CDK synthesis proves deployed state.
+The [architecture contract](../docs/arch.md#12-cdc-and-projection-architecture) records target worker ownership and cutover boundaries. This README's [DMS declaration](#dms-cdc-declaration-and-evidence-1781) records checked-in infrastructure; [event flow](../docs/events/flow.md) owns routing and the [worker runbook](../docs/durable-worker-runbook.md) owns custody and handoff. None proves deployed state or substitutes for an approved DMS first-start/recovery plan.
 
 ## Structure
 
@@ -33,8 +33,8 @@ src/constructs/            # focused infrastructure modules
   observability.ts         # prod-only alarms and alarm topic
   periodic-matcher.ts      # one-shot saved-filter matching task, Scheduler, DLQ, lifecycle evidence
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
-  queues.ts                # existing Shopify Lambda queue and DLQ
-  worker-queues.ts          # scoped worker queue ownership, worker IAM policies, handoff outputs
+  queues.ts                # Shopify queue/DLQ and separate FIFO command ingress
+  worker-queues.ts         # scoped worker queue ownership, unbound IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
 sql/
   rds-bootstrap-roles.sql      # break-glass psql wrapper for role bootstrap
@@ -57,7 +57,7 @@ DmsCdc (real stages only)
 └── Secrets Manager interface endpoint with private DNS
 ```
 
-It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. The detailed start, slot, mapping, LOB, test, and cost contract is in [Migration F7](../docs/migration-f7-dms.md).
+It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. See [DMS declaration and evidence](#dms-cdc-declaration-and-evidence-1781) for checked-in slot, start-position, test and cost boundaries. DMS first start requires a separately approved operator plan.
 
 The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. R6 selects the journal plus raw revisions, saved filters, matches, and delivery intents, with explicit trigger operations enforced by the router. #1788 owns AWS evidence and controlled replay proof.
 
@@ -139,8 +139,9 @@ full `CommitSHA`: source, lockfiles, helper tools and stage CDK code. **After th
 selected-release checkout**, source-versioned `ci/lambda-binaries.json` and
 `ci/container-images.json` generate the Lambda and container publishing matrices.
 Lambda ZIPs use `<binary>-<stage>-<commit-sha>.zip`; compiled MJML uses
-`<stage>/<commit-sha>/mjml/<template-path>.html`. The MJML compiler comes from that
-source's lockfile via `npm --prefix mjml ci`.
+`<stage>/<commit-sha>/mjml/<template-path>.html` (for example,
+`dev/<sha>/mjml/watchlist/product-update/price/en.html`). The MJML compiler comes
+from that source's lockfile via `npm --prefix mjml ci`.
 
 ZIPs and mail templates remain stage-local, never copied between stages. Existing
 stage/SHA objects are reused and **never overwritten**; missing artifacts are
@@ -360,7 +361,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis plus shared Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Deploy may declare a new stopped task; no workflow starts/resets an existing task or creates/replaces a slot or checkpoint. Before data-stack deployment, Deploy bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [Migration F7](../docs/migration-f7-dms.md) for the lifecycle, availability command, table/operation mapping, decimal-string versions, LOB/Kinesis bounds, and committed-versus-rolled-back fixture protocol.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Deploy may declare a new stopped task; no workflow starts/resets an existing task or creates/replaces a slot or checkpoint. Before data-stack deployment, Deploy bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [event flow](../docs/events/flow.md#cdc-routing) for table/operation routing and [worker operations](../docs/durable-worker-runbook.md#activation-and-legacy-handoff) for activation custody. An approved DMS operator plan must cover the actual slot/LSN, LOB/Kinesis bounds, fixture protocol and recovery before first start; the checked-in declaration alone does not establish those live facts.
 
 From `infra/`, the existing configuration checks are:
 
@@ -370,7 +371,7 @@ npm run synth -- --context stage=dev
 npm run synth -- --context stage=prod
 ```
 
-They do not deploy or exercise AWS. The AWS fixture procedure is documented/manual; no new test script is implied. Real-stage declarations and synthesis are not live-resource or AWS-test proof. Look up DMS, Kinesis retention, and PrivateLink endpoint/data prices at change-set approval or execution; existing NAT has no DMS incremental charge. See [Migration F7](../docs/migration-f7-dms.md#cost-delta).
+They do not deploy or exercise AWS. The AWS fixture procedure is documented/manual; no new test script is implied. Real-stage declarations and synthesis are not live-resource or AWS-test proof. Look up DMS, Kinesis retention, and PrivateLink endpoint/data prices at change-set approval or execution; existing NAT has no DMS incremental charge.
 
 ## Target artifact boundary
 
@@ -381,6 +382,78 @@ references stage-local S3 artifacts by `CommitSHA` and images by registry digest
 It never builds, uploads, configures, or deploys the legacy native
 `aura-historia-worker` artifact or Sequin ingress. Native process deployment remains externally owned;
 this change does not pause consumers or activate the DMS/Kinesis path.
+
+## ProductListing command ingress (#1859)
+
+The data stack declares a **separate FIFO** `product-listing-ingestion-queue-${stage}.fifo` and
+`product-listing-ingestion-dlq-${stage}.fifo`. These are not Shopify's existing EventBridge
+input/DLQ or any CDC Standard worker queue. Both require TLS, use SQS-managed encryption,
+and disable content-based deduplication: the command publisher supplies explicit group and
+deduplication IDs. Source retention is seven days, DLQ retention 14 days, five receives
+before redrive, source visibility 270 seconds, and only the named source may redrive into
+the DLQ. Real-stage source and DLQ retain on deletion **and replacement**; ephemeral
+deletes. Data outputs expose both URLs. Never rename or purge queues to clear an alarm.
+
+Compute imports the source by stage-local name and supplies
+`PRODUCT_LISTING_INGESTION_QUEUE_URL` to **only** the API and Shopify producers. Each
+gets `sqs:SendMessage` on this source ARN (including `SendMessageBatch` API calls;
+`SendMessageBatch` is not an IAM action). Both keep their existing PostgreSQL and
+network dependencies; real private application subnets reach SQS over the existing
+HTTPS NAT egress, not an unconfigured endpoint policy. The ingestion Lambda has only
+its own source consume actions, PostgreSQL runtime-secret access in real stages,
+standard Lambda log/VPC permissions, and no DLQ message/replay, provider, search,
+or queue-publish powers. The mapping targets a published version, is active after
+protected initialization/migration, batches up to ten with **no batching window**,
+returns `ReportBatchItemFailures`, and limits event concurrency to two against a
+reserved concurrency of two. Its 512 MiB, 45-second invocation uses one PostgreSQL
+connection per execution, so this consumer adds at most two database connections;
+check aggregate account and database capacity before activation. Do not reserve a
+fresh 45 seconds for each of ten messages; large message metadata can shrink a batch.
+
+Runtime must validate *all* SQS message IDs before work and process the batch in
+received order. On the first non-complete record, return that message ID **and all
+unprocessed successor IDs**, even across groups; only a confirmed committed prefix
+is omitted. A failed FIFO group blocks subsequent deliveries until repair/redrive;
+submission ID is correlation only, while database command receipts deduplicate
+completed commands. Pause the event source mapping to stop consumption, inspect
+queue age/depth, Lambda errors/throttles, DLQ and persisted receipts using safe IDs,
+then repair before small operator-authorized redrive. An older DLQ command may no
+longer be valid after newer state: FIFO ordering and receipts do not make arbitrary
+replay safe. Never log bodies, tokens, raw provider payloads, or secrets.
+
+Prod sends Lambda errors/throttles, source oldest-age >=900s, visible backlog >=100,
+and DLQ visible count >=1 to the existing alarm topic. Alarms use a five-minute period,
+missing data not breaching. Three stage-bounded CloudWatch Logs metric filters count
+one **JSON log entry per record** with `ingestion_outcome` equal to `completed`,
+`failed`, or `unprocessed`, as `CompletedRecords`, `FailedRecords`, and
+`UnprocessedRecords` in `AuraHistoria/ProductListingIngestion/prod`. Partial-response
+failures need not increment Lambda `Errors`; the runtime must emit these safe
+per-record outcomes (including the suffix) for the counters to populate. They are
+not proofs of committed state or substitutes for queue and receipt inspection.
+
+**Release gate:** build and upload the `product-listing-ingestion-lambda` artifact for
+this stage/SHA before deploying compute. The protected Initialize/Deploy workflows
+apply migrations before compute and deploy the API stack after compute; they do not
+guarantee independently deployed producers wait for an active, verified consumer.
+Stage data/queue deployment, receipt migration, consumer artifact and mapping
+verification must precede enabling API/Shopify command publication. The Shopify
+Lambda's FIFO URL and exact source-ARN `sqs:SendMessage` grant are ready for a separate
+forwarding runtime cutover; the existing EventBridge → Shopify Standard SQS source/DLQ,
+partial-response mapping, private PostgreSQL network/secret and source lookup stay in
+place. When forwarding an eligible observation, only confirmed FIFO admission may
+acknowledge the upstream Shopify SQS message; the FIFO consumer acknowledges only
+confirmed committed application/receipt. Unconfirmed publication can duplicate on
+retry and leaves the upstream message in Shopify's retry/DLQ custody; downstream
+failures belong to the ingestion FIFO retry/DLQ. See the [flow](../docs/events/flow.md#shopify-queue-forwarding-boundaries-runtime-deployment-gated)
+and [handoff runbook](../docs/durable-worker-runbook.md#shopify-forwarding-handoff).
+The Shopify producer code now forwards mapped observations. This does not change the
+old Shopify mapping or verify live AWS deployment. The separately declared async
+HTTP verbs and WooCommerce forwarding also require staged producer cutovers; neither
+synth nor CloudFormation resource ordering proves consumer readiness. Follow the
+[ingestion rollout, bounded ephemeral smoke, and redrive gate](../docs/durable-worker-runbook.md#productlisting-ingestion-rollout-and-acceptance-gate)
+before enabling each producer. Review a stage-specific CDK change set/diff for
+unintended legacy queue replacements and establish custody of both source/DLQ
+pairs and authoritative PostgreSQL state before any cutover.
 
 ## Worker queue contract
 

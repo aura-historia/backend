@@ -29,6 +29,18 @@ function queueResource(template: Template, name: string) {
   return { id, resource, arn: { "Fn::GetAtt": [id, "Arn"] }, url: { Ref: id } };
 }
 
+function ingressFunction(template: Template, name: string) {
+  const matches = Object.entries(template.findResources("AWS::Lambda::Function"))
+    .filter(([, resource]) => resource.Properties.FunctionName === name);
+  expect(matches).toHaveLength(1);
+  const [id, resource] = matches[0];
+  const roleId = resource.Properties.Role["Fn::GetAtt"][0] as string;
+  const policies = Object.entries(template.findResources("AWS::IAM::Policy"))
+    .filter(([, policy]) => JSON.stringify(policy.Properties.Roles).includes(`"Ref":"${roleId}"`));
+  expect(policies).toHaveLength(1);
+  return { id, resource, policyId: policies[0][0], statements: policies[0][1].Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Effect: string; Resource: unknown }> };
+}
+
 function workerPolicyNames(template: Template): string[] {
   return Object.values(template.findResources("AWS::IAM::ManagedPolicy"))
     .map((resource) => resource.Properties.ManagedPolicyName)
@@ -149,7 +161,15 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(stacks.data.workerQueues.catalog)).toEqual(EXPECTED_SCOPES);
-    expect(QUEUE_DEFINITIONS).toEqual({ shopify: {
+    expect(QUEUE_DEFINITIONS).toEqual({ productListingIngestion: {
+      id: "ProductListingIngestion",
+      queueName: "product-listing-ingestion-queue.fifo",
+      deadLetterQueueName: "product-listing-ingestion-dlq.fifo",
+      visibilityTimeoutSeconds: 270,
+      maxReceiveCount: 5,
+      fifo: true,
+      managedSse: true,
+    }, shopify: {
       id: "ShopifyLambda",
       queueName: "shopify-lambda-queue",
       deadLetterQueueName: "shopify-lambda-dlq",
@@ -160,8 +180,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(names.sort()).toEqual([
       ...EXPECTED_SCOPES.flatMap((scope) => [`aura-worker-${scope}-${stage}`, `aura-worker-${scope}-dlq-${stage}`]),
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
+      `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(22);
+    expect(new Set(names).size).toBe(24);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -196,6 +217,140 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(JSON.stringify(Template.fromStack(stacks.api).toJSON())).not.toContain("aura-worker-");
   });
 
+  test("keeps command ingress as a separate protected FIFO queue pair", () => {
+    const sourceName = `product-listing-ingestion-queue-${stage}.fifo`;
+    const dlqName = `product-listing-ingestion-dlq-${stage}.fifo`;
+    const source = queueResource(data, sourceName);
+    const dlq = queueResource(data, dlqName);
+    const lifecycle = stage === "ephemeral" ? "Delete" : "Retain";
+    expect(source.resource).toEqual({
+      Type: "AWS::SQS::Queue",
+      Properties: {
+        QueueName: sourceName, FifoQueue: true, ContentBasedDeduplication: false,
+        SqsManagedSseEnabled: true, MessageRetentionPeriod: 604800, VisibilityTimeout: 270,
+        RedrivePolicy: { deadLetterTargetArn: dlq.arn, maxReceiveCount: 5 },
+        RedriveAllowPolicy: { redrivePermission: "denyAll" },
+      },
+      DeletionPolicy: lifecycle, UpdateReplacePolicy: lifecycle,
+    });
+    expect(dlq.resource).toEqual({
+      Type: "AWS::SQS::Queue",
+      Properties: {
+        QueueName: dlqName, FifoQueue: true, ContentBasedDeduplication: false,
+        SqsManagedSseEnabled: true, MessageRetentionPeriod: 1209600,
+        RedriveAllowPolicy: {
+          redrivePermission: "byQueue",
+          sourceQueueArns: [stacks.data.resolve(stacks.data.formatArn({ service: "sqs", resource: sourceName }))],
+        },
+      },
+      DeletionPolicy: lifecycle, UpdateReplacePolicy: lifecycle,
+    });
+    for (const queue of [source, dlq]) {
+      const policies = Object.values(data.findResources("AWS::SQS::QueuePolicy"))
+        .filter((policy) => JSON.stringify(policy.Properties.Queues) === JSON.stringify([queue.url]));
+      expect(policies).toHaveLength(1);
+      expect(policies[0].Properties.PolicyDocument).toEqual({
+        Version: "2012-10-17",
+        Statement: [{
+          Action: "sqs:*", Effect: "Deny", Principal: { AWS: "*" }, Resource: queue.arn,
+          Condition: { Bool: { "aws:SecureTransport": "false" } },
+        }],
+      });
+    }
+    expect(data.toJSON().Outputs.ProductListingIngestionQueueUrl).toEqual({ Value: source.url });
+    expect(data.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
+  });
+
+  test("limits command ingress IAM to two publishers and one source-only consumer", () => {
+    const sourceName = `product-listing-ingestion-queue-${stage}.fifo`;
+    const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
+    const producerNames = [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`];
+    const consumer = ingressFunction(compute, `product-listing-ingestion-lambda-${stage}`);
+    const expectedQueueUrl = { "Fn::Sub": [
+      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
+      { QueueName: sourceName },
+    ] };
+    for (const name of producerNames) {
+      const producer = ingressFunction(compute, name);
+      expect(producer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL)
+        .toEqual(expectedQueueUrl);
+      expect(producer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
+        .toEqual(name === `shopify-lambda-${stage}`
+          ? [
+              { Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn },
+              { Action: ["sqs:ReceiveMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+                Effect: "Allow", Resource: stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: `shopify-lambda-queue-${stage}` })) },
+            ]
+          : [{ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn }]);
+    }
+    expect(consumer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
+    expect(consumer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
+      .toEqual([{ Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn }]);
+    const ingressGrants = Object.entries(compute.findResources("AWS::IAM::Policy"))
+      .flatMap(([id, policy]) => policy.Properties.PolicyDocument.Statement
+        .filter((statement: { Resource: unknown }) => JSON.stringify(statement.Resource) === JSON.stringify(sourceArn))
+        .map((statement: { Action: unknown }) => ({ id, action: statement.Action })));
+    expect(ingressGrants).toHaveLength(3);
+    expect(ingressGrants).toEqual(expect.arrayContaining([
+      ...producerNames.map((name) => ({ id: ingressFunction(compute, name).policyId, action: "sqs:SendMessage" })),
+      { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
+    ]));
+    expect(consumer.statements).toEqual([
+      ...(stage === "ephemeral" ? [] : [{
+        Action: "secretsmanager:GetSecretValue", Effect: "Allow",
+        Resource: consumer.resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN,
+      }]),
+      { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
+    ]);
+    if (stage !== "ephemeral") {
+      expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.initialization]));
+    }
+    expect(consumer.resource.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    expect(Object.keys(consumer.resource.Properties.Environment.Variables).sort()).toEqual(
+      stage === "ephemeral"
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+    );
+  });
+
+  test("binds the FIFO mapping to the published consumer after IAM, before producers", () => {
+    const consumer = ingressFunction(compute, `product-listing-ingestion-lambda-${stage}`);
+    const versions = Object.entries(compute.findResources("AWS::Lambda::Version"))
+      .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
+    expect(versions).toHaveLength(1);
+    const [versionId, version] = versions[0];
+    expect(version.Properties).toMatchObject({
+      FunctionName: { Ref: consumer.id },
+      Description: { "Fn::Join": ["", ["product-listing-ingestion-", { Ref: "CommitSHA" }]] },
+    });
+    expect(consumer.resource.Properties).toMatchObject({
+      Runtime: "provided.al2023", Handler: "lib.handler", MemorySize: 512, Timeout: 45,
+      ReservedConcurrentExecutions: 2, Architectures: ["x86_64"],
+    });
+    expect(consumer.resource.Properties.Code.S3Key).toEqual({
+      "Fn::Join": ["", [`product-listing-ingestion-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]],
+    });
+    const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
+      .filter(([, resource]) => resource.Properties.FunctionName?.Ref === versionId);
+    expect(mappings).toHaveLength(1);
+    const [mappingId, mapping] = mappings[0];
+    expect(mapping.Properties).toEqual({
+      BatchSize: 10, Enabled: true,
+      EventSourceArn: stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: `product-listing-ingestion-queue-${stage}.fifo` })),
+      FunctionName: { Ref: versionId }, FunctionResponseTypes: ["ReportBatchItemFailures"],
+      ScalingConfig: { MaximumConcurrency: 2 },
+    });
+    expect(mapping.DependsOn).toContain(consumer.policyId);
+    for (const name of [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`]) {
+      expect(ingressFunction(compute, name).resource.DependsOn).toContain(mappingId);
+    }
+    const logGroups = Object.entries(compute.findResources("AWS::Logs::LogGroup"))
+      .filter(([, resource]) => resource.Properties.LogGroupName === `/aws/lambda/product-listing-ingestion-lambda-${stage}`);
+    expect(logGroups).toHaveLength(1);
+    expect(logGroups[0][1].Properties.RetentionInDays).toBe(30);
+    expect(consumer.resource.Properties.LoggingConfig.LogGroup).toEqual({ Ref: logGroups[0][0] });
+  });
+
   test("keeps Shopify queues and Lambda identity while wiring its consumer", () => {
     const source = queueResource(data, `shopify-lambda-queue-${stage}`);
     const dlq = queueResource(data, `shopify-lambda-dlq-${stage}`);
@@ -227,11 +382,22 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
       stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"]
+        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
     );
+    expect(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual({ "Fn::Sub": [
+      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
+      { QueueName: `product-listing-ingestion-queue-${stage}.fifo` },
+    ] });
+    if (stage !== "ephemeral") {
+      const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
+      expect(lambda.Properties.VpcConfig).toBeDefined();
+      expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+        .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
+          Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
+    }
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -246,7 +412,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -275,8 +441,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration, real-stage CDC router and cleanup target,
-    // and all ten queue workers use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 11 : 13);
+    // and all ten queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 12 : 14);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -325,7 +491,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 11 : 12);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -605,6 +771,55 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     }
   });
 
+  test("publishes prod-only command ingress alarms and per-record outcome filters", () => {
+    if (stage !== "prod") {
+      expect(stacks.observability).toBeUndefined();
+      return;
+    }
+    const template = Template.fromStack(stacks.observability!);
+    const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
+    expect(topicIds).toHaveLength(1);
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
+      .filter((resource) => String(resource.Properties.AlarmName).includes("product-listing-ingestion"));
+    expect(alarms).toHaveLength(5);
+    for (const [suffix, metric, queue, threshold] of [
+      ["source-age", "ApproximateAgeOfOldestMessage", "queue", 900],
+      ["source-backlog", "ApproximateNumberOfMessagesVisible", "queue", 100],
+      ["dead-letter-visible", "ApproximateNumberOfMessagesVisible", "dlq", 1],
+    ] as const) {
+      const name = `prod-product-listing-ingestion-${suffix}`;
+      expect(alarms.filter((alarm) => alarm.Properties.AlarmName === name)).toHaveLength(1);
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: name, Namespace: "AWS/SQS", MetricName: metric,
+        Dimensions: [{ Name: "QueueName", Value: `product-listing-ingestion-${queue}-prod.fifo` }],
+        Statistic: "Maximum", Period: 300, Threshold: threshold, EvaluationPeriods: 1,
+        ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
+        AlarmActions: [{ Ref: topicIds[0] }],
+      });
+    }
+    for (const metric of ["Errors", "Throttles"] as const) {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        Namespace: "AWS/Lambda", MetricName: metric,
+        Dimensions: [{ Name: "FunctionName", Value: "product-listing-ingestion-lambda-prod" }],
+        Statistic: "Sum", Period: 300, Threshold: metric === "Errors" ? 5 : 1,
+        EvaluationPeriods: 1, ComparisonOperator: "GreaterThanOrEqualToThreshold",
+        TreatMissingData: "notBreaching", AlarmActions: [{ Ref: topicIds[0] }],
+      });
+    }
+    const filters = Object.values(template.findResources("AWS::Logs::MetricFilter"))
+      .filter((resource) => String(resource.Properties.LogGroupName).includes("product-listing-ingestion-lambda"));
+    expect(filters).toHaveLength(3);
+    for (const [outcome, metric] of [
+      ["completed", "CompletedRecords"], ["failed", "FailedRecords"], ["unprocessed", "UnprocessedRecords"],
+    ] as const) {
+      expect(filters).toContainEqual(expect.objectContaining({ Properties: {
+        LogGroupName: "/aws/lambda/product-listing-ingestion-lambda-prod",
+        FilterPattern: `{ $.ingestion_outcome = "${outcome}" }`,
+        MetricTransformations: [{ MetricName: metric, MetricNamespace: "AuraHistoria/ProductListingIngestion/prod", MetricValue: "1" }],
+      } }));
+    }
+  });
+
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {
     data.resourceCountIs("AWS::CloudWatch::Alarm", 0);
     compute.resourceCountIs("AWS::CloudWatch::Alarm", 0);
@@ -642,13 +857,38 @@ test("single-stack ephemeral has the same queue and consumer contract", () => {
   for (const scope of EXPECTED_SCOPES) {
     expectWorkerPair(stack, template, "ephemeral", scope);
   }
-  template.resourceCountIs("AWS::SQS::Queue", 22);
+  template.resourceCountIs("AWS::SQS::Queue", 24);
   expect(workerPolicyNames(template)).toEqual(expectedWorkerPolicyNames("ephemeral", EXPECTED_SCOPES));
   template.resourceCountIs("AWS::IAM::User", 0);
   template.resourceCountIs("AWS::IAM::AccessKey", 0);
   template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 11);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 12);
   expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
+
+  const source = queueResource(template, "product-listing-ingestion-queue-ephemeral.fifo");
+  const dlq = queueResource(template, "product-listing-ingestion-dlq-ephemeral.fifo");
+  expect(source.resource.Properties.RedrivePolicy.deadLetterTargetArn).toEqual(dlq.arn);
+  expect(template.toJSON().Outputs.ProductListingIngestionQueueUrl).toEqual({ Value: source.url });
+  expect(template.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
+  const consumer = ingressFunction(template, "product-listing-ingestion-lambda-ephemeral");
+  const versions = Object.entries(template.findResources("AWS::Lambda::Version"))
+    .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
+  expect(versions).toHaveLength(1);
+  const mappings = Object.entries(template.findResources("AWS::Lambda::EventSourceMapping"))
+    .filter(([, resource]) => resource.Properties.FunctionName?.Ref === versions[0][0]);
+  expect(mappings).toHaveLength(1);
+  expect(mappings[0][1].Properties.EventSourceArn).toEqual(source.arn);
+  expect(mappings[0][1].DependsOn).toContain(consumer.policyId);
+  for (const name of ["aura-historia-api-ephemeral", "shopify-lambda-ephemeral"]) {
+    const producer = ingressFunction(template, name);
+    expect(producer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual(source.url);
+    expect(producer.statements).toContainEqual({ Action: "sqs:SendMessage", Effect: "Allow", Resource: source.arn });
+    expect(producer.resource.DependsOn).toContain(mappings[0][0]);
+  }
+  expect(consumer.statements).toEqual([{
+    Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
+    Effect: "Allow", Resource: source.arn,
+  }]);
 });
 
 test.each<{ enabledScopes: WorkerScope[] }>([
@@ -680,7 +920,7 @@ test("queue names use stage, never a custom stack prefix, and reject names over 
   });
   const template = Template.fromStack(stacks.data);
   const names = Object.values(template.findResources("AWS::SQS::Queue")).map((resource) => resource.Properties.QueueName);
-  expect(names.every((name) => name.endsWith("-dev"))).toBe(true);
+  expect(names.every((name) => name.endsWith("-dev") || name.endsWith("-dev.fifo"))).toBe(true);
   expect(template.toJSON().Outputs.WorkerQueueAwsRegion.Value).toBe("eu-central-1");
   for (const stage of STAGES) {
     for (const scope of EXPECTED_SCOPES) {

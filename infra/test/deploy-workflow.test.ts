@@ -185,6 +185,7 @@ describe("deployment workflow boundaries", () => {
     expect(job(deployWorkflow, "aws-push-container-images")).not.toMatch(/^    concurrency:/m);
   });
 
+
   test("keeps release validation responsive to workflows, helper scripts and catalog changes", () => {
     const push = block(block(deployWorkflow, "on"), "push", 2);
     for (const path of [".github/workflows/**", ".github/actions/**", "ci/**"]) expect(push).toContain(`"${path}"`);
@@ -212,7 +213,8 @@ describe("immutable artifact publication", () => {
   test("catalogs unique workspace binary crates with matching package names and source entry points", () => {
     const binaries: string[] = JSON.parse(read("ci/lambda-binaries.json"));
     expect(Array.isArray(binaries)).toBe(true);
-    expect(binaries.length).toBeGreaterThan(0);
+    expect(binaries).toContain("product-listing-ingestion-lambda");
+    expect(binaries).not.toContain("aura-historia-worker");
     expect(new Set(binaries).size).toBe(binaries.length);
     const members = read("Cargo.toml").match(/\[workspace\]\s*members\s*=\s*\[([^\]]*)\]/)?.[1];
     expect(members).toBeDefined();
@@ -241,7 +243,7 @@ describe("immutable artifact publication", () => {
   test("keeps Lambda ZIPs separate from catalog images and builds/uploads only missing ZIPs", () => {
     const lambda = job(deployWorkflow, "aws-push-lambda");
     expect(lambda).toContain("target/lambda/${BINARY}/bootstrap.zip");
-    expect(lambda).not.toMatch(/search-filter-periodic-match|aura-historia-cron|docker build/);
+    expect(lambda).not.toMatch(/search-filter-periodic-match|aura-historia-cron|aura-historia-worker|sequin|docker build/i);
     expect(lambda).toContain('bash ci/s3-artifact-exists.sh "$BUCKET" "${BINARY}-${STAGE}-${DEPLOY_COMMIT_SHA}.zip"');
     const steps = lambda.split(/^      - /m);
     const build = steps.find((step) => step.includes("cargo lambda build"));
@@ -349,6 +351,9 @@ describe("CDK deployment responsibility", () => {
     expect(guard).toContain("exit 0");
     expect(guard).toContain("scope=all");
     expectInOrder(deployHelper, "aws cloudformation describe-stacks", "bash infra/scripts/ensure-dms-vpc-role.sh", 'deploy "${STACK_NAME_PREFIX}-network"', 'deploy "${STACK_NAME_PREFIX}-data"', 'deploy "${STACK_NAME_PREFIX}-initialize"', guard!, 'deploy "${STACK_NAME_PREFIX}-compute"', 'deploy "${STACK_NAME_PREFIX}-api"');
+    expect(deployHelper.match(/bash infra\/scripts\/ensure-dms-vpc-role\.sh/g)).toHaveLength(1);
+    expect(deployWorkflow).not.toContain("ensure-dms-vpc-role.sh");
+    for (const { workflow } of operationWorkflows) expect(workflow).not.toContain("ensure-dms-vpc-role.sh");
     expect(deployHelper).toMatch(/if \[ "\$STAGE" = prod \]; then deploy "\$\{STACK_NAME_PREFIX\}-observability"/);
   });
 

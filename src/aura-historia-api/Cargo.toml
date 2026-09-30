@@ -9,6 +9,7 @@ admin-overview-service = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 application = { workspace = true }
 auction-core = { workspace = true }
 auction-postgres = { workspace = true }
@@ -56,10 +57,11 @@ notification-service = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde-email = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 serde_qs = { workspace = true }
 sqlx = { workspace = true }
 product-listing-core = { workspace = true }
+product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
@@ -85,6 +87,8 @@ watchlist-service = { workspace = true }
 woocommerce-service = { workspace = true }
 
 [dev-dependencies]
+aws-smithy-runtime-api = { workspace = true }
+aws-smithy-types = { workspace = true }
 base64 = { workspace = true }
 mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
@@ -96,4 +100,5 @@ serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["aura-historia-api", "opensearch", "postgres"] }
 time = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6"

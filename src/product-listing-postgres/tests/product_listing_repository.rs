@@ -10,6 +10,7 @@ use localization::Localized;
 use money::Currency;
 use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
+use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -25,9 +26,12 @@ use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::ports::{
+    ProductListingContentAssessmentWrite, ProductListingContentAssessmentWriteOutcome,
+    ProductListingContentAssessmentWriter, ProductListingContentAssessmentWriterFactory,
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingStorageVersion,
     ProductListingWriteEffects, stamp_product_listing_event,
@@ -769,57 +773,81 @@ async fn should_report_product_update_conflict_when_storage_version_is_stale() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_roll_back_product_and_event_when_transaction_is_not_committed() {
+async fn should_commit_or_roll_back_product_event_and_assessment_together() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventAppenderFactory::new();
+    let assessments = SqlxProductListingContentAssessmentWriterFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-rollback-source").await;
-    let product = sample_product("postgres-product-rollback", listing_source_id);
-    let event = first_stamped_event(&product);
 
-    {
+    for (slug, should_commit) in [
+        ("postgres-product-rollback", false),
+        ("postgres-product-commit", true),
+    ] {
+        let product = sample_product(slug, listing_source_id);
+        let event = first_stamped_event(&product);
         let mut tx = begin(&unit_of_work).await;
-        match product_listings
+        product_listings
             .in_transaction(&mut tx)
             .insert(&product, event.event_id)
             .await
-        {
-            Ok(_) => {}
-            Err(error) => panic!("failed to insert product before rollback: {error:?}"),
-        }
-        match events.in_transaction(&mut tx).append(&event).await {
-            Ok(_) => {}
-            Err(error) => panic!("failed to append event before rollback: {error:?}"),
-        }
-    }
+            .unwrap_or_else(|error| panic!("failed to insert product: {error:?}"));
+        events
+            .in_transaction(&mut tx)
+            .append(&event)
+            .await
+            .unwrap_or_else(|error| panic!("failed to append event: {error:?}"));
+        let outcome = assessments
+            .in_transaction(&mut tx)
+            .apply(&ProductListingContentAssessmentWrite {
+                product_listing_id: product.id(),
+                source_event_id: event.event_id,
+                decision: Some(ContentPolicyDecision::Allowed),
+            })
+            .await
+            .unwrap_or_else(|error| panic!("failed to write assessment: {error:?}"));
+        assert_eq!(
+            ProductListingContentAssessmentWriteOutcome::Applied,
+            outcome
+        );
 
-    let mut tx = begin(&unit_of_work).await;
-    let product_after_rollback = match product_listings
-        .in_transaction(&mut tx)
-        .find_by_id(product.id())
+        if should_commit {
+            commit(tx).await;
+        } else {
+            drop(tx);
+        }
+
+        let listing_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(product.id().into_uuid())
+        .fetch_one(&pool)
         .await
-    {
-        Ok(value) => value,
-        Err(error) => panic!("failed to find rolled-back product: {error:?}"),
-    };
+        .unwrap_or_else(|error| panic!("failed to count persisted listing: {error}"));
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_id = $2",
+        )
+        .bind(product.id().into_uuid())
+        .bind(event.event_id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count persisted events: {error}"));
+        let assessment_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_content_assessments WHERE product_listing_id = $1 AND source_event_id = $2",
+        )
+        .bind(product.id().into_uuid())
+        .bind(event.event_id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count persisted assessments: {error}"));
 
-    let persisted_event_count: i64 = match sqlx::query_scalar(
-        "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1",
-    )
-    .bind(product.id().into_uuid())
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => panic!("failed to count rolled-back events: {error}"),
-    };
-    commit(tx).await;
-
-    assert!(product_after_rollback.is_none());
-
-    assert_eq!(0, persisted_event_count);
+        let expected_count = i64::from(should_commit);
+        assert_eq!(expected_count, listing_count, "listing for {slug}");
+        assert_eq!(expected_count, event_count, "event for {slug}");
+        assert_eq!(expected_count, assessment_count, "assessment for {slug}");
+    }
 }
 
 async fn insert_product_row(

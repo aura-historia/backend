@@ -288,6 +288,9 @@ dependencies = [
  "auction-service",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
+ "aws-sdk-sqs",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
  "axum",
  "base64 0.23.1",
  "billing-service",
@@ -329,6 +332,7 @@ dependencies = [
  "platform-postgres",
  "platform-postgres-secretsmanager",
  "product-listing-core",
+ "product-listing-ingestion-sqs",
  "product-listing-normalization",
  "product-listing-opensearch",
  "product-listing-postgres",
@@ -795,9 +799,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sqs"
-version = "1.113.0"
+version = "1.112.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86da1862e37e7d30d47acc7013fd367a93ae1b55391b2b4fbb34067556e7f9fa"
+checksum = "d2222f7970a8ff4382bc8864f3d5950fa5f866790d32df2bf43ef379d43eb735"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -6040,6 +6044,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-listing-ingestion-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "auction-postgres",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "listing-source-core",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-core",
+ "product-listing-ingestion-sqs",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-listing-ingestion-sqs"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-sdk-sqs",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "http 1.5.0",
+ "indexmap 2.14.2",
+ "listing-source-core",
+ "localization",
+ "money",
+ "product-listing-core",
+ "product-listing-normalization",
+ "product-listing-service",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "url",
+ "user-core",
+]
+
+[[package]]
 name = "product-listing-normalization"
 version = "0.1.0"
 dependencies = [
@@ -6170,6 +6230,7 @@ dependencies = [
  "notification-core",
  "platform-postgres",
  "product-listing-core",
+ "product-listing-ingestion-sqs",
  "product-listing-normalization",
  "product-listing-service",
  "product-service",
@@ -7653,11 +7714,16 @@ dependencies = [
  "application",
  "async-trait",
  "auction-postgres",
+ "aws-config",
+ "aws-sdk-sqs",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
  "aws_lambda_events",
  "fxrate-core",
  "fxrate-postgres",
  "fxrate-service",
  "html-to-markdown-rs",
+ "http 1.5.0",
  "lambda_runtime",
  "listing-source-core",
  "listing-source-postgres",
@@ -7668,6 +7734,7 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "product-listing-ingestion-sqs",
  "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
@@ -7675,6 +7742,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "sha2 0.11.0",
  "sqlx",
  "strum 0.28.0",
  "test-api",

@@ -26,6 +26,20 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsUseCase,
 };
 
+pub use commands::process_product_listing_ingestion::{
+    ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
+    ProductListingIngestionCompletion, ProductListingIngestionEffect,
+    ProductListingIngestionEnvelope, ProductListingIngestionError,
+};
+pub use commands::product_listing_ingestion::{
+    ProductListingIngestionActor, ProductListingIngestionCommandId,
+    ProductListingIngestionFingerprint, ProductListingIngestionIdempotencyKey,
+    ProductListingIngestionIdempotencyKeyError, ProductListingIngestionIntent,
+    ProductListingIngestionItemOutcome, ProductListingIngestionMessage,
+    ProductListingIngestionMetadata, ProductListingIngestionNotAttemptedReason,
+    ProductListingIngestionOperation, ProductListingIngestionOutcome,
+    ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionId,
+};
 pub use commands::project_product_listing::{
     ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,
     ProjectProductListingOutcome, ProjectProductListingResult, ProjectProductListingUseCase,
@@ -34,6 +48,13 @@ pub use commands::record_product_listing_sale_observation::{
     RecordProductListingSaleObservationCommand, RecordProductListingSaleObservationError,
     RecordProductListingSaleObservationHandler, RecordProductListingSaleObservationResult,
     RecordProductListingSaleObservationUseCase,
+};
+pub use commands::submit_product_listing_ingestion::{
+    IndexedProductListingIngestionIntent, ProductListingIngestionSubmission,
+    ProductListingIngestionSubmissionError, ProductListingIngestionSubmissionResult,
+    SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
+    SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
+    product_listing_ingestion_identity,
 };
 pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,

@@ -3,6 +3,7 @@ pub mod listing_source_summary;
 pub mod listing_source_summary_reader;
 pub mod partner_product_listing_authorizer;
 
+pub mod product_listing_command_receipt;
 pub mod product_listing_content_assessment_reader;
 pub mod product_listing_content_assessment_snapshot_reader;
 pub mod product_listing_content_assessment_source_reader;
@@ -15,6 +16,7 @@ pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
 pub mod product_listing_event_appender;
 pub mod product_listing_history_reader;
+pub mod product_listing_ingestion_publisher;
 pub mod product_listing_lifecycle_guard;
 pub mod product_listing_percolation;
 pub mod product_listing_price_filter_plan;
@@ -45,6 +47,11 @@ pub use partner_product_listing_authorizer::{
     PartnerProductListingAuthorizerFactory,
 };
 
+pub use product_listing_command_receipt::{
+    ProductListingCommandCompletionCode, ProductListingCommandReceipt,
+    ProductListingCommandReceiptError, ProductListingCommandReceiptStore,
+    ProductListingCommandReceiptStoreFactory, ProductListingCommandReceiptWrite,
+};
 pub use product_listing_content_assessment_reader::{
     ProductListingContentAssessment, ProductListingContentAssessmentReadError,
     ProductListingContentAssessmentReader,
@@ -96,6 +103,9 @@ pub use product_listing_event_appender::{
 };
 pub use product_listing_history_reader::{
     ProductListingHistoryReadError, ProductListingHistoryReader, ProductListingHistoryReaderFactory,
+};
+pub use product_listing_ingestion_publisher::{
+    ProductListingIngestionPublishError, ProductListingIngestionPublisher,
 };
 pub use product_listing_lifecycle_guard::{
     ProductListingLifecycleGuard, ProductListingLifecycleGuardError,

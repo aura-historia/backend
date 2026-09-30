@@ -137,83 +137,130 @@ where
         command: CaptureProductListingRawObservationCommand,
     ) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
     {
-        validate_source_record_key(&command.source_record_key)?;
-        let input_sha256 = command
-            .input
-            .hash()
-            .map_err(CaptureProductListingRawObservationError::from)?;
-        let source_record_key_sha256 =
-            SourceRecordKeySha256::new(Sha256::digest(command.source_record_key.as_bytes()).into());
-
+        let write = prepare_capture_write(command)?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| CaptureProductListingRawObservationError::BeginTransactionFailed)?;
-
-        if let Some(actor_id) = partner_actor(&context.principal) {
-            self.authorizer
-                .in_transaction(&mut tx)
-                .authorize(actor_id, command.listing_source_id)
-                .await
-                .map_err(CaptureProductListingRawObservationError::from)?;
-        }
-
-        let outcome = self
-            .writer
-            .in_transaction(&mut tx)
-            .capture(ProductListingRawCaptureWrite {
-                listing_source_id: command.listing_source_id,
-                ingestion_method: command.ingestion_method,
-                source_record_key: command.source_record_key,
-                source_record_key_sha256,
-                input: command.input,
-                input_sha256,
-                provenance: command.provenance,
-                source_event_id: command.source_event_id,
-                source_occurred_at: command.source_occurred_at,
-                provider_receipt: command.provider_receipt,
-            })
-            .await
-            .map_err(CaptureProductListingRawObservationError::from)?;
-
+        let result = capture_prepared_in_transaction(
+            context,
+            write,
+            &mut tx,
+            &self.writer,
+            &self.authorizer,
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|_| CaptureProductListingRawObservationError::CommitTransactionFailed)?;
-
-        Ok(match outcome {
-            ProductListingRawCaptureWriteOutcome::Changed {
-                product_listing_raw_stream_id,
-                product_listing_raw_revision_id,
-                revision,
-            } => CaptureProductListingRawObservationResult::Changed {
-                product_listing_raw_stream_id,
-                product_listing_raw_revision_id,
-                revision,
-            },
-            ProductListingRawCaptureWriteOutcome::Unchanged {
-                product_listing_raw_stream_id,
-                latest_revision,
-            } => CaptureProductListingRawObservationResult::Unchanged {
-                product_listing_raw_stream_id,
-                latest_revision,
-            },
-            ProductListingRawCaptureWriteOutcome::Duplicate {
-                product_listing_raw_stream_id,
-                latest_revision,
-            } => CaptureProductListingRawObservationResult::Duplicate {
-                product_listing_raw_stream_id,
-                latest_revision,
-            },
-            ProductListingRawCaptureWriteOutcome::Stale {
-                product_listing_raw_stream_id,
-                latest_revision,
-            } => CaptureProductListingRawObservationResult::Stale {
-                product_listing_raw_stream_id,
-                latest_revision,
-            },
-        })
+        Ok(result)
     }
+}
+
+// Used by a service-owned ingestion transaction; the synchronous path prepares before begin.
+#[allow(dead_code)]
+pub(crate) async fn capture_in_transaction<T, W, A>(
+    context: &OperationContext,
+    command: CaptureProductListingRawObservationCommand,
+    tx: &mut T,
+    writer: &W,
+    authorizer: &A,
+) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
+where
+    W: ProductListingRawCaptureWriterFactory<T>,
+    A: PartnerProductListingAuthorizerFactory<T>,
+{
+    context
+        .require()
+        .credential_capability(CredentialCapability::ProductListingsWrite)
+        .authorize::<CaptureProductListingRawObservationError>()?;
+    let write = prepare_capture_write(command)?;
+    capture_prepared_in_transaction(context, write, tx, writer, authorizer).await
+}
+
+fn prepare_capture_write(
+    command: CaptureProductListingRawObservationCommand,
+) -> Result<ProductListingRawCaptureWrite, CaptureProductListingRawObservationError> {
+    validate_source_record_key(&command.source_record_key)?;
+    let input_sha256 = command
+        .input
+        .hash()
+        .map_err(CaptureProductListingRawObservationError::from)?;
+    let source_record_key_sha256 =
+        SourceRecordKeySha256::new(Sha256::digest(command.source_record_key.as_bytes()).into());
+
+    Ok(ProductListingRawCaptureWrite {
+        listing_source_id: command.listing_source_id,
+        ingestion_method: command.ingestion_method,
+        source_record_key: command.source_record_key,
+        source_record_key_sha256,
+        input: command.input,
+        input_sha256,
+        provenance: command.provenance,
+        source_event_id: command.source_event_id,
+        source_occurred_at: command.source_occurred_at,
+        provider_receipt: command.provider_receipt,
+    })
+}
+
+async fn capture_prepared_in_transaction<T, W, A>(
+    context: &OperationContext,
+    write: ProductListingRawCaptureWrite,
+    tx: &mut T,
+    writer: &W,
+    authorizer: &A,
+) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
+where
+    W: ProductListingRawCaptureWriterFactory<T>,
+    A: PartnerProductListingAuthorizerFactory<T>,
+{
+    if let Some(actor_id) = partner_actor(&context.principal) {
+        authorizer
+            .in_transaction(tx)
+            .authorize(actor_id, write.listing_source_id)
+            .await
+            .map_err(CaptureProductListingRawObservationError::from)?;
+    }
+
+    let outcome = writer
+        .in_transaction(tx)
+        .capture(write)
+        .await
+        .map_err(CaptureProductListingRawObservationError::from)?;
+
+    Ok(match outcome {
+        ProductListingRawCaptureWriteOutcome::Changed {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        } => CaptureProductListingRawObservationResult::Changed {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+        ProductListingRawCaptureWriteOutcome::Unchanged {
+            product_listing_raw_stream_id,
+            latest_revision,
+        } => CaptureProductListingRawObservationResult::Unchanged {
+            product_listing_raw_stream_id,
+            latest_revision,
+        },
+        ProductListingRawCaptureWriteOutcome::Duplicate {
+            product_listing_raw_stream_id,
+            latest_revision,
+        } => CaptureProductListingRawObservationResult::Duplicate {
+            product_listing_raw_stream_id,
+            latest_revision,
+        },
+        ProductListingRawCaptureWriteOutcome::Stale {
+            product_listing_raw_stream_id,
+            latest_revision,
+        } => CaptureProductListingRawObservationResult::Stale {
+            product_listing_raw_stream_id,
+            latest_revision,
+        },
+    })
 }
 
 #[async_trait::async_trait]
@@ -378,21 +425,38 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SourceRecordKeyValidationError {
+    TooLong { len: usize, max: usize },
+    EmbeddedNul,
+}
+
+pub(crate) fn validate_source_record_key_value(
+    source_record_key: &str,
+) -> Result<(), SourceRecordKeyValidationError> {
+    if source_record_key.len() > MAX_SOURCE_RECORD_KEY_UTF8_BYTES {
+        return Err(SourceRecordKeyValidationError::TooLong {
+            len: source_record_key.len(),
+            max: MAX_SOURCE_RECORD_KEY_UTF8_BYTES,
+        });
+    }
+    if source_record_key.contains('\0') {
+        return Err(SourceRecordKeyValidationError::EmbeddedNul);
+    }
+    Ok(())
+}
+
 fn validate_source_record_key(
     source_record_key: &str,
 ) -> Result<(), CaptureProductListingRawObservationError> {
-    if source_record_key.len() > MAX_SOURCE_RECORD_KEY_UTF8_BYTES {
-        return Err(
-            CaptureProductListingRawObservationError::SourceRecordKeyTooLong {
-                len: source_record_key.len(),
-                max: MAX_SOURCE_RECORD_KEY_UTF8_BYTES,
-            },
-        );
-    }
-    if source_record_key.contains('\0') {
-        return Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul);
-    }
-    Ok(())
+    validate_source_record_key_value(source_record_key).map_err(|error| match error {
+        SourceRecordKeyValidationError::TooLong { len, max } => {
+            CaptureProductListingRawObservationError::SourceRecordKeyTooLong { len, max }
+        }
+        SourceRecordKeyValidationError::EmbeddedNul => {
+            CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul
+        }
+    })
 }
 
 fn capture_error_code(error: &CaptureProductListingRawObservationError) -> &'static str {
@@ -620,6 +684,139 @@ mod tests {
         assert_eq!(0, *lock(&writes));
     }
 
+    #[tokio::test]
+    async fn should_reject_invalid_source_keys_before_begin() {
+        let writes = Arc::new(Mutex::new(0_usize));
+        let handler = CaptureProductListingRawObservationHandler::new(
+            NeverBeginUnitOfWork,
+            TestWriterFactory {
+                writes: Arc::clone(&writes),
+                provider_receipts: Arc::new(Mutex::new(Vec::new())),
+                outcome: TestCaptureOutcome::Changed,
+            },
+            TestAuthorizerFactory,
+        );
+
+        let mut too_long = command();
+        too_long.source_record_key = "x".repeat(MAX_SOURCE_RECORD_KEY_UTF8_BYTES + 1);
+        assert!(matches!(
+            handler.execute(&system_context(), too_long).await,
+            Err(CaptureProductListingRawObservationError::SourceRecordKeyTooLong { .. })
+        ));
+
+        let mut embedded_nul = command();
+        embedded_nul.source_record_key = "bad\0key".to_owned();
+        assert!(matches!(
+            handler.execute(&system_context(), embedded_nul).await,
+            Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul)
+        ));
+        assert_eq!(0, *lock(&writes));
+    }
+
+    #[tokio::test]
+    async fn should_validate_direct_transactional_capture_before_writing() {
+        let committed = Arc::new(Mutex::new(false));
+        let writes = Arc::new(Mutex::new(0_usize));
+        let writer = TestWriterFactory {
+            writes: Arc::clone(&writes),
+            provider_receipts: Arc::new(Mutex::new(Vec::new())),
+            outcome: TestCaptureOutcome::Changed,
+        };
+        let authorizer = TestAuthorizerFactory;
+        let mut tx = TestTransaction(Arc::clone(&committed));
+
+        let mut too_long = command();
+        too_long.source_record_key = "x".repeat(MAX_SOURCE_RECORD_KEY_UTF8_BYTES + 1);
+        assert!(matches!(
+            capture_in_transaction(&system_context(), too_long, &mut tx, &writer, &authorizer)
+                .await,
+            Err(CaptureProductListingRawObservationError::SourceRecordKeyTooLong { .. })
+        ));
+
+        let mut embedded_nul = command();
+        embedded_nul.source_record_key = "bad\0key".to_owned();
+        assert!(matches!(
+            capture_in_transaction(
+                &system_context(),
+                embedded_nul,
+                &mut tx,
+                &writer,
+                &authorizer
+            )
+            .await,
+            Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul)
+        ));
+
+        let mut anonymous = system_context();
+        anonymous.principal = Principal::Anonymous;
+        assert!(matches!(
+            capture_in_transaction(&anonymous, command(), &mut tx, &writer, &authorizer).await,
+            Err(CaptureProductListingRawObservationError::AuthenticatedActorRequired)
+        ));
+
+        let mut delegated = system_context();
+        delegated.principal = Principal::DelegatedUser {
+            user_id: UserId::new(),
+            capabilities: Default::default(),
+        };
+        assert!(matches!(
+            capture_in_transaction(&delegated, command(), &mut tx, &writer, &authorizer).await,
+            Err(CaptureProductListingRawObservationError::Forbidden)
+        ));
+        assert_eq!(0, *lock(&writes));
+        assert!(!*lock(&committed));
+    }
+
+    #[tokio::test]
+    async fn should_leave_commit_to_owner_and_skip_partnership_for_service_and_system() {
+        let committed = Arc::new(Mutex::new(false));
+        let writes = Arc::new(Mutex::new(0_usize));
+        let provider_receipts = Arc::new(Mutex::new(Vec::new()));
+        let writer = TestWriterFactory {
+            writes: Arc::clone(&writes),
+            provider_receipts: Arc::clone(&provider_receipts),
+            outcome: TestCaptureOutcome::Changed,
+        };
+        let authorizer = RejectingAuthorizerFactory;
+        let mut tx = TestTransaction(Arc::clone(&committed));
+
+        let mut user = system_context();
+        user.principal = Principal::User(UserId::new());
+        assert!(matches!(
+            capture_in_transaction(&user, command(), &mut tx, &writer, &authorizer).await,
+            Err(CaptureProductListingRawObservationError::Forbidden)
+        ));
+        assert_eq!(0, *lock(&writes));
+
+        let receipt = ProductListingRawProviderReceipt::new(
+            crate::ports::ProviderReceiptScope::new("shopify".to_owned())
+                .expect("valid receipt scope"),
+            "delivery-1".to_owned(),
+            crate::ports::SourceEvidenceSha256::new([7; 32]),
+        )
+        .expect("valid receipt");
+        for principal in [Principal::System, Principal::Service("crawler".to_owned())] {
+            let mut context = system_context();
+            context.principal = principal;
+            let mut capture = command();
+            capture.provider_receipt = Some(receipt.clone());
+            assert!(matches!(
+                capture_in_transaction(&context, capture, &mut tx, &writer, &authorizer).await,
+                Ok(CaptureProductListingRawObservationResult::Changed { revision: 1, .. })
+            ));
+        }
+        assert_eq!(2, *lock(&writes));
+        assert_eq!(
+            &[Some(receipt.clone()), Some(receipt)],
+            lock(&provider_receipts).as_slice()
+        );
+        assert!(!*lock(&committed));
+        tx.commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit: {error}"));
+        assert!(*lock(&committed));
+    }
+
     #[test]
     fn should_exclude_partner_api_from_raw_ingestion_methods() {
         assert_eq!(
@@ -715,6 +912,17 @@ mod tests {
         }
     }
 
+    struct NeverBeginUnitOfWork;
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for NeverBeginUnitOfWork {
+        type Tx = TestTransaction;
+
+        async fn begin(&self) -> Result<Self::Tx, application::transaction::TransactionError> {
+            panic!("invalid capture must not begin a transaction")
+        }
+    }
+
     #[derive(Debug, Clone, Copy)]
     enum TestCaptureOutcome {
         Changed,
@@ -754,6 +962,14 @@ mod tests {
             write: ProductListingRawCaptureWrite,
         ) -> Result<ProductListingRawCaptureWriteOutcome, ProductListingRawCaptureWriteError>
         {
+            assert_eq!(
+                write.source_record_key_sha256.as_bytes(),
+                &<[u8; 32]>::from(Sha256::digest(write.source_record_key.as_bytes()))
+            );
+            assert_eq!(
+                write.input_sha256,
+                write.input.hash().expect("valid input hash")
+            );
             *lock(self.writes) += 1;
             lock(self.provider_receipts).push(write.provider_receipt);
             let product_listing_raw_stream_id = crate::ports::ProductListingRawStreamId::new();
@@ -778,8 +994,10 @@ mod tests {
     }
 
     struct TestAuthorizerFactory;
+    struct RejectingAuthorizerFactory;
 
     struct TestAuthorizer;
+    struct RejectingAuthorizer;
 
     impl PartnerProductListingAuthorizerFactory<TestTransaction> for TestAuthorizerFactory {
         fn in_transaction<'tx>(
@@ -787,6 +1005,26 @@ mod tests {
             _: &'tx mut TestTransaction,
         ) -> impl PartnerProductListingAuthorizer + 'tx {
             TestAuthorizer
+        }
+    }
+
+    impl PartnerProductListingAuthorizerFactory<TestTransaction> for RejectingAuthorizerFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTransaction,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            RejectingAuthorizer
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for RejectingAuthorizer {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            Err(PartnerProductListingAuthorizationError::Forbidden)
         }
     }
 

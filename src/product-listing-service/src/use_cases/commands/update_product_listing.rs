@@ -141,7 +141,7 @@ impl<U, R, E, A, V> UpdateProductListingHandler<U, R, E, A, V> {
         }
     }
 }
-enum UpdateTarget {
+pub(crate) enum UpdateTarget {
     Id(ProductListingId),
     Key(ProductListingKey),
 }
@@ -160,35 +160,44 @@ where
         target: UpdateTarget,
         command: UpdateProductListingCommand,
     ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
-        context
-            .require()
-            .credential_capability(CredentialCapability::ProductListingsWrite)
-            .authorize::<UpdateProductListingError>()?;
-        if matches!(command.url, PatchField::Clear) {
-            return Err(UpdateProductListingError::UrlRequired);
-        }
+        validate_preconditions(context, &command)?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| UpdateProductListingError::BeginTransactionFailed)?;
+        let result = self.apply_in_tx(&mut tx, context, target, command).await?;
+        tx.commit()
+            .await
+            .map_err(|_| UpdateProductListingError::CommitTransactionFailed)?;
+        Ok(result)
+    }
+
+    pub(crate) async fn apply_in_tx(
+        &self,
+        tx: &mut U::Tx,
+        context: &OperationContext,
+        target: UpdateTarget,
+        command: UpdateProductListingCommand,
+    ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
+        validate_preconditions(context, &command)?;
         let loaded = match target {
             UpdateTarget::Id(id) => self
                 .products
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .find_by_id(id)
                 .await?
                 .ok_or(UpdateProductListingError::NotFound)?,
             UpdateTarget::Key(key) => self
                 .products
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .find_by_key(&key)
                 .await?
                 .ok_or(UpdateProductListingError::NotFound)?,
         };
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .authorize(actor_id, loaded.value.listing_source_id())
                 .await?;
         }
@@ -202,7 +211,7 @@ where
                     .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
                 if let PatchField::Set(auction_id) = &patch.auction_id {
                     self.auction_references
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .validate(*auction_id, product.listing_source_id())
                         .await?;
                 }
@@ -216,20 +225,16 @@ where
         let outcome = if let Some(event) = event {
             let effects = ProductListingWriteEffects::from(&event.payload);
             self.products
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .update(&product, loaded.version, event.event_id, effects)
                 .await?;
-            self.events.in_transaction(&mut tx).append(&event).await?;
+            self.events.in_transaction(tx).append(&event).await?;
             ChangeOutcome::Changed
         } else {
             ChangeOutcome::Unchanged
         };
-        let id = product.id();
-        tx.commit()
-            .await
-            .map_err(|_| UpdateProductListingError::CommitTransactionFailed)?;
         Ok(UpdateProductListingResult {
-            product_listing_id: id,
+            product_listing_id: product.id(),
             outcome,
         })
     }
@@ -262,6 +267,20 @@ where
         self.update(context, UpdateTarget::Key(product_key), command)
             .await
     }
+}
+
+fn validate_preconditions(
+    context: &OperationContext,
+    command: &UpdateProductListingCommand,
+) -> Result<(), UpdateProductListingError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::ProductListingsWrite)
+        .authorize::<UpdateProductListingError>()?;
+    if matches!(command.url, PatchField::Clear) {
+        return Err(UpdateProductListingError::UrlRequired);
+    }
+    Ok(())
 }
 
 fn apply_command(
@@ -411,6 +430,7 @@ mod tests {
         event_appends: usize,
         authorizations: usize,
         auction_validations: usize,
+        lookups: usize,
         finds: VecDeque<Option<VersionedProductListing>>,
         update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
         event_results: VecDeque<Result<(), ProductListingEventAppendError>>,
@@ -494,14 +514,18 @@ mod tests {
             &mut self,
             _: ProductListingId,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(lock(&self.0).finds.pop_front().flatten())
+            let mut state = lock(&self.0);
+            state.lookups += 1;
+            Ok(state.finds.pop_front().flatten())
         }
 
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(lock(&self.0).finds.pop_front().flatten())
+            let mut state = lock(&self.0);
+            state.lookups += 1;
+            Ok(state.finds.pop_front().flatten())
         }
 
         async fn insert(
@@ -875,6 +899,107 @@ mod tests {
         let state = lock(&state);
         assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));
         assert_eq!((state.updates, state.event_appends), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_apply_in_supplied_transaction_without_committing() {
+        let state = Arc::new(Mutex::new(State {
+            finds: VecDeque::from([Some(loaded_listing())]),
+            ..Default::default()
+        }));
+        let handler = handler(&state);
+        let mut tx = handler
+            .unit_of_work
+            .begin()
+            .await
+            .expect("begin transaction");
+
+        let result = handler
+            .apply_in_tx(
+                &mut tx,
+                &context(),
+                UpdateTarget::Id(ProductListingId::new()),
+                price_update(),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(UpdateProductListingResult {
+                outcome: ChangeOutcome::Changed,
+                ..
+            })
+        ));
+        {
+            let state = lock(&state);
+            assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 0));
+            assert_eq!((state.updates, state.event_appends), (1, 1));
+        }
+        tx.commit().await.expect("commit transaction");
+        assert_eq!(lock(&state).commits, 1);
+    }
+
+    #[tokio::test]
+    async fn should_enforce_preconditions_in_supplied_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = handler(&state);
+        let mut tx = handler
+            .unit_of_work
+            .begin()
+            .await
+            .expect("begin transaction");
+        let mut anonymous = context();
+        anonymous.principal = Principal::Anonymous;
+
+        let unauthorized = handler
+            .apply_in_tx(
+                &mut tx,
+                &anonymous,
+                UpdateTarget::Id(ProductListingId::new()),
+                price_update(),
+            )
+            .await;
+        assert!(matches!(
+            unauthorized,
+            Err(UpdateProductListingError::AuthenticatedActorRequired)
+        ));
+        let invalid_url = handler
+            .apply_in_tx(
+                &mut tx,
+                &context(),
+                UpdateTarget::Id(ProductListingId::new()),
+                UpdateProductListingCommand {
+                    url: PatchField::Clear,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(
+            invalid_url,
+            Err(UpdateProductListingError::UrlRequired)
+        ));
+        let state = lock(&state);
+        assert_eq!(
+            (state.updates, state.event_appends, state.authorizations),
+            (0, 0, 0)
+        );
+        assert_eq!(state.lookups, 0);
+    }
+
+    #[tokio::test]
+    async fn should_find_by_key_before_partner_authorization() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let key = ProductListingKey::new(
+            ListingSourceId::new(),
+            SourceListingId::try_from("source-listing").expect("valid source listing ID"),
+        );
+
+        let result = handler(&state)
+            .execute_by_key(&context(), key, price_update())
+            .await;
+
+        assert!(matches!(result, Err(UpdateProductListingError::NotFound)));
+        assert_eq!(lock(&state).authorizations, 0);
     }
 
     #[tokio::test]

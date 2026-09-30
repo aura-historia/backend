@@ -278,6 +278,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       mailTemplateBucket,
       postgres: props.storage.postgres,
       search: props.search,
+      queues: importQueueCatalog(this, "LambdaQueues", stageName),
       network: props.network,
     });
 
@@ -301,6 +302,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
+      productListingIngestionVersion: this.lambdas.productListingIngestionVersion,
       productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
       productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
       productTranslationVersion: this.lambdas.productTranslationVersion,
@@ -428,6 +430,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       mailTemplateBucket,
       postgres: this.storage.postgres,
       search: this.search,
+      queues: this.queues.catalog,
     });
 
 
@@ -450,6 +453,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       functions: this.lambdas.functions,
       productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
       productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
+      productListingIngestionVersion: this.lambdas.productListingIngestionVersion,
       productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
       productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
       productTranslationVersion: this.lambdas.productTranslationVersion,
@@ -506,6 +510,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       api: props.api.api,
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
+      ingestionQueues: importQueueCatalog(this, "IngestionQueueAlarmImports", stageName),
       periodicMatcherDeliveryDlq: sqs.Queue.fromQueueArn(this, "PeriodicMatcherDeliveryDlqImport", this.formatArn({ service: "sqs", resource: periodicMatcherNames(stageName).dlq })),
       maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
         this,
@@ -570,6 +575,12 @@ function dataOutputs(
 
 
 
+  new cdk.CfnOutput(stack, "ProductListingIngestionQueueUrl", {
+    value: resources.queues.catalog.productListingIngestion.queue.queueUrl,
+  });
+  new cdk.CfnOutput(stack, "ProductListingIngestionDeadLetterQueueUrl", {
+    value: resources.queues.catalog.productListingIngestion.deadLetterQueue.queueUrl,
+  });
   new cdk.CfnOutput(stack, "ShopifyLambdaQueueUrl", {
     value: resources.queues.catalog.shopify.queue.queueUrl,
   });

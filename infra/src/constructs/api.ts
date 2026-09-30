@@ -90,6 +90,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/newsletter-subscriptions", ["PUT"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings", ["POST", "PATCH", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions/{auction_id}", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/overview", ["GET"]),
@@ -163,6 +164,7 @@ export class BackendHttpApi extends Construct {
         allowHeaders: [
           "Authorization",
           "Content-Type",
+          "Idempotency-Key",
           "Accept",
           "X-Correlation-Id",
           "X-WC-Webhook-Source",
@@ -176,6 +178,7 @@ export class BackendHttpApi extends Construct {
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
         allowOrigins: props.config.apiCorsAllowOrigins,
+        exposeHeaders: ["Idempotency-Key"],
       },
     });
 
@@ -438,7 +441,8 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/listing-sources/{listing_source_id}/product-listings") {
+  if (path === "/api/v1/listing-sources/{listing_source_id}/product-listings" ||
+      path === "/api/v1/listing-sources/{listingSourceId}/product-listings/async") {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.Partner,

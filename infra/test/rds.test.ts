@@ -126,11 +126,14 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(17);
-    expect(runtimeFunctions).toHaveLength(16);
+    expect(functions).toHaveLength(18);
+    expect(runtimeFunctions).toHaveLength(17);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
+    )).toBeDefined();
+    expect(functions.find((resource) =>
+      resource.Properties.FunctionName === `product-listing-ingestion-lambda-${stage}`,
     )).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-content-assessment-lambda-${stage}`,
@@ -223,8 +226,13 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 4,
     );
-    // The additional reader is the matcher ECS execution role; the application task role has no secret grant.
-    expect(runtimeSecretReadStatements).toHaveLength(17);
+    const matcherExecutionSecretReads = Object.entries(compute.findResources("AWS::IAM::Policy"))
+      .filter(([id]) => id.includes("PeriodicMatcherExecutionRole"))
+      .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
+    expect(runtimeSecretReadStatements).toHaveLength(runtimeFunctions.length + 1);
+    expect(matcherExecutionSecretReads).toHaveLength(1);
+    expect(matcherExecutionSecretReads[0].Resource).toEqual(runtimeSecretArn);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",
@@ -368,7 +376,7 @@ test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a 
   const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
     .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-  expect(functions).toHaveLength(14);
+  expect(functions).toHaveLength(15);
   expect(functions.find((resource) =>
     resource.Properties.FunctionName === "product-embedding-lambda-ephemeral",
   )).toBeDefined();

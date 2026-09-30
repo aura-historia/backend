@@ -35,6 +35,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+product-listing-ingestion-sqs = { workspace = true }
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }
 rstest = { workspace = true }
