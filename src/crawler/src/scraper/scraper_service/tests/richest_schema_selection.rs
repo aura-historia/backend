@@ -53,7 +53,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
     norm_svc
         .expect_normalize()
         .times(1)
-        .returning(move |raw, _, _| {
+        .returning(move |raw, _| {
             assert!(raw.description.iter().any(|value| !value.trim().is_empty()));
             let n = expected.clone();
             Box::pin(async move { Ok(normalization_success(n, 0)) })
@@ -116,7 +116,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
     norm_svc
         .expect_normalize()
         .times(1)
-        .returning(move |raw, _, _| {
+        .returning(move |raw, _| {
             assert!(raw.description.iter().any(|value| !value.trim().is_empty()));
             let n = expected.clone();
             Box::pin(async move { Ok(normalization_success(n, 0)) })
@@ -198,13 +198,10 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
@@ -290,7 +287,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
     norm_svc
         .expect_normalize()
         .times(3) // 2 cached (candidate-data failures) + 1 generated
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let n = expected.clone();
             let normalize_calls = normalize_calls.clone();
             Box::pin(async move {
@@ -366,7 +363,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
     schema_svc.expect_save_product_schemas().never();
 
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().returning(|_, _, _| {
+    norm_svc.expect_normalize().returning(|_, _| {
         Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
     });
 

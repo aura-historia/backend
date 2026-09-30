@@ -36,13 +36,10 @@ async fn should_return_raw_capture_and_availability_when_schema_exists_and_appli
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
@@ -120,7 +117,7 @@ async fn should_retain_selected_raw_fields_without_canonical_product_preview() {
     let norm = prepared_product(url.clone());
     let norm_clone = norm.clone();
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().returning(move |_, _, _| {
+    norm_svc.expect_normalize().returning(move |_, _| {
         let n = norm_clone.clone();
         Box::pin(async move { Ok(normalization_success(n, 0)) })
     });
@@ -194,17 +191,14 @@ async fn should_preserve_raw_image_evidence_while_filtering_invalid_thumbnail_be
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |raw, _, _| {
-            assert_eq!(
-                raw.images,
-                vec!["https://example.com/image-800x600.jpg".to_string()]
-            );
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |raw, _| {
+        assert_eq!(
+            raw.images,
+            vec!["https://example.com/image-800x600.jpg".to_string()]
+        );
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);

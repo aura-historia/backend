@@ -92,7 +92,7 @@ fn normalizer_with_expected_images(url: Url) -> MockProductListingNormalizationS
     normalizer
         .expect_normalize()
         .once()
-        .returning(move |raw, _, _| {
+        .returning(move |raw, _| {
             assert_eq!(raw.images, expected_images);
             let expected = expected.clone();
             Box::pin(async move { Ok(normalization_success(expected, 0)) })
@@ -240,7 +240,7 @@ async fn should_persist_cached_schema_image_evidence_in_raw_revision() {
     let scraped = scrape_cached_schema_image_evidence(listing_source_id).await;
     let capture_item = ProductListingRawCaptureItem::crawler(
         listing_source_id,
-        &candidate_url,
+        candidate_url.as_str(),
         scraped.raw_input,
         crawler_provenance(None, None)
             .unwrap_or_else(|error| panic!("crawler provenance must be valid: {error}")),
@@ -468,12 +468,24 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
     assert_eq!(raw.images, source_images);
     assert_eq!(raw.images, source_image_groups());
 
-    let accepted_input =
-        crawler_raw_input(&raw, &accepted_primary, &url, None, [true, false, false])
-            .unwrap_or_else(|error| panic!("accepted image projection must build: {error}"));
-    let rejected_input =
-        crawler_raw_input(&raw, &rejected_primary, &url, None, [true, false, false])
-            .unwrap_or_else(|error| panic!("fallback image projection must build: {error}"));
+    let accepted_input = crawler_raw_input(
+        &raw,
+        &accepted_primary,
+        &url,
+        &raw.source_listing_id,
+        None,
+        [true, false, false],
+    )
+    .unwrap_or_else(|error| panic!("accepted image projection must build: {error}"));
+    let rejected_input = crawler_raw_input(
+        &raw,
+        &rejected_primary,
+        &url,
+        &raw.source_listing_id,
+        None,
+        [true, false, false],
+    )
+    .unwrap_or_else(|error| panic!("fallback image projection must build: {error}"));
 
     assert_eq!(
         accepted_input.source_payload().value().get("images"),

@@ -25,13 +25,10 @@ async fn scrape_with_schema_service(
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, budget_increments);

@@ -35,13 +35,10 @@ fn fetcher_with_sample_html() -> MockHtmlFetcher {
 fn normalizer_with_success(url: Url) -> MockProductListingNormalizationService {
     let expected = prepared_product(url);
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
     norm_svc
 }
 

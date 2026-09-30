@@ -22,6 +22,7 @@ pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
     candidate_url: &Url,
+    source_listing_id: &str,
     fallback_currency: Option<Currency>,
     resolved_price_fields: [bool; 3],
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
@@ -39,7 +40,7 @@ pub(crate) fn crawler_raw_input(
         })
         .collect::<BTreeMap<_, _>>();
     let raw_values = RawProductListingValues::new(json!({
-        "sourceListingId": raw.source_listing_id,
+        "sourceListingId": source_listing_id,
         "title": ProductListingRawValuesPatch::Set(raw.title.clone()),
         "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
         "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
@@ -143,6 +144,7 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
+            "stable-id",
             Some(Currency::Eur),
             [true, false, false],
         )?;
@@ -174,6 +176,7 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
+            "stable-id",
             None,
             [false, false, false],
         )?;
@@ -185,6 +188,35 @@ mod tests {
         assert_eq!(
             Some(&serde_json::json!({"action": "CLEAR"})),
             input.raw_values().value().get("price")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_emit_raw_stream_sha_fallback_as_source_listing_id()
+    -> Result<(), NormalizationInputError> {
+        let url = Url::parse("https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let mut extracted = raw();
+        extracted.source_listing_id.clear();
+        let raw_source_record_key = "https://example.com/products/original";
+        let expected =
+            product_listing_normalization::normalize_source_listing_id_with_url_sha_fallback(
+                "",
+                &Url::parse(raw_source_record_key).unwrap(),
+            )
+            .unwrap();
+        let input = crawler_raw_input(
+            &extracted,
+            &extracted.images,
+            &url,
+            expected.as_ref(),
+            None,
+            [false, false, false],
+        )?;
+        assert_eq!(
+            input.raw_values().value().get("sourceListingId"),
+            Some(&serde_json::json!(expected.to_string()))
         );
         Ok(())
     }
@@ -211,6 +243,7 @@ mod tests {
             &extracted,
             &validated_image_urls,
             &url,
+            "stable-id",
             Some(Currency::Eur),
             [true, false, false],
         )?;
@@ -251,6 +284,7 @@ mod tests {
             &extracted,
             &extracted.images,
             &url,
+            "stable-id",
             Some(Currency::Eur),
             [true, false, false],
         )?
@@ -263,6 +297,7 @@ mod tests {
             &changed,
             &changed.images,
             &url,
+            "stable-id",
             Some(Currency::Eur),
             [true, false, false],
         )?

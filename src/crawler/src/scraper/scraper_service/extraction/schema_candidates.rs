@@ -2,7 +2,9 @@ use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use crate::scraper::normalization::product_normalization_service::PreparedProduct;
+use crate::scraper::normalization::product_normalization_service::{
+    PreparedProduct, ProductNormalizationContext,
+};
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -226,8 +228,11 @@ pub fn rank_applicable_schema_indices(
         let Ok(prepared) =
             crate::scraper::normalization::product_normalization_service::prepare_product(
                 validated_raw.clone(),
-                base_url.clone(),
-                None,
+                ProductNormalizationContext {
+                    effective_url: base_url.clone(),
+                    source_record_key: base_url.to_string(),
+                    fallback_currency: None,
+                },
             )
         else {
             continue;
@@ -379,8 +384,11 @@ mod tests {
         let prepared =
             crate::scraper::normalization::product_normalization_service::prepare_product(
                 raw.clone(),
-                url.clone(),
-                None,
+                ProductNormalizationContext {
+                    effective_url: url.clone(),
+                    source_record_key: url.to_string(),
+                    fallback_currency: None,
+                },
             )
             .unwrap();
         assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 3);
@@ -389,8 +397,11 @@ mod tests {
         let prepared =
             crate::scraper::normalization::product_normalization_service::prepare_product(
                 raw.clone(),
-                url,
-                None,
+                ProductNormalizationContext {
+                    source_record_key: url.to_string(),
+                    effective_url: url,
+                    fallback_currency: None,
+                },
             )
             .unwrap();
         assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 4);

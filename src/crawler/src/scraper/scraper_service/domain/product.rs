@@ -16,6 +16,8 @@ use url::Url;
 pub struct ScrapedProduct {
     /// Complete source-neutral normalization input. The worker later performs canonical writes.
     pub raw_input: ProductListingNormalizationInput,
+    pub effective_url: Url,
+    pub source_listing_id: String,
     /// Pure crawler quick-check used only for local disposition.
     pub availability: ListingAvailabilityQuickCheck,
     /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
@@ -62,6 +64,7 @@ pub struct ScrapeRequest {
     pub domain_id: Option<CrawlerDomainId>,
     pub listing_source_id: ListingSourceId,
     pub url: Url,
+    pub source_record_key: String,
     pub product_url_pattern: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,

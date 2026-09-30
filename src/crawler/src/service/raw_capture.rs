@@ -17,7 +17,6 @@ use product_listing_service::use_cases::{
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
-use url::Url;
 
 /// One crawler observation prepared for durable raw capture.
 #[derive(Debug, Clone)]
@@ -28,7 +27,7 @@ pub struct ProductListingRawCaptureItem {
 impl ProductListingRawCaptureItem {
     pub fn crawler(
         listing_source_id: ListingSourceId,
-        candidate_url: &Url,
+        source_record_key: &str,
         input: ProductListingNormalizationInput,
         provenance: RawProductListingProvenance,
     ) -> Self {
@@ -36,8 +35,9 @@ impl ProductListingRawCaptureItem {
             command: CaptureProductListingRawObservationCommand {
                 listing_source_id,
                 ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
-                // The configured candidate URL is the crawler source-record identity.
-                source_record_key: candidate_url.to_string(),
+                // The logical crawler source identity is stable across URL moves. The input
+                // itself still carries the effective URL used for extraction and canonical state.
+                source_record_key: source_record_key.to_owned(),
                 input,
                 provenance,
                 source_event_id: None,
@@ -298,6 +298,7 @@ mod tests {
         RawProductListingValues, SourcePayload,
     };
     use std::sync::{Arc, Mutex};
+    use url::Url;
 
     #[derive(Debug, Clone, Copy, Default)]
     enum FakeCaptureOutcome {
@@ -371,7 +372,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("input: {error}"));
         let provenance = RawProductListingProvenance::new(serde_json::json!({}))
             .unwrap_or_else(|error| panic!("provenance: {error}"));
-        ProductListingRawCaptureItem::crawler(listing_source_id, &url, input, provenance)
+        ProductListingRawCaptureItem::crawler(listing_source_id, url.as_str(), input, provenance)
     }
 
     #[tokio::test]

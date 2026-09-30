@@ -4,6 +4,7 @@ use crawler::scraper::css_selector::product_schema::{
 
 use crawler::scraper::normalization::product_normalization_service::{
     ProductListingNormalizationService, ProductListingNormalizationServiceImpl,
+    ProductNormalizationContext,
 };
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 
@@ -67,7 +68,14 @@ pub async fn assert_normalized(
 
     let product_url = Url::parse(url).expect("test URL must be valid");
     let result = norm_svc
-        .normalize(raw, product_url, fallback_currency)
+        .normalize(
+            raw,
+            ProductNormalizationContext {
+                source_record_key: product_url.to_string(),
+                effective_url: product_url,
+                fallback_currency,
+            },
+        )
         .await
         .unwrap_or_else(|e| panic!("normalization failed: {e}"))
         .prepared;

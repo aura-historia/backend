@@ -253,8 +253,8 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         .await?;
 
         let record = sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated) \
-             VALUES ($1, $2, $3, $4, NOW(), NOW()) \
+            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \
+             VALUES ($1, $2, $3, $3, $4, NOW(), NOW()) \
              ON CONFLICT (url) DO UPDATE SET \
                  url_class = CASE \
                      WHEN listing_source_urls.crawler_disposition = 'ACTIVE' THEN EXCLUDED.url_class \
@@ -322,8 +322,8 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         .await?;
 
         let records = sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated) \
-             SELECT $1, $2, input.url, input.url_class, NOW(), NOW() \
+            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \
+             SELECT $1, $2, input.url, input.url, input.url_class, NOW(), NOW() \
              FROM UNNEST($3::text[], $4::text[]) AS input(url, url_class) \
              ON CONFLICT (url) DO UPDATE SET \
                  url_class = CASE \

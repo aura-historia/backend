@@ -3,8 +3,8 @@ use crate::network::policy::{
     NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
-    DomainCircuitOpenRequest, FetchFailureRequest, ScraperCandidate, ScraperCandidateService,
-    next_domain_failure_streak,
+    DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, ScrapeCompletion,
+    ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
 };
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
@@ -42,10 +42,12 @@ struct ScrapeDomainContext {
 /// Metadata applied only after durable raw capture succeeds.
 struct CandidateMeta {
     listing_source_id: listing_source_core::ListingSourceId,
-    url: url::Url,
+    original_url: url::Url,
+    effective_url: url::Url,
     hash: String,
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
+    source_listing_id: String,
     disposition: CrawlerDisposition,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
@@ -181,18 +183,39 @@ async fn flush_batch(
                 RawCaptureSuccessAction::MarkScraped(meta),
                 _,
             ) => {
-                match scraper_candidates
-                    .mark_as_scraped(
-                        &meta.listing_source_id,
-                        &meta.url,
-                        &meta.hash,
-                        &meta.schema_fingerprint,
-                        &meta.raw_input_sha256,
-                        meta.disposition,
-                        meta.expected_last_captured_raw_input_sha256.as_deref(),
-                    )
-                    .await
-                {
+                let write_result = if meta.original_url == meta.effective_url {
+                    scraper_candidates
+                        .mark_as_scraped(ScrapeCompletion {
+                            listing_source_id: meta.listing_source_id,
+                            url: meta.original_url.clone(),
+                            hash: meta.hash.clone(),
+                            schema_fingerprint: meta.schema_fingerprint.clone(),
+                            raw_input_sha256: meta.raw_input_sha256.clone(),
+                            source_listing_id: meta.source_listing_id.clone(),
+                            disposition: meta.disposition,
+                            expected_last_captured_raw_input_sha256: meta
+                                .expected_last_captured_raw_input_sha256
+                                .clone(),
+                        })
+                        .await
+                } else {
+                    scraper_candidates
+                        .move_redirected_url(RedirectUrlMove {
+                            listing_source_id: meta.listing_source_id,
+                            original_url: meta.original_url.clone(),
+                            effective_url: meta.effective_url.clone(),
+                            hash: meta.hash.clone(),
+                            schema_fingerprint: meta.schema_fingerprint.clone(),
+                            raw_input_sha256: meta.raw_input_sha256.clone(),
+                            source_listing_id: meta.source_listing_id.clone(),
+                            disposition: meta.disposition,
+                            expected_last_captured_raw_input_sha256: meta
+                                .expected_last_captured_raw_input_sha256
+                                .clone(),
+                        })
+                        .await
+                };
+                match write_result {
                     Ok(CrawlerUrlWriteOutcome::Applied) => {
                         mark_as_scraped_count += 1;
                         if meta.disposition != CrawlerDisposition::Active {
@@ -209,14 +232,14 @@ async fn flush_batch(
                         stale_completion_count += 1;
                         debug!(
                             listing_source_id = %meta.listing_source_id,
-                            url = %meta.url,
+                            url = %meta.original_url,
                             crawler_url_write_outcome = "stale_noop",
                             "Skipped stale crawler scrape completion after durable raw capture"
                         );
                     }
                     Err(error) => {
                         mark_as_scraped_failure_count += 1;
-                        warn!(listing_source_id = %meta.listing_source_id, error = %error, url = %meta.url, "Failed to mark product as scraped after raw capture");
+                        warn!(listing_source_id = %meta.listing_source_id, error = %error, url = %meta.original_url, "Failed to mark product as scraped after raw capture");
                     }
                 }
             }
@@ -387,7 +410,7 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
         capture: Some(RawCaptureRequest {
             item: ProductListingRawCaptureItem::crawler(
                 candidate.listing_source_id,
-                &candidate.url,
+                &candidate.source_record_key,
                 input,
                 provenance,
             ),
@@ -494,6 +517,7 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         domain_id: Some(candidate.domain_id),
         listing_source_id: candidate.listing_source_id,
         url: candidate.url.clone(),
+        source_record_key: candidate.source_record_key.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
@@ -533,6 +557,53 @@ async fn handle_successful_scrape(
     ctx: &ScrapeDomainContext,
     scraped: ScrapedProduct,
 ) -> ScrapeCandidateOutcome {
+    let url_moved = candidate.url != scraped.effective_url;
+    if candidate
+        .last_source_listing_id
+        .as_deref()
+        .is_some_and(|identity| identity != scraped.source_listing_id)
+    {
+        warn!(
+            event = "crawler.product_url_move_rejected_identity_conflict",
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            source_identity = %scraped.source_listing_id,
+            "Rejecting scrape because crawler identity changed"
+        );
+        return ScrapeCandidateOutcome {
+            skipped: true,
+            ..Default::default()
+        };
+    }
+    if url_moved {
+        match ctx
+            .scraper_candidates
+            .redirect_destination_is_available(&scraped.effective_url)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(
+                    event = "crawler.product_url_move_rejected_destination_known",
+                    listing_source_id = %candidate.listing_source_id,
+                    old_url = %candidate.url,
+                    new_url = %scraped.effective_url,
+                    "Deferring redirect destination reconciliation to issue #1899"
+                );
+                return ScrapeCandidateOutcome {
+                    skipped: true,
+                    ..Default::default()
+                };
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to check redirect destination before raw capture");
+                return ScrapeCandidateOutcome {
+                    errored: true,
+                    ..Default::default()
+                };
+            }
+        }
+    }
     let disposition = match &scraped.availability {
         product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
             product_listing_core::listing_availability::ListingAvailability::SoldOut,
@@ -558,35 +629,42 @@ async fn handle_successful_scrape(
     };
     let meta = CandidateMeta {
         listing_source_id: candidate.listing_source_id,
-        url: candidate.url.clone(),
+        original_url: candidate.url.clone(),
+        effective_url: scraped.effective_url.clone(),
         hash: scraped.hash,
         schema_fingerprint: scraped.schema_fingerprint,
         raw_input_sha256: scraped.raw_input_sha256,
+        source_listing_id: scraped.source_listing_id,
         disposition,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
 
-    if candidate.last_captured_raw_input_sha256.as_deref() == Some(meta.raw_input_sha256.as_slice())
+    if !url_moved
+        && candidate.last_captured_raw_input_sha256.as_deref()
+            == Some(meta.raw_input_sha256.as_slice())
         && disposition == CrawlerDisposition::Active
     {
         return match ctx
             .scraper_candidates
-            .mark_as_scraped(
-                &meta.listing_source_id,
-                &meta.url,
-                &meta.hash,
-                &meta.schema_fingerprint,
-                &meta.raw_input_sha256,
-                meta.disposition,
-                meta.expected_last_captured_raw_input_sha256.as_deref(),
-            )
+            .mark_as_scraped(ScrapeCompletion {
+                listing_source_id: meta.listing_source_id,
+                url: meta.original_url.clone(),
+                hash: meta.hash.clone(),
+                schema_fingerprint: meta.schema_fingerprint.clone(),
+                raw_input_sha256: meta.raw_input_sha256.clone(),
+                source_listing_id: meta.source_listing_id.clone(),
+                disposition: meta.disposition,
+                expected_last_captured_raw_input_sha256: meta
+                    .expected_last_captured_raw_input_sha256
+                    .clone(),
+            })
             .await
         {
             Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome::default(),
             Ok(CrawlerUrlWriteOutcome::NoopStale) => {
                 debug!(
                     listing_source_id = %meta.listing_source_id,
-                    url = %meta.url,
+                    url = %meta.original_url,
                     crawler_url_write_outcome = "stale_noop",
                     "Skipped stale active crawler scrape completion"
                 );
@@ -596,7 +674,7 @@ async fn handle_successful_scrape(
                 }
             }
             Err(error) => {
-                warn!(error = %error, url = %meta.url, "Failed to persist unchanged raw scrape metadata");
+                warn!(error = %error, url = %meta.original_url, "Failed to persist unchanged raw scrape metadata");
                 ScrapeCandidateOutcome {
                     errored: true,
                     ..Default::default()
@@ -609,7 +687,7 @@ async fn handle_successful_scrape(
         capture: Some(RawCaptureRequest {
             item: ProductListingRawCaptureItem::crawler(
                 candidate.listing_source_id,
-                &candidate.url,
+                &candidate.source_record_key,
                 scraped.raw_input,
                 provenance,
             ),
@@ -1446,16 +1524,19 @@ mod tests {
             .unwrap_or_else(|error| panic!("test removal input: {error}"));
         let provenance = crawler_provenance(None, None)
             .unwrap_or_else(|error| panic!("test provenance: {error}"));
-        ProductListingRawCaptureItem::crawler(listing_source_id, &url, input, provenance)
+        ProductListingRawCaptureItem::crawler(listing_source_id, url.as_str(), input, provenance)
     }
 
     fn meta(listing_source_id: ListingSourceId, url: &str, hash: &str) -> CandidateMeta {
+        let url = url::Url::parse(url).unwrap();
         CandidateMeta {
             listing_source_id,
-            url: url::Url::parse(url).unwrap(),
+            original_url: url.clone(),
+            effective_url: url,
             hash: hash.to_owned(),
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
+            source_listing_id: "source-id".to_owned(),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
         }
@@ -1490,24 +1571,16 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(
-                move |listing_source_id,
-                      url,
-                      hash,
-                      _,
-                      _,
-                      _,
-                      expected_last_captured_raw_input_sha256| {
-                    *listing_source_id == first_listing_source_id
-                        && url == &first_url
-                        && hash == "first"
-                        && expected_last_captured_raw_input_sha256.as_deref()
-                            == Some(observed_raw_input_sha256_for_mark.as_slice())
-                },
-            )
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .withf(move |completion| {
+                completion.listing_source_id == first_listing_source_id
+                    && completion.url == first_url
+                    && completion.hash == "first"
+                    && completion
+                        .expected_last_captured_raw_input_sha256
+                        .as_deref()
+                        == Some(observed_raw_input_sha256_for_mark.as_slice())
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let push_service: Arc<dyn ProductListingRawCaptureService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -1569,6 +1642,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_not_move_a_redirected_url_when_raw_capture_fails() {
+        let listing_source_id = ListingSourceId::new();
+        let mut raw_capture = MockProductListingRawCaptureService::new();
+        raw_capture.expect_capture().once().returning(|_| {
+            Box::pin(async { vec![ProductListingRawCaptureOutcome::RetryableFailure] })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_mark_as_scraped().never();
+        scraper_candidates.expect_move_redirected_url().never();
+
+        let mut redirected = meta(listing_source_id, "https://example.com/product/old", "old");
+        redirected.effective_url = url::Url::parse("https://example.com/product/new").unwrap();
+        let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
+        let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
+        flush_batch(
+            &raw_capture,
+            &scraper_candidates,
+            vec![queued(item(listing_source_id, "SKU-123"), redirected)],
+            0,
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn should_default_missing_raw_capture_results_to_failure() {
         let first_listing_source_id = ListingSourceId::new();
         let second_listing_source_id = ListingSourceId::new();
@@ -1583,23 +1681,13 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(
-                move |listing_source_id,
-                      url,
-                      hash,
-                      _,
-                      _,
-                      _,
-                      expected_last_captured_raw_input_sha256| {
-                    *listing_source_id == first_listing_source_id
-                        && url == &first_url
-                        && hash == "first"
-                        && expected_last_captured_raw_input_sha256.is_none()
-                },
-            )
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .withf(move |completion| {
+                completion.listing_source_id == first_listing_source_id
+                    && completion.url == first_url
+                    && completion.hash == "first"
+                    && completion.expected_last_captured_raw_input_sha256.is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let push_service: Arc<dyn ProductListingRawCaptureService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -1700,9 +1788,7 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let (tx, rx) = mpsc::channel(2);
         let collector = tokio::spawn(run_raw_capture_collector(
@@ -1759,9 +1845,7 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .times(2)
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let (tx, rx) = mpsc::channel(2);
         let collector = tokio::spawn(run_raw_capture_collector(
@@ -2104,6 +2188,8 @@ mod tests {
                     hash: "sold-hash".to_owned(),
                     schema_fingerprint: "sold-schema".to_owned(),
                     raw_input_sha256: vec![3; 32],
+                    effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
+                    source_listing_id: "ListingSource".to_owned(),
                 })))
             })
         });
@@ -2124,6 +2210,61 @@ mod tests {
         );
         assert!(!outcome.errored);
         assert!(!outcome.skipped);
+    }
+
+    #[tokio::test]
+    async fn should_capture_redirected_observation_on_the_original_raw_stream() {
+        let original_url = url::Url::parse("https://example.com/product/old").unwrap();
+        let effective_url = url::Url::parse("https://example.com/product/new").unwrap();
+        let candidate = scraper_candidate("ListingSource", original_url.clone());
+        let raw_input = crawler_verified_removal_input(&effective_url)
+            .unwrap_or_else(|error| panic!("test raw input: {error}"));
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_redirect_destination_is_available()
+            .once()
+            .withf({
+                let effective_url = effective_url.clone();
+                move |url| *url == effective_url
+            })
+            .returning(|_| Box::pin(async { Ok(true) }));
+        scraper_candidates.expect_mark_as_scraped().never();
+        let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
+
+        let outcome = handle_successful_scrape(
+            &candidate,
+            &ctx,
+            ScrapedProduct {
+                raw_input,
+                effective_url: effective_url.clone(),
+                source_listing_id: "SKU-123".to_owned(),
+                availability:
+                    product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion,
+                hash: "redirect-hash".to_owned(),
+                schema_fingerprint: "redirect-schema".to_owned(),
+                raw_input_sha256: vec![9; 32],
+            },
+        )
+        .await;
+
+        let request = outcome.capture.expect("redirect must queue raw capture");
+        assert_eq!(
+            request.item.command.source_record_key,
+            original_url.as_str(),
+            "the raw stream remains the pre-redirect crawler URL"
+        );
+        assert!(
+            request
+                .item
+                .command
+                .input
+                .source_payload()
+                .value()
+                .to_string()
+                .contains(effective_url.as_str()),
+            "the captured raw input must retain the effective redirect URL"
+        );
     }
 
     #[tokio::test]
@@ -2298,9 +2439,7 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let scrape_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let scrape_count_for_mock = Arc::clone(&scrape_count);
@@ -2329,6 +2468,8 @@ mod tests {
                             hash: "success-hash".to_owned(),
                             schema_fingerprint: "success-schema".to_owned(),
                             raw_input_sha256: vec![2; 32],
+                            effective_url: url.clone(),
+                            source_listing_id: "ListingSource".to_owned(),
                         })))
                     }
                 })
