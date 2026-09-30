@@ -298,6 +298,7 @@ mod tests {
         RawProductListingValues, SourcePayload,
     };
     use std::sync::{Arc, Mutex};
+    use url::Url;
 
     #[derive(Debug, Clone, Copy, Default)]
     enum FakeCaptureOutcome {

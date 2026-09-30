@@ -23,16 +23,24 @@ fn raw_input_hash() -> Vec<u8> {
     vec![7; 32]
 }
 
-fn scrape_completion(
+fn scrape_completion<H, S, R, I>(
     listing_source_id: ListingSourceId,
     url: url::Url,
-    hash: impl Into<String>,
-    schema_fingerprint: impl Into<String>,
-    raw_input_sha256: impl Into<Vec<u8>>,
-    source_listing_id: impl Into<String>,
-    disposition: CrawlerDisposition,
-    expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
-) -> ScrapeCompletion {
+    (
+        hash,
+        schema_fingerprint,
+        raw_input_sha256,
+        source_listing_id,
+        disposition,
+        expected_last_captured_raw_input_sha256,
+    ): (H, S, R, I, CrawlerDisposition, Option<Vec<u8>>),
+) -> ScrapeCompletion
+where
+    H: Into<String>,
+    S: Into<String>,
+    R: Into<Vec<u8>>,
+    I: Into<String>,
+{
     ScrapeCompletion {
         listing_source_id,
         url,
@@ -1215,12 +1223,14 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
         .mark_as_scraped(scrape_completion(
             listing_source_id,
             url.clone(),
-            scraped_hash.clone(),
-            "schema-fingerprint",
-            raw_input_hash(),
-            "SKU-123",
-            CrawlerDisposition::Active,
-            None,
+            (
+                scraped_hash.clone(),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
         ))
         .await
         .unwrap();
@@ -1266,12 +1276,14 @@ async fn scraper_normal_fallback_identity_should_remain_stable_across_completion
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "first-hash",
-                "schema",
-                vec![1; 32],
-                fallback_identity.clone(),
-                CrawlerDisposition::Active,
-                None,
+                (
+                    "first-hash",
+                    "schema",
+                    vec![1; 32],
+                    fallback_identity.clone(),
+                    CrawlerDisposition::Active,
+                    None,
+                ),
             ))
             .await
             .unwrap(),
@@ -1282,12 +1294,14 @@ async fn scraper_normal_fallback_identity_should_remain_stable_across_completion
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "second-hash",
-                "schema",
-                vec![2; 32],
-                fallback_identity.clone(),
-                CrawlerDisposition::Active,
-                Some(vec![1; 32]),
+                (
+                    "second-hash",
+                    "schema",
+                    vec![2; 32],
+                    fallback_identity.clone(),
+                    CrawlerDisposition::Active,
+                    Some(vec![1; 32]),
+                ),
             ))
             .await
             .unwrap(),
@@ -1429,12 +1443,14 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
         .mark_as_scraped(scrape_completion(
             listing_source_id,
             original_url.clone(),
-            "initial-hash",
-            "initial-schema",
-            vec![6; 32],
-            "SKU-1",
-            CrawlerDisposition::Active,
-            None,
+            (
+                "initial-hash",
+                "initial-schema",
+                vec![6; 32],
+                "SKU-1",
+                CrawlerDisposition::Active,
+                None,
+            ),
         ))
         .await
         .unwrap();
@@ -1495,12 +1511,14 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "dormant-hash",
-                "dormant-schema",
-                dormant_raw_input_hash.clone(),
-                "SKU-123",
-                CrawlerDisposition::DormantSold,
-                None
+                (
+                    "dormant-hash",
+                    "dormant-schema",
+                    dormant_raw_input_hash.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::DormantSold,
+                    None,
+                )
             ))
             .await
             .unwrap(),
@@ -1512,12 +1530,14 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "delayed-active-hash",
-                "delayed-active-schema",
-                vec![8; 32],
-                "SKU-123",
-                CrawlerDisposition::Active,
-                None
+                (
+                    "delayed-active-hash",
+                    "delayed-active-schema",
+                    vec![8; 32],
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    None,
+                )
             ))
             .await
             .unwrap(),
@@ -1562,12 +1582,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "newer-page-hash",
-                "newer-schema-fingerprint",
-                newer_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                observed_raw_input_sha256.map(ToOwned::to_owned)
+                (
+                    "newer-page-hash",
+                    "newer-schema-fingerprint",
+                    newer_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    observed_raw_input_sha256.map(ToOwned::to_owned),
+                )
             ))
             .await
             .unwrap(),
@@ -1579,12 +1601,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "delayed-page-hash",
-                "delayed-schema-fingerprint",
-                vec![8; 32],
-                "SKU-123",
-                CrawlerDisposition::Active,
-                observed_raw_input_sha256.map(ToOwned::to_owned)
+                (
+                    "delayed-page-hash",
+                    "delayed-schema-fingerprint",
+                    vec![8; 32],
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    observed_raw_input_sha256.map(ToOwned::to_owned),
+                )
             ))
             .await
             .unwrap(),
@@ -1640,12 +1664,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "observed-page-hash",
-                "observed-schema-fingerprint",
-                observed_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                None
+                (
+                    "observed-page-hash",
+                    "observed-schema-fingerprint",
+                    observed_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    None,
+                )
             ))
             .await
             .unwrap(),
@@ -1658,12 +1684,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "newer-page-hash",
-                "newer-schema-fingerprint",
-                newer_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                Some(observed_raw_input_sha256.clone())
+                (
+                    "newer-page-hash",
+                    "newer-schema-fingerprint",
+                    newer_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    Some(observed_raw_input_sha256.clone()),
+                )
             ))
             .await
             .unwrap(),
@@ -1675,12 +1703,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "delayed-sold-page-hash",
-                "delayed-sold-schema-fingerprint",
-                vec![3; 32],
-                "SKU-123",
-                CrawlerDisposition::DormantSold,
-                Some(observed_raw_input_sha256.clone())
+                (
+                    "delayed-sold-page-hash",
+                    "delayed-sold-schema-fingerprint",
+                    vec![3; 32],
+                    "SKU-123",
+                    CrawlerDisposition::DormantSold,
+                    Some(observed_raw_input_sha256.clone()),
+                )
             ))
             .await
             .unwrap(),
@@ -1723,12 +1753,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "observed-page-hash",
-                "observed-schema-fingerprint",
-                observed_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                None
+                (
+                    "observed-page-hash",
+                    "observed-schema-fingerprint",
+                    observed_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    None,
+                )
             ))
             .await
             .unwrap(),
@@ -1741,12 +1773,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "newer-page-hash",
-                "newer-schema-fingerprint",
-                newer_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                Some(observed_raw_input_sha256.clone())
+                (
+                    "newer-page-hash",
+                    "newer-schema-fingerprint",
+                    newer_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    Some(observed_raw_input_sha256.clone()),
+                )
             ))
             .await
             .unwrap(),
@@ -1815,12 +1849,14 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
             .mark_as_scraped(scrape_completion(
                 listing_source_id,
                 url.clone(),
-                "observed-page-hash",
-                "observed-schema-fingerprint",
-                observed_raw_input_sha256.clone(),
-                "SKU-123",
-                CrawlerDisposition::Active,
-                None
+                (
+                    "observed-page-hash",
+                    "observed-schema-fingerprint",
+                    observed_raw_input_sha256.clone(),
+                    "SKU-123",
+                    CrawlerDisposition::Active,
+                    None,
+                )
             ))
             .await
             .unwrap(),
@@ -1847,12 +1883,14 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
                     .mark_as_scraped(scrape_completion(
                         newer_listing_source_id,
                         url.clone(),
-                        "newer-page-hash",
-                        "newer-schema-fingerprint",
-                        newer_raw_input_sha256.clone(),
-                        "SKU-123",
-                        CrawlerDisposition::Active,
-                        Some(observed_raw_input_sha256.clone())
+                        (
+                            "newer-page-hash",
+                            "newer-schema-fingerprint",
+                            newer_raw_input_sha256.clone(),
+                            "SKU-123",
+                            CrawlerDisposition::Active,
+                            Some(observed_raw_input_sha256.clone()),
+                        )
                     ))
                     .await
                     .unwrap(),
@@ -1992,12 +2030,14 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         .mark_as_scraped(scrape_completion(
             listing_source_id,
             url,
-            hash,
-            "schema-fingerprint",
-            raw_input_hash(),
-            "SKU-123",
-            CrawlerDisposition::Active,
-            None,
+            (
+                hash,
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
         ))
         .await
         .unwrap();
