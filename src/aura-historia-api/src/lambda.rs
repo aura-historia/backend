@@ -2,9 +2,10 @@ use axum::{
     Router,
     body::Body,
     extract::Request,
+    http::Uri,
     response::{IntoResponse, Response},
 };
-use lambda_http::RequestExt;
+use lambda_http::{RequestExt, request::RequestContext};
 use platform_lambda_bootstrap::{LambdaInvocationBudget, log_invocation_start};
 use std::{future::Future, time::Duration};
 use tower::ServiceExt;
@@ -113,7 +114,28 @@ fn request_timeout_response() -> Response {
     axum::http::StatusCode::REQUEST_TIMEOUT.into_response()
 }
 
-fn axum_request(request: lambda_http::Request) -> Result<Request, LambdaHttpAdapterError> {
+fn axum_request(mut request: lambda_http::Request) -> Result<Request, LambdaHttpAdapterError> {
+    // Named HTTP API stages can appear in the invocation path even when the matched
+    // public route is unprefixed. Only remove the stage reported by API Gateway.
+    if let Some(RequestContext::ApiGatewayV2(context)) = request.request_context_ref()
+        && let Some(stage) = context.stage.as_deref()
+        && let Some(path) = request.uri().path().strip_prefix(&format!("/{stage}/"))
+    {
+        let path = format!("/{path}");
+        let path_and_query = match request.uri().query() {
+            Some(query) => format!("{path}?{query}"),
+            None => path,
+        };
+        let mut uri = request.uri().clone().into_parts();
+        uri.path_and_query = Some(
+            path_and_query
+                .parse()
+                .map_err(|_| LambdaHttpAdapterError::InvalidPath)?,
+        );
+        *request.uri_mut() =
+            Uri::from_parts(uri).map_err(|_| LambdaHttpAdapterError::InvalidPath)?;
+    }
+
     let (parts, body) = request.into_parts();
     let body = match body {
         lambda_http::Body::Empty => Body::empty(),
@@ -129,6 +151,8 @@ fn axum_request(request: lambda_http::Request) -> Result<Request, LambdaHttpAdap
 pub enum LambdaHttpAdapterError {
     #[error("unsupported Lambda HTTP request body")]
     UnsupportedBody,
+    #[error("invalid HTTP API request path")]
+    InvalidPath,
 }
 
 #[cfg(test)]
@@ -168,6 +192,44 @@ mod tests {
             binary["headers"]["content-type"]
         );
         assert!(binary["headers"].get("set-cookie").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_route_both_named_stage_and_unprefixed_http_api_paths()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut event: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/http_api_v2_health.json"))?;
+        event["routeKey"] = "GET /health".into();
+        event["requestContext"]["stage"] = "dev".into();
+        event["requestContext"]["http"]["path"] = "/dev/health".into();
+        event["headers"]["host"] = "api.stage.aura-historia.com".into();
+        event["rawQueryString"] = "probe=1".into();
+        let app = Router::new().route(
+            "/health",
+            get(|request: Request| async move {
+                (
+                    StatusCode::OK,
+                    request.uri().query().unwrap_or_default().to_owned(),
+                )
+            }),
+        );
+
+        for path in ["/health", "/dev/health"] {
+            event["rawPath"] = path.into();
+            let request = lambda_http::request::from_str(&event.to_string())?;
+            let response = handle_http_api_v2_request(app.clone(), request).await?;
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+                "probe=1"
+            );
+        }
+
+        event["rawPath"] = "/other/health".into();
+        let request = lambda_http::request::from_str(&event.to_string())?;
+        let response = handle_http_api_v2_request(app, request).await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         Ok(())
     }
 
