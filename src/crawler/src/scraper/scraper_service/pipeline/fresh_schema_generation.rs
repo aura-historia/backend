@@ -3,7 +3,7 @@ use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
 
 use crate::scraper::normalization::product_normalization_service::{
-    NormalizationFailure, NormalizationSuccess,
+    NormalizationFailure, NormalizationSuccess, ProductNormalizationContext,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
@@ -24,7 +24,7 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
     pub(crate) fallback_currency: Option<Currency>,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
-    pub(crate) raw_source_record_key: &'a str,
+    pub(crate) source_record_key: &'a str,
 }
 
 impl ScraperServiceImpl {
@@ -69,20 +69,17 @@ impl ScraperServiceImpl {
             };
         let validated_image_urls = validated_raw.images.clone();
 
-        let normalization = if ctx.raw_source_record_key == ctx.url.as_str() {
-            self.normalization_service
-                .normalize(validated_raw, ctx.url.clone(), ctx.fallback_currency)
-                .await
-        } else {
-            self.normalization_service
-                .normalize_with_raw_source_record_key(
-                    validated_raw,
-                    ctx.url.clone(),
-                    ctx.raw_source_record_key,
-                    ctx.fallback_currency,
-                )
-                .await
-        };
+        let normalization = self
+            .normalization_service
+            .normalize(
+                validated_raw,
+                ProductNormalizationContext {
+                    effective_url: ctx.url.clone(),
+                    source_record_key: ctx.source_record_key.to_owned(),
+                    fallback_currency: ctx.fallback_currency,
+                },
+            )
+            .await;
         match normalization {
             Ok(NormalizationSuccess {
                 prepared,

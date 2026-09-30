@@ -1,8 +1,8 @@
 use crawler::CrawlerDomainId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectedScrapeMetadata,
-    ScraperCandidateService, ScraperCandidateServiceImpl,
+    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectUrlMove,
+    ScrapeCompletion, ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{
@@ -21,6 +21,28 @@ const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn raw_input_hash() -> Vec<u8> {
     vec![7; 32]
+}
+
+fn scrape_completion(
+    listing_source_id: ListingSourceId,
+    url: url::Url,
+    hash: impl Into<String>,
+    schema_fingerprint: impl Into<String>,
+    raw_input_sha256: impl Into<Vec<u8>>,
+    source_listing_id: impl Into<String>,
+    disposition: CrawlerDisposition,
+    expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+) -> ScrapeCompletion {
+    ScrapeCompletion {
+        listing_source_id,
+        url,
+        hash: hash.into(),
+        schema_fingerprint: schema_fingerprint.into(),
+        raw_input_sha256: raw_input_sha256.into(),
+        source_listing_id: source_listing_id.into(),
+        disposition,
+        expected_last_captured_raw_input_sha256,
+    }
 }
 
 fn fetch_failure_request(
@@ -1190,20 +1212,21 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let scraped_hash = "m".repeat(64);
 
     service
-        .mark_as_scraped(
-            &listing_source_id,
-            &url,
-            &scraped_hash,
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url.clone(),
+            scraped_hash.clone(),
             "schema-fingerprint",
-            &raw_input_hash(),
+            raw_input_hash(),
+            "SKU-123",
             CrawlerDisposition::Active,
             None,
-        )
+        ))
         .await
         .unwrap();
 
-    let row: (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT last_scraped_hash, last_scraped::text FROM listing_source_urls WHERE url = $1",
+    let row: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT last_scraped_hash, last_scraped::text, last_source_listing_id FROM listing_source_urls WHERE url = $1",
     )
     .bind(url_str)
     .fetch_one(&pool)
@@ -1216,6 +1239,70 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
         "last_scraped_hash should be updated"
     );
     assert!(row.1.is_some(), "last_scraped timestamp should be set");
+    assert_eq!(row.2.as_deref(), Some("SKU-123"));
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn scraper_normal_fallback_identity_should_remain_stable_across_completions() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "fallback-identity.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://fallback-identity.example.com/product/foo").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let fallback_identity =
+        product_listing_normalization::normalize_source_listing_id_with_url_sha_fallback("", &url)
+            .unwrap()
+            .to_string();
+
+    assert_eq!(
+        service
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
+                "first-hash",
+                "schema",
+                vec![1; 32],
+                fallback_identity.clone(),
+                CrawlerDisposition::Active,
+                None,
+            ))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(
+        service
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
+                "second-hash",
+                "schema",
+                vec![2; 32],
+                fallback_identity.clone(),
+                CrawlerDisposition::Active,
+                Some(vec![1; 32]),
+            ))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT last_source_listing_id FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored.as_deref(), Some(fallback_identity.as_str()));
 }
 
 #[serial]
@@ -1233,7 +1320,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
 
     assert_eq!(
         service
-            .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+            .move_redirected_url(RedirectUrlMove {
                 listing_source_id,
                 original_url: original_url.clone(),
                 effective_url: effective_url.clone(),
@@ -1288,7 +1375,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             .unwrap()
     );
     let error = service
-        .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+        .move_redirected_url(RedirectUrlMove {
             listing_source_id,
             original_url: original_url.clone(),
             effective_url: effective_url.clone(),
@@ -1339,21 +1426,21 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
 
     service
-        .mark_as_scraped_with_source_listing_id(
-            &listing_source_id,
-            &original_url,
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            original_url.clone(),
             "initial-hash",
             "initial-schema",
-            &[6; 32],
+            vec![6; 32],
             "SKU-1",
             CrawlerDisposition::Active,
             None,
-        )
+        ))
         .await
         .unwrap();
 
     let conflict = service
-        .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+        .move_redirected_url(RedirectUrlMove {
             listing_source_id,
             original_url: original_url.clone(),
             effective_url: effective_url.clone(),
@@ -1370,7 +1457,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
 
     assert_eq!(
         service
-            .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+            .move_redirected_url(RedirectUrlMove {
                 listing_source_id,
                 original_url,
                 effective_url,
@@ -1405,15 +1492,16 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
     let dormant_raw_input_hash = vec![9; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "dormant-hash",
                 "dormant-schema",
-                &dormant_raw_input_hash,
+                dormant_raw_input_hash.clone(),
+                "SKU-123",
                 CrawlerDisposition::DormantSold,
-                None,
-            )
+                None
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1421,15 +1509,16 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
 
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "delayed-active-hash",
                 "delayed-active-schema",
-                &[8; 32],
+                vec![8; 32],
+                "SKU-123",
                 CrawlerDisposition::Active,
-                None,
-            )
+                None
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::NoopStale
@@ -1470,15 +1559,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
 
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "newer-page-hash",
                 "newer-schema-fingerprint",
-                &newer_raw_input_sha256,
+                newer_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                observed_raw_input_sha256,
-            )
+                observed_raw_input_sha256.map(ToOwned::to_owned)
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1486,15 +1576,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
 
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "delayed-page-hash",
                 "delayed-schema-fingerprint",
-                &[8; 32],
+                vec![8; 32],
+                "SKU-123",
                 CrawlerDisposition::Active,
-                observed_raw_input_sha256,
-            )
+                observed_raw_input_sha256.map(ToOwned::to_owned)
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::NoopStale
@@ -1546,15 +1637,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
     let observed_raw_input_sha256 = vec![1; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "observed-page-hash",
                 "observed-schema-fingerprint",
-                &observed_raw_input_sha256,
+                observed_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                None,
-            )
+                None
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1563,15 +1655,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
     let newer_raw_input_sha256 = vec![2; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "newer-page-hash",
                 "newer-schema-fingerprint",
-                &newer_raw_input_sha256,
+                newer_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                Some(observed_raw_input_sha256.as_slice()),
-            )
+                Some(observed_raw_input_sha256.clone())
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1579,15 +1672,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
 
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "delayed-sold-page-hash",
                 "delayed-sold-schema-fingerprint",
-                &[3; 32],
+                vec![3; 32],
+                "SKU-123",
                 CrawlerDisposition::DormantSold,
-                Some(observed_raw_input_sha256.as_slice()),
-            )
+                Some(observed_raw_input_sha256.clone())
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::NoopStale
@@ -1626,15 +1720,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
     let observed_raw_input_sha256 = vec![4; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "observed-page-hash",
                 "observed-schema-fingerprint",
-                &observed_raw_input_sha256,
+                observed_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                None,
-            )
+                None
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1643,15 +1738,16 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
     let newer_raw_input_sha256 = vec![5; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "newer-page-hash",
                 "newer-schema-fingerprint",
-                &newer_raw_input_sha256,
+                newer_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                Some(observed_raw_input_sha256.as_slice()),
-            )
+                Some(observed_raw_input_sha256.clone())
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1716,15 +1812,16 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
     let observed_raw_input_sha256 = vec![6; 32];
     assert_eq!(
         service
-            .mark_as_scraped(
-                &listing_source_id,
-                &url,
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                url.clone(),
                 "observed-page-hash",
                 "observed-schema-fingerprint",
-                &observed_raw_input_sha256,
+                observed_raw_input_sha256.clone(),
+                "SKU-123",
                 CrawlerDisposition::Active,
-                None,
-            )
+                None
+            ))
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1747,15 +1844,16 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
             start.wait().await;
             assert_eq!(
                 service
-                    .mark_as_scraped(
-                        &newer_listing_source_id,
-                        &url,
+                    .mark_as_scraped(scrape_completion(
+                        newer_listing_source_id,
+                        url.clone(),
                         "newer-page-hash",
                         "newer-schema-fingerprint",
-                        &newer_raw_input_sha256,
+                        newer_raw_input_sha256.clone(),
+                        "SKU-123",
                         CrawlerDisposition::Active,
-                        Some(observed_raw_input_sha256.as_slice()),
-                    )
+                        Some(observed_raw_input_sha256.clone())
+                    ))
                     .await
                     .unwrap(),
                 CrawlerUrlWriteOutcome::Applied
@@ -1891,15 +1989,16 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
 
     let url = url::Url::parse(url_str).unwrap();
     service
-        .mark_as_scraped(
-            &listing_source_id,
-            &url,
-            &hash,
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url,
+            hash,
             "schema-fingerprint",
-            &raw_input_hash(),
+            raw_input_hash(),
+            "SKU-123",
             CrawlerDisposition::Active,
             None,
-        )
+        ))
         .await
         .unwrap();
 

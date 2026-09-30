@@ -92,7 +92,7 @@ fn normalizer_with_expected_images(url: Url) -> MockProductListingNormalizationS
     normalizer
         .expect_normalize()
         .once()
-        .returning(move |raw, _, _| {
+        .returning(move |raw, _| {
             assert_eq!(raw.images, expected_images);
             let expected = expected.clone();
             Box::pin(async move { Ok(normalization_success(expected, 0)) })
@@ -240,7 +240,7 @@ async fn should_persist_cached_schema_image_evidence_in_raw_revision() {
     let scraped = scrape_cached_schema_image_evidence(listing_source_id).await;
     let capture_item = ProductListingRawCaptureItem::crawler(
         listing_source_id,
-        &candidate_url,
+        candidate_url.as_str(),
         scraped.raw_input,
         crawler_provenance(None, None)
             .unwrap_or_else(|error| panic!("crawler provenance must be valid: {error}")),

@@ -70,7 +70,7 @@ pub(super) mod test_support {
             fallback_currency: None,
             url_pattern: None,
             url: url.clone(),
-            raw_source_record_key: url.to_string(),
+            source_record_key: url.to_string(),
             last_source_listing_id: None,
             last_scraped_hash: None,
             last_scraped_schema_fingerprint: None,

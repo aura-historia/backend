@@ -172,7 +172,7 @@ impl ScraperServiceImpl {
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
         let listing_source_id = &request.listing_source_id;
         let url = &request.url;
-        let raw_source_record_key = &request.raw_source_record_key;
+        let source_record_key = &request.source_record_key;
         let product_url_pattern = request.product_url_pattern.as_deref();
         let last_scraped_hash = request.last_scraped_hash.as_deref();
         let last_scraped_schema_fingerprint = request.last_scraped_schema_fingerprint.as_deref();
@@ -356,7 +356,7 @@ impl ScraperServiceImpl {
             .select_existing_schema_with_normalization(
                 listing_source_id,
                 &effective_url,
-                raw_source_record_key,
+                source_record_key,
                 &html,
                 &listing_source_product_schemas.product_schemas,
                 fallback_currency,
@@ -376,7 +376,7 @@ impl ScraperServiceImpl {
                     domain,
                     url: &effective_url,
                     html: &html,
-                    raw_source_record_key,
+                    source_record_key,
                     existing_schemas: &listing_source_product_schemas.product_schemas,
                     fallback_currency,
                     expected_last_captured_raw_input_sha256,

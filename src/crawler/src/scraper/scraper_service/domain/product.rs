@@ -64,7 +64,7 @@ pub struct ScrapeRequest {
     pub domain_id: Option<CrawlerDomainId>,
     pub listing_source_id: ListingSourceId,
     pub url: Url,
-    pub raw_source_record_key: String,
+    pub source_record_key: String,
     pub product_url_pattern: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,

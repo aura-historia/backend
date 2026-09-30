@@ -73,14 +73,11 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |raw, _, _| {
-            assert!(raw.description.iter().any(|value| !value.is_empty()));
-            let product = expected.clone();
-            Box::pin(async move { Ok(normalization_success(product, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |raw, _| {
+        assert!(raw.description.iter().any(|value| !value.is_empty()));
+        let product = expected.clone();
+        Box::pin(async move { Ok(normalization_success(product, 0)) })
+    });
 
     let mut candidate_svc = MockScraperCandidateService::new();
     expect_successful_bookkeeping(
@@ -151,7 +148,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
     norm_svc
         .expect_normalize()
         .times(1..=2)
-        .returning(move |_, _, _| {
+        .returning(move |_, _| {
             let n = expected.clone();
             let first_error = first_error.clone();
             Box::pin(async move {
@@ -270,20 +267,17 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
     let expected = prepared_product(url.clone());
     let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .times(3)
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            let norm_calls = norm_calls.clone();
-            Box::pin(async move {
-                if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
-                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
-                } else {
-                    Ok(normalization_success(n, 0))
-                }
-            })
-        });
+    norm_svc.expect_normalize().times(3).returning(move |_, _| {
+        let n = expected.clone();
+        let norm_calls = norm_calls.clone();
+        Box::pin(async move {
+            if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                Err(normalization_failure(NormalizationError::TitleEmpty, 0))
+            } else {
+                Ok(normalization_success(n, 0))
+            }
+        })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
@@ -363,20 +357,17 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
     let expected = prepared_product(url.clone());
     let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .times(2)
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            let norm_calls = norm_calls.clone();
-            Box::pin(async move {
-                if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
-                } else {
-                    Ok(normalization_success(n, 0))
-                }
-            })
-        });
+    norm_svc.expect_normalize().times(2).returning(move |_, _| {
+        let n = expected.clone();
+        let norm_calls = norm_calls.clone();
+        Box::pin(async move {
+            if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Err(normalization_failure(NormalizationError::TitleEmpty, 0))
+            } else {
+                Ok(normalization_success(n, 0))
+            }
+        })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
@@ -440,16 +431,13 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |raw, _, _| {
-            let n = expected.clone();
-            Box::pin(async move {
-                assert!(raw.images.is_empty());
-                Ok(normalization_success(n, 0))
-            })
-        });
+    norm_svc.expect_normalize().once().returning(move |raw, _| {
+        let n = expected.clone();
+        Box::pin(async move {
+            assert!(raw.images.is_empty());
+            Ok(normalization_success(n, 0))
+        })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -519,16 +507,13 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
 
     let expected = prepared_product(url.clone());
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |raw, _, _| {
-            let n = expected.clone();
-            Box::pin(async move {
-                assert_eq!(raw.images, vec!["https://example.com/image-800x600.jpg"]);
-                Ok(normalization_success(n, 0))
-            })
-        });
+    norm_svc.expect_normalize().once().returning(move |raw, _| {
+        let n = expected.clone();
+        Box::pin(async move {
+            assert_eq!(raw.images, vec!["https://example.com/image-800x600.jpg"]);
+            Ok(normalization_success(n, 0))
+        })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -696,7 +681,7 @@ async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
     norm_svc
         .expect_normalize()
         .times(2) // 1 initial + 1 retry attempt
-        .returning(|_, _, _| {
+        .returning(|_, _| {
             Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
         });
 

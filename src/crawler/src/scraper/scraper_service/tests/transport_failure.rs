@@ -30,7 +30,7 @@ fn primary_request(
     ScrapeRequest {
         domain_id: None,
         listing_source_id,
-        raw_source_record_key: url.to_string(),
+        source_record_key: url.to_string(),
         url,
         product_url_pattern: None,
         last_scraped_hash: None,

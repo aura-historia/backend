@@ -28,20 +28,6 @@ pub struct ProductListingRawCaptureItem {
 impl ProductListingRawCaptureItem {
     pub fn crawler(
         listing_source_id: ListingSourceId,
-        candidate_url: &Url,
-        input: ProductListingNormalizationInput,
-        provenance: RawProductListingProvenance,
-    ) -> Self {
-        Self::crawler_with_source_record_key(
-            listing_source_id,
-            candidate_url.as_str(),
-            input,
-            provenance,
-        )
-    }
-
-    pub fn crawler_with_source_record_key(
-        listing_source_id: ListingSourceId,
         source_record_key: &str,
         input: ProductListingNormalizationInput,
         provenance: RawProductListingProvenance,
@@ -386,7 +372,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("input: {error}"));
         let provenance = RawProductListingProvenance::new(serde_json::json!({}))
             .unwrap_or_else(|error| panic!("provenance: {error}"));
-        ProductListingRawCaptureItem::crawler(listing_source_id, &url, input, provenance)
+        ProductListingRawCaptureItem::crawler(listing_source_id, url.as_str(), input, provenance)
     }
 
     #[tokio::test]

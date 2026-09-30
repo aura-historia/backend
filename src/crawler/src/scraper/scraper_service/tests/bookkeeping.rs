@@ -37,13 +37,10 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     let mut expected = prepared_product(url.clone());
     expected.availability = ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut);
     let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    norm_svc.expect_normalize().once().returning(move |_, _| {
+        let n = expected.clone();
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
+    });
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);

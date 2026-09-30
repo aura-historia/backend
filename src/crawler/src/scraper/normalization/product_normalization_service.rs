@@ -18,17 +18,16 @@ pub trait ProductListingNormalizationService: Send + Sync {
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
-        url: Url,
-        fallback_currency: Option<Currency>,
+        context: ProductNormalizationContext,
     ) -> ProductListingNormalizationResult;
+}
 
-    async fn normalize_with_raw_source_record_key(
-        &self,
-        raw: RawExtractedProduct,
-        url: Url,
-        raw_source_record_key: &str,
-        fallback_currency: Option<Currency>,
-    ) -> ProductListingNormalizationResult;
+/// Stable and effective identity context for one crawler normalization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductNormalizationContext {
+    pub effective_url: Url,
+    pub source_record_key: String,
+    pub fallback_currency: Option<Currency>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,21 +72,16 @@ pub struct PreparedProduct {
 
 pub fn prepare_product(
     raw: RawExtractedProduct,
-    url: Url,
-    fallback_currency: Option<Currency>,
+    context: ProductNormalizationContext,
 ) -> Result<PreparedProduct, NormalizationError> {
-    prepare_product_with_raw_source_record_key(raw, url.clone(), url.as_str(), fallback_currency)
-}
-
-pub fn prepare_product_with_raw_source_record_key(
-    raw: RawExtractedProduct,
-    url: Url,
-    raw_source_record_key: &str,
-    fallback_currency: Option<Currency>,
-) -> Result<PreparedProduct, NormalizationError> {
+    let ProductNormalizationContext {
+        effective_url: url,
+        source_record_key,
+        fallback_currency,
+    } = context;
     let availability =
         quick_check_availability(raw.state.as_str()).map_err(map_availability_error)?;
-    let raw_source_record_url = Url::parse(raw_source_record_key).map_err(|_| {
+    let raw_source_record_url = Url::parse(&source_record_key).map_err(|_| {
         NormalizationError::SourceListingIdInvalid(
             product_listing_core::source_listing_id::InvalidSourceListingId::Blank,
         )
@@ -158,28 +152,9 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
-        url: Url,
-        fallback_currency: Option<Currency>,
+        context: ProductNormalizationContext,
     ) -> ProductListingNormalizationResult {
-        self.normalize_with_raw_source_record_key(raw, url, "", fallback_currency)
-            .await
-    }
-
-    async fn normalize_with_raw_source_record_key(
-        &self,
-        raw: RawExtractedProduct,
-        url: Url,
-        raw_source_record_key: &str,
-        fallback_currency: Option<Currency>,
-    ) -> ProductListingNormalizationResult {
-        let key = if raw_source_record_key.is_empty() {
-            url.as_str()
-        } else {
-            raw_source_record_key
-        };
-        let prepared =
-            prepare_product_with_raw_source_record_key(raw, url.clone(), key, fallback_currency)
-                .map_err(failure)?;
+        let prepared = prepare_product(raw, context).map_err(failure)?;
         Ok(NormalizationSuccess {
             prepared,
             llm_calls_used: 0,
@@ -299,9 +274,7 @@ mod tests {
 
         let prepared = prepare_product(
             raw,
-            Url::parse("https://example.com/listings/123")
-                .unwrap_or_else(|error| panic!("test URL must parse: {error}")),
-            None,
+            normalization_context("https://example.com/listings/123", None),
         )
         .unwrap_or_else(|error| panic!("missing currency must not reject the product: {error}"));
 
@@ -315,9 +288,7 @@ mod tests {
 
         let prepared = prepare_product(
             raw,
-            Url::parse("https://example.com/listings/123")
-                .unwrap_or_else(|error| panic!("test URL must parse: {error}")),
-            Some(Currency::Zar),
+            normalization_context("https://example.com/listings/123", Some(Currency::Zar)),
         )
         .unwrap_or_else(|error| panic!("source fallback must normalize the price: {error}"));
 
@@ -338,9 +309,7 @@ mod tests {
         let result = ProductListingNormalizationServiceImpl::new()
             .normalize(
                 raw(),
-                Url::parse("https://example.com/listings/123")
-                    .unwrap_or_else(|error| panic!("test URL must parse: {error}")),
-                None,
+                normalization_context("https://example.com/listings/123", None),
             )
             .await
             .unwrap_or_else(|error| panic!("product must normalize: {error}"));
@@ -355,14 +324,16 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_fallback_identity_based_on_the_raw_source_record_key() {
+    fn should_keep_fallback_identity_based_on_the_source_record_key() {
         let mut raw = raw();
         raw.source_listing_id.clear();
-        let prepared = prepare_product_with_raw_source_record_key(
+        let prepared = prepare_product(
             raw,
-            Url::parse("https://example.com/listings/new").unwrap(),
-            "https://example.com/listings/old",
-            None,
+            ProductNormalizationContext {
+                effective_url: Url::parse("https://example.com/listings/new").unwrap(),
+                source_record_key: "https://example.com/listings/old".to_owned(),
+                fallback_currency: None,
+            },
         )
         .unwrap();
         let expected = normalize_source_listing_id_with_url_sha_fallback(
@@ -371,5 +342,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(prepared.source_listing_id, expected);
+    }
+
+    fn normalization_context(
+        url: &str,
+        fallback_currency: Option<Currency>,
+    ) -> ProductNormalizationContext {
+        ProductNormalizationContext {
+            effective_url: Url::parse(url)
+                .unwrap_or_else(|error| panic!("test URL must parse: {error}")),
+            source_record_key: url.to_owned(),
+            fallback_currency,
+        }
     }
 }

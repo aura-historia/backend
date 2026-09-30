@@ -33,7 +33,7 @@ pub struct ScraperCandidate {
     pub url_pattern: Option<String>,
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
-    pub raw_source_record_key: String,
+    pub source_record_key: String,
     pub last_source_listing_id: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
@@ -43,10 +43,23 @@ pub struct ScraperCandidate {
 }
 
 /// Metadata applied after durable raw capture for an HTTP redirect.
-pub struct RedirectedScrapeMetadata {
+pub struct RedirectUrlMove {
     pub listing_source_id: ListingSourceId,
     pub original_url: Url,
     pub effective_url: Url,
+    pub hash: String,
+    pub schema_fingerprint: String,
+    pub raw_input_sha256: Vec<u8>,
+    pub source_listing_id: String,
+    pub disposition: CrawlerDisposition,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
+/// Durable completion state for one ordinary crawler scrape.
+#[derive(Debug, Clone)]
+pub struct ScrapeCompletion {
+    pub listing_source_id: ListingSourceId,
+    pub url: Url,
     pub hash: String,
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
@@ -160,28 +173,9 @@ pub trait ScraperCandidateService: Send + Sync {
         exclude_url: &Url,
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error>;
-    #[allow(clippy::too_many_arguments)]
     async fn mark_as_scraped(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        hash: &str,
-        schema_fingerprint: &str,
-        raw_input_sha256: &[u8],
-        disposition: CrawlerDisposition,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    #[allow(clippy::too_many_arguments)]
-    async fn mark_as_scraped_with_source_listing_id(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        hash: &str,
-        schema_fingerprint: &str,
-        raw_input_sha256: &[u8],
-        source_listing_id: &str,
-        disposition: CrawlerDisposition,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Check the redirect destination before any raw observation is queued.
     async fn redirect_destination_is_available(
@@ -189,9 +183,9 @@ pub trait ScraperCandidateService: Send + Sync {
         effective_url: &Url,
     ) -> Result<bool, sqlx::Error>;
     /// Apply a redirect move only when the destination is still absent.
-    async fn mark_redirected_as_scraped(
+    async fn move_redirected_url(
         &self,
-        metadata: RedirectedScrapeMetadata,
+        redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Records a durable crawler removal capture and makes the URL eligible for later rechecks.
     async fn mark_removed(
@@ -361,7 +355,7 @@ struct ScraperCandidateRow {
 
     url_pattern: Option<String>,
     url: String,
-    raw_source_record_key: String,
+    source_record_key: String,
     last_scraped_hash: Option<String>,
     last_scraped_schema_fingerprint: Option<String>,
     last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -377,7 +371,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
             s.listing_source_name, s.fallback_currency, sd.url_pattern, su.url,
-            su.raw_source_record_key,
+            su.raw_source_record_key AS source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
             su.last_scraped_schema_fingerprint,
@@ -430,7 +424,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
     SELECT
         listing_source_id, domain_id, listing_source_domain, listing_source_name,
         fallback_currency, url_pattern, url,
-        raw_source_record_key,
+        source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
@@ -488,7 +482,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 fallback_currency,
                 url_pattern: row.url_pattern,
                 url,
-                raw_source_record_key: row.raw_source_record_key,
+                source_record_key: row.source_record_key,
                 last_scraped_hash: row.last_scraped_hash,
                 last_scraped_schema_fingerprint: row.last_scraped_schema_fingerprint,
                 last_captured_raw_input_sha256: row.last_captured_raw_input_sha256,
@@ -560,40 +554,19 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn mark_as_scraped(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        hash: &str,
-        schema_fingerprint: &str,
-        raw_input_sha256: &[u8],
-        disposition: CrawlerDisposition,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        self.mark_as_scraped_with_source_listing_id(
+        let ScrapeCompletion {
             listing_source_id,
             url,
             hash,
             schema_fingerprint,
             raw_input_sha256,
-            url.as_ref(),
+            source_listing_id,
             disposition,
             expected_last_captured_raw_input_sha256,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn mark_as_scraped_with_source_listing_id(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        hash: &str,
-        schema_fingerprint: &str,
-        raw_input_sha256: &[u8],
-        source_listing_id: &str,
-        disposition: CrawlerDisposition,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        } = completion;
+        let listing_source_id_uuid: uuid::Uuid = listing_source_id.into();
         let url_str = url.to_string();
 
         let result = sqlx::query(
@@ -618,12 +591,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         )
         .bind(listing_source_id_uuid)
         .bind(url_str)
-        .bind(hash)
-        .bind(schema_fingerprint)
-        .bind(raw_input_sha256)
-        .bind(source_listing_id)
+        .bind(&hash)
+        .bind(&schema_fingerprint)
+        .bind(&raw_input_sha256)
+        .bind(&source_listing_id)
         .bind(disposition.as_str())
-        .bind(expected_last_captured_raw_input_sha256)
+        .bind(expected_last_captured_raw_input_sha256.as_deref())
         .execute(&self.pool)
         .await?;
 
@@ -646,11 +619,11 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(!exists)
     }
 
-    async fn mark_redirected_as_scraped(
+    async fn move_redirected_url(
         &self,
-        metadata: RedirectedScrapeMetadata,
+        redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        let RedirectedScrapeMetadata {
+        let RedirectUrlMove {
             listing_source_id,
             original_url,
             effective_url,
@@ -660,7 +633,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             source_listing_id,
             disposition,
             expected_last_captured_raw_input_sha256,
-        } = metadata;
+        } = redirect_move;
         if original_url == effective_url {
             return Err(sqlx::Error::Protocol(
                 "redirected crawler URL move requires distinct URLs".to_owned(),
