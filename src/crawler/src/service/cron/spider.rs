@@ -1,9 +1,9 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerDomainId;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
-use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
+use crate::spider::local_lock::DomainLock;
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
@@ -91,6 +91,7 @@ struct SpiderSlotOutcome {
     domain_id: CrawlerDomainId,
     succeeded: bool,
     skipped: bool,
+    deferred: bool,
 }
 
 fn spawn_spider_candidate(
@@ -98,7 +99,7 @@ fn spawn_spider_candidate(
     candidate: SpiderCandidate,
     spider_candidates: Arc<dyn crate::spider::candidate_service::SpiderCandidateService>,
     spider_service: Arc<dyn SpiderService>,
-    lock_manager: Arc<crate::spider::advisory_lock::LocalLockManager>,
+    lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
 ) {
     let crawl_root_url = if candidate.listing_source_domain.starts_with("http") {
@@ -117,15 +118,16 @@ fn spawn_spider_candidate(
     join_set.spawn(
         async move {
             let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id) else {
-                warn!(
+                debug!(
                     listing_source_id = %candidate.listing_source_id,
                     domain_id = %candidate.domain_id,
-                    "Skipping domain - lock held by another worker"
+                    "Deferring domain - lock held by another worker"
                 );
                 return SpiderSlotOutcome {
                     domain_id,
                     succeeded: false,
-                    skipped: true,
+                    skipped: false,
+                    deferred: true,
                 };
             };
 
@@ -153,6 +155,7 @@ fn spawn_spider_candidate(
                         domain_id,
                         succeeded: true,
                         skipped: false,
+                        deferred: false,
                     }
                 }
                 Err(e) => {
@@ -255,6 +258,7 @@ fn spawn_spider_candidate(
                         domain_id,
                         succeeded: false,
                         skipped: false,
+                        deferred: false,
                     }
                 }
             }
@@ -287,9 +291,15 @@ impl CrawlerCronJob {
         let mut skipped = 0usize;
         let mut started = false;
         let mut fetch_failed = false;
+        let mut no_more_candidates = false;
+        let mut deferred = 0usize;
 
         loop {
-            while join_set.len() < spider_concurrency && !fetch_failed {
+            while join_set.len() < spider_concurrency {
+                if no_more_candidates || fetch_failed {
+                    break;
+                }
+
                 let open_slots = spider_concurrency - join_set.len();
                 let limit = (open_slots as i64).max(1);
                 let excluded: Vec<CrawlerDomainId> = excluded_domain_ids.iter().copied().collect();
@@ -307,6 +317,7 @@ impl CrawlerCronJob {
                 };
 
                 if candidates.is_empty() {
+                    no_more_candidates = true;
                     if !started && join_set.is_empty() {
                         debug!("No spider candidates, skipping scheduler pass");
                         return;
@@ -354,7 +365,9 @@ impl CrawlerCronJob {
             match join_set.join_next().await {
                 Some(Ok(outcome)) => {
                     excluded_domain_ids.insert(outcome.domain_id);
-                    if outcome.succeeded {
+                    if outcome.deferred {
+                        deferred += 1;
+                    } else if outcome.succeeded {
                         succeeded += 1;
                     } else if outcome.skipped {
                         skipped += 1;
@@ -373,7 +386,7 @@ impl CrawlerCronJob {
         let duration_ms = pass_start.elapsed().as_millis() as u64;
         info!(
             total,
-            succeeded, failed, skipped, duration_ms, "Spider scheduler pass complete"
+            succeeded, failed, skipped, deferred, duration_ms, "Spider scheduler pass complete"
         );
 
         self.spider_perf.record(total as u64, duration_ms);
@@ -391,9 +404,9 @@ mod tests {
         ListingSourceRegistrationService, ListingSourceSyncError,
         MockListingSourceRegistrationRepository, MockListingSourceRegistrationSource,
     };
-    use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
     use crate::spider::discovery::website_spider::CrawlFailureKind;
+    use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;

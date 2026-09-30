@@ -1,6 +1,7 @@
 use super::*;
 use crate::network::policy::NetworkErrorKind;
-use crate::scraper::scraper_service::service::FetchError;
+use crate::scraper::candidate_service::SchemaSeedCandidate;
+use crate::scraper::scraper_service::{ScraperError, service::FetchError};
 
 #[tokio::test]
 async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_miss() {
@@ -102,8 +103,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service
-        .scrape(&id, &url, None, None, None, None)
+    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -163,7 +163,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
+        .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -175,8 +175,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service
-        .scrape(&id, &url, None, None, None, None)
+    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -187,7 +186,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
 }
 
 #[tokio::test]
-async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
+async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
     let id = listing_source_id();
     let url = product_url();
     let sample_seed_url = Url::parse("https://example.com/product/seed-fail").unwrap();
@@ -212,51 +211,25 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
             })
         });
 
-    let schema = listing_source_product_schemas(id);
-    let schema_for_create = schema.product_schemas.first().cloned().unwrap();
-    let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
         .returning(|_| Box::pin(async { Ok(None) }));
-    schema_svc
-        .expect_create_product_schemas()
-        .once()
-        .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
-        .returning(move |_| {
-            let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
-        });
-    schema_svc
-        .expect_save_product_schemas()
-        .once()
-        .returning(move |_, _| {
-            let s = schema_for_save.clone();
-            Box::pin(async move { Ok(s) })
-        });
-
-    let expected = prepared_product(url.clone());
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc
-        .expect_normalize()
-        .once()
-        .returning(move |_, _, _| {
-            let n = expected.clone();
-            Box::pin(async move { Ok(normalization_success(n, 0)) })
-        });
+    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_budget_increment(&mut cand_svc, 1);
     let sample_seed_url_clone = sample_seed_url.clone();
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(move |_, _, _| {
-            let sampled = vec![sample_seed_url_clone.clone()];
+        .returning(move |_, _, _, _| {
+            let sampled = vec![SchemaSeedCandidate {
+                url: sample_seed_url_clone.clone(),
+                expected_last_captured_raw_input_sha256: None,
+            }];
             Box::pin(async move { Ok(sampled) })
         });
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -267,15 +240,16 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service
-        .scrape(&id, &url, None, None, None, None)
+    let error = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
         .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        result.availability,
-        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
-    );
+        .expect_err("a domain-opening seed failure must propagate to the scheduler");
+    assert!(matches!(
+        error,
+        ScraperError::HttpError {
+            kind: NetworkErrorKind::Timeout,
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
@@ -343,8 +317,11 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(move |_, _, _| {
-            let sampled = vec![sample_seed_url_clone.clone()];
+        .returning(move |_, _, _, _| {
+            let sampled = vec![SchemaSeedCandidate {
+                url: sample_seed_url_clone.clone(),
+                expected_last_captured_raw_input_sha256: None,
+            }];
             Box::pin(async move { Ok(sampled) })
         });
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
@@ -358,11 +335,14 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service
-        .scrape(&id, &url, Some(r"/products/"), None, None, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let result = with_test_scrape_domain(service.scrape(normal_request_with_pattern(
+        &id,
+        &url,
+        r"/products/",
+    )))
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         result.availability,
         ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
@@ -423,11 +403,11 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        1,
+        3,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service.scrape(&id, &url, None, None, None, None).await;
+    let result = with_test_scrape_domain(service.scrape(primary_only_request(&id, &url))).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_some());
 }

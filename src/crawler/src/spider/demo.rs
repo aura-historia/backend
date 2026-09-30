@@ -90,7 +90,7 @@ enum DemoError {
 
 const DEFAULT_CRAWL_ROOT_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
-/// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
+/// Spider demo pool size: query connections for concurrent crawler work.
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 #[tokio::main]

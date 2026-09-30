@@ -121,7 +121,7 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     );
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
 
@@ -172,7 +172,7 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
     );
 
     let err = service
-        .scrape(&id, &url, Some(r"/items/"), None, None, None)
+        .scrape(primary_only_request_with_pattern(&id, &url, r"/items/"))
         .await
         .unwrap_err();
 

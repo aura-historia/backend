@@ -97,7 +97,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap();
     assert!(result.is_some());
@@ -143,7 +143,7 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
     );
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -201,7 +201,7 @@ async fn should_fail_when_fresh_schema_application_fails() {
     );
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -262,7 +262,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
     );
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -356,7 +356,7 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     .with_removed_page_schema_repository(Box::new(removed_repo));
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
 
@@ -428,15 +428,12 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     );
 
     let err = service
-        .scrape(
-            &id,
-            &url,
-            None,
-            None,
-            None,
-            Some(expected_last_captured_raw_input_sha256.as_slice()),
-        )
+        .scrape(ScrapeRequest {
+            expected_last_captured_raw_input_sha256: Some(expected_last_captured_raw_input_sha256),
+            ..primary_only_request(&id, &url)
+        })
         .await
+        .result
         .unwrap_err();
 
     assert!(matches!(err, ScraperError::NotProductPage { .. }));
@@ -510,7 +507,7 @@ async fn should_reject_low_confidence_fresh_classification(
     .with_removed_page_schema_repository(Box::new(removed_repo));
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -595,7 +592,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
     );
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
 

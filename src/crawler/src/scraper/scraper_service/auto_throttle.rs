@@ -75,6 +75,23 @@ impl DomainLatency {
                 }
             });
     }
+
+    fn record_failure(&self, latency_us: f64, alpha: f64) {
+        let previous_count = self.samples.fetch_add(1, Ordering::Relaxed);
+        if previous_count == 0 {
+            self.ema_us.store(latency_us.to_bits(), Ordering::Relaxed);
+            return;
+        }
+
+        let _ = self
+            .ema_us
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+                let previous = f64::from_bits(bits);
+                let calculated = previous + alpha * (latency_us - previous);
+                let next = calculated.max(previous);
+                Some(next.to_bits())
+            });
+    }
 }
 
 pub struct ScraperAutoThrottle {
@@ -93,6 +110,19 @@ impl ScraperAutoThrottle {
     }
 
     pub fn record_latency(&self, domain: &str, latency: Duration) {
+        self.record_success_latency(domain, latency);
+    }
+
+    pub fn record_success_latency(&self, domain: &str, latency: Duration) {
+        self.record_with(domain, latency, false);
+    }
+
+    pub fn record_failure_latency(&self, domain: &str, latency: Duration) {
+        self.record_with(domain, latency, true);
+    }
+
+    fn record_with(&self, raw_domain: &str, latency: Duration, failure: bool) {
+        let domain = crate::network::policy::canonical_crawler_domain(raw_domain);
         if domain.is_empty() {
             return;
         }
@@ -101,16 +131,24 @@ impl ScraperAutoThrottle {
         let access_counter = self.access_counter.fetch_add(1, Ordering::Relaxed);
         let alpha = self.config.alpha.clamp(0.01, 1.0);
 
-        if let Some(entry) = self.domains.get(domain) {
+        if let Some(entry) = self.domains.get(&domain) {
             entry.last_access.store(access_counter, Ordering::Relaxed);
-            entry.record(latency_us, alpha);
+            if failure {
+                entry.record_failure(latency_us, alpha);
+            } else {
+                entry.record(latency_us, alpha);
+            }
             return;
         }
 
         self.maybe_evict();
         let entry = DomainLatency::new(access_counter);
-        entry.record(latency_us, alpha);
-        self.domains.insert(domain.to_string(), entry);
+        if failure {
+            entry.record_failure(latency_us, alpha);
+        } else {
+            entry.record(latency_us, alpha);
+        }
+        self.domains.insert(domain, entry);
     }
 
     pub fn delay_for(&self, domain: &str) -> Duration {
@@ -118,7 +156,8 @@ impl ScraperAutoThrottle {
             return Duration::ZERO;
         }
 
-        let Some(entry) = self.domains.get(domain) else {
+        let domain = crate::network::policy::canonical_crawler_domain(domain);
+        let Some(entry) = self.domains.get(&domain) else {
             return self.config.min_delay;
         };
 
@@ -134,7 +173,8 @@ impl ScraperAutoThrottle {
     }
 
     pub fn latency_ms(&self, domain: &str) -> Option<f64> {
-        self.domains.get(domain).and_then(|entry| {
+        let domain = crate::network::policy::canonical_crawler_domain(domain);
+        self.domains.get(&domain).and_then(|entry| {
             if entry.samples.load(Ordering::Relaxed) == 0 {
                 None
             } else {
@@ -238,5 +278,36 @@ mod tests {
         throttle.record_latency("b.com", Duration::from_millis(1000));
 
         assert!(throttle.delay_for("a.com") < throttle.delay_for("b.com"));
+    }
+
+    #[test]
+    fn fast_failure_cannot_make_a_domain_look_faster() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            target_concurrency: 1.0,
+            min_delay: Duration::ZERO,
+            max_delay: Duration::from_secs(60),
+            ..Default::default()
+        });
+
+        throttle.record_success_latency("example.com", Duration::from_secs(1));
+        let before_failure = throttle.delay_for("example.com");
+        throttle.record_failure_latency("example.com", Duration::from_millis(50));
+
+        assert!(throttle.delay_for("example.com") >= before_failure);
+    }
+
+    #[test]
+    fn auto_throttle_uses_canonical_www_domain_identity() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            min_delay: Duration::ZERO,
+            ..Default::default()
+        });
+
+        throttle.record_success_latency("www.example.com", Duration::from_millis(400));
+
+        assert_eq!(
+            throttle.latency_ms("example.com"),
+            throttle.latency_ms("www.example.com")
+        );
     }
 }

@@ -2,8 +2,13 @@ use crate::network::policy::NetworkErrorKind;
 
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::crawler_raw_input;
-use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
+use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
+use crate::scraper::scraper_service::domain::product::{
+    DomainFetchHealth, FetchFailureSource, ScrapeMode, ScrapeOutcome, ScrapeRequest,
+    ScrapedProduct, ScraperService, begin_transport_observation, current_fetch_failure,
+    current_transport_observation, domain_health_for_scraper_error, record_transport_failure,
+    record_transport_success, with_scrape_observation,
+};
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
@@ -123,38 +128,60 @@ impl ScraperServiceImpl {
 
 #[async_trait::async_trait]
 impl ScraperService for ScraperServiceImpl {
-    #[tracing::instrument(skip(self, last_scraped_hash, last_scraped_schema_fingerprint, expected_last_captured_raw_input_sha256), fields(listing_source_id = %listing_source_id, url = %url))]
-    async fn scrape(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-    ) -> Result<Option<ScrapedProduct>, ScraperError> {
-        self.scrape_with_fallback_currency(
-            listing_source_id,
-            url,
-            product_url_pattern,
-            last_scraped_hash,
-            last_scraped_schema_fingerprint,
-            expected_last_captured_raw_input_sha256,
-            None,
-        )
-        .await
-    }
+    #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
+    async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
+        if request.mode != ScrapeMode::PrimaryOnly && request.domain_id.is_none() {
+            return ScrapeOutcome {
+                result: Err(ScraperError::MissingDomainContext {
+                    url: request.url,
+                    mode: match request.mode {
+                        ScrapeMode::Normal => "normal",
+                        ScrapeMode::DomainProbe => "domain probe",
+                        ScrapeMode::PrimaryOnly => "primary-only",
+                    },
+                }),
+                domain_health: DomainFetchHealth::NotObserved,
+                fetch_failure: None,
+            };
+        }
 
-    async fn scrape_with_fallback_currency(
+        let (result, observed_domain_health, fetch_failure) = with_scrape_observation(async {
+            let result = self.scrape_request(&request).await;
+            let observed = current_transport_observation();
+            let fetch_failure = current_fetch_failure();
+            (result, observed, fetch_failure)
+        })
+        .await
+        .0;
+        let domain_health = observed_domain_health.unwrap_or_else(|| match &result {
+            Ok(_) => DomainFetchHealth::Responsive,
+            Err(error) => domain_health_for_scraper_error(error),
+        });
+        ScrapeOutcome {
+            result,
+            domain_health,
+            fetch_failure,
+        }
+    }
+}
+
+impl ScraperServiceImpl {
+    async fn scrape_request(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        product_url_pattern: Option<&str>,
-        last_scraped_hash: Option<&str>,
-        last_scraped_schema_fingerprint: Option<&str>,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
-        fallback_currency: Option<money::Currency>,
+        request: &ScrapeRequest,
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
+        let listing_source_id = &request.listing_source_id;
+        let url = &request.url;
+        let product_url_pattern = request.product_url_pattern.as_deref();
+        let last_scraped_hash = request.last_scraped_hash.as_deref();
+        let last_scraped_schema_fingerprint = request.last_scraped_schema_fingerprint.as_deref();
+        let expected_last_captured_raw_input_sha256 =
+            request.expected_last_captured_raw_input_sha256.as_deref();
+        let fallback_currency = request.fallback_currency;
+        let domain_id = request.domain_id;
+        let mode = request.mode;
+
+        begin_transport_observation();
         let domain = url
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
@@ -172,22 +199,70 @@ impl ScraperService for ScraperServiceImpl {
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, "Fetching product page HTML");
         let fetched = match self.html_fetcher.fetch(url).await {
-            Ok(fetched) => fetched,
+            Ok(fetched) => {
+                record_transport_success();
+                fetched
+            }
             Err(FetchError::Network {
-                kind: NetworkErrorKind::HttpStatus(404 | 410),
+                kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
                 details,
+            })
+            | Err(FetchError::NetworkWithMetadata {
+                kind: NetworkErrorKind::HttpStatus(status @ (404 | 410)),
+                details,
+                ..
             }) => {
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    NetworkErrorKind::HttpStatus(status),
+                    Some(status),
+                    None,
+                );
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details,
                 });
             }
             Err(FetchError::Network { kind, details }) => {
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    kind,
+                    None,
+                    None,
+                );
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
                     kind,
                     details,
                 });
+            }
+            Err(FetchError::NetworkWithMetadata {
+                kind,
+                status,
+                retry_after,
+                details,
+            }) => {
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    kind,
+                    status,
+                    retry_after,
+                );
+                return Err(ScraperError::HttpErrorWithMetadata(Box::new(
+                    HttpErrorMetadata {
+                        url: url.clone(),
+                        kind,
+                        status_code: status,
+                        retry_after,
+                        details,
+                    },
+                )));
             }
         };
         if !is_same_logical_host(url, &fetched.final_url) {
@@ -224,7 +299,14 @@ impl ScraperService for ScraperServiceImpl {
         // Obtain the effective schema set before the fast path. Selector or raw-attribute
         // changes must force extraction even when the page fragment is byte-identical.
         let listing_source_product_schemas = self
-            .obtain_schemas(listing_source_id, url, product_url_pattern, &html)
+            .obtain_schemas(
+                listing_source_id,
+                url,
+                product_url_pattern,
+                &html,
+                domain_id.as_ref(),
+                mode,
+            )
             .await?;
         let stored_schema_fingerprint = fingerprint_scraper_context(
             &listing_source_product_schemas.product_schemas,

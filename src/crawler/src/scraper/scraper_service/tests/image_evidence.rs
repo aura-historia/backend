@@ -217,8 +217,9 @@ async fn scrape_cached_schema_image_evidence(
     });
 
     service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
+        .result
         .unwrap_or_else(|error| panic!("cached schema scrape must succeed: {error}"))
         .unwrap_or_else(|| panic!("cached schema scrape must produce a capture"))
 }
@@ -420,8 +421,9 @@ async fn should_preserve_source_image_evidence_and_capture_validated_images_afte
     });
 
     let scraped = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
+        .result
         .unwrap_or_else(|error| panic!("fresh schema scrape must succeed: {error}"))
         .unwrap_or_else(|| panic!("fresh schema scrape must produce a capture"));
 

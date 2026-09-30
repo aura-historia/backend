@@ -59,8 +59,12 @@ async fn scrape_numeric_price(
     );
 
     service
-        .scrape_with_fallback_currency(&id, &url, None, None, None, None, fallback_currency)
+        .scrape(ScrapeRequest {
+            fallback_currency,
+            ..primary_only_request(&id, &url)
+        })
         .await
+        .result
         .unwrap_or_else(|error| panic!("numeric price scrape must succeed: {error}"))
         .unwrap_or_else(|| panic!("numeric price scrape must produce a raw observation"))
 }

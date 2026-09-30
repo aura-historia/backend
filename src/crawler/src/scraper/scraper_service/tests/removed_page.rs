@@ -70,7 +70,7 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
     .with_removed_page_schema_repository(Box::new(removed_repo));
 
     let err = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
 

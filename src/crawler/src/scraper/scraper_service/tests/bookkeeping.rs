@@ -70,7 +70,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
         .unwrap();

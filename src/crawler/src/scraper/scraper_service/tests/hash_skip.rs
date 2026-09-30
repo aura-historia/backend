@@ -56,15 +56,14 @@ async fn should_skip_when_only_non_main_document_content_changes() {
     );
 
     let result = service
-        .scrape(
-            &id,
-            &url,
-            None,
-            Some(&matching_hash),
-            Some(&schema_fingerprint),
-            Some(expected_raw_input_sha256.as_slice()),
-        )
+        .scrape(ScrapeRequest {
+            last_scraped_hash: Some(matching_hash),
+            last_scraped_schema_fingerprint: Some(schema_fingerprint),
+            expected_last_captured_raw_input_sha256: Some(expected_raw_input_sha256),
+            ..primary_only_request(&id, &url)
+        })
         .await
+        .result
         .unwrap();
 
     assert!(result.is_none());

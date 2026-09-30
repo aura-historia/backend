@@ -1,6 +1,7 @@
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, public_http_client,
+    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
+    network_error_kind_for_public_target_error, parse_retry_after, public_http_client,
     redirect_target,
 };
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
@@ -53,11 +54,16 @@ pub trait HtmlFetcher: Send + Sync {
 pub struct FetchedHtml {
     pub html: String,
     pub final_url: Url,
+    pub status: reqwest::StatusCode,
 }
 
 impl FetchedHtml {
-    pub fn new(html: String, final_url: Url) -> Self {
-        Self { html, final_url }
+    pub fn new(html: String, final_url: Url, status: reqwest::StatusCode) -> Self {
+        Self {
+            html,
+            final_url,
+            status,
+        }
     }
 }
 
@@ -72,12 +78,29 @@ pub enum FetchError {
         kind: NetworkErrorKind,
         details: String,
     },
+    #[error(
+        "network failure: kind={kind:?}, status={status:?}, retry_after={retry_after:?}, details={details}"
+    )]
+    NetworkWithMetadata {
+        kind: NetworkErrorKind,
+        status: Option<u16>,
+        retry_after: Option<Duration>,
+        details: String,
+    },
 }
 
 impl FetchError {
     pub(crate) fn kind(&self) -> NetworkErrorKind {
         match self {
             FetchError::Network { kind, .. } => *kind,
+            FetchError::NetworkWithMetadata { kind, .. } => *kind,
+        }
+    }
+
+    pub(crate) fn retry_after(&self) -> Option<Duration> {
+        match self {
+            FetchError::Network { .. } => None,
+            FetchError::NetworkWithMetadata { retry_after, .. } => *retry_after,
         }
     }
 }
@@ -197,9 +220,8 @@ impl ReqwestHtmlFetcher {
                 .send()
                 .await
                 .map_err(reqwest_fetch_error)?;
-            self.record_domain_latency(domain.as_deref(), started.elapsed());
-
             if response.status().is_redirection() {
+                self.record_domain_success_latency(domain.as_deref(), started.elapsed());
                 if redirect_count == HTML_MAX_REDIRECTS {
                     return Err(FetchAttemptError {
                         error: unsafe_fetch_error("redirect limit exceeded"),
@@ -218,10 +240,15 @@ impl ReqwestHtmlFetcher {
                 continue;
             }
 
-            let response = response.error_for_status().map_err(reqwest_fetch_error)?;
+            let status = response.status();
+            if !status.is_success() {
+                self.record_domain_failure_latency(domain.as_deref(), started.elapsed());
+                return Err(http_status_fetch_error(response));
+            }
+            self.record_domain_success_latency(domain.as_deref(), started.elapsed());
             let final_url = response.url().clone();
             let html = read_bounded_html(response).await?;
-            return Ok(FetchedHtml::new(html, final_url));
+            return Ok(FetchedHtml::new(html, final_url, status));
         }
 
         Err(FetchAttemptError {
@@ -276,7 +303,7 @@ impl ReqwestHtmlFetcher {
 
     fn record_domain_latency(&self, domain: Option<&str>, latency: Duration) {
         if let Some(domain) = domain {
-            self.auto_throttle.record_latency(domain, latency);
+            self.auto_throttle.record_success_latency(domain, latency);
             debug!(
                 domain,
                 latency_ms = latency.as_millis(),
@@ -284,11 +311,29 @@ impl ReqwestHtmlFetcher {
             );
         }
     }
+
+    fn record_domain_success_latency(&self, domain: Option<&str>, latency: Duration) {
+        self.record_domain_latency(domain, latency);
+    }
+
+    fn record_domain_failure_latency(&self, domain: Option<&str>, latency: Duration) {
+        if let Some(domain) = domain {
+            self.auto_throttle.record_failure_latency(domain, latency);
+            debug!(
+                domain,
+                latency_ms = latency.as_millis(),
+                "Recorded scraper fetch failure latency"
+            );
+        }
+    }
 }
 
 fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
     FetchAttemptError {
-        error: unsafe_fetch_error(error.to_string()),
+        error: FetchError::Network {
+            kind: network_error_kind_for_public_target_error(error.clone()),
+            details: error.to_string(),
+        },
     }
 }
 
@@ -304,6 +349,21 @@ fn reqwest_fetch_error(error: reqwest::Error) -> FetchAttemptError {
         error: FetchError::Network {
             kind: classify_reqwest_error(&error),
             details: error.to_string(),
+        },
+    }
+}
+
+fn http_status_fetch_error(response: reqwest::Response) -> FetchAttemptError {
+    let status = response.status();
+    FetchAttemptError {
+        error: FetchError::NetworkWithMetadata {
+            kind: NetworkErrorKind::HttpStatus(status.as_u16()),
+            status: Some(status.as_u16()),
+            retry_after: response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(parse_retry_after),
+            details: format!("HTTP status {}", status.as_u16()),
         },
     }
 }
@@ -363,6 +423,11 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
                             return Err(attempt_error.error);
                         }
                         let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                        let retry_after = attempt_error.error.retry_after();
+                        if retry_after.is_some_and(|delay| delay > self.retry_policy.max_delay) {
+                            return Err(attempt_error.error);
+                        }
+                        let backoff = retry_after.map_or(backoff, |delay| delay.max(backoff));
                         if !backoff.is_zero() {
                             sleep(backoff).await;
                         }
@@ -535,8 +600,8 @@ impl ScraperServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::{HtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode};
-    use crate::network::policy::RetryPolicy;
+    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode};
+    use crate::network::policy::{NetworkErrorKind, RetryPolicy};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
     use std::time::{Duration, Instant};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -628,7 +693,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reqwest_fetcher_ignores_retry_after_for_inline_retry_delay() {
+    async fn reqwest_fetcher_stops_inline_retries_for_long_retry_after() {
         let url = spawn_http_sequence(vec![
             "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 300\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
@@ -640,13 +705,19 @@ mod tests {
             throttle_config(Duration::ZERO),
         );
 
-        let fetched = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
+        let error = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
             .await
-            .expect("retry should ignore long Retry-After for inline backoff")
-            .unwrap();
+            .expect("long Retry-After must not block the worker")
+            .expect_err("long Retry-After must stop remaining inline attempts");
 
-        assert_eq!(fetched.html, "<html>ok</html>");
-        assert_eq!(fetched.final_url, url);
+        assert!(matches!(
+            error,
+            FetchError::NetworkWithMetadata {
+                kind: NetworkErrorKind::HttpStatus(429),
+                retry_after: Some(delay),
+                ..
+            } if delay == Duration::from_secs(300)
+        ));
     }
 
     #[tokio::test]

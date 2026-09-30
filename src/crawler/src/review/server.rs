@@ -1035,6 +1035,7 @@ mod tests {
             Ok(FetchedHtml {
                 html: "<script>alert('remote')</script>".to_string(),
                 final_url: url.clone(),
+                status: reqwest::StatusCode::OK,
             })
         }
     }

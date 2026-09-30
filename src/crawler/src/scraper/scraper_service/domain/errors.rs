@@ -5,7 +5,27 @@ use crate::scraper::css_selector::product_schema_service::ProductListingSchemaSe
 use crate::scraper::normalization::error::NormalizationError;
 use listing_source_core::ListingSourceId;
 use product_listing_normalization::NormalizationInputError;
+use std::fmt;
 use url::Url;
+
+#[derive(Debug)]
+pub struct HttpErrorMetadata {
+    pub url: Url,
+    pub kind: NetworkErrorKind,
+    pub status_code: Option<u16>,
+    pub retry_after: Option<std::time::Duration>,
+    pub details: String,
+}
+
+impl fmt::Display for HttpErrorMetadata {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "HTTP error while fetching '{}': {}",
+            self.url, self.details
+        )
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScraperError {
@@ -15,6 +35,9 @@ pub enum ScraperError {
         kind: NetworkErrorKind,
         details: String,
     },
+
+    #[error("{0}")]
+    HttpErrorWithMetadata(Box<HttpErrorMetadata>),
 
     #[error("ProductListing URL removed while fetching '{url}': {details}")]
     ProductListingRemoved { url: Url, details: String },
@@ -27,6 +50,9 @@ pub enum ScraperError {
 
     #[error("URL has no host: {url}")]
     NoHost { url: Url },
+
+    #[error("Persisted crawler domain context is required for {mode} scraping of '{url}'")]
+    MissingDomainContext { url: Url, mode: &'static str },
 
     #[error("Schema service error: {0}")]
     SchemaServiceError(#[from] ProductListingSchemaServiceError),

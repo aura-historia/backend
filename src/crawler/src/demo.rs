@@ -65,13 +65,13 @@ use crawler::service::listing_source_registration::{
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
-use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
+use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 

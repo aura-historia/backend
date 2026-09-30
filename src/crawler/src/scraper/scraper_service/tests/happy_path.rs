@@ -58,7 +58,7 @@ async fn should_return_raw_capture_and_availability_when_schema_exists_and_appli
     );
 
     let result = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
         .unwrap();
@@ -139,7 +139,7 @@ async fn should_retain_selected_raw_fields_without_canonical_product_preview() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
         .unwrap();
@@ -219,7 +219,7 @@ async fn should_preserve_raw_image_evidence_while_filtering_invalid_thumbnail_be
     );
 
     let result = service
-        .scrape(&id, &url, None, None, None, None)
+        .scrape(primary_only_request(&id, &url))
         .await
         .unwrap()
         .unwrap();

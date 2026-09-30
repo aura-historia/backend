@@ -4,8 +4,8 @@ use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
 use crate::service::listing_source_registration::ListingSourceRegistrationService;
 use crate::service::raw_capture::ProductListingRawCaptureService;
-use crate::spider::advisory_lock::LocalLockManager;
 use crate::spider::candidate_service::SpiderCandidateService;
+use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::SpiderService;
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
@@ -139,8 +139,8 @@ mod tests {
         ListingSourceRegistrationService, MockListingSourceRegistrationRepository,
         MockListingSourceRegistrationSource,
     };
-    use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
+    use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::MockSpiderService;
 
     #[tokio::test]
