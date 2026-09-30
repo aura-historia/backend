@@ -353,4 +353,23 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn should_keep_fallback_identity_based_on_the_raw_source_record_key() {
+        let mut raw = raw();
+        raw.source_listing_id.clear();
+        let prepared = prepare_product_with_raw_source_record_key(
+            raw,
+            Url::parse("https://example.com/listings/new").unwrap(),
+            "https://example.com/listings/old",
+            None,
+        )
+        .unwrap();
+        let expected = normalize_source_listing_id_with_url_sha_fallback(
+            "",
+            &Url::parse("https://example.com/listings/old").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(prepared.source_listing_id, expected);
+    }
 }

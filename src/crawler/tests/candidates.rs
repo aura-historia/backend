@@ -1,8 +1,8 @@
 use crawler::CrawlerDomainId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, ScraperCandidateService,
-    ScraperCandidateServiceImpl,
+    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectedScrapeMetadata,
+    ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{
@@ -1216,6 +1216,173 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
         "last_scraped_hash should be updated"
     );
     assert!(row.1.is_some(), "last_scraped timestamp should be set");
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity_metadata() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "redirect-move.example.com")
+            .await;
+    let original_url = url::Url::parse("https://redirect-move.example.com/old").unwrap();
+    let effective_url = url::Url::parse("https://redirect-move.example.com/new").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
+
+    assert_eq!(
+        service
+            .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+                listing_source_id,
+                original_url: original_url.clone(),
+                effective_url: effective_url.clone(),
+                hash: "redirect-hash".to_owned(),
+                schema_fingerprint: "redirect-schema".to_owned(),
+                raw_input_sha256: vec![4; 32],
+                source_listing_id: "stable-source-id".to_owned(),
+                disposition: CrawlerDisposition::Active,
+                expected_last_captured_raw_input_sha256: None,
+            })
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let row: (String, String, Option<String>) = sqlx::query_as(
+        "SELECT url, raw_source_record_key, last_source_listing_id \
+         FROM listing_source_urls WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, effective_url.as_str());
+    assert_eq!(row.1, original_url.as_str());
+    assert_eq!(row.2.as_deref(), Some("stable-source-id"));
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn redirected_scrape_should_reject_known_destination_without_mutating_rows() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "redirect-known-destination.example.com",
+    )
+    .await;
+    let original_url =
+        url::Url::parse("https://redirect-known-destination.example.com/old").unwrap();
+    let effective_url =
+        url::Url::parse("https://redirect-known-destination.example.com/new").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, domain_id, effective_url.as_str()).await;
+
+    assert!(
+        !service
+            .redirect_destination_is_available(&effective_url)
+            .await
+            .unwrap()
+    );
+    let error = service
+        .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+            listing_source_id,
+            original_url: original_url.clone(),
+            effective_url: effective_url.clone(),
+            hash: "redirect-hash".to_owned(),
+            schema_fingerprint: "redirect-schema".to_owned(),
+            raw_input_sha256: vec![5; 32],
+            source_listing_id: "stable-source-id".to_owned(),
+            disposition: CrawlerDisposition::Active,
+            expected_last_captured_raw_input_sha256: None,
+        })
+        .await
+        .expect_err("known destination must be deferred to reconciliation");
+    assert!(
+        error
+            .to_string()
+            .contains("reconciliation deferred to #1899")
+    );
+
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT url, raw_source_record_key FROM listing_source_urls \
+         WHERE listing_source_id = $1 ORDER BY url",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, original_url.as_str());
+    assert_eq!(rows[1].0, effective_url.as_str());
+}
+
+#[serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "redirect-identity-fence.example.com",
+    )
+    .await;
+    let original_url = url::Url::parse("https://redirect-identity-fence.example.com/old").unwrap();
+    let effective_url = url::Url::parse("https://redirect-identity-fence.example.com/new").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
+
+    service
+        .mark_as_scraped_with_source_listing_id(
+            &listing_source_id,
+            &original_url,
+            "initial-hash",
+            "initial-schema",
+            &[6; 32],
+            "SKU-1",
+            CrawlerDisposition::Active,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let conflict = service
+        .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+            listing_source_id,
+            original_url: original_url.clone(),
+            effective_url: effective_url.clone(),
+            hash: "redirect-hash".to_owned(),
+            schema_fingerprint: "redirect-schema".to_owned(),
+            raw_input_sha256: vec![7; 32],
+            source_listing_id: "SKU-2".to_owned(),
+            disposition: CrawlerDisposition::Active,
+            expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
+        })
+        .await
+        .expect_err("identity changes must be rejected");
+    assert!(conflict.to_string().contains("identity conflicts"));
+
+    assert_eq!(
+        service
+            .mark_redirected_as_scraped(RedirectedScrapeMetadata {
+                listing_source_id,
+                original_url,
+                effective_url,
+                hash: "stale-hash".to_owned(),
+                schema_fingerprint: "stale-schema".to_owned(),
+                raw_input_sha256: vec![8; 32],
+                source_listing_id: "SKU-1".to_owned(),
+                disposition: CrawlerDisposition::Active,
+                expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
+            })
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::NoopStale
+    );
 }
 
 #[serial]
