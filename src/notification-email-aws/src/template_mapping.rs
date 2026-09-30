@@ -503,7 +503,7 @@ mod tests {
             .expect("mail publisher job ends before CDK deploy")
             .0;
         let script = publisher
-            .split_once("      - name: Compile and upload templates\n")
+            .split_once("      - name: Compile and upload missing templates\n")
             .expect("mail publisher step exists")
             .1
             .split_once("        run: |\n")
@@ -516,142 +516,244 @@ mod tests {
             .join("\n");
         assert!(!script.is_empty());
 
-        struct Fixture(PathBuf);
-        impl Drop for Fixture {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
+        for case in ["missing", "existing", "mixed", "probe_error"] {
+            struct Fixture(PathBuf);
+            impl Drop for Fixture {
+                fn drop(&mut self) {
+                    let _ = fs::remove_dir_all(&self.0);
+                }
+            }
+            let fixture = Fixture(std::env::temp_dir().join(format!(
+                "notification-email-publisher-{}-{}",
+                std::process::id(),
+                SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+            )));
+            fs::create_dir(&fixture.0)?;
+            let bin = fixture.0.join("bin");
+            fs::create_dir(&bin)?;
+            let ci = fixture.0.join("ci");
+            fs::create_dir(&ci)?;
+            fs::write(
+                ci.join("s3-artifact-exists.sh"),
+                include_str!("../../../ci/s3-artifact-exists.sh"),
+            )?;
+            let mjml = fixture.0.join("mjml/node_modules/.bin/mjml");
+            fs::create_dir_all(mjml.parent().expect("MJML bin has parent"))?;
+            fs::write(
+                &mjml,
+                "#!/usr/bin/env bash\n[[ $# == 3 && $2 == -o ]] || exit 1\nprintf '%s\\n' \"$1\" >> \"$MOCK_COMPILES\"\nprintf '<html/>' > \"$3\"\n",
+            )?;
+            fs::set_permissions(&mjml, fs::Permissions::from_mode(0o755))?;
+            let aws = bin.join("aws");
+            fs::write(
+                &aws,
+                r#"#!/usr/bin/env bash
+set -euo pipefail
+[[ $# -ge 1 && $1 == s3api ]] || exit 2
+shift
+operation="$1"
+shift
+case "$operation" in
+  head-object)
+    [[ $# == 4 && $1 == --bucket && $2 == mail && $3 == --key ]] || exit 2
+    key="$4"
+    grep -Fxq -- "$key" "$MOCK_KEYS" || exit 2
+    printf '%s\n' "$key" >> "$MOCK_PROBES"
+    if [[ $MOCK_PROBE_ERROR == true ]]; then
+      echo 'An error occurred (AccessDenied) when calling the HeadObject operation: Forbidden' >&2
+      exit 1
+    fi
+    if grep -Fxq -- "$key" "$MOCK_EXISTING"; then
+      exit 0
+    fi
+    echo 'An error occurred (404) when calling the HeadObject operation: Not Found' >&2
+    exit 1
+    ;;
+  put-object)
+    [[ $# == 10 && $1 == --bucket && $2 == mail && $3 == --key && $5 == --body && $7 == --if-none-match && $8 == '*' && $9 == --tagging && ${10} == stage=dev ]] || exit 2
+    key="$4"
+    body="$6"
+    grep -Fxq -- "$key" "$MOCK_KEYS" || exit 2
+    [[ $body == "dist/emails/${key#dev/$DEPLOY_COMMIT_SHA/}" && -s $body ]] || exit 2
+    printf 's3api put-object --bucket mail --key %s --body %s --if-none-match * --tagging stage=dev\n' "$key" "$body" >> "$MOCK_UPLOADS"
+    ;;
+  *) exit 2 ;;
+esac
+"#,
+            )?;
+            fs::set_permissions(&aws, fs::Permissions::from_mode(0o755))?;
+
+            let families = [
+                (
+                    EmailTemplateType::WatchlistUpdatePrice,
+                    "watchlist/product-update/price",
+                ),
+                (
+                    EmailTemplateType::WatchlistUpdateAvailability,
+                    "watchlist/product-update/availability",
+                ),
+                (EmailTemplateType::SearchFilterMatch, "search-filter/match"),
+                (
+                    EmailTemplateType::PartnershipApplicationApproval,
+                    "partnership-application/approval",
+                ),
+                (
+                    EmailTemplateType::PartnershipApplicationRejection,
+                    "partnership-application/rejection",
+                ),
+            ];
+            let languages = [
+                (EmailLanguage::De, "de"),
+                (EmailLanguage::En, "en"),
+                (EmailLanguage::Fr, "fr"),
+                (EmailLanguage::Es, "es"),
+                (EmailLanguage::It, "it"),
+            ];
+            let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mjml");
+            let mut expected = BTreeSet::new();
+            let mut missing = BTreeSet::new();
+            let mut expected_compiles = BTreeSet::new();
+            let mut all_keys = String::new();
+            let mut existing_keys = String::new();
+            for (family_index, (template_type, family)) in families.into_iter().enumerate() {
+                for (language_index, (language, code)) in languages.into_iter().enumerate() {
+                    let source = format!("mjml/{family}/{code}.mjml");
+                    let output = format!("dist/emails/mjml/{family}/{code}.html");
+                    let key = format!("dev/{SHA}/mjml/{family}/{code}.html");
+                    assert_eq!(key, s3_template_key("dev", SHA, template_type, language));
+                    let target = fixture.0.join(&source);
+                    fs::create_dir_all(target.parent().expect("template has parent"))?;
+                    fs::copy(
+                        source_root.join(family).join(format!("{code}.mjml")),
+                        target,
+                    )?;
+                    all_keys.push_str(&format!("{key}\n"));
+                    let is_existing = case == "existing"
+                        || (case == "mixed"
+                            && (family_index * languages.len() + language_index).is_multiple_of(2));
+                    if is_existing {
+                        existing_keys.push_str(&format!("{key}\n"));
+                    } else if case != "probe_error" {
+                        missing.insert(format!(
+                            "s3api put-object --bucket mail --key {key} --body {output} --if-none-match * --tagging stage=dev"
+                        ));
+                        expected_compiles.insert(source);
+                    }
+                    expected.insert(key);
+                }
+            }
+            assert_eq!(expected.len(), 25);
+            fs::write(fixture.0.join("keys"), all_keys)?;
+            fs::write(fixture.0.join("existing"), existing_keys)?;
+            let git_init = Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&fixture.0)
+                .output()?;
+            assert!(
+                git_init.status.success(),
+                "git init: {}",
+                String::from_utf8_lossy(&git_init.stderr)
+            );
+            let git_add = Command::new("git")
+                .args(["add", "--", "mjml"])
+                .current_dir(&fixture.0)
+                .output()?;
+            assert!(
+                git_add.status.success(),
+                "git add: {}",
+                String::from_utf8_lossy(&git_add.stderr)
+            );
+
+            let uploads = fixture.0.join("uploads");
+            let probes = fixture.0.join("probes");
+            let compiles = fixture.0.join("compiles");
+            let result = Command::new("bash")
+                .args(["-c", &script])
+                .current_dir(&fixture.0)
+                .env("STAGE", "dev")
+                .env("DEPLOY_COMMIT_SHA", SHA)
+                .env("BUCKET", "mail")
+                .env("MOCK_UPLOADS", &uploads)
+                .env("MOCK_PROBES", &probes)
+                .env("MOCK_COMPILES", &compiles)
+                .env("MOCK_KEYS", fixture.0.join("keys"))
+                .env("MOCK_EXISTING", fixture.0.join("existing"))
+                .env("MOCK_PROBE_ERROR", (case == "probe_error").to_string())
+                .env(
+                    "PATH",
+                    format!("{}:{}", bin.display(), std::env::var("PATH")?),
+                )
+                .output()?;
+            assert_eq!(
+                result.status.success(),
+                case != "probe_error",
+                "{case} publisher: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            if case == "probe_error" {
+                assert!(String::from_utf8_lossy(&result.stderr).contains("AccessDenied"));
+            }
+            let read_log = |path: &PathBuf| -> Result<String, std::io::Error> {
+                if path.exists() {
+                    fs::read_to_string(path)
+                } else {
+                    Ok(String::new())
+                }
+            };
+            let actual = read_log(&uploads)?;
+            let published: BTreeSet<_> = actual.lines().collect();
+            assert_eq!(
+                actual.lines().count(),
+                missing.len(),
+                "{case} uploads: {actual}"
+            );
+            assert_eq!(
+                published,
+                missing.iter().map(String::as_str).collect(),
+                "{case}"
+            );
+            let probed = read_log(&probes)?;
+            assert_eq!(
+                probed.lines().count(),
+                if case == "probe_error" { 1 } else { 25 },
+                "{case} probes: {probed}"
+            );
+            if case != "probe_error" {
+                assert_eq!(
+                    probed.lines().collect::<BTreeSet<_>>(),
+                    expected.iter().map(String::as_str).collect(),
+                    "{case} probe keys"
+                );
+            }
+            let compiled = read_log(&compiles)?;
+            assert_eq!(
+                compiled.lines().count(),
+                expected_compiles.len(),
+                "{case} compiles: {compiled}"
+            );
+            assert_eq!(
+                compiled.lines().collect::<BTreeSet<_>>(),
+                expected_compiles.iter().map(String::as_str).collect(),
+                "{case} compile sources"
+            );
+            assert!(
+                fixture
+                    .0
+                    .join("mjml/watchlist/product-update/price/en.mjml")
+                    .is_file()
+            );
+            for key in &expected {
+                let relative = key
+                    .strip_prefix(&format!("dev/{SHA}/"))
+                    .expect("stage/SHA prefix");
+                let source = format!("{}.mjml", relative.strip_suffix(".html").expect("HTML key"));
+                assert_eq!(
+                    fixture.0.join(format!("dist/emails/{relative}")).is_file(),
+                    expected_compiles.contains(&source),
+                    "{case} generated HTML for {key}"
+                );
             }
         }
-        let fixture = Fixture(std::env::temp_dir().join(format!(
-            "notification-email-publisher-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
-        )));
-        fs::create_dir(&fixture.0)?;
-        let bin = fixture.0.join("bin");
-        fs::create_dir(&bin)?;
-        let mjml = fixture.0.join("mjml/node_modules/.bin/mjml");
-        fs::create_dir_all(mjml.parent().expect("MJML bin has parent"))?;
-        fs::write(
-            &mjml,
-            "#!/usr/bin/env bash\n[[ $2 == -o ]] || exit 1\nprintf '<html/>' > \"$3\"\n",
-        )?;
-        fs::set_permissions(&mjml, fs::Permissions::from_mode(0o755))?;
-        let aws = bin.join("aws");
-        fs::write(
-            &aws,
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$MOCK_UPLOADS\"\n",
-        )?;
-        fs::set_permissions(&aws, fs::Permissions::from_mode(0o755))?;
-
-        let families = [
-            (
-                EmailTemplateType::WatchlistUpdatePrice,
-                "watchlist/product-update/price",
-            ),
-            (
-                EmailTemplateType::WatchlistUpdateAvailability,
-                "watchlist/product-update/availability",
-            ),
-            (EmailTemplateType::SearchFilterMatch, "search-filter/match"),
-            (
-                EmailTemplateType::PartnershipApplicationApproval,
-                "partnership-application/approval",
-            ),
-            (
-                EmailTemplateType::PartnershipApplicationRejection,
-                "partnership-application/rejection",
-            ),
-        ];
-        let languages = [
-            (EmailLanguage::De, "de"),
-            (EmailLanguage::En, "en"),
-            (EmailLanguage::Fr, "fr"),
-            (EmailLanguage::Es, "es"),
-            (EmailLanguage::It, "it"),
-        ];
-        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mjml");
-        let mut expected = BTreeSet::new();
-        for (template_type, family) in families {
-            for (language, code) in languages {
-                let source = format!("mjml/{family}/{code}.mjml");
-                let output = format!("dist/emails/mjml/{family}/{code}.html");
-                let key = format!("dev/{SHA}/mjml/{family}/{code}.html");
-                assert_eq!(key, s3_template_key("dev", SHA, template_type, language));
-                let target = fixture.0.join(&source);
-                fs::create_dir_all(target.parent().expect("template has parent"))?;
-                fs::copy(
-                    source_root.join(family).join(format!("{code}.mjml")),
-                    target,
-                )?;
-                expected.insert(format!(
-                    "s3api put-object --bucket mail --key {key} --body {output} --tagging stage=dev"
-                ));
-            }
-        }
-        assert_eq!(expected.len(), 25);
-        let git_init = Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&fixture.0)
-            .output()?;
-        assert!(
-            git_init.status.success(),
-            "git init: {}",
-            String::from_utf8_lossy(&git_init.stderr)
-        );
-        let git_add = Command::new("git")
-            .args(["add", "--", "mjml"])
-            .current_dir(&fixture.0)
-            .output()?;
-        assert!(
-            git_add.status.success(),
-            "git add: {}",
-            String::from_utf8_lossy(&git_add.stderr)
-        );
-
-        let uploads = fixture.0.join("uploads");
-        let result = Command::new("bash")
-            .args(["-c", &script])
-            .current_dir(&fixture.0)
-            .env("STAGE", "dev")
-            .env("DEPLOY_COMMIT_SHA", SHA)
-            .env("BUCKET", "mail")
-            .env("MOCK_UPLOADS", &uploads)
-            .env(
-                "PATH",
-                format!("{}:{}", bin.display(), std::env::var("PATH")?),
-            )
-            .output()?;
-        assert!(
-            result.status.success(),
-            "publisher: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        let actual = fs::read_to_string(uploads)?;
-        assert_eq!(
-            actual.lines().count(),
-            25,
-            "publisher must upload exactly 25 templates: {actual}"
-        );
-        let published: BTreeSet<_> = actual.lines().collect();
-        assert_eq!(
-            published.len(),
-            25,
-            "publisher uploaded unexpected or duplicate keys: {actual}"
-        );
-        assert_eq!(published, expected.iter().map(String::as_str).collect());
-        assert!(
-            fixture
-                .0
-                .join("mjml/watchlist/product-update/price/en.mjml")
-                .is_file()
-        );
-        assert!(
-            fixture
-                .0
-                .join("dist/emails/mjml/watchlist/product-update/price/en.html")
-                .is_file()
-        );
         Ok(())
     }
 
