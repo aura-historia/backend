@@ -17,7 +17,6 @@ use product_listing_service::use_cases::{
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
-use url::Url;
 
 /// One crawler observation prepared for durable raw capture.
 #[derive(Debug, Clone)]
