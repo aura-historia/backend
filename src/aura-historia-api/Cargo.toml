@@ -87,6 +87,8 @@ watchlist-service = { workspace = true }
 woocommerce-service = { workspace = true }
 
 [dev-dependencies]
+aws-smithy-runtime-api = { workspace = true }
+aws-smithy-types = { workspace = true }
 base64 = { workspace = true }
 mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
@@ -98,4 +100,5 @@ serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["aura-historia-api", "opensearch", "postgres"] }
 time = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6"

@@ -14,6 +14,7 @@ use lambda_runtime::LambdaEvent;
 use listing_source_core::Domain;
 use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
+use product_listing_ingestion_sqs::with_publication_deadline;
 use product_listing_normalization::{RawProductListingProvenance, SourcePayload};
 use product_listing_service::ports::{
     ProductListingRawIngestionMethod, ProductListingRawProviderReceipt,
@@ -43,6 +44,14 @@ const SQS_DELIVERY_ID_PREFIX: &str = "sqs:";
 const SHOPIFY_SUBMISSION_IDENTITY_DOMAIN: &[u8] = b"aura.shopify.ingestion.delivery.v1";
 const INVOCATION_BUDGET_CAP: Duration = Duration::from_secs(30);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
+const FORWARD_REPORT_HEADROOM: Duration = Duration::from_millis(300);
+
+/// Capture this before credential refresh; per-record scopes can only shorten it.
+pub fn publication_deadline(context: &lambda_runtime::Context) -> tokio::time::Instant {
+    let budget =
+        LambdaInvocationBudget::from_context(context, INVOCATION_BUDGET_CAP, RESPONSE_HEADROOM);
+    tokio::time::Instant::now() + budget.remaining().saturating_sub(FORWARD_REPORT_HEADROOM)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MessageOutcome {
@@ -436,7 +445,11 @@ pub async fn handler(
         };
         match tokio::time::timeout(
             budget.remaining(),
-            process_event(event, &context, processor, &message_id),
+            with_publication_deadline(
+                tokio::time::Instant::now()
+                    + budget.remaining().saturating_sub(FORWARD_REPORT_HEADROOM),
+                process_event(event, &context, processor, &message_id),
+            ),
         )
         .await
         {

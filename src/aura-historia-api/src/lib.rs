@@ -95,7 +95,9 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
-use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
+use product_listing_ingestion_sqs::{
+    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+};
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use listing_source_postgres::{
@@ -1408,9 +1410,10 @@ async fn app_state_from_config_and_pool(
         SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
-    let submit_product_listing_ingestion = Arc::new(
-        SubmitPartnerProductListingIngestionHandler::new(ingestion_publisher),
-    );
+    let submit_product_listing_ingestion =
+        Arc::new(SubmitPartnerProductListingIngestionHandler::new(
+            ScopedSqsProductListingIngestionPublisher::new(ingestion_publisher),
+        ));
     let authorize_woocommerce_product = AuthorizeProductListingRawCaptureHandler::new(
         unit_of_work.clone(),
         SqlxPartnerProductListingAuthorizerFactory::new(),

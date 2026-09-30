@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-09-29 — Async partner idempotency header validation (R2)
+
+- Async POST/PATCH/PUT/DELETE now reject a supplied `Idempotency-Key` containing a comma, including comma-joined HTTP API v2 header values, with request-level `400 BAD_HEADER_VALUE` before publication. Native duplicate headers remain invalid. The accepted grammar is 1–128 visible ASCII bytes excluding comma (`^[\x21-\x2B\x2D-\x7E]{1,128}$`); omitted keys are still generated for evaluated submissions.
+
 ## 2026-09-29 — WooCommerce webhook shared-queue admission (#1865)
 
 - `POST /api/v1/webhooks/woocommerce/{listingSourceId}` keeps required partner bearer/capability checks, source configuration lookup, and WooCommerce HMAC over the exact untouched request bytes. Authorized ignored create/update statuses remain bodyless no-op `204` without queue submission or provider receipt, after an immediate partner/source grant check. Mapped commands check the current partner/source grant in the consumer. For mapped observations, bodyless `204` means **confirmed admission** of one `CAPTURE_RAW` command to the shared ProductListing FIFO, not raw capture or canonical completion.

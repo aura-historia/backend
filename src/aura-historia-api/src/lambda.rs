@@ -6,6 +6,7 @@ use axum::{
 };
 use lambda_http::RequestExt;
 use platform_lambda_bootstrap::{LambdaInvocationBudget, log_invocation_start};
+use product_listing_ingestion_sqs::with_publication_deadline;
 use std::{future::Future, time::Duration};
 use tower::ServiceExt;
 
@@ -29,18 +30,26 @@ where
                         LAMBDA_RESPONSE_HEADROOM,
                     )
                 });
-                let app = match compose_router_with_budget(
-                    budget.as_ref().map(LambdaInvocationBudget::remaining),
-                    router_for_invocation,
-                )
-                .await?
-                {
-                    Some(app) => app,
-                    None => return Ok(request_timeout_response()),
+                let execute = async {
+                    let app = match compose_router_with_budget(
+                        budget.as_ref().map(LambdaInvocationBudget::remaining),
+                        router_for_invocation,
+                    )
+                    .await?
+                    {
+                        Some(app) => app,
+                        None => return Ok(request_timeout_response()),
+                    };
+                    handle_http_api_v2_request(app, request)
+                        .await
+                        .map_err(|error| error.to_string())
                 };
-                handle_http_api_v2_request(app, request)
-                    .await
-                    .map_err(|error| error.to_string())
+                match budget.as_ref() {
+                    Some(budget) => {
+                        with_publication_deadline(publication_deadline(budget), execute).await
+                    }
+                    None => execute.await,
+                }
             }
         },
     ))
@@ -86,9 +95,22 @@ pub async fn handle_http_api_v2_request(
     let request = axum_request(request)?;
 
     Ok(match budget {
-        Some(budget) => response_with_budget(app, request, budget.remaining()).await,
+        Some(budget) => {
+            with_publication_deadline(
+                publication_deadline(&budget),
+                response_with_budget(app, request, budget.remaining()),
+            )
+            .await
+        }
         None => response_from_app(app, request).await,
     })
+}
+
+fn publication_deadline(budget: &LambdaInvocationBudget) -> tokio::time::Instant {
+    tokio::time::Instant::now()
+        + budget
+            .remaining()
+            .saturating_sub(crate::transport::PUBLICATION_REPORT_HEADROOM)
 }
 
 async fn response_with_budget(app: Router, request: Request, budget: Duration) -> Response {

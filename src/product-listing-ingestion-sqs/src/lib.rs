@@ -3,4 +3,7 @@
 pub mod codec;
 pub mod publisher;
 
-pub use publisher::SqsProductListingIngestionPublisher;
+pub use publisher::{
+    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+    with_publication_deadline,
+};

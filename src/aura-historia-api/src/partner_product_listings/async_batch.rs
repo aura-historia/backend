@@ -90,6 +90,10 @@ pub(super) fn idempotency_key(
     let value = value.to_str().map_err(|_| {
         ApiError::bad_request(BAD_HEADER_VALUE).with_header_field("Idempotency-Key")
     })?;
+    // HTTP API v2 can fold repeated header values into one comma-delimited value.
+    if value.contains(',') {
+        return Err(ApiError::bad_request(BAD_HEADER_VALUE).with_header_field("Idempotency-Key"));
+    }
     ProductListingIngestionIdempotencyKey::new(value)
         .map(Some)
         .map_err(|_| ApiError::bad_request(BAD_HEADER_VALUE).with_header_field("Idempotency-Key"))
@@ -389,10 +393,39 @@ mod tests {
         headers.append(IDEMPOTENCY_KEY, HeaderValue::from_static("second"));
         assert!(idempotency_key(&headers).is_err());
         headers.clear();
-        headers.insert(IDEMPOTENCY_KEY, HeaderValue::from_static("contains space"));
-        assert!(idempotency_key(&headers).is_err());
+        for invalid in ["contains space", "first,second", "first, second", ","] {
+            headers.insert(IDEMPOTENCY_KEY, HeaderValue::from_str(invalid).unwrap());
+            let error = idempotency_key(&headers).unwrap_err();
+            assert_eq!(error.code(), BAD_HEADER_VALUE, "{invalid}");
+        }
         headers.insert(IDEMPOTENCY_KEY, HeaderValue::from_static("okay"));
         assert_eq!(idempotency_key(&headers).unwrap().unwrap().as_str(), "okay");
+    }
+
+    #[test]
+    fn http_key_grammar_covers_visible_ascii_except_comma() {
+        let mut headers = HeaderMap::new();
+        for byte in 0x21..=0x7e {
+            let value = HeaderValue::from_bytes(&[byte]).unwrap();
+            headers.insert(IDEMPOTENCY_KEY, value);
+            assert_eq!(
+                idempotency_key(&headers).is_ok(),
+                byte != b',',
+                "byte {byte}"
+            );
+        }
+        headers.insert(IDEMPOTENCY_KEY, HeaderValue::from_static(""));
+        assert!(idempotency_key(&headers).is_err());
+        headers.insert(
+            IDEMPOTENCY_KEY,
+            HeaderValue::from_str(&"a".repeat(128)).unwrap(),
+        );
+        assert!(idempotency_key(&headers).is_ok());
+        headers.insert(
+            IDEMPOTENCY_KEY,
+            HeaderValue::from_str(&"a".repeat(129)).unwrap(),
+        );
+        assert!(idempotency_key(&headers).is_err());
     }
 
     #[test]

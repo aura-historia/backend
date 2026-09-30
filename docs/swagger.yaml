@@ -12650,12 +12650,12 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: One value only; duplicate headers are invalid. Supply the same key with the unchanged ordered batch for transport retries. If absent, a key is generated and returned on evaluated reports; it cannot be recovered if that response is lost.
+      description: One value only; native duplicates and comma-joined values are invalid (`400 BAD_HEADER_VALUE`) before publication. Use 1–128 visible ASCII bytes excluding comma. Supply the same key with the unchanged ordered batch for transport retries. If absent, a key is generated and returned on evaluated reports; it cannot be recovered if that response is lost.
       schema:
         type: string
         minLength: 1
         maxLength: 128
-        pattern: '^[\x21-\x7E]{1,128}$'
+        pattern: '^[\x21-\x2B\x2D-\x7E]{1,128}$'
       example: catalog-sync-2026-09-29
     ProductListingIdPath:
       name: productListingId
@@ -12671,7 +12671,7 @@ components:
         type: string
         minLength: 1
         maxLength: 128
-        pattern: '^[\x21-\x7E]{1,128}$'
+        pattern: '^[\x21-\x2B\x2D-\x7E]{1,128}$'
       example: catalog-sync-2026-09-29
   schemas:
     ActorData:

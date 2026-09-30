@@ -5,6 +5,7 @@ use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use product_listing_ingestion_sqs::with_publication_deadline;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -20,6 +21,8 @@ const WOOCOMMERCE_DELIVERY_ID_HEADER: HeaderName =
 const IDEMPOTENCY_KEY_HEADER: HeaderName = HeaderName::from_static("idempotency-key");
 const MAX_CORRELATION_ID_LENGTH: usize = 128;
 const MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
+/// Leave time to map and serialize a bounded publisher outcome before the HTTP timeout.
+pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(300);
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const LAMBDA_REQUEST_TIMEOUT: Duration = Duration::from_secs(14);
 
@@ -76,6 +79,13 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                 ]),
         )
         .layer(axum::middleware::from_fn(request_metadata))
+        .layer(axum::middleware::from_fn(
+            move |request: Request, next: Next| async move {
+                let deadline = tokio::time::Instant::now()
+                    + request_timeout.saturating_sub(PUBLICATION_REPORT_HEADROOM);
+                with_publication_deadline(deadline, next.run(request)).await
+            },
+        ))
 }
 
 async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {

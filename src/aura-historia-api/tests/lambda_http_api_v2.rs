@@ -183,6 +183,97 @@ async fn should_acknowledge_signed_raw_woocommerce_bytes_through_the_composed_ht
 }
 
 #[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
+async fn should_reject_ambiguous_async_idempotency_keys_through_http_api_v2() {
+    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+        // Both OpenAPI request and response key schemas must match the HTTP-only grammar.
+        let swagger = include_str!("../../../docs/swagger.yaml");
+        assert_eq!(
+            swagger.matches("pattern: '^[\\x21-\\x2B\\x2D-\\x7E]{1,128}$'").count(),
+            2
+        );
+
+        let app = api_support::aura_api_app().await;
+        let source_uuid = api_support::seed_listing_source().await;
+        let source_id = ListingSourceId::try_from(source_uuid)?;
+        let user_id = api_support::seed_user("USER").await;
+        api_support::seed_partnership_membership(user_id, source_uuid).await;
+        api_support::seed_operator_partnership_listing_source_grant(source_uuid).await;
+        let token = String::from(
+            api_support::seed_access_token_for(
+                user_id,
+                std::collections::HashSet::from([Scope::ProductListingsWrite]),
+            )
+            .await,
+        );
+        let path = format!("/api/v1/listing-sources/{source_id}/product-listings/async");
+        let cases = [
+            (
+                "POST",
+                r#"[{"sourceListingId":"r2-post","title":{"text":"R2","language":"en"},"description":{"text":"R2","language":"en"},"url":"https://partner.example/r2","images":[]}]"#,
+            ),
+            ("PATCH", r#"[{"sourceListingId":"r2-patch"}]"#),
+            ("PUT", r#"[{"sourceListingId":"r2-put"}]"#),
+            ("DELETE", r#"[{"sourceListingId":"r2-delete"}]"#),
+        ];
+        let allowed_keys = ["!".to_owned(), "a".repeat(128), "+".to_owned(), "~".to_owned()];
+        let oversized_key = "a".repeat(129);
+        for ((method, body), allowed_key) in cases.into_iter().zip(allowed_keys) {
+            let previous_count = api_support::captured_ingestion_messages(source_id).len();
+            // HTTP API v2 has a single string per header; Gateway may fold duplicates with commas.
+            for invalid_key in ["first,second", "first, second", ",", "has space", &oversized_key] {
+                let request = http_api_v2_json_request_with_key(
+                    method, &path, &token, body, Some(invalid_key),
+                )?;
+                let response = handle_http_api_v2_request(app.clone(), request).await?;
+                assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{method}: {invalid_key}");
+                assert!(response.headers().get("idempotency-key").is_none());
+                let problem: serde_json::Value =
+                    serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
+                assert_eq!("BAD_HEADER_VALUE", problem["error"], "{method}: {invalid_key}");
+                assert_eq!("Idempotency-Key", problem["source"]["field"]);
+                assert_eq!(previous_count, api_support::captured_ingestion_messages(source_id).len());
+            }
+
+            // An in-memory request can carry native duplicates, even though v2's JSON map cannot.
+            let mut duplicates = http_api_v2_json_request(method, &path, &token, body)?;
+            duplicates.headers_mut().append(
+                "idempotency-key",
+                axum::http::HeaderValue::from_static("first"),
+            );
+            duplicates.headers_mut().append(
+                "idempotency-key",
+                axum::http::HeaderValue::from_static("second"),
+            );
+            let response = handle_http_api_v2_request(app.clone(), duplicates).await?;
+            assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{method}: duplicates");
+            let problem: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
+            assert_eq!("BAD_HEADER_VALUE", problem["error"]);
+            assert_eq!(previous_count, api_support::captured_ingestion_messages(source_id).len());
+
+            let request = http_api_v2_json_request_with_key(
+                method, &path, &token, body, Some(&allowed_key),
+            )?;
+            let response = handle_http_api_v2_request(app.clone(), request).await?;
+            assert_eq!(StatusCode::ACCEPTED, response.status(), "{method}");
+            assert_eq!(
+                Some(allowed_key.as_str()),
+                response.headers().get("idempotency-key").and_then(|value| value.to_str().ok())
+            );
+            let report: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await?)?;
+            assert_eq!(1, report["acceptedCount"], "{method}");
+            assert_eq!(serde_json::json!([]), report["failures"]);
+            assert_eq!(previous_count + 1, api_support::captured_ingestion_messages(source_id).len());
+        }
+        Ok(())
+    }
+    .await;
+
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
 async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_adapter() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let app = api_support::aura_api_app().await;
@@ -312,7 +403,17 @@ fn http_api_v2_json_request(
     access_token: &str,
     body: &str,
 ) -> Result<lambda_http::Request, lambda_http::Error> {
-    let event = serde_json::json!({
+    http_api_v2_json_request_with_key(method, path, access_token, body, None)
+}
+
+fn http_api_v2_json_request_with_key(
+    method: &str,
+    path: &str,
+    access_token: &str,
+    body: &str,
+    key: Option<&str>,
+) -> Result<lambda_http::Request, lambda_http::Error> {
+    let mut event = serde_json::json!({
         "version": "2.0",
         "routeKey": "$default",
         "rawPath": path,
@@ -336,6 +437,9 @@ fn http_api_v2_json_request(
         "body": body,
         "isBase64Encoded": false
     });
+    if let Some(key) = key {
+        event["headers"]["idempotency-key"] = serde_json::json!(key);
+    }
     Ok(lambda_http::request::from_str(&event.to_string())?
         .with_lambda_context(context_with_remaining(Duration::from_secs(60))))
 }

@@ -1,6 +1,7 @@
 //! FIFO SQS transport for service-prepared product-listing ingestion commands.
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     time::Duration,
 };
 
@@ -35,6 +36,54 @@ pub struct SqsProductListingIngestionPublisher {
 pub struct InvocationProductListingIngestionPublisher<'a> {
     publisher: &'a SqsProductListingIngestionPublisher,
     deadline: tokio::time::Instant,
+}
+
+// A deadline belongs to the executing invocation future, never to the warm SDK client.
+tokio::task_local! {
+    static PUBLICATION_DEADLINE: tokio::time::Instant;
+}
+
+/// Scope the absolute deadline to this future. Nested scopes may shorten, but never extend it.
+pub async fn with_publication_deadline<T>(
+    deadline: tokio::time::Instant,
+    future: impl Future<Output = T>,
+) -> T {
+    let deadline = PUBLICATION_DEADLINE
+        .try_with(|enclosing| deadline.min(*enclosing))
+        .unwrap_or(deadline);
+    PUBLICATION_DEADLINE.scope(deadline, future).await
+}
+
+/// Use only at budgeted runtime boundaries. Missing scope is a configuration error, not a
+/// license to start the reusable publisher's full default budget.
+pub struct ScopedSqsProductListingIngestionPublisher {
+    publisher: SqsProductListingIngestionPublisher,
+}
+
+impl ScopedSqsProductListingIngestionPublisher {
+    pub fn new(publisher: SqsProductListingIngestionPublisher) -> Self {
+        Self { publisher }
+    }
+}
+
+#[async_trait::async_trait]
+impl ProductListingIngestionPublisher for ScopedSqsProductListingIngestionPublisher {
+    async fn publish(
+        &self,
+        commands: Vec<ProductListingIngestionMessage>,
+    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
+        let deadline = PUBLICATION_DEADLINE
+            .try_with(|deadline| *deadline)
+            .map_err(|_| {
+                ProductListingIngestionPublishError::new(std::io::Error::other(
+                    "ingestion publication deadline not installed",
+                ))
+            })?;
+        self.publisher
+            .with_deadline(deadline)
+            .publish(commands)
+            .await
+    }
 }
 
 impl SqsProductListingIngestionPublisher {
@@ -526,6 +575,9 @@ async fn wait_for_retry(attempt: usize, deadline: tokio::time::Instant) -> bool 
     tokio::time::sleep(delay).await;
     tokio::time::Instant::now() < deadline
 }
+
+#[cfg(test)]
+mod sdk_tests;
 
 #[cfg(test)]
 mod tests {

@@ -34,6 +34,10 @@ tracing = { workspace = true }
 html-to-markdown-rs = { workspace = true }
 
 [dev-dependencies]
+aws-smithy-runtime-api = { workspace = true }
+aws-smithy-types = { workspace = true }
+http = { workspace = true }
+tokio = { workspace = true, features = ["sync", "test-util", "time"] }
 auction-postgres = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }
