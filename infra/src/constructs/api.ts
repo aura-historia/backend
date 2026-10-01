@@ -74,8 +74,8 @@ const apiRoutes = (
  * entry here cannot expose it through API Gateway.
  */
 export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/health", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/ready", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/health", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/ready", ["GET"]),
 
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}", ["GET"]),

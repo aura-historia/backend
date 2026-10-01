@@ -31,8 +31,8 @@ info:
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Every canonical API response includes\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
-    \ Both headers are CORS-exposed.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /health` is a\
-    \ process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
+    \ Both headers are CORS-exposed.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /api/v1/health` is a\
+    \ process liveness check. `GET /api/v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
     \ endpoints\n\n- **Development:** `https://api.stage.aura-historia.com`\n- **Production:** `https://api.aura-historia.com`\n\
@@ -53,6 +53,32 @@ servers:
   - url: https://api.aura-historia.com
     description: Production environment
 paths:
+  /api/v1/health:
+    get:
+      summary: Check process liveness
+      description: Returns the fixed `ok` response without checking dependencies.
+      operationId: getHealth
+      tags: [Operations]
+      security: []
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            text/plain:
+              schema: { type: string }
+              example: "ok\n"
+  /api/v1/ready:
+    get:
+      summary: Check service readiness
+      description: Returns no diagnostic body when readiness fails.
+      operationId: getReadiness
+      tags: [Operations]
+      security: []
+      responses:
+        "204":
+          description: The readiness check succeeded.
+        "503":
+          description: The readiness check failed or timed out; no diagnostic body is returned.
   /api/v1/auctions:
     get:
       summary: List public Auctions
@@ -17479,6 +17505,8 @@ x-tagGroups:
       - OAuth
 
 tags:
+  - name: Operations
+    description: Public process liveness and service readiness probes.
   - name: Auctions
     description: Public Auction discovery, catalogue reads, and administrator Auction management.
   - name: ProductListings

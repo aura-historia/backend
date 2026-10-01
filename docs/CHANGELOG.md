@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-09-30 — Versioned health and readiness probes (#1907)
+
+- Moved the anonymous main API probes to `GET /api/v1/health` and `GET /api/v1/ready`; removed the old `/health` and `/ready` paths. Health remains liveness-only and returns `200` with `ok\n`.
+- Readiness retains its PostgreSQL and OpenSearch checks and returns `204` when ready or `503` when a dependency fails or the check times out. Responses do not expose sensitive readiness diagnostics.
+
 ## 2026-09-29 — Async partner idempotency header validation (R2)
 
 - Async POST/PATCH/PUT/DELETE now reject a supplied `Idempotency-Key` containing a comma, including comma-joined HTTP API v2 header values, with request-level `400 BAD_HEADER_VALUE` before publication. Native duplicate headers remain invalid. The accepted grammar is 1–128 visible ASCII bytes excluding comma (`^[\x21-\x2B\x2D-\x7E]{1,128}$`); omitted keys are still generated for evaluated submissions.

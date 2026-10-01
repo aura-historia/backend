@@ -222,13 +222,13 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut event: serde_json::Value =
             serde_json::from_str(include_str!("../tests/fixtures/http_api_v2_health.json"))?;
-        event["routeKey"] = "GET /health".into();
+        event["routeKey"] = "GET /api/v1/health".into();
         event["requestContext"]["stage"] = "dev".into();
-        event["requestContext"]["http"]["path"] = "/dev/health".into();
+        event["requestContext"]["http"]["path"] = "/dev/api/v1/health".into();
         event["headers"]["host"] = "api.stage.aura-historia.com".into();
         event["rawQueryString"] = "probe=1".into();
         let app = Router::new().route(
-            "/health",
+            "/api/v1/health",
             get(|request: Request| async move {
                 (
                     StatusCode::OK,
@@ -237,7 +237,7 @@ mod tests {
             }),
         );
 
-        for path in ["/health", "/dev/health"] {
+        for path in ["/api/v1/health", "/dev/api/v1/health"] {
             event["rawPath"] = path.into();
             let request = lambda_http::request::from_str(&event.to_string())?;
             let response = handle_http_api_v2_request(app.clone(), request).await?;
@@ -248,7 +248,7 @@ mod tests {
             );
         }
 
-        event["rawPath"] = "/other/health".into();
+        event["rawPath"] = "/other/api/v1/health".into();
         let request = lambda_http::request::from_str(&event.to_string())?;
         let response = handle_http_api_v2_request(app, request).await?;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -263,7 +263,7 @@ mod tests {
         ))?
         .with_lambda_context(context_with_remaining(Duration::ZERO));
         let app = Router::new().route(
-            "/health",
+            "/api/v1/health",
             get(|| async {
                 std::future::pending::<()>().await;
                 StatusCode::NO_CONTENT

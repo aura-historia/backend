@@ -213,7 +213,7 @@ mod tests {
             "/api/v1/listing-sources/by-slug/{listingSourceSlugId}",
             safe_request_path("/api/v1/listing-sources/by-slug/private-source-slug"),
         );
-        assert_eq!("/health", safe_request_path("/health"));
+        assert_eq!("/api/v1/health", safe_request_path("/api/v1/health"));
     }
 
     #[tokio::test]

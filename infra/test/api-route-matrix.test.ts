@@ -68,7 +68,7 @@ function axumRouteKeys(): string[] {
     let match: RegExpExecArray | null;
     while ((match = routeStart.exec(source))) {
       const routePath = match[1];
-      if (!routePath.startsWith("/api/v1/") && routePath !== "/health" && routePath !== "/ready") {
+      if (!routePath.startsWith("/api/v1/")) {
         continue;
       }
       const nextRoute = source.indexOf(".route(", routeStart.lastIndex);
@@ -115,10 +115,24 @@ describe("HTTP API route policy matrix", () => {
 
     expect(catalog).toHaveLength(100);
     expect(new Set(catalog).size).toBe(catalog.length);
-    expect(catalog.filter((key) => !key.endsWith(" /health") && !key.endsWith(" /ready")))
-      .toEqual(swagger);
+    expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
+  });
+
+  test("documents anonymous versioned probes with their body contracts", () => {
+    const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");
+    const health = swagger.split("  /api/v1/health:\n")[1]?.split(/\n  \//)[0];
+    const ready = swagger.split("  /api/v1/ready:\n")[1]?.split(/\n  \//)[0];
+
+    expect(health).toContain("security: []");
+    expect(health).toContain('"200":');
+    expect(health).toContain("text/plain:");
+    expect(health).toContain('example: "ok\\n"');
+    expect(ready).toContain("security: []");
+    expect(ready).toContain('"204":');
+    expect(ready).toContain('"503":');
+    expect(ready).not.toContain("content:");
   });
 
   test("adds only POST, PATCH, PUT and DELETE on the exact async route with application bearer and Partner policy", () => {
@@ -193,9 +207,23 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.WooCommerceSignature,
       }),
     }));
-    const healthRoutes = API_ROUTE_CATALOG.filter((route) => ["/health", "/ready"].includes(route.path));
-    expect(healthRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual(["GET /health", "GET /ready"]);
-    for (const route of healthRoutes) {
+    const probeRoutes = API_ROUTE_CATALOG.filter((route) =>
+      ["/api/v1/health", "/api/v1/ready", "/health", "/ready"].includes(route.path));
+    expect(probeRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual([
+      "GET /api/v1/health",
+      "GET /api/v1/ready",
+    ]);
+    expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
+      method: "GET",
+      path: "/api/v1/health",
+    }));
+    expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
+      method: "GET",
+      path: "/api/v1/ready",
+    }));
+    expect(API_ROUTE_CATALOG.map((route) => routeKey(route.method, route.path))).not.toContain("GET /health");
+    expect(API_ROUTE_CATALOG.map((route) => routeKey(route.method, route.path))).not.toContain("GET /ready");
+    for (const route of probeRoutes) {
       expect(route.auth).toBe(RouteAuthPolicy.Anonymous);
       expect(route.policy).toEqual({
         bearer: "NONE",
