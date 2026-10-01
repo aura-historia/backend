@@ -279,7 +279,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            "public, max-age=0, s-maxage=300",
+            "public, max-age=0, s-maxage=300, stale-if-error=0",
             response.headers()[header::CACHE_CONTROL]
         );
         let vary = response.headers()[header::VARY].to_str().unwrap();

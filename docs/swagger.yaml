@@ -128,7 +128,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: "Bounded newest-first Auction directory. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
+          description: "Bounded newest-first Auction directory. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -148,7 +148,7 @@ paths:
           description: Strict `auc_` UUIDv7 TypeID.
       responses:
         "200":
-          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
+          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -178,7 +178,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
+          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -2077,7 +2077,7 @@ paths:
         `productListingTitleSlugId`, derived from its title. Withdrawn listings
         return `404 PRODUCT_LISTING_NOT_FOUND`; this endpoint never returns `410`.
         Anonymous successful 200 responses without Authorization use
-        `public, max-age=0, s-maxage=120`; any request with Authorization and all
+        `public, max-age=0, s-maxage=120, stale-if-error=0`; any request with Authorization and all
         non-200 responses use `private, no-store`.
       operationId: getProductListingByTitleSlug
       tags:
@@ -2113,7 +2113,7 @@ paths:
             Cache-Control:
               description: Anonymous edge freshness is 120 seconds; credential-bearing responses are private and not stored.
               schema: { type: string }
-              example: public, max-age=0, s-maxage=120
+              example: public, max-age=0, s-maxage=120, stale-if-error=0
           content:
             application/json:
               schema:
@@ -2162,7 +2162,7 @@ paths:
         Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
 
         current display pricing may change when the selected persisted FX snapshot changes. An anonymous successful
-        200 response without Authorization uses `public, max-age=0, s-maxage=120`; any request with Authorization and
+        200 response without Authorization uses `public, max-age=0, s-maxage=120, stale-if-error=0`; any request with Authorization and
         all non-200 responses use `private, no-store`.
 
 
@@ -2210,7 +2210,7 @@ paths:
             Cache-Control:
               description: Anonymous edge freshness is 120 seconds; credential-bearing responses are private and not stored.
               schema: { type: string }
-              example: public, max-age=0, s-maxage=120
+              example: public, max-age=0, s-maxage=120, stale-if-error=0
             Content-Language:
               description: The language of the returned content
               schema:
@@ -2285,12 +2285,12 @@ paths:
             example: pl_5xdb465tg1enarx2knf04mxbxj
       responses:
         "200":
-          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema:
                 type: string
-              example: public, max-age=0, s-maxage=300
+              example: public, max-age=0, s-maxage=300, stale-if-error=0
           content:
             application/json:
               schema:
@@ -2390,7 +2390,7 @@ paths:
 
         sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
 
-        `userState`. Ready anonymous 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization uses `private, no-store`. The `202 EmbeddingPending` response and all errors are always `private, no-store`.
+        `userState`. Ready anonymous 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization uses `private, no-store`. The `202 EmbeddingPending` response and all errors are always `private, no-store`.
 
         "
       operationId: getSimilarProductListings
@@ -2425,7 +2425,7 @@ paths:
           headers:
             Cache-Control:
               schema: { type: string }
-              example: public, max-age=0, s-maxage=300
+              example: public, max-age=0, s-maxage=300, stale-if-error=0
           content:
             application/json:
               schema:
@@ -2480,7 +2480,7 @@ paths:
         "Performs canonical ProductListing search with query parameters. Text queries combine BM25 and embedding
         KNN retrieval when embedding generation succeeds; otherwise the backend falls back to BM25. Explicit non-score sorts
         use BM25. Any request with an Authorization header is private and not stored, including valid credentials that add
-        user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60`; errors use `private, no-store`.
+        user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60, stale-if-error=0`; errors use `private, no-store`.
         `language` defaults to `en` and `currency` defaults to `EUR`."
       operationId: simpleSearchProductListings
       tags:
@@ -2762,7 +2762,7 @@ paths:
               description: Anonymous responses without Authorization are shared for 60 seconds; credential-bearing responses are private and not stored.
               schema:
                 type: string
-              example: public, max-age=0, s-maxage=60
+              example: public, max-age=0, s-maxage=60, stale-if-error=0
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -10536,11 +10536,11 @@ paths:
           description: Opaque URL-safe base64 continuation from this endpoint. Omit on the first page and restart after a query or size change.
       responses:
         "200":
-          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema: { type: string }
-              example: public, max-age=0, s-maxage=300
+              example: public, max-age=0, s-maxage=300, stale-if-error=0
           content:
             application/json:
               schema:
@@ -10585,11 +10585,11 @@ paths:
           description: Exact persisted immutable ListingSource slug.
       responses:
         "200":
-          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300, stale-if-error=0`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema: { type: string }
-              example: public, max-age=0, s-maxage=300
+              example: public, max-age=0, s-maxage=300, stale-if-error=0
           content:
             application/json:
               schema:

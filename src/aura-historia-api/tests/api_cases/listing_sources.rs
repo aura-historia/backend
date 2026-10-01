@@ -63,7 +63,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         .unwrap_or_else(|error| panic!("get public ListingSource collection: {error}"));
     assert_eq!(reqwest::StatusCode::OK, collection_response.status());
     assert_eq!(
-        Some("public, max-age=0, s-maxage=300"),
+        Some("public, max-age=0, s-maxage=300, stale-if-error=0"),
         collection_response
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
@@ -94,7 +94,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         .unwrap_or_else(|error| panic!("get public ListingSource slug detail: {error}"));
     assert_eq!(reqwest::StatusCode::OK, detail_response.status());
     assert_eq!(
-        Some("public, max-age=0, s-maxage=300"),
+        Some("public, max-age=0, s-maxage=300, stale-if-error=0"),
         detail_response
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
@@ -153,7 +153,7 @@ async fn should_return_terminal_empty_public_collection_for_insufficient_query()
     assert_eq!(json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
     assert_eq!(
-        Some("public, max-age=0, s-maxage=300".to_owned()),
+        Some("public, max-age=0, s-maxage=300, stale-if-error=0".to_owned()),
         cache_control
     );
 }
@@ -221,7 +221,7 @@ async fn should_page_all_public_listing_source_search_results_without_duplicates
             .unwrap_or_else(|error| panic!("get public ListingSource page: {error}"));
         assert_eq!(reqwest::StatusCode::OK, response.status());
         assert_eq!(
-            Some("public, max-age=0, s-maxage=300"),
+            Some("public, max-age=0, s-maxage=300, stale-if-error=0"),
             response
                 .headers()
                 .get(reqwest::header::CACHE_CONTROL)

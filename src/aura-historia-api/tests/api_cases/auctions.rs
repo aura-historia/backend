@@ -281,7 +281,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     let (directory_status, directory_body) = json_response(directory).await;
     assert_eq!(reqwest::StatusCode::OK, directory_status);
     assert_eq!(
-        Some("public, max-age=0, s-maxage=60".to_owned()),
+        Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
         directory_cache_control
     );
     assert_eq!(
@@ -305,7 +305,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     let (detail_status, detail_body) = json_response(detail).await;
     assert_eq!(reqwest::StatusCode::OK, detail_status);
     assert_eq!(
-        Some("public, max-age=0, s-maxage=60".to_owned()),
+        Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
         detail_cache_control
     );
     assert_eq!(json!(auction_id.to_string()), detail_body["auctionId"]);
@@ -328,7 +328,7 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     let (catalogue_status, catalogue_body) = json_response(catalogue).await;
     assert_eq!(reqwest::StatusCode::OK, catalogue_status);
     assert_eq!(
-        Some("public, max-age=0, s-maxage=60".to_owned()),
+        Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
         catalogue_cache_control
     );
     assert_eq!(json!(5), catalogue_body["pageSize"]);

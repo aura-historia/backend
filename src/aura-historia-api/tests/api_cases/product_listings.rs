@@ -106,7 +106,7 @@ async fn should_get_product_details_by_id() {
     assert!(body["item"].get("currency").is_none());
     assert!(body.get("userState").is_none());
     assert_eq!(
-        Some("public, max-age=0, s-maxage=120".to_owned()),
+        Some("public, max-age=0, s-maxage=120, stale-if-error=0".to_owned()),
         cache_control
     );
 }
@@ -524,7 +524,7 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
     );
     assert_eq!(id_body, slug_body);
     assert_eq!(
-        Some("public, max-age=0, s-maxage=120".to_owned()),
+        Some("public, max-age=0, s-maxage=120, stale-if-error=0".to_owned()),
         id_cache_control
     );
     assert_eq!(id_cache_control, slug_cache_control);
@@ -752,7 +752,7 @@ async fn should_get_product_listing_history_by_id() {
             .is_some_and(|value| value.starts_with("ls_"))
     );
     assert_eq!(
-        Some("public, max-age=0, s-maxage=300".to_owned()),
+        Some("public, max-age=0, s-maxage=300, stale-if-error=0".to_owned()),
         cache_control
     );
 }
@@ -1022,7 +1022,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     );
     assert!(first_body["searchAfter"]["searchAfter"].is_array());
     assert_eq!(
-        Some("public, max-age=0, s-maxage=60".to_owned()),
+        Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
         cache_control
     );
 
@@ -1042,7 +1042,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(
-        Some("public, max-age=0, s-maxage=60".to_owned()),
+        Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
         second_cache_control
     );
     assert_eq!(json!(2), second_body["size"]);

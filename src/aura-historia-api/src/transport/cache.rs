@@ -58,7 +58,6 @@ pub(crate) fn apply_transport_policy(
     }
 
     if has_no_store_directive(response.headers()) {
-        merge_cache_vary(response.headers_mut());
         return response;
     }
 
@@ -83,7 +82,7 @@ fn has_no_store_directive(headers: &HeaderMap) -> bool {
 
 fn write_public_cache_control(response: &mut Response, approval: ApprovedPublicCache) -> bool {
     let value = format!(
-        "public, max-age=0, s-maxage={}",
+        "public, max-age=0, s-maxage={}, stale-if-error=0",
         approval.shared_ttl_seconds
     );
     let Ok(value) = HeaderValue::from_str(&value) else {
@@ -181,7 +180,21 @@ mod tests {
             let response = apply_transport_policy(&HeaderMap::new(), response);
 
             assert_eq!(value, response.headers()[header::CACHE_CONTROL]);
+            assert!(response.headers().get(header::VARY).is_none());
         }
+
+        let mut response = Response::new(axum::body::Body::empty());
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
+            .headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+
+        let response = apply_transport_policy(&HeaderMap::new(), response);
+
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!("Accept-Encoding", response.headers()[header::VARY]);
     }
 
     #[test]
@@ -219,6 +232,21 @@ mod tests {
 
             assert_eq!(PRIVATE_NO_STORE, response.headers()[header::CACHE_CONTROL]);
         }
+    }
+
+    #[test]
+    fn should_disable_stale_if_error_for_approved_public_responses() {
+        let response = anonymous_shared_success(
+            Response::new(axum::body::Body::empty()),
+            &HeaderMap::new(),
+            true,
+            60,
+        );
+
+        assert_eq!(
+            "public, max-age=0, s-maxage=60, stale-if-error=0",
+            response.headers()[header::CACHE_CONTROL]
+        );
     }
 
     #[test]

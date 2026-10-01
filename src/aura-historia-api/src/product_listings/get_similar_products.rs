@@ -305,7 +305,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            "public, max-age=0, s-maxage=300",
+            "public, max-age=0, s-maxage=300, stale-if-error=0",
             response.headers()[header::CACHE_CONTROL]
         );
         let body = body_json(response).await?;

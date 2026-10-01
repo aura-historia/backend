@@ -33,7 +33,7 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
         let response = handle_http_api_v2_request(app.clone(), request).await?;
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            Some("public, max-age=0, s-maxage=300"),
+            Some("public, max-age=0, s-maxage=300, stale-if-error=0"),
             response
                 .headers()
                 .get(axum::http::header::CACHE_CONTROL)
