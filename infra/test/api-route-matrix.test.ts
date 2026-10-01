@@ -46,6 +46,16 @@ function routeKey(method: string, routePath: string): string {
   return `${method.toUpperCase()} ${normalizePath(routePath)}`;
 }
 
+function matchesSelectiveCacheBehavior(path: string): boolean {
+  return (
+    path === "/api/v1/listing-sources" ||
+    path.startsWith("/api/v1/listing-sources/by-slug/") ||
+    path === "/api/v1/auctions" ||
+    path.startsWith("/api/v1/auctions/") ||
+    path === "/api/v1/product-listings" ||
+    path.startsWith("/api/v1/product-listings/")
+  );
+}
 
 function catalogRouteKeys(): string[] {
   return API_ROUTE_CATALOG.map((definition) => routeKey(definition.method, definition.path)).sort();
@@ -268,18 +278,17 @@ describe("HTTP API route policy matrix", () => {
   });
 
   test("limits selective CloudFront caching to the reviewed optional-bearer GET routes", () => {
-    const selectiveReadRoutes = API_ROUTE_CATALOG.filter((route) => route.method === "GET" && (
-      route.path === "/api/v1/listing-sources" ||
-      route.path.startsWith("/api/v1/listing-sources/by-slug/") ||
-      route.path === "/api/v1/auctions" ||
-      route.path.startsWith("/api/v1/auctions/") ||
-      route.path === "/api/v1/product-listings" ||
-      route.path.startsWith("/api/v1/product-listings/")
-    ));
-    const selectiveReadRouteKeys = selectiveReadRoutes.map((route) => routeKey(route.method, route.path)).sort();
+    const selectivePathRoutes = API_ROUTE_CATALOG.filter((route) =>
+      matchesSelectiveCacheBehavior(route.path),
+    );
+    const selectiveReadRouteKeys = selectivePathRoutes
+      .map((route) => routeKey(route.method, route.path))
+      .sort();
 
+    expect(selectivePathRoutes.every((route) => route.method === "GET")).toBe(true);
     expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS].sort());
-    expect(selectiveReadRoutes).toHaveLength(10);
+    expect(selectivePathRoutes).toHaveLength(10);
+    const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
       expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
       expect(route.policy).toEqual({

@@ -280,7 +280,10 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
         .map(ToOwned::to_owned);
     let (directory_status, directory_body) = json_response(directory).await;
     assert_eq!(reqwest::StatusCode::OK, directory_status);
-    assert_eq!(Some("no-store".to_owned()), directory_cache_control);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=60".to_owned()),
+        directory_cache_control
+    );
     assert_eq!(
         json!(auction_id.to_string()),
         directory_body["items"][0]["auctionId"]
@@ -301,7 +304,10 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
         .map(ToOwned::to_owned);
     let (detail_status, detail_body) = json_response(detail).await;
     assert_eq!(reqwest::StatusCode::OK, detail_status);
-    assert_eq!(Some("no-store".to_owned()), detail_cache_control);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=60".to_owned()),
+        detail_cache_control
+    );
     assert_eq!(json!(auction_id.to_string()), detail_body["auctionId"]);
     assert!(detail_body.get("sourceAuctionId").is_none());
     assert!(detail_body.get("expectedVersion").is_none());
@@ -321,7 +327,10 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
         .map(ToOwned::to_owned);
     let (catalogue_status, catalogue_body) = json_response(catalogue).await;
     assert_eq!(reqwest::StatusCode::OK, catalogue_status);
-    assert_eq!(Some("no-store".to_owned()), catalogue_cache_control);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=60".to_owned()),
+        catalogue_cache_control
+    );
     assert_eq!(json!(5), catalogue_body["pageSize"]);
     assert_eq!(json!([]), catalogue_body["items"]);
 }

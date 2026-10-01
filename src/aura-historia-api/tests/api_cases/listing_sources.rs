@@ -63,7 +63,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         .unwrap_or_else(|error| panic!("get public ListingSource collection: {error}"));
     assert_eq!(reqwest::StatusCode::OK, collection_response.status());
     assert_eq!(
-        Some("no-store"),
+        Some("public, max-age=0, s-maxage=300"),
         collection_response
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
@@ -94,7 +94,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         .unwrap_or_else(|error| panic!("get public ListingSource slug detail: {error}"));
     assert_eq!(reqwest::StatusCode::OK, detail_response.status());
     assert_eq!(
-        Some("no-store"),
+        Some("public, max-age=0, s-maxage=300"),
         detail_response
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
@@ -128,7 +128,7 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
         reqwest::StatusCode::UNAUTHORIZED,
         "INVALID_CREDENTIALS",
     );
-    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -152,7 +152,10 @@ async fn should_return_terminal_empty_public_collection_for_insufficient_query()
     assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
     assert_eq!(json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
-    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=300".to_owned()),
+        cache_control
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -181,7 +184,7 @@ async fn should_reject_malformed_public_listing_source_collection_queries() {
             reqwest::StatusCode::BAD_REQUEST,
             "BAD_QUERY_PARAMETER_VALUE",
         );
-        assert_eq!(Some("no-store".to_owned()), cache_control);
+        assert_eq!(Some("private, no-store".to_owned()), cache_control);
     }
 }
 
@@ -218,7 +221,7 @@ async fn should_page_all_public_listing_source_search_results_without_duplicates
             .unwrap_or_else(|error| panic!("get public ListingSource page: {error}"));
         assert_eq!(reqwest::StatusCode::OK, response.status());
         assert_eq!(
-            Some("no-store"),
+            Some("public, max-age=0, s-maxage=300"),
             response
                 .headers()
                 .get(reqwest::header::CACHE_CONTROL)
@@ -285,11 +288,11 @@ async fn should_reject_invalid_supplied_authentication_for_public_listing_source
         reqwest::StatusCode::UNAUTHORIZED,
         "INVALID_CREDENTIALS",
     );
-    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_public_slug_route_errors_with_no_store() {
+async fn should_return_public_slug_route_errors_with_private_no_store() {
     let client = reqwest::Client::new();
     let missing = client
         .get(format!(
@@ -311,7 +314,7 @@ async fn should_return_public_slug_route_errors_with_no_store() {
         reqwest::StatusCode::NOT_FOUND,
         "LISTING_SOURCE_NOT_FOUND",
     );
-    assert_eq!(Some("no-store".to_owned()), missing_cache_control);
+    assert_eq!(Some("private, no-store".to_owned()), missing_cache_control);
 
     let unexpected_query = client
         .get(format!(
@@ -333,7 +336,10 @@ async fn should_return_public_slug_route_errors_with_no_store() {
         reqwest::StatusCode::BAD_REQUEST,
         "BAD_QUERY_PARAMETER_VALUE",
     );
-    assert_eq!(Some("no-store".to_owned()), unexpected_query_cache_control);
+    assert_eq!(
+        Some("private, no-store".to_owned()),
+        unexpected_query_cache_control
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

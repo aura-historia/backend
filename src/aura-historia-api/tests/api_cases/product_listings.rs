@@ -106,7 +106,7 @@ async fn should_get_product_details_by_id() {
     assert!(body["item"].get("currency").is_none());
     assert!(body.get("userState").is_none());
     assert_eq!(
-        Some("public, max-age=180, s-maxage=900".to_owned()),
+        Some("public, max-age=0, s-maxage=120".to_owned()),
         cache_control
     );
 }
@@ -523,6 +523,10 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         "response body: {slug_body}"
     );
     assert_eq!(id_body, slug_body);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=120".to_owned()),
+        id_cache_control
+    );
     assert_eq!(id_cache_control, slug_cache_control);
 }
 
@@ -748,7 +752,7 @@ async fn should_get_product_listing_history_by_id() {
             .is_some_and(|value| value.starts_with("ls_"))
     );
     assert_eq!(
-        Some("public, max-age=180, s-maxage=900".to_owned()),
+        Some("public, max-age=0, s-maxage=300".to_owned()),
         cache_control
     );
 }
@@ -950,7 +954,7 @@ async fn should_return_pending_similar_products_by_id() {
             .map(ToOwned::to_owned)
     );
     assert_eq!(
-        Some("public, max-age=300, s-maxage=900"),
+        Some("private, no-store"),
         response
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
@@ -1018,7 +1022,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     );
     assert!(first_body["searchAfter"]["searchAfter"].is_array());
     assert_eq!(
-        Some("public, max-age=60, s-maxage=300".to_owned()),
+        Some("public, max-age=0, s-maxage=60".to_owned()),
         cache_control
     );
 
@@ -1029,9 +1033,18 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
         url_encode(&search_after)
     ))
     .await;
+    let second_cache_control = second_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
     let (second_status, second_body) = json_response(second_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(
+        Some("public, max-age=0, s-maxage=60".to_owned()),
+        second_cache_control
+    );
     assert_eq!(json!(2), second_body["size"]);
     assert_eq!(
         vec![products[2].0.clone(), products[3].0.clone()],
@@ -1592,6 +1605,11 @@ async fn should_reject_invalid_optional_product_authentication() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get product with invalid token: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -1600,6 +1618,7 @@ async fn should_reject_invalid_optional_product_authentication() {
         reqwest::StatusCode::UNAUTHORIZED,
         "INVALID_CREDENTIALS",
     );
+    assert_eq!(Some("private, no-store".to_owned()), cache_control);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

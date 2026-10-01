@@ -45,16 +45,40 @@ pub(crate) fn apply_transport_policy(
     mut response: Response,
 ) -> Response {
     let approval = response.extensions().get::<ApprovedPublicCache>().copied();
-    if let Some(approval) = approval
-        && response.status() == StatusCode::OK
-        && !request_headers.contains_key(header::AUTHORIZATION)
-        && write_public_cache_control(&mut response, approval)
-    {
+    if let Some(approval) = approval {
+        if response.status() == StatusCode::OK
+            && !request_headers.contains_key(header::AUTHORIZATION)
+            && write_public_cache_control(&mut response, approval)
+        {
+            merge_cache_vary(response.headers_mut());
+            return response;
+        }
+
+        return private_no_store(response);
+    }
+
+    if has_no_store_directive(response.headers()) {
         merge_cache_vary(response.headers_mut());
         return response;
     }
 
     private_no_store(response)
+}
+
+fn has_no_store_directive(headers: &HeaderMap) -> bool {
+    headers.get_all(header::CACHE_CONTROL).iter().any(|value| {
+        value
+            .as_bytes()
+            .split(|byte| *byte == b',')
+            .any(|directive| {
+                let directive = trim_optional_whitespace(directive);
+                let name = directive
+                    .split(|byte| *byte == b'=')
+                    .next()
+                    .unwrap_or_default();
+                trim_optional_whitespace(name).eq_ignore_ascii_case(b"no-store")
+            })
+    })
 }
 
 fn write_public_cache_control(response: &mut Response, approval: ApprovedPublicCache) -> bool {
@@ -144,6 +168,57 @@ mod tests {
             "Accept-Encoding, authorization, x-custom, ORIGIN",
             headers[header::VARY]
         );
+    }
+
+    #[test]
+    fn should_preserve_existing_no_store_cache_control_values() {
+        for value in ["no-store", "private, no-store"] {
+            let mut response = Response::new(axum::body::Body::empty());
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_str(value).unwrap());
+
+            let response = apply_transport_policy(&HeaderMap::new(), response);
+
+            assert_eq!(value, response.headers()[header::CACHE_CONTROL]);
+        }
+    }
+
+    #[test]
+    fn should_recognize_no_store_across_all_cache_control_fields() {
+        let mut response = Response::new(axum::body::Body::empty());
+        response.headers_mut().append(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=60"),
+        );
+        response.headers_mut().append(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(" PrIvAtE , NO-STORE "),
+        );
+
+        let response = apply_transport_policy(&HeaderMap::new(), response);
+        let values = response
+            .headers()
+            .get_all(header::CACHE_CONTROL)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(vec!["public, max-age=60", " PrIvAtE , NO-STORE "], values);
+    }
+
+    #[test]
+    fn should_fail_closed_for_unapproved_cache_control_directives() {
+        for value in ["public, max-age=60", "no-cache", "x-no-store=60"] {
+            let mut response = Response::new(axum::body::Body::empty());
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_str(value).unwrap());
+
+            let response = apply_transport_policy(&HeaderMap::new(), response);
+
+            assert_eq!(PRIVATE_NO_STORE, response.headers()[header::CACHE_CONTROL]);
+        }
     }
 
     #[test]

@@ -320,40 +320,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_cache_withdrawn_slug_details_for_only_one_hundred_twenty_seconds()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut view = product_details_view()?;
-        view.item.lifecycle = ListingLifecycle::Withdrawn;
-        let slug_id = view
-            .item
-            .product_listing_title_slug_id
-            .clone()
-            .ok_or("product listing fixture has a title slug")?;
-        let (app, calls) = app(view, false, None);
-
-        let response = app
-            .oneshot(
-                Request::get(format!("/api/v1/product-listings/by-slug/{slug_id}"))
-                    .body(Body::empty())?,
-            )
-            .await?;
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert_eq!(
-            "public, max-age=0, s-maxage=120",
-            response.headers()[header::CACHE_CONTROL]
-        );
-        assert!(matches!(
-            lock(&calls).as_slice(),
-            [(_, GetProductListingRequest {
-                lookup: ProductListingLookup::ByTitleSlug(actual),
-                ..
-            })] if actual == &slug_id
-        ));
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn should_pass_requested_language_to_use_case() -> Result<(), Box<dyn std::error::Error>>
     {
         let view = product_details_view()?;

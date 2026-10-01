@@ -33,7 +33,7 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
         let response = handle_http_api_v2_request(app.clone(), request).await?;
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            Some("no-store"),
+            Some("public, max-age=0, s-maxage=300"),
             response
                 .headers()
                 .get(axum::http::header::CACHE_CONTROL)
@@ -72,7 +72,7 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
         let invalid_auth_response = handle_http_api_v2_request(app, invalid_auth_request).await?;
         assert_eq!(StatusCode::UNAUTHORIZED, invalid_auth_response.status());
         assert_eq!(
-            Some("no-store"),
+            Some("private, no-store"),
             invalid_auth_response
                 .headers()
                 .get(axum::http::header::CACHE_CONTROL)
