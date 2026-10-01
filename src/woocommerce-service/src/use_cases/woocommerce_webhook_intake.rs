@@ -375,10 +375,6 @@ struct WoocommerceProductPayload {
     #[serde(default)]
     permalink: Option<String>,
     #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    short_description: Option<String>,
-    #[serde(default)]
     price: Option<String>,
     #[serde(default)]
     status: Option<String>,
@@ -405,15 +401,20 @@ impl WoocommerceProductEventKind {
     }
 
     /// Maps WooCommerce provider vocabulary to the generic persisted raw-input contract.
-    /// Unknown source object keys remain untouched in `source_payload`.
+    /// Unknown keys other than WooCommerce description fields remain in `source_payload`.
     fn raw_observation(
         self,
         source: &WoocommerceSource,
         payload: Value,
     ) -> Result<Option<WoocommerceRawObservation>, WoocommerceWebhookIntakeError> {
-        let source_payload = SourcePayload::new(payload.clone())
+        let mut sanitized_payload = payload;
+        if let Some(object) = sanitized_payload.as_object_mut() {
+            object.remove("description");
+            object.remove("short_description");
+        }
+        let source_payload = SourcePayload::new(sanitized_payload.clone())
             .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
-        let product = serde_json::from_value::<WoocommerceProductPayload>(payload)
+        let product = serde_json::from_value::<WoocommerceProductPayload>(sanitized_payload)
             .map_err(WoocommerceWebhookIntakeError::MalformedPayload)?;
         let operation = match self {
             Self::Delete => Some(RawProductListingOperation::Delete),
@@ -527,7 +528,7 @@ fn upsert_raw_values(
     let values = ProductListingRawValues {
         source_listing_id: product.id.to_string(),
         title: ProductListingRawValuesPatch::Set(title.to_owned()),
-        description: description_patch(product),
+        description: ProductListingRawValuesPatch::Unchanged,
         price_format: ProductListingRawValuesPriceFormat::MachineDecimal,
         price: string_patch(product.price.clone()),
         price_estimate_min: ProductListingRawValuesPatch::Unchanged,
@@ -571,19 +572,6 @@ fn normalization_context(
         .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)
 }
 
-fn description_patch(
-    product: &WoocommerceProductPayload,
-) -> ProductListingRawValuesPatch<Vec<String>> {
-    product
-        .description
-        .as_deref()
-        .or(product.short_description.as_deref())
-        .map(fallbacked_html_to_markdown)
-        .filter(|value| !value.is_empty())
-        .map(|value| ProductListingRawValuesPatch::Set(vec![value]))
-        .unwrap_or(ProductListingRawValuesPatch::Clear)
-}
-
 fn string_patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
     value
         .filter(|value| !value.trim().is_empty())
@@ -599,13 +587,6 @@ fn availability_patch(value: Option<&str>) -> ProductListingRawValuesPatch<Strin
             ProductListingRawValuesPatch::Set("https://schema.org/BackOrder".to_owned())
         }
         Some(_) | None => ProductListingRawValuesPatch::Unchanged,
-    }
-}
-
-fn fallbacked_html_to_markdown(html: &str) -> String {
-    match html_to_markdown_rs::convert(html, None) {
-        Ok(result) => result.content.unwrap_or_else(|| html.to_owned()),
-        Err(_) => html.to_owned(),
     }
 }
 
@@ -873,6 +854,7 @@ mod tests {
             "name": "Cabinet",
             "permalink": "https://partner.example/products/cabinet",
             "description": "<p>Cabinet description</p>",
+            "short_description": "<p>Short cabinet description</p>",
             "price": "42.00",
             "status": "publish",
             "stock_status": stock_status,
@@ -1026,6 +1008,8 @@ mod tests {
             "id": 42,
             "name": "Cabinet",
             "permalink": "https://partner.example/products/cabinet",
+            "description": "<p>Raw description bytes stay signature-bound</p>",
+            "short_description": "<p>Short raw description bytes stay signature-bound</p>",
             "status": "publish",
             "stock_status": "instock",
             "images": [],
@@ -1033,10 +1017,14 @@ mod tests {
             "futureWooKey": {"nested": true}
         }"#
         .to_vec();
-        let expected_source_evidence_sha256 =
-            *SourcePayload::new(serde_json::from_slice(&raw_body)?)?
-                .canonical_sha256()?
-                .as_bytes();
+        let mut expected_source_payload: Value = serde_json::from_slice(&raw_body)?;
+        if let Some(object) = expected_source_payload.as_object_mut() {
+            object.remove("description");
+            object.remove("short_description");
+        }
+        let expected_source_evidence_sha256 = *SourcePayload::new(expected_source_payload)?
+            .canonical_sha256()?
+            .as_bytes();
 
         intake
             .execute(
@@ -1094,6 +1082,22 @@ mod tests {
         assert_eq!(
             true,
             command.input.source_payload().value()["futureWooKey"]["nested"]
+        );
+        assert_eq!(
+            None,
+            command.input.source_payload().value().get("description")
+        );
+        assert_eq!(
+            None,
+            command
+                .input
+                .source_payload()
+                .value()
+                .get("short_description")
+        );
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            command.input.raw_values().value()["description"]
         );
         let receipt = command
             .provider_receipt
@@ -1582,6 +1586,42 @@ mod tests {
         assert_eq!(
             observation.input.source_payload().value()["futureWooKey"]["nested"],
             json!(true)
+        );
+        assert_eq!(
+            None,
+            observation
+                .input
+                .source_payload()
+                .value()
+                .get("description")
+        );
+        assert_eq!(
+            None,
+            observation
+                .input
+                .source_payload()
+                .value()
+                .get("short_description")
+        );
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            observation.input.raw_values().value()["description"]
+        );
+
+        let mut alternative_product = published_product(Some("instock"));
+        alternative_product["description"] = json!("Different description");
+        alternative_product["short_description"] = json!("Different short description");
+        let alternative = WoocommerceProductEventKind::Create
+            .raw_observation(&source(), alternative_product)
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"))
+            .unwrap_or_else(|| panic!("published product must capture"));
+        assert_eq!(
+            observation.input.raw_values().value(),
+            alternative.input.raw_values().value()
+        );
+        assert_eq!(
+            observation.input.source_payload().value(),
+            alternative.input.source_payload().value()
         );
     }
 
