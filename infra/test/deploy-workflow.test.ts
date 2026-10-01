@@ -5,6 +5,9 @@ const root = resolve(process.cwd(), "..");
 const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
 const deployWorkflow = read(".github/workflows/deploy.yml");
 const imageWorkflow = read(".github/workflows/container-images.yml");
+const integrateWorkflow = read(".github/workflows/integrate.yml");
+const cdkWorkflow = read(".github/workflows/cdk-test.yml");
+const mjmlWorkflow = read(".github/workflows/mjml-templates.yml");
 const operationWorkflows = ["migrate", "initialize"].map((operation) => ({
   operation,
   workflow: read(`.github/workflows/${operation}.yml`),
@@ -114,6 +117,47 @@ describe("release source contract", () => {
       return sha;
     });
     expect(() => resolveSource(env, unrelatedSource)).toThrow("Not an ancestor");
+  });
+});
+
+describe("change-scoped CI workflows", () => {
+  test("compiles templates only for MJML or its workflow changes", () => {
+    expect(jobNames(mjmlWorkflow)).toEqual(["mjml-compile"]);
+    const triggers = block(mjmlWorkflow, "on");
+    for (const event of ["push", "pull_request"]) {
+      const paths = block(block(triggers, event, 2), "paths", 4);
+      expect(paths).toContain('"mjml/**"');
+      expect(paths).toContain('".github/workflows/mjml-templates.yml"');
+      expect(paths).not.toContain('"src/**"');
+    }
+    expect(jobNames(integrateWorkflow)).not.toContain("mjml-compile");
+  });
+
+  test("runs CDK and deployment helper checks for their inputs but not unrelated Rust changes", () => {
+    expect(jobNames(cdkWorkflow)).toEqual(["infra-test"]);
+    const triggers = block(cdkWorkflow, "on");
+    for (const event of ["push", "pull_request"]) {
+      const paths = block(block(triggers, event, 2), "paths", 4);
+      for (const path of ["infra/**", "ci/**", "docs/swagger.yaml", "src/**/Cargo.toml", "src/aura-historia-api/src/lib.rs", ".github/workflows/deploy.yml"]) {
+        expect(paths).toContain(`"${path}"`);
+      }
+      expect(paths).not.toContain('"src/**"');
+    }
+    expect(jobNames(integrateWorkflow)).not.toContain("infra-test");
+    for (const event of ["push", "pull_request"]) {
+      const paths = block(block(integrateWorkflow, "on"), event, 2);
+      expect(paths).not.toContain('"infra/**"');
+      expect(paths).not.toContain('"mjml/**"');
+    }
+  });
+
+  test("builds container images on workspace changes and deployment workflow changes", () => {
+    const triggers = block(imageWorkflow, "on");
+    for (const event of ["push", "pull_request"]) {
+      const paths = block(block(triggers, event, 2), "paths", 4);
+      expect(paths).toContain('"src/**"');
+      expect(paths).toContain('".github/workflows/deploy.yml"');
+    }
   });
 });
 

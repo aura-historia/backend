@@ -14,8 +14,6 @@ on:
       - "sonar-project.properties"
       - "src/**"
       - "migrations/**"
-      - "infra/**"
-      - "mjml/**"
   pull_request:
     paths:
       - ".github/workflows/**"
@@ -28,9 +26,7 @@ on:
       - "sonar-project.properties"
       - "src/**"
       - "migrations/**"
-      - "infra/**"
       - "opensearch/**"
-      - "mjml/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,60 +39,6 @@ env:
   LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_API_KEY }}
 
 jobs:
-  infra-test:
-    name: Test CDK infrastructure
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-
-      - name: Install CDK dependencies
-        run: npm --prefix infra ci
-
-      - name: Type-check CDK app
-        run: npm --prefix infra run build
-
-      - name: Test CDK app and deployment helpers
-        run: |
-          npm --prefix infra test
-          node --test ci/*.test.cjs
-
-      - name: Synthesize all stacks
-        run: npm --prefix infra run synth:all
-
-  mjml-compile:
-    name: Compile MJML templates
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-
-      - name: Install pinned MJML
-        run: npm --prefix mjml ci
-
-      - name: Compile every MJML template
-        shell: bash
-        run: |
-          set -euo pipefail
-          template_count=0
-          while IFS= read -r -d '' template; do
-            mjml/node_modules/.bin/mjml "$template" --output /dev/null
-            template_count=$((template_count + 1))
-          done < <(git ls-files -z -- 'mjml/**/*.mjml')
-          test "$template_count" -gt 0
-
   lint:
     name: Lint Workspace
     permissions:
