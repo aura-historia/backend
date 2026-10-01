@@ -1,5 +1,6 @@
 use crate::auth::RequestMetadata;
 use crate::error::{ApiError, BAD_BODY_VALUE};
+pub(crate) mod cache;
 use axum::Router;
 use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
@@ -86,6 +87,13 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                 with_publication_deadline(deadline, next.run(request)).await
             },
         ))
+        .layer(axum::middleware::from_fn(cache_policy))
+}
+
+async fn cache_policy(request: Request, next: Next) -> Response {
+    let request_headers = request.headers().clone();
+    let response = next.run(request).await;
+    cache::apply_transport_policy(&request_headers, response)
 }
 
 async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {
@@ -177,6 +185,184 @@ mod tests {
         )
     }
 
+    async fn approved_public_response(headers: axum::http::HeaderMap) -> Response {
+        let mut response = StatusCode::OK.into_response();
+        response.headers_mut().insert(
+            header::VARY,
+            HeaderValue::from_static("Accept-Encoding, authorization"),
+        );
+        cache::anonymous_shared_success(response, &headers, true, 300)
+    }
+
+    async fn approved_public_response_ignoring_request_headers(
+        _headers: axum::http::HeaderMap,
+    ) -> Response {
+        cache::anonymous_shared_success(
+            StatusCode::OK.into_response(),
+            &axum::http::HeaderMap::new(),
+            true,
+            300,
+        )
+    }
+
+    async fn approved_public_response_with_non_success_status() -> Response {
+        let mut response = cache::anonymous_shared_success(
+            StatusCode::OK.into_response(),
+            &axum::http::HeaderMap::new(),
+            true,
+            300,
+        );
+        *response.status_mut() = StatusCode::ACCEPTED;
+        response
+    }
+
+    #[tokio::test]
+    async fn should_default_unmarked_responses_to_private_no_store() {
+        let response = app()
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        assert_eq!("Authorization, Origin", response.headers()[header::VARY]);
+    }
+
+    #[tokio::test]
+    async fn should_default_unmarked_client_and_server_errors_to_private_no_store() {
+        let app = with_transport_middleware(
+            Router::new()
+                .route("/400", get(|| async { StatusCode::BAD_REQUEST }))
+                .route("/500", get(|| async { StatusCode::INTERNAL_SERVER_ERROR }))
+                .route("/503", get(|| async { StatusCode::SERVICE_UNAVAILABLE })),
+            NATIVE_REQUEST_TIMEOUT,
+        );
+
+        for (path, expected_status) in [
+            ("/400", StatusCode::BAD_REQUEST),
+            ("/missing", StatusCode::NOT_FOUND),
+            ("/500", StatusCode::INTERNAL_SERVER_ERROR),
+            ("/503", StatusCode::SERVICE_UNAVAILABLE),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(expected_status, response.status(), "{path}");
+            assert_eq!(
+                "private, no-store",
+                response.headers()[header::CACHE_CONTROL],
+                "{path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_preserve_approved_public_headers_and_merge_vary() {
+        let app = with_transport_middleware(
+            Router::new().route("/", get(approved_public_response)),
+            NATIVE_REQUEST_TIMEOUT,
+        );
+        let response = app
+            .oneshot(
+                Request::get("/")
+                    .header(header::ORIGIN, "https://example.test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            "public, max-age=0, s-maxage=300, stale-if-error=0",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        let vary = response.headers()[header::VARY].to_str().unwrap();
+        let tokens = vary
+            .split(',')
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>();
+        assert!(tokens.contains(&"accept-encoding".to_owned()));
+        assert_eq!(
+            1,
+            tokens
+                .iter()
+                .filter(|token| *token == "authorization")
+                .count()
+        );
+        assert_eq!(1, tokens.iter().filter(|token| *token == "origin").count());
+    }
+
+    #[tokio::test]
+    async fn should_force_authorized_responses_private_even_if_public_was_approved() {
+        let app = with_transport_middleware(
+            Router::new().route("/", get(approved_public_response_ignoring_request_headers)),
+            NATIVE_REQUEST_TIMEOUT,
+        );
+        let response = app
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "malformed credentials")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_force_non_200_responses_private_even_if_public_was_approved() {
+        let app = with_transport_middleware(
+            Router::new().route("/", get(approved_public_response_with_non_success_status)),
+            NATIVE_REQUEST_TIMEOUT,
+        );
+        let response = app
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_mark_timeout_responses_private_no_store() {
+        let app = with_transport_middleware(
+            Router::new().route(
+                "/",
+                get(|| async {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    "late"
+                }),
+            ),
+            std::time::Duration::from_millis(50),
+        );
+        let response = app
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(StatusCode::REQUEST_TIMEOUT, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+    }
+
     #[tokio::test]
     async fn should_return_api_error_for_oversized_woocommerce_body() {
         let app = with_transport_middleware(
@@ -197,6 +383,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
         assert_eq!(
             "application/problem+json",
             response.headers()[header::CONTENT_TYPE]
@@ -384,5 +574,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(axum::http::StatusCode::PAYLOAD_TOO_LARGE, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
     }
 }

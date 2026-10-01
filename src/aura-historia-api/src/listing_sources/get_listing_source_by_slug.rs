@@ -94,7 +94,12 @@ pub async fn get_listing_source_by_slug(
                     outcome = "success",
                     "completed bounded public ListingSource read"
                 );
-                no_store(axum::Json(PublicListingSourceData::from(result)).into_response())
+                crate::transport::cache::anonymous_shared_success(
+                    axum::Json(PublicListingSourceData::from(result)).into_response(),
+                    &headers,
+                    matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+                    300,
+                )
             }
             Err(error) => no_store(ApiError::from(error).into_response()),
         },
@@ -127,16 +132,13 @@ fn overloaded_response() -> Response {
     no_store(response)
 }
 
-fn no_store(mut response: Response) -> Response {
+fn no_store(response: Response) -> Response {
     tracing::info!(
         endpoint = "public_listing_source_slug_detail",
         status = response.status().as_u16(),
         "completed public ListingSource slug-detail response"
     );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
+    crate::transport::cache::private_no_store(response)
 }
 
 #[cfg(test)]

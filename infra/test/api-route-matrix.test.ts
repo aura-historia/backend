@@ -17,6 +17,18 @@ type CloudFormationResource = {
 };
 
 const ASYNC_PATH = "/api/v1/listing-sources/{listingSourceId}/product-listings/async";
+const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
+  "GET /api/v1/listing-sources",
+  "GET /api/v1/listing-sources/by-slug/{}",
+  "GET /api/v1/auctions",
+  "GET /api/v1/auctions/{}",
+  "GET /api/v1/auctions/{}/product-listings",
+  "GET /api/v1/product-listings",
+  "GET /api/v1/product-listings/by-slug/{}",
+  "GET /api/v1/product-listings/{}",
+  "GET /api/v1/product-listings/{}/history",
+  "GET /api/v1/product-listings/{}/similar",
+];
 
 const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/lib.rs",
@@ -34,6 +46,16 @@ function routeKey(method: string, routePath: string): string {
   return `${method.toUpperCase()} ${normalizePath(routePath)}`;
 }
 
+function matchesSelectiveCacheBehavior(path: string): boolean {
+  return (
+    path === "/api/v1/listing-sources" ||
+    path.startsWith("/api/v1/listing-sources/by-slug/") ||
+    path === "/api/v1/auctions" ||
+    path.startsWith("/api/v1/auctions/") ||
+    path === "/api/v1/product-listings" ||
+    path.startsWith("/api/v1/product-listings/")
+  );
+}
 
 function catalogRouteKeys(): string[] {
   return API_ROUTE_CATALOG.map((definition) => routeKey(definition.method, definition.path)).sort();
@@ -255,6 +277,54 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
+  test("limits selective CloudFront caching to the reviewed optional-bearer GET routes", () => {
+    const selectivePathRoutes = API_ROUTE_CATALOG.filter((route) =>
+      matchesSelectiveCacheBehavior(route.path),
+    );
+    const selectiveReadRouteKeys = selectivePathRoutes
+      .map((route) => routeKey(route.method, route.path))
+      .sort();
+
+    expect(selectivePathRoutes.every((route) => route.method === "GET")).toBe(true);
+    expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS].sort());
+    expect(selectivePathRoutes).toHaveLength(10);
+    const selectiveReadRoutes = selectivePathRoutes;
+    for (const route of selectiveReadRoutes) {
+      expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
+      expect(route.policy).toEqual({
+        bearer: "OPTIONAL",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+    }
+
+    const excludedFamilies = [
+      "/api/v1/me",
+      "/api/v1/admin",
+      "/api/v1/oauth",
+      "/api/v1/health",
+      "/api/v1/ready",
+      "/api/v1/webhooks",
+      "/api/v1/newsletter-subscriptions",
+    ];
+    for (const family of excludedFamilies) {
+      expect(selectiveReadRoutes.some((route) => route.path === family || route.path.startsWith(`${family}/`))).toBe(false);
+    }
+    expect(selectiveReadRoutes.some((route) =>
+      route.path.startsWith("/api/v1/listing-sources/") && route.path.includes("/product-listings"),
+    )).toBe(false);
+
+    const wildcardFamilyGetRouteKeys = API_ROUTE_CATALOG.filter((route) => route.method === "GET" && (
+      route.path.startsWith("/api/v1/auctions/") || route.path.startsWith("/api/v1/product-listings/")
+    )).map((route) => routeKey(route.method, route.path)).sort();
+    expect(wildcardFamilyGetRouteKeys).toEqual(
+      SELECTIVE_CACHE_GET_ROUTE_KEYS.filter((key) =>
+        key.startsWith("GET /api/v1/auctions/") || key.startsWith("GET /api/v1/product-listings/"),
+      ).sort(),
+    );
+  });
+
   test.each(STAGES)("synthesizes the complete %s route matrix to one live API alias", (stage) => {
     const template = apiTemplate(stage);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route")) as CloudFormationResource[];
@@ -321,6 +391,28 @@ describe("HTTP API route policy matrix", () => {
     expect(cors.ExposeHeaders).toEqual(["Idempotency-Key"]);
   });
 
+  test("partitions identical discovery requests across two allowed production CORS origins", () => {
+    const template = apiTemplate("prod");
+    const [api] = Object.values(template.findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
+    const [cachePolicy] = Object.values(template.findResources("AWS::CloudFront::CachePolicy")) as CloudFormationResource[];
+    const cors = api.Properties.CorsConfiguration as { readonly AllowOrigins: string[] };
+    const cachePolicyConfig = cachePolicy.Properties.CachePolicyConfig as {
+      readonly ParametersInCacheKeyAndForwardedToOrigin: {
+        readonly HeadersConfig: { readonly Headers: string[] };
+      };
+    };
+    const allowedOrigins = ["https://aura-historia.com", "https://admin.shopify.com"];
+    const pathAndQuery = "/api/v1/listing-sources?query=source";
+    const cacheKeys = allowedOrigins.map((origin) => ({ pathAndQuery, origin }));
+
+    for (const origin of allowedOrigins) {
+      expect(cors.AllowOrigins).toContain(origin);
+    }
+    expect(cachePolicyConfig.ParametersInCacheKeyAndForwardedToOrigin.HeadersConfig.Headers).toContain("Origin");
+    expect(cacheKeys[0].pathAndQuery).toBe(cacheKeys[1].pathAndQuery);
+    expect(cacheKeys[0].origin).not.toBe(cacheKeys[1].origin);
+  });
+
   test.each(["dev", "prod"] as const)("imports the %s compute alias ARN for integration and permission", (stage) => {
     const app = new cdk.App({ analyticsReporting: false });
     const stacks = createApplicationStacks(app, {
@@ -384,7 +476,10 @@ describe("HTTP API route policy matrix", () => {
       })],
       ViewerCertificate: expect.objectContaining({ AcmCertificateArn: config.apiCloudFrontCertificateArn }),
       DefaultCacheBehavior: expect.objectContaining({ OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
-      CacheBehaviors: [expect.objectContaining({ OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" })],
+      CacheBehaviors: expect.arrayContaining([
+        expect.objectContaining({ PathPattern: "/api/v1/listing-sources", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
+        expect.objectContaining({ PathPattern: "/api/*", OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3" }),
+      ]),
     }));
   });
 
@@ -398,6 +493,8 @@ describe("HTTP API route policy matrix", () => {
     expect(config.apiCloudFrontCertificateArn).toBeUndefined();
     expect(Object.values(template.findResources("AWS::ApiGatewayV2::DomainName"))).toHaveLength(0);
     expect(Object.values(template.findResources("AWS::CloudFront::Distribution"))).toHaveLength(0);
+    expect(Object.values(template.findResources("AWS::CloudFront::CachePolicy"))).toHaveLength(0);
+    expect(Object.values(template.findResources("AWS::CloudFront::ResponseHeadersPolicy"))).toHaveLength(0);
   });
 
   test("OpenAPI advertises the stage API host without changing production", () => {
@@ -407,17 +504,112 @@ describe("HTTP API route policy matrix", () => {
     expect(swagger).not.toContain("api.dev.aura-historia.com");
   });
 
-  test.each(["dev", "prod"] as const)("retains the %s custom domain, CloudFront and WAF while disabling shared API caching", (stage) => {
+  test.each(["dev", "prod"] as const)("synthesizes %s selective CloudFront caching without edge auth", (stage) => {
     const template = apiTemplate(stage);
-    const distributions = Object.values(template.findResources("AWS::CloudFront::Distribution")) as CloudFormationResource[];
+    const [[cachePolicyId, cachePolicy]] = Object.entries(template.findResources("AWS::CloudFront::CachePolicy")) as [string, CloudFormationResource][];
+    const [[responseHeadersPolicyId, responseHeadersPolicy]] = Object.entries(
+      template.findResources("AWS::CloudFront::ResponseHeadersPolicy"),
+    ) as [string, CloudFormationResource][];
+    const [[distributionId, distribution]] = Object.entries(
+      template.findResources("AWS::CloudFront::Distribution"),
+    ) as [string, CloudFormationResource][];
     const domains = Object.values(template.findResources("AWS::ApiGatewayV2::DomainName")) as CloudFormationResource[];
     const mappings = Object.values(template.findResources("AWS::ApiGatewayV2::ApiMapping")) as CloudFormationResource[];
+    const distributionConfig = distribution.Properties.DistributionConfig as {
+      readonly CacheBehaviors: Record<string, unknown>[];
+      readonly CustomErrorResponses: Record<string, unknown>[];
+      readonly DefaultCacheBehavior: Record<string, unknown>;
+      readonly Origins: Record<string, unknown>[];
+    };
+    const cachePolicyConfig = cachePolicy.Properties.CachePolicyConfig as Record<string, unknown>;
+    const responseHeadersPolicyConfig = responseHeadersPolicy.Properties.ResponseHeadersPolicyConfig as Record<string, unknown>;
+    const originId = distributionConfig.Origins[0].Id;
+    const selectivePathPatterns = [
+      "/api/v1/listing-sources",
+      "/api/v1/listing-sources/by-slug/*",
+      "/api/v1/auctions",
+      "/api/v1/auctions/*",
+      "/api/v1/product-listings",
+      "/api/v1/product-listings/*",
+    ];
+    const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
+    const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];
 
     expect(domains).toHaveLength(1);
     expect(mappings).toHaveLength(1);
-    expect(distributions).toHaveLength(1);
+    expect(cachePolicyId).toBeDefined();
+    expect(responseHeadersPolicyId).toBeDefined();
+    expect(distributionId).toBeDefined();
+    expect(cachePolicyConfig).toEqual({
+      Comment: `${stage} API selective read cache`,
+      DefaultTTL: 0,
+      MaxTTL: 900,
+      MinTTL: 0,
+      Name: `api-${stage}-selective-read-cache`,
+      ParametersInCacheKeyAndForwardedToOrigin: {
+        CookiesConfig: { CookieBehavior: "none" },
+        EnableAcceptEncodingBrotli: true,
+        EnableAcceptEncodingGzip: true,
+        HeadersConfig: { HeaderBehavior: "whitelist", Headers: ["Authorization", "Origin", "Host"] },
+        QueryStringsConfig: { QueryStringBehavior: "all" },
+      },
+    });
+    expect(responseHeadersPolicyConfig).toEqual({
+      Comment: `${stage} API selective read response headers`,
+      Name: `api-${stage}-selective-read-response-headers`,
+      RemoveHeadersConfig: {
+        Items: [{ Header: "X-Request-Id" }, { Header: "X-Correlation-Id" }],
+      },
+    });
+    expect(distributionConfig.CacheBehaviors.map((behavior) => behavior.PathPattern)).toEqual([
+      ...selectivePathPatterns,
+      "/api/*",
+    ]);
+    for (const [index, behavior] of selectiveBehaviors.entries()) {
+      expect(behavior).toEqual(expect.objectContaining({
+        AllowedMethods: ["GET", "HEAD", "OPTIONS"],
+        CachedMethods: ["GET", "HEAD"],
+        CachePolicyId: { Ref: cachePolicyId },
+        Compress: true,
+        OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+        PathPattern: selectivePathPatterns[index],
+        ResponseHeadersPolicyId: { Ref: responseHeadersPolicyId },
+        TargetOriginId: originId,
+        ViewerProtocolPolicy: "redirect-to-https",
+      }));
+      expect(behavior).not.toHaveProperty("LambdaFunctionAssociations");
+      expect(behavior).not.toHaveProperty("FunctionAssociations");
+    }
+    expect(broadApiBehavior).toEqual(expect.objectContaining({
+      AllowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+      CachedMethods: ["GET", "HEAD", "OPTIONS"],
+      CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+      Compress: true,
+      OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+      PathPattern: "/api/*",
+      TargetOriginId: originId,
+      ViewerProtocolPolicy: "redirect-to-https",
+    }));
+    expect(broadApiBehavior).not.toHaveProperty("ResponseHeadersPolicyId");
+    expect(distributionConfig.DefaultCacheBehavior).toEqual(expect.objectContaining({
+      AllowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+      CachedMethods: ["GET", "HEAD"],
+      CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+      Compress: true,
+      OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+      TargetOriginId: originId,
+      ViewerProtocolPolicy: "redirect-to-https",
+    }));
+    expect(distributionConfig.DefaultCacheBehavior).not.toHaveProperty("ResponseHeadersPolicyId");
+    expect(distributionConfig.CustomErrorResponses).toEqual(
+      [400, 403, 404, 405, 414, 500, 501, 502, 503, 504].map((errorCode) => ({
+        ErrorCode: errorCode,
+        ErrorCachingMinTTL: 0,
+      })),
+    );
+    expect(distribution.Properties.DistributionConfig).toEqual(expect.objectContaining({ WebACLId: expect.anything() }));
     expect(Object.values(template.findResources("AWS::CloudFront::Function"))).toHaveLength(0);
-    expect(JSON.stringify(distributions[0].Properties)).toContain("4135ea2d-6df8-44a3-9df3-4b5a84be39ad");
-    expect(distributions[0].Properties.DistributionConfig).toEqual(expect.objectContaining({ WebACLId: expect.anything() }));
+    expect(Object.values(template.findResources("AWS::ApiGatewayV2::Authorizer"))).toHaveLength(0);
+    expect(JSON.stringify(distributionConfig)).not.toMatch(/LambdaFunctionAssociations|FunctionAssociations|Lambda@Edge/);
   });
 });

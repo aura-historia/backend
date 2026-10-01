@@ -10,7 +10,7 @@ use application::pagination::Cursor;
 use auction_core::AuctionId;
 use axum::Json;
 use axum::extract::{RawQuery, State};
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
@@ -307,24 +307,19 @@ async fn handle_search(
                 .into_iter()
                 .map(personalized_product_summary_data)
                 .collect::<Vec<_>>();
-            let mut response = Json(CursoredProductListingsData {
+            let response = Json(CursoredProductListingsData {
                 size: items.len() as u64,
                 items,
                 search_after: result.cursor.search_after.map(Into::into),
                 total: result.total,
             })
             .into_response();
-            let value = match context.principal {
-                Principal::Anonymous => "public, max-age=60, s-maxage=300",
-                Principal::User(_)
-                | Principal::DelegatedUser { .. }
-                | Principal::Service(_)
-                | Principal::System => "no-store",
-            };
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
-            response
+            crate::transport::cache::anonymous_shared_success(
+                response,
+                &headers,
+                matches!(&context.principal, Principal::Anonymous),
+                60,
+            )
         }
         Err(error) => ApiError::from(error).into_response(),
     }
@@ -529,7 +524,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            "public, max-age=60, s-maxage=300",
+            "public, max-age=0, s-maxage=60, stale-if-error=0",
             response.headers()[header::CACHE_CONTROL]
         );
         let calls = lock(&calls);
@@ -555,6 +550,26 @@ mod tests {
                 }),
             }),
             request.cursor
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_disable_shared_cache_for_any_authorization_header()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (app, _) = app();
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/product-listings")
+                    .header(header::AUTHORIZATION, "Bearer accepted-as-anonymous")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
         );
         Ok(())
     }

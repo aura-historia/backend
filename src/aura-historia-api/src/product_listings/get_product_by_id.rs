@@ -66,7 +66,7 @@ pub async fn get_product_by_id(
         )
         .await
     {
-        Ok(view) => product_response(view, &context.principal),
+        Ok(view) => product_response(view, &context.principal, &headers),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -97,7 +97,8 @@ mod tests {
     use product_listing_core::title::Title;
     use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::use_cases::{
-        DisplayProductListingPricing, GetProductListingError, GetProductListingUseCase,
+        DisplayProductListingPricing, GetProductListingError, GetProductListingHistoryError,
+        GetProductListingHistoryRequest, GetProductListingHistoryUseCase, GetProductListingUseCase,
         GetSimilarProductListingsError, GetSimilarProductListingsRequest,
         GetSimilarProductListingsResult, GetSimilarProductListingsUseCase,
         PersonalizedProductListingDetailsView, ProductListingDetailsView,
@@ -165,6 +166,22 @@ mod tests {
         }
     }
 
+    struct EmptyProductListingHistory;
+
+    #[async_trait::async_trait]
+    impl GetProductListingHistoryUseCase for EmptyProductListingHistory {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: GetProductListingHistoryRequest,
+        ) -> Result<
+            Vec<product_listing_service::use_cases::ProductListingHistoryEntry>,
+            GetProductListingHistoryError,
+        > {
+            Ok(Vec::new())
+        }
+    }
+
     struct FakeAuthenticator {
         reject: bool,
         user_id: Option<UserId>,
@@ -210,7 +227,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            "public, max-age=180, s-maxage=900",
+            "public, max-age=0, s-maxage=120, stale-if-error=0",
             response.headers()[header::CACHE_CONTROL]
         );
         assert_eq!("en", response.headers()[header::CONTENT_LANGUAGE]);
@@ -252,6 +269,53 @@ mod tests {
                 currency: Currency::Eur,
             } if actual == product_listing_id
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_cache_anonymous_product_listing_history_for_three_hundred_seconds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_listing_id = ProductListingId::new();
+        let (app, _) = app(product_details_view()?, false, None);
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/history"
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "public, max-age=0, s-maxage=300, stale-if-error=0",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_private_no_store_for_product_listing_history_with_authorization()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_listing_id = ProductListingId::new();
+        let (app, _) = app(product_details_view()?, false, Some(UserId::new()));
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/history"
+                ))
+                .header(header::AUTHORIZATION, "Bearer valid")
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
         Ok(())
     }
 
@@ -389,7 +453,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
         let body = body_json(response).await?;
         assert_eq!(true, body["userState"]["watchlist"]["watching"]);
         assert_eq!(false, body["userState"]["watchlist"]["notifications"]);
@@ -459,7 +526,8 @@ mod tests {
                 reject: reject_token,
                 user_id,
             }),
-        );
+        )
+        .with_product_listing_history(Arc::new(EmptyProductListingHistory));
         (
             Router::new()
                 .route(
@@ -470,6 +538,12 @@ mod tests {
                     "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
                     axum::routing::get(
                         crate::product_listings::get_product_by_title_slug::get_product_by_title_slug,
+                    ),
+                )
+                .route(
+                    "/api/v1/product-listings/{product_listing_id}/history",
+                    axum::routing::get(
+                        crate::product_listings::get_product_listing_history::get_product_listing_history_by_id,
                     ),
                 )
                 .with_state(state),

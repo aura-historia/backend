@@ -296,17 +296,63 @@ export class BackendHttpApi extends Construct {
 
 
     const originId = "HttpApiOrigin";
+    const cachePolicy = new cloudfront.CfnCachePolicy(this, "SelectiveReadCachePolicy", {
+      cachePolicyConfig: {
+        comment: `${props.stageName} API selective read cache`,
+        defaultTtl: 0,
+        maxTtl: 900,
+        minTtl: 0,
+        name: `api-${props.stageName}-selective-read-cache`,
+        parametersInCacheKeyAndForwardedToOrigin: {
+          cookiesConfig: { cookieBehavior: "none" },
+          enableAcceptEncodingBrotli: true,
+          enableAcceptEncodingGzip: true,
+          headersConfig: {
+            headerBehavior: "whitelist",
+            headers: ["Authorization", "Origin", "Host"],
+          },
+          queryStringsConfig: { queryStringBehavior: "all" },
+        },
+      },
+    });
+    const responseHeadersPolicy = new cloudfront.CfnResponseHeadersPolicy(this, "SelectiveReadResponseHeadersPolicy", {
+      responseHeadersPolicyConfig: {
+        comment: `${props.stageName} API selective read response headers`,
+        name: `api-${props.stageName}-selective-read-response-headers`,
+        removeHeadersConfig: {
+          items: [{ header: "X-Request-Id" }, { header: "X-Correlation-Id" }],
+        },
+      },
+    });
     const webAclArn = this.configureCloudFrontWebAcl(props);
+    const selectiveReadPathPatterns = [
+      "/api/v1/listing-sources",
+      "/api/v1/listing-sources/by-slug/*",
+      "/api/v1/auctions",
+      "/api/v1/auctions/*",
+      "/api/v1/product-listings",
+      "/api/v1/product-listings/*",
+    ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
       distributionConfig: {
         aliases: props.config.apiCloudFrontAliases,
         cacheBehaviors: [
+          ...selectiveReadPathPatterns.map((pathPattern) => ({
+            allowedMethods: ["GET", "HEAD", "OPTIONS"],
+            cachedMethods: ["GET", "HEAD"],
+            cachePolicyId: cachePolicy.ref,
+            compress: true,
+            originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
+            pathPattern,
+            responseHeadersPolicyId: responseHeadersPolicy.ref,
+            targetOriginId: originId,
+            viewerProtocolPolicy: "redirect-to-https",
+          })),
           {
             allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
             cachedMethods: ["GET", "HEAD", "OPTIONS"],
-            // API responses can be personalized by optional Aura/Cognito credentials.
-            // Disable shared edge caching rather than relying on a token-derived cache key.
+            // Keep every other API route uncached; auth and authorization remain application-owned.
             cachePolicyId: CLOUDFRONT_CACHING_DISABLED_POLICY_ID,
             compress: true,
             originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
@@ -316,6 +362,10 @@ export class BackendHttpApi extends Construct {
           },
         ],
         comment: `${props.stageName} api`,
+        customErrorResponses: [400, 403, 404, 405, 414, 500, 501, 502, 503, 504].map((errorCode) => ({
+          errorCode,
+          errorCachingMinTtl: 0,
+        })),
         defaultCacheBehavior: {
           allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
           cachedMethods: ["GET", "HEAD"],
