@@ -7,15 +7,25 @@ use api_support::{
 use base64::Engine;
 use listing_source_core::ListingSourceId;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
+use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::codec;
 use product_listing_normalization::SourcePayload;
-use product_listing_service::use_cases::{
-    ProcessProductListingIngestionUseCase, ProductListingIngestionCompletion,
-    ProductListingIngestionEffect, ProductListingIngestionIntent,
-    ProductListingIngestionNotAttemptedReason, ProductListingIngestionOperation,
-    ProductListingIngestionOutcome, ProductListingIngestionRejectionReason,
+use product_listing_postgres::{
+    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
-use serde_json::json;
+use product_listing_service::use_cases::{
+    CaptureProductListingRawObservationResult, ProcessProductListingIngestionUseCase,
+    ProductListingIngestionCompletion, ProductListingIngestionEffect,
+    ProductListingIngestionIntent, ProductListingIngestionNotAttemptedReason,
+    ProductListingIngestionOperation, ProductListingIngestionOutcome,
+    ProductListingIngestionRejectionReason,
+};
+use product_service::use_cases::{
+    NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionHandler,
+    NormalizeProductListingRawRevisionMode, NormalizeProductListingRawRevisionUseCase,
+};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use user_core::access_token::Scope;
@@ -36,12 +46,13 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             "name": "Woo Cabinet",
             "permalink": "https://partner.example/product-listings/woo-cabinet",
             "description": "<p>Cabinet description</p>",
-            "price": "42.699",
+            "short_description": "<p>Short cabinet description</p>",
+            "price": "42.69",
             "status": "publish",
             "stock_status": "instock",
             "images": [],
             "date_modified_gmt": "2026-09-06T12:34:56",
-            "futureWooKey": { "nested": true }
+            "futureWooKey": { "nested": true, "description": "Keep nested unknown data" }
         })
         .to_string();
         let response = send(
@@ -85,6 +96,24 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             command.input.source_payload().value()["futureWooKey"]["nested"]
         );
         assert_eq!(
+            json!("Keep nested unknown data"),
+            command.input.source_payload().value()["futureWooKey"]["description"]
+        );
+        let mut expected_source_payload: Value = serde_json::from_str(&body)?;
+        if let Some(object) = expected_source_payload.as_object_mut() {
+            object.remove("description");
+            object.remove("short_description");
+        }
+        assert_eq!(
+            &expected_source_payload,
+            command.input.source_payload().value()
+        );
+        assert_eq!(None, command.input.source_payload().value().get("description"));
+        assert_eq!(
+            None,
+            command.input.source_payload().value().get("short_description")
+        );
+        assert_eq!(
             json!("MACHINE_DECIMAL"),
             command.input.raw_values().value()["priceFormat"]
         );
@@ -92,13 +121,17 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             json!({"action": "SET", "value": "in stock"}),
             command.input.raw_values().value()["availability"]
         );
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            command.input.raw_values().value()["description"]
+        );
         let receipt = command
             .provider_receipt
             .as_ref()
             .ok_or("missing provider receipt")?;
         assert_eq!("product.created", receipt.scope().as_str());
         assert_eq!("delivery-1", receipt.delivery_id());
-        let digest = SourcePayload::new(serde_json::from_str(&body)?)?.canonical_sha256()?;
+        let digest = SourcePayload::new(expected_source_payload.clone())?.canonical_sha256()?;
         assert_eq!(
             digest.as_bytes(),
             receipt.source_evidence_sha256().as_bytes()
@@ -122,8 +155,9 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
         let envelope = codec::decode(&wire)?.into_service_envelope()?;
         let pool = get_postgres_client().await;
         let processor = super::async_product_listing_ingestion::processor(&pool);
+        let capture = processor.execute(envelope.clone()).await?;
         assert!(matches!(
-            processor.execute(envelope.clone()).await?,
+            &capture,
             ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
                 _
             ))
@@ -139,11 +173,27 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
         assert_eq!(stored.0, "WOOCOMMERCE");
         assert_eq!(stored.1, "17");
         assert_eq!(stored.2.as_deref(), Some("delivery-1"));
+        assert_eq!(stored.3, expected_source_payload);
         assert_eq!(stored.3["futureWooKey"]["nested"], true);
+        assert_eq!(
+            stored.3["futureWooKey"]["description"],
+            "Keep nested unknown data"
+        );
+        assert_eq!(None, stored.3.get("description"));
+        assert_eq!(None, stored.3.get("short_description"));
         assert_eq!(
             processor.execute(envelope).await?,
             ProductListingIngestionCompletion::AlreadyCompleted
         );
+        normalize_captured_revision(&pool, &capture).await?;
+        let canonical_description: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT description_text, description_language FROM product_listings \
+             WHERE listing_source_id = $1 AND source_listing_id = '17'",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!((None, None), canonical_description);
         let receipts: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM product_listing_command_receipts WHERE listing_source_id = $1",
         )
@@ -164,7 +214,83 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
         .bind(source_id.as_uuid())
         .fetch_one(&pool)
         .await?;
-        assert_eq!(listings, 0);
+        assert_eq!(listings, 1);
+
+        sqlx::query(
+            "UPDATE product_listings SET description_text = $1, description_language = $2 \
+             WHERE listing_source_id = $3 AND source_listing_id = '17'",
+        )
+        .bind("Existing canonical description")
+        .bind("en")
+        .bind(source_id.as_uuid())
+        .execute(&pool)
+        .await?;
+
+        let update_body = json!({
+            "id": 17,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet",
+            "description": "A replacement WooCommerce description",
+            "short_description": "A different short description",
+            "price": "43.00",
+            "status": "publish",
+            "stock_status": "instock",
+            "images": [],
+            "date_modified_gmt": "2026-09-07T12:34:56",
+            "futureWooKey": { "nested": true }
+        })
+        .to_string();
+        let update_response = send(
+            &source,
+            &token,
+            "product.updated",
+            &update_body,
+            Some("delivery-2"),
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, update_response.status());
+        let updated_messages = woocommerce_ingestion_messages(source_id);
+        assert_eq!(2, updated_messages.len());
+        let ProductListingIngestionIntent::CaptureRaw(update_command) = &updated_messages[1].intent else {
+            panic!("expected WooCommerce raw update capture intent");
+        };
+        assert_eq!(None, update_command.input.source_payload().value().get("description"));
+        assert_eq!(
+            None,
+            update_command.input.source_payload().value().get("short_description")
+        );
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            update_command.input.raw_values().value()["description"]
+        );
+        let update_envelope = codec::decode(&codec::encode(&updated_messages[1])?)?
+            .into_service_envelope()?;
+        let update_capture = processor.execute(update_envelope).await?;
+        assert!(matches!(
+            &update_capture,
+            ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+                _
+            ))
+        ));
+        normalize_captured_revision(&pool, &update_capture).await?;
+        let preserved_description: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT description_text, description_language FROM product_listings \
+             WHERE listing_source_id = $1 AND source_listing_id = '17'",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            (Some("Existing canonical description".to_owned()), Some("en".to_owned())),
+            preserved_description
+        );
+        let final_raw_revisions: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM product_listing_raw_revisions r JOIN product_listing_raw_streams s USING (product_listing_raw_stream_id) WHERE s.listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(2, final_raw_revisions);
         Ok(())
     }
     .await;
@@ -610,6 +736,42 @@ async fn should_report_publisher_rejections_instead_of_acknowledging_them() {
     }
     .await;
     assert_test_result(result);
+}
+
+async fn normalize_captured_revision(
+    pool: &sqlx::PgPool,
+    completion: &ProductListingIngestionCompletion,
+) -> TestResult {
+    let ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+        CaptureProductListingRawObservationResult::Changed {
+            product_listing_raw_stream_id,
+            product_listing_raw_revision_id,
+            revision,
+        },
+    )) = completion
+    else {
+        panic!("expected a changed raw revision");
+    };
+    let normalizer = NormalizeProductListingRawRevisionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    );
+    let result = normalizer
+        .execute(NormalizeProductListingRawRevisionCommand {
+            mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                product_listing_raw_stream_id: *product_listing_raw_stream_id,
+                product_listing_raw_revision_id: *product_listing_raw_revision_id,
+                revision: *revision,
+            },
+            max_revisions_per_stream: 1,
+            pending_stream_limit: 1,
+        })
+        .await?;
+    assert_eq!(1, result.revisions.len());
+    Ok(())
 }
 
 async fn assert_no_raw_rows(source: ListingSourceId) -> TestResult {

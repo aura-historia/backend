@@ -6,6 +6,10 @@ Only document REST API contract changes here. No internal changes.
 
 - Collection response `size` now reports the number of items in the returned `items` array, including `0` for an empty page. The `size` query parameter still controls the requested page limit.
 
+## 2026-10-01 — Ignore WooCommerce webhook descriptions (#1920)
+
+- WooCommerce `description` and `short_description` remain accepted provider fields but no longer update Aura's canonical product description and are omitted from persisted raw source evidence. The provider-receipt evidence digest is based on that sanitized payload; HMAC verification continues to use the exact untouched request bytes.
+
 ## 2026-10-01 — Optional partner product-listing create text (#1916)
 
 - Partner `CreateProductListingData` no longer requires `title` or `description`; both may be omitted or sent as `null`, in line with upsert, service commands, and the ProductListing domain model. Sync and async create share this contract.

@@ -3,8 +3,8 @@ mod types;
 pub use types::{
     ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyListingAction,
     ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
-    ShopifyRawObservation, ShopifyVariantPayload, fallbacked_html_to_markdown,
-    product_availability, source_occurred_at_from_triggered_at,
+    ShopifyRawObservation, ShopifyVariantPayload, product_availability,
+    source_occurred_at_from_triggered_at,
 };
 
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
