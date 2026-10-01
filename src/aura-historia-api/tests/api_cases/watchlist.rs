@@ -217,7 +217,7 @@ async fn should_list_current_user_watchlist() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(21), body["size"]);
+    assert_eq!(serde_json::json!(1), body["size"]);
     assert_eq!(
         serde_json::json!(product_listing_id.to_string()),
         body["items"][0]["item"]["productListingId"]

@@ -408,13 +408,13 @@ async fn should_follow_admin_partnership_cursor_with_typed_id_tie_breaking() {
         get_partnerships(&token, &[("size", "2"), ("searchAfter", &cursor)]).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_no_store(second_cache_control);
-    assert_eq!(json!(2), second_body["size"]);
+    assert_eq!(json!(1), second_body["size"]);
     assert_eq!(vec![expected[2]], item_ids(&second_body));
     assert!(second_body.get("searchAfter").is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_empty_admin_partnership_collection_with_default_size() {
+async fn should_return_empty_admin_partnership_collection_with_zero_size() {
     let admin_id = seed_user("ADMIN").await;
     let token =
         String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
@@ -426,7 +426,7 @@ async fn should_return_empty_admin_partnership_collection_with_default_size() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_no_store(cache_control);
     assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
-    assert_eq!(json!(21), body["size"]);
+    assert_eq!(json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
 }
 
