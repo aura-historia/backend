@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
-html-to-markdown-rs = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 product-listing-normalization = { workspace = true }

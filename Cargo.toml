@@ -278,4 +278,3 @@ dotenvy = "0.15"
 url-normalize = "0.1.1"
 yaml_serde = "0.10"
 prefixed-api-key = { version = "0.3.0" }
-html-to-markdown-rs = "3.5.7"
