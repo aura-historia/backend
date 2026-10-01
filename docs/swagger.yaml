@@ -330,6 +330,8 @@ paths:
 
         synchronously in its own PostgreSQL transaction.
 
+        Localized `title` and `description` are optional. Omit or send `null` when the source has no value to record.
+
 
         The response returns HTTP 200 with failures as `{ listingSourceId, sourceListingId, error }` objects when
 
@@ -1003,8 +1005,8 @@ paths:
         delegated access requires `product-listings:write`. No client-supplied queue or authority
         metadata is accepted. Each entry is parsed and validated independently after whole-request
         JSON/array/size validation; invalid entries do not prevent eligible siblings from being
-        queued. Existing create field rules apply (including omitted/null availability, optional
-        pricing, and invalid outer `auction: null`). A syntactically valid missing Auction,
+        Existing create field rules apply (including optional `title` and `description`, omitted/null availability,
+        optional pricing, and invalid outer `auction: null`). A syntactically valid missing Auction,
         existing listing key, partnership/source authority, lifecycle, and other business
         conflicts are decided downstream, not reported as immediate item failures.
 
@@ -15886,8 +15888,6 @@ components:
         "
       required:
         - sourceListingId
-        - title
-        - description
         - url
         - images
       properties:
@@ -15896,9 +15896,15 @@ components:
           description: The listing source's own identifier for the product. Must be unique within the listing source.
           example: baroque-violin-001
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+          description: Optional localized title. Omit or send `null` when no title is available.
         description:
-          $ref: "#/components/schemas/LocalizedTextData"
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+          description: Optional localized description. Omit or send `null` when no description is available.
         price:
           allOf:
             - $ref: "#/components/schemas/ProductListingPriceData"

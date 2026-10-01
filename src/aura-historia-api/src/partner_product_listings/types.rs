@@ -27,8 +27,10 @@ pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct CreateProductListingData {
     pub(super) source_listing_id: String,
-    pub(super) title: LocalizedTextData,
-    pub(super) description: LocalizedTextData,
+    #[serde(default)]
+    pub(super) title: Option<LocalizedTextData>,
+    #[serde(default)]
+    pub(super) description: Option<LocalizedTextData>,
     #[serde(default)]
     pub(super) price: Option<ProductListingPriceData>,
     #[serde(default)]
@@ -161,8 +163,8 @@ impl CreateProductListingData {
         Ok(CreateProductListingCommand {
             listing_source_id,
             source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: Some(title(self.title)),
-            description: Some(description(self.description)),
+            title: self.title.map(title),
+            description: self.description.map(description),
             pricing: ProductListingPricing {
                 price: self.price.map(product_listing_price),
                 price_estimate_min: self.price_estimate_min.map(price),
@@ -432,6 +434,43 @@ mod tests {
                 .unwrap_or_else(|| panic!("null auction must fail"))
                 .code()
         );
+    }
+
+    #[test]
+    fn should_allow_optional_title_and_description_on_create() {
+        let listing_source_id = ListingSourceId::new();
+        let cases = [
+            (
+                r#"{"sourceListingId":"SKU-1","url":"https://example.com/listing","images":[]}"#,
+                false,
+                false,
+            ),
+            (
+                r#"{"sourceListingId":"SKU-2","title":{"text":"Title","language":"en"},"url":"https://example.com/listing","images":[]}"#,
+                true,
+                false,
+            ),
+            (
+                r#"{"sourceListingId":"SKU-3","description":{"text":"Description","language":"en"},"url":"https://example.com/listing","images":[]}"#,
+                false,
+                true,
+            ),
+            (
+                r#"{"sourceListingId":"SKU-4","title":null,"description":null,"url":"https://example.com/listing","images":[]}"#,
+                false,
+                false,
+            ),
+        ];
+
+        for (body, expects_title, expects_description) in cases {
+            let data: CreateProductListingData = serde_json::from_str(body)
+                .unwrap_or_else(|error| panic!("valid create JSON: {error}"));
+            let command = data
+                .into_command(listing_source_id)
+                .unwrap_or_else(|error| panic!("valid create command: {error}"));
+            assert_eq!(expects_title, command.title.is_some());
+            assert_eq!(expects_description, command.description.is_some());
+        }
     }
 
     #[test]

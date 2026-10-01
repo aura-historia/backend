@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-01 — Optional partner product-listing create text (#1916)
+
+- Partner `CreateProductListingData` no longer requires `title` or `description`; both may be omitted or sent as `null`, in line with upsert, service commands, and the ProductListing domain model. Sync and async create share this contract.
+
 ## 2026-09-30 — Versioned health and readiness probes (#1907)
 
 - Moved the anonymous main API probes to `GET /api/v1/health` and `GET /api/v1/ready`; removed the old `/health` and `/ready` paths. Health remains liveness-only and returns `200` with `ok\n`.
