@@ -17,6 +17,7 @@ on:
       - "ci/deploy-stacks.sh"
       - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
+      - ".github/workflows/deploy.yml"
   push:
     branches: [develop]
     paths:
@@ -34,6 +35,7 @@ on:
       - "ci/deploy-stacks.sh"
       - ".github/actions/resolve-container-images/**"
       - ".github/workflows/container-images.yml"
+      - ".github/workflows/deploy.yml"
 
 permissions:
   contents: read

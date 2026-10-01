@@ -1,0 +1,72 @@
+name: CDK checks
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "infra/**"
+      - "ci/**"
+      - "docs/swagger.yaml"
+      - "Cargo.toml"
+      - "src/**/Cargo.toml"
+      - "src/**/src/main.rs"
+      - "src/**/Dockerfile"
+      - "src/aura-historia-api/src/lib.rs"
+      - "src/aura-historia-api/src/search_filters/mod.rs"
+      - "src/aura-historia-api/src/notifications/mod.rs"
+      - "src/aura-historia-api/src/partnership_applications/mod.rs"
+      - "src/aura-historia-api/src/partnerships/mod.rs"
+      - ".github/actions/**"
+      - ".github/workflows/cdk-test.yml"
+      - ".github/workflows/container-images.yml"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/initialize.yml"
+      - ".github/workflows/migrate.yml"
+  pull_request:
+    paths:
+      - "infra/**"
+      - "ci/**"
+      - "docs/swagger.yaml"
+      - "Cargo.toml"
+      - "src/**/Cargo.toml"
+      - "src/**/src/main.rs"
+      - "src/**/Dockerfile"
+      - "src/aura-historia-api/src/lib.rs"
+      - "src/aura-historia-api/src/search_filters/mod.rs"
+      - "src/aura-historia-api/src/notifications/mod.rs"
+      - "src/aura-historia-api/src/partnership_applications/mod.rs"
+      - "src/aura-historia-api/src/partnerships/mod.rs"
+      - ".github/actions/**"
+      - ".github/workflows/cdk-test.yml"
+      - ".github/workflows/container-images.yml"
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/initialize.yml"
+      - ".github/workflows/migrate.yml"
+
+jobs:
+  infra-test:
+    name: Test CDK infrastructure
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install CDK dependencies
+        run: npm --prefix infra ci
+
+      - name: Type-check CDK app
+        run: npm --prefix infra run build
+
+      - name: Test CDK app and deployment helpers
+        run: |
+          npm --prefix infra test
+          node --test ci/*.test.cjs
+
+      - name: Synthesize all stacks
+        run: npm --prefix infra run synth:all

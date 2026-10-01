@@ -80,6 +80,18 @@ npm run cdk -- synth aura-historia-container-artifacts \
 
 These commands build, test, and synthesize only; they do not deploy.
 
+PR/develop CI runs CDK build, tests, deployment-helper tests, and synthesis in
+`.github/workflows/cdk-test.yml` only when infrastructure, deployment helpers,
+workflow inputs, or files consumed by those checks change. MJML compilation runs
+separately in `.github/workflows/mjml-templates.yml` for template changes;
+container image checks retain their own path-filtered workflow (including Rust
+workspace sources used by the Docker build). Deploy still validates the selected
+release independently on every deployment. The former `Integrate (CI)` CDK and
+MJML job names are replaced by `CDK checks / Test CDK infrastructure` and
+`MJML template checks / Compile MJML templates`. Update branch protection if it
+references the old names; do not require these path-filtered workflows without an
+always-running fallback check, since skipped workflows leave required checks pending.
+
 Synth creates these stacks per stage:
 
 - `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
