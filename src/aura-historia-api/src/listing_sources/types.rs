@@ -262,7 +262,7 @@ struct PublicListingSourceOperatorData {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PublicListingSourceSearchCollectionData {
     items: Vec<PublicListingSourceData>,
-    size: u8,
+    size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     search_after: Option<String>,
 }
@@ -272,9 +272,10 @@ impl PublicListingSourceSearchCollectionData {
         result: SearchPublicListingSourcesResult,
         search_after: Option<String>,
     ) -> Self {
+        let items = result.items.into_iter().map(Into::into).collect::<Vec<_>>();
         Self {
-            items: result.items.into_iter().map(Into::into).collect(),
-            size: result.page_size,
+            size: items.len() as u64,
+            items,
             search_after,
         }
     }
@@ -331,13 +332,14 @@ pub(crate) struct ListingSourceSearchCollectionData {
 
 impl From<SearchListingSourcesResult> for ListingSourceSearchCollectionData {
     fn from(value: SearchListingSourcesResult) -> Self {
+        let items = value
+            .items
+            .into_iter()
+            .map(ListingSourceSearchSummaryData::from)
+            .collect::<Vec<_>>();
         Self {
-            items: value
-                .items
-                .into_iter()
-                .map(ListingSourceSearchSummaryData::from)
-                .collect(),
-            size: value.cursor.size,
+            size: items.len() as u64,
+            items,
             search_after: value.cursor.search_after,
             total: value.total,
         }
@@ -523,6 +525,21 @@ fn invalid_body(field: &str) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_listing_source_collection_size_is_zero_when_empty() {
+        let data = PublicListingSourceSearchCollectionData::new(
+            SearchPublicListingSourcesResult {
+                items: Vec::new(),
+                page_size: 21,
+                continuation: None,
+            },
+            None,
+        );
+
+        assert!(data.items.is_empty());
+        assert_eq!(0, data.size);
+    }
 
     #[test]
     fn should_decode_canonical_ingestion_method_values() -> Result<(), serde_json::Error> {

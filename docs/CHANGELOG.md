@@ -8,6 +8,14 @@ Only document REST API contract changes here. No internal changes.
 - The pay-as-you-go custom cache key varies on `Authorization`, `Origin`, `Host`, and all query strings, with no cookies. The default and generic `/api/*` behaviors remain caching-disabled; OPTIONS is not cached. Cognito/Aura multi-auth continues to be validated in Axum without edge token parsing or authorizer changes.
 - The cache-enabled behaviors remove `X-Request-Id` and `X-Correlation-Id` from viewer responses so shared objects do not replay origin request IDs. CloudFront error caching minimum TTL is zero for the configured API error statuses.
 
+## 2026-10-01 — Collection response sizes (#1906)
+
+- Collection response `size` now reports the number of items in the returned `items` array, including `0` for an empty page. The `size` query parameter still controls the requested page limit.
+
+## 2026-10-01 — Ignore WooCommerce webhook descriptions (#1920)
+
+- WooCommerce `description` and `short_description` remain accepted provider fields but no longer update Aura's canonical product description and are omitted from persisted raw source evidence. The provider-receipt evidence digest is based on that sanitized payload; HMAC verification continues to use the exact untouched request bytes.
+
 ## 2026-10-01 — Optional partner product-listing create text (#1916)
 
 - Partner `CreateProductListingData` no longer requires `title` or `description`; both may be omitted or sent as `null`, in line with upsert, service commands, and the ProductListing domain model. Sync and async create share this contract.

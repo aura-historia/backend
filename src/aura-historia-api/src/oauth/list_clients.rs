@@ -183,12 +183,11 @@ fn response_from_result(
         .map(serialize_search_after)
         .transpose()?;
 
-    Ok(JsonCursoredData {
-        items: items.into_iter().map(OAuthClientAdminData::from).collect(),
-        size: cursor.size,
+    Ok(JsonCursoredData::new(
+        items.into_iter().map(OAuthClientAdminData::from).collect(),
         search_after,
         total,
-    })
+    ))
 }
 
 fn serialize_search_after(cursor: OAuthClientSearchCursor) -> Result<Value, ApiError> {

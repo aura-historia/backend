@@ -91,6 +91,11 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
         serde_json::json!(true),
         revision.source_payload.0["futureShopifyKey"]["retained"]
     );
+    assert_eq!(None, revision.source_payload.0.get("body_html"));
+    assert_eq!(
+        serde_json::json!({"action": "UNCHANGED"}),
+        revision.raw_values.0["description"]
+    );
     assert_eq!(
         serde_json::json!({"action": "SET", "value": "in stock"}),
         revision.raw_values.0["availability"]
@@ -703,7 +708,49 @@ async fn should_preserve_current_shopify_listing_facts_after_asynchronous_normal
         format!("https://{}/products/cabinet-103", source.domain.as_str()),
         listing.3
     );
-    assert_eq!(1, product_listing_event_count().await);
+    assert_eq!((None, None), listing_description(source.id, 103).await);
+
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "UPDATE product_listings SET description_text = $1, description_language = $2 \
+         WHERE listing_source_id = $3 AND source_listing_id = $4",
+    )
+    .bind("Existing canonical description")
+    .bind("en")
+    .bind(uuid::Uuid::from(source.id))
+    .bind("103")
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed seeding existing canonical description: {error}"));
+
+    let mut update_payload = shopify_payload(
+        103,
+        4,
+        serde_json::json!({"body_html": "A replacement Shopify description"}),
+    );
+    update_payload["variants"][0]["price"] = serde_json::json!("43.00");
+    let update_response = harness
+        .invoke_and_process(event_with_payload(
+            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            source.domain.as_str(),
+            update_payload,
+            "shopify-event-2",
+            "eventbridge-2",
+        ))
+        .await;
+    assert!(update_response.batch_item_failures.is_empty());
+    assert_eq!(
+        1,
+        normalize_pending_shopify_revisions(get_postgres_client().await).await
+    );
+    assert_eq!(
+        (
+            Some("Existing canonical description".to_owned()),
+            Some("en".to_owned())
+        ),
+        listing_description(source.id, 103).await
+    );
+    assert_eq!(2, product_listing_event_count().await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -1299,7 +1346,11 @@ async fn provider_receipts(
 }
 
 fn source_payload_digest(payload: &serde_json::Value) -> Vec<u8> {
-    SourcePayload::new(payload.clone())
+    let mut sanitized_payload = payload.clone();
+    if let Some(object) = sanitized_payload.as_object_mut() {
+        object.remove("body_html");
+    }
+    SourcePayload::new(sanitized_payload)
         .and_then(|source_payload| source_payload.canonical_sha256())
         .map(|sha256| sha256.as_bytes().to_vec())
         .unwrap_or_else(|error| panic!("failed hashing Shopify source payload: {error}"))
@@ -1380,6 +1431,20 @@ async fn listing_facts(
     .fetch_one(&get_postgres_client().await)
     .await
     .unwrap_or_else(|error| panic!("failed loading normalized Shopify listing: {error}"))
+}
+
+async fn listing_description(
+    listing_source_id: ListingSourceId,
+    source_listing_id: u64,
+) -> (Option<String>, Option<String>) {
+    sqlx::query_as(
+        "SELECT description_text, description_language FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(source_listing_id.to_string())
+    .fetch_one(&get_postgres_client().await)
+    .await
+    .unwrap_or_else(|error| panic!("failed loading normalized Shopify description: {error}"))
 }
 
 async fn listing_count(listing_source_id: ListingSourceId) -> i64 {

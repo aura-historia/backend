@@ -302,13 +302,14 @@ async fn handle_search(
         .await
     {
         Ok(result) => {
+            let items = result
+                .items
+                .into_iter()
+                .map(personalized_product_summary_data)
+                .collect::<Vec<_>>();
             let response = Json(CursoredProductListingsData {
-                items: result
-                    .items
-                    .into_iter()
-                    .map(personalized_product_summary_data)
-                    .collect(),
-                size: result.cursor.size,
+                size: items.len() as u64,
+                items,
                 search_after: result.cursor.search_after.map(Into::into),
                 total: result.total,
             })

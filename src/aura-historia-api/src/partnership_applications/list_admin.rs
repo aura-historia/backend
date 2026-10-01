@@ -91,17 +91,13 @@ pub(super) async fn list_admin(
                 Ok(value) => value,
                 Err(error) => return no_store(error.into_response()),
             };
-            let response = Json(JsonCursoredData {
-                items: result
-                    .items
-                    .into_iter()
-                    .map(AdminPartnershipApplicationSummaryData::from)
-                    .collect(),
-                size: result.cursor.size,
-                search_after,
-                total: result.total,
-            })
-            .into_response();
+            let items = result
+                .items
+                .into_iter()
+                .map(AdminPartnershipApplicationSummaryData::from)
+                .collect();
+            let response =
+                Json(JsonCursoredData::new(items, search_after, result.total)).into_response();
             no_store(response)
         }
         Err(error) => no_store(ApiError::from(error).into_response()),

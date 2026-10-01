@@ -36,8 +36,7 @@ pub struct ShopifyProductPayload {
     pub id: u64,
     #[serde(default)]
     pub title: Option<String>,
-    #[serde(default)]
-    pub body_html: Option<String>,
+
     #[serde(default)]
     pub handle: Option<String>,
     #[serde(default)]
@@ -105,7 +104,7 @@ pub enum ShopifyProductEventError {
 
 impl ShopifyProductEventKind {
     /// Maps Shopify's provider vocabulary to Aura's generic raw-input contract.
-    /// Unknown Shopify object keys stay in `source_payload` unchanged.
+    /// Unknown keys other than `body_html` remain in `source_payload` unchanged.
     pub fn listing_action(
         self,
         source: &ShopifySource,
@@ -120,9 +119,13 @@ impl ShopifyProductEventKind {
         payload: Value,
         source_occurred_at: Option<OffsetDateTime>,
     ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
-        let source_payload = SourcePayload::new(payload.clone())
+        let mut sanitized_payload = payload;
+        if let Some(object) = sanitized_payload.as_object_mut() {
+            object.remove("body_html");
+        }
+        let source_payload = SourcePayload::new(sanitized_payload.clone())
             .map_err(ShopifyProductEventError::InvalidSourcePayload)?;
-        let product = serde_json::from_value::<ShopifyProductPayload>(payload)
+        let product = serde_json::from_value::<ShopifyProductPayload>(sanitized_payload)
             .map_err(ShopifyProductEventError::MalformedPayload)?;
         let source_record_key = product.id.to_string();
 
@@ -202,12 +205,7 @@ fn active_raw_values(
     let raw_values = ProductListingRawValues {
         source_listing_id: product.id.to_string(),
         title: ProductListingRawValuesPatch::Set(title.to_owned()),
-        description: match product.body_html.as_deref() {
-            Some(html) => {
-                ProductListingRawValuesPatch::Set(vec![fallbacked_html_to_markdown(html)])
-            }
-            None => ProductListingRawValuesPatch::Clear,
-        },
+        description: ProductListingRawValuesPatch::Unchanged,
         price_format: ProductListingRawValuesPriceFormat::MachineDecimal,
         price,
         price_estimate_min: ProductListingRawValuesPatch::Unchanged,
@@ -251,13 +249,6 @@ fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
         .filter(|value| !value.trim().is_empty())
         .map(ProductListingRawValuesPatch::Set)
         .unwrap_or(ProductListingRawValuesPatch::Clear)
-}
-
-pub fn fallbacked_html_to_markdown(html: &str) -> String {
-    match html_to_markdown_rs::convert(html, None) {
-        Ok(result) => result.content.unwrap_or_else(|| html.to_owned()),
-        Err(_) => html.to_owned(),
-    }
 }
 
 /// Maps only reliable Shopify inventory facts. Missing and untracked inventory
@@ -344,6 +335,64 @@ mod tests {
             observation.input.source_payload().value()["futureShopifyKey"]["nested"],
             json!(true)
         );
+        assert_eq!(
+            None,
+            observation.input.source_payload().value().get("body_html")
+        );
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            observation.input.raw_values().value()["description"]
+        );
+
+        let alternative = ShopifyProductEventKind::Create
+            .listing_action(
+                &source(),
+                json!({
+                    "id": 42,
+                    "title": "Cabinet",
+                    "body_html": "A different description must be ignored",
+                    "handle": "cabinet",
+                    "status": "active",
+                    "variants": [{"price": "42.00", "inventory_quantity": 1, "inventory_management": "shopify"}],
+                    "images": [{"src": "https://images.example/cabinet.jpg"}],
+                    "futureShopifyKey": {"nested": true}
+                }),
+            )
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"));
+        let ShopifyListingAction::Capture(alternative) = alternative else {
+            panic!("active product must capture");
+        };
+        assert_eq!(
+            observation.input.raw_values().value(),
+            alternative.input.raw_values().value()
+        );
+        assert_eq!(
+            observation.input.source_payload().value(),
+            alternative.input.source_payload().value()
+        );
+
+        let update = ShopifyProductEventKind::Update
+            .listing_action(
+                &source(),
+                json!({
+                    "id": 42,
+                    "title": "Cabinet",
+                    "body_html": "An update description must also be ignored",
+                    "handle": "cabinet",
+                    "status": "active",
+                    "variants": [],
+                    "images": []
+                }),
+            )
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"));
+        let ShopifyListingAction::Capture(update) = update else {
+            panic!("active update must capture");
+        };
+        assert_eq!(
+            json!({"action": "UNCHANGED"}),
+            update.input.raw_values().value()["description"]
+        );
+        assert_eq!(None, update.input.source_payload().value().get("body_html"));
     }
 
     #[test]
@@ -488,7 +537,6 @@ mod tests {
         ShopifyProductPayload {
             id: 42,
             title: Some("Cabinet".to_owned()),
-            body_html: None,
             handle: Some("cabinet".to_owned()),
             status: Some("active".to_owned()),
             updated_at: None,

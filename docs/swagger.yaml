@@ -1818,6 +1818,8 @@ paths:
 
           Every topic requires `id`. For `product.created` and `product.updated`, `status: publish` captures an UPSERT and requires nonblank `name` and `permalink`; `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`. Missing or unsupported create/update statuses are authorized ignored events and require only `id`. `product.deleted` captures a DELETE and requires only `id`; its other fields are optional and ignored when absent.
 
+          WooCommerce `description` and `short_description` are accepted but ignored on all topics. They do not populate Aura's canonical product description and are omitted from persisted `source_payload`; provider-receipt evidence digests use this sanitized payload. The webhook signature is still verified over the exact original request body bytes.
+
           When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps are checked for conflicts only during consumer capture. `product.created` and `product.updated` events with missing or unsupported status are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
 
           "
@@ -4019,8 +4021,9 @@ paths:
                       $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
                   size:
                     type: integer
-                    minimum: 1
+                    minimum: 0
                     maximum: 100
+                    description: Number of items returned in the current page.
                   searchAfter:
                     type: array
                     items:
@@ -13062,9 +13065,9 @@ components:
           description: Personalized Product summaries in OpenSearch result order.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         total:
           type: integer
@@ -14355,7 +14358,7 @@ components:
         size:
           type: integer
           minimum: 0
-          description: Number of product-listings in the current page
+          description: Number of search filters returned in the current page.
           example: 21
         total:
           type: integer
@@ -14411,9 +14414,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -14821,9 +14824,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -15178,9 +15181,9 @@ components:
           description: Party summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string
@@ -15280,9 +15283,9 @@ components:
           description: Persisted matches in ascending match-creation order.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Effective page size after runtime defaulting and clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -15325,9 +15328,9 @@ components:
           description: Admin user summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string
@@ -15889,8 +15892,9 @@ components:
             $ref: "#/components/schemas/NotificationData"
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
+          description: Number of items returned in the current page.
         searchAfter:
           type: array
           nullable: true
@@ -16227,14 +16231,14 @@ components:
         description:
           type: string
           nullable: true
-          description: Optional HTML product description. The backend converts it to plain text for indexing.
+          description: Optional WooCommerce product-description field. Accepted but ignored; it is not mapped to Aura's canonical description and is omitted from persisted source evidence.
           example: "<p>Hayde yallah test beschreibung</p>
 
             "
         short_description:
           type: string
           nullable: true
-          description: Optional HTML short description used when `description` is absent.
+          description: Optional WooCommerce short-description field. Accepted but ignored; it is not mapped to Aura's canonical description and is omitted from persisted source evidence.
           example: "<p>Hayde yallah kurze test beschreibung</p>
 
             "
@@ -16487,9 +16491,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -16698,8 +16702,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
+          description: Number of items returned in the current page.
         searchAfter:
           type: array
           minItems: 2
@@ -16770,9 +16775,9 @@ components:
             $ref: "#/components/schemas/PublicListingSourceData"
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 50
-          description: Accepted requested page size, not item count.
+          description: Number of items returned in the current page.
         searchAfter:
           type: string
           description: Opaque continuation, omitted on a terminal page.
@@ -16839,9 +16844,9 @@ components:
           description: ListingSource summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string

@@ -79,19 +79,22 @@ pub async fn search_users(
         Err(error) => return no_store(error.into_response()),
     };
     match state.search_users.execute(&ctx, query).await {
-        Ok(result) => no_store(
-            Json(CursorData {
-                items: result
-                    .items
-                    .into_iter()
-                    .map(AdminUserSummaryData::from)
-                    .collect(),
-                size: result.cursor.size,
-                search_after: result.cursor.search_after,
-                total: result.total,
-            })
-            .into_response(),
-        ),
+        Ok(result) => {
+            let items = result
+                .items
+                .into_iter()
+                .map(AdminUserSummaryData::from)
+                .collect::<Vec<_>>();
+            no_store(
+                Json(CursorData {
+                    size: items.len() as u64,
+                    items,
+                    search_after: result.cursor.search_after,
+                    total: result.total,
+                })
+                .into_response(),
+            )
+        }
         Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }
