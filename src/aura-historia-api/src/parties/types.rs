@@ -19,13 +19,14 @@ pub(crate) struct PartyCollectionData {
 
 impl From<SearchPartiesResult> for PartyCollectionData {
     fn from(result: SearchPartiesResult) -> Self {
+        let items = result
+            .items
+            .into_iter()
+            .map(PartySummaryData::from)
+            .collect::<Vec<_>>();
         Self {
-            items: result
-                .items
-                .into_iter()
-                .map(PartySummaryData::from)
-                .collect(),
-            size: result.cursor.size,
+            size: items.len() as u64,
+            items,
             search_after: result.cursor.search_after,
             total: result.total,
         }

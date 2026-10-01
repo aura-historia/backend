@@ -287,7 +287,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, status);
         assert_eq!(Some(serde_json::json!([])), body.get("items").cloned());
-        assert_eq!(Some(serde_json::json!(21)), body.get("size").cloned());
+        assert_eq!(Some(serde_json::json!(0)), body.get("size").cloned());
         assert_eq!(Some("no-store".to_owned()), cache_control);
     }
 
