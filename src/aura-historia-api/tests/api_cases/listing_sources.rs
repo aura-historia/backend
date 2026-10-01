@@ -150,7 +150,7 @@ async fn should_return_terminal_empty_public_collection_for_insufficient_query()
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
-    assert_eq!(json!(21), body["size"]);
+    assert_eq!(json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
@@ -236,6 +236,10 @@ async fn should_page_all_public_listing_source_search_results_without_duplicates
                         .unwrap_or_else(|| panic!("public ListingSource item must contain an ID"))
                         .to_owned()
                 }),
+        );
+        assert_eq!(
+            json!(body["items"].as_array().map_or(0, Vec::len)),
+            body["size"]
         );
         search_after = body["searchAfter"].as_str().map(str::to_owned);
         if search_after.is_none() {
@@ -564,6 +568,7 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(json!(1), body["size"]);
     assert_eq!(
         json!(listing_source_id.to_string()),
         body["items"][0]["listingSourceId"]
@@ -598,7 +603,6 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
         json!({"type": "PARTNERIZE", "camref": "campaign123"}),
         body["items"][0]["referralConfiguration"]
     );
-    assert_eq!(json!(21), body["size"]);
     assert!(body.get("searchAfter").is_none());
 
     let serialized = body.to_string();
@@ -750,6 +754,7 @@ async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert_eq!(json!(1), second_body["size"]);
     assert_eq!(
         json!(third_id.to_string()),
         second_body["items"][0]["listingSourceId"]

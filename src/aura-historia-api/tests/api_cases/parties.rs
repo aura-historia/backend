@@ -194,6 +194,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert_eq!(serde_json::json!(1), second_body["size"]);
     assert_eq!(
         serde_json::json!(third_id.to_string()),
         second_body["items"][0]["partyId"]

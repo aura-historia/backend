@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
         let body = json(response).await?;
-        assert_eq!(21, body["size"]);
+        assert_eq!(1, body["size"]);
         assert!(body["searchAfter"].is_null());
         assert_eq!(
             product_listing_id.to_string(),

@@ -207,16 +207,12 @@ fn response_from_result(
         .map(partnership_cursor_value)
         .transpose()?;
 
-    Ok(Json(JsonCursoredData {
-        items: items
-            .into_iter()
-            .map(PartnershipSummaryData::from)
-            .collect(),
-        size: cursor.size,
-        search_after,
-        total,
-    })
-    .into_response())
+    let items = items
+        .into_iter()
+        .map(PartnershipSummaryData::from)
+        .collect();
+
+    Ok(Json(JsonCursoredData::new(items, search_after, total)).into_response())
 }
 
 fn partnership_cursor_value(cursor: PartnershipSearchCursor) -> Result<Value, ApiError> {
@@ -706,7 +702,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_omit_terminal_cursor_and_return_default_size_without_cache()
+    async fn should_omit_terminal_cursor_and_report_returned_items_without_cache()
     -> Result<(), Box<dyn std::error::Error>> {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let response = test_router(Ok(result(None)), Arc::clone(&requests), false)
@@ -726,8 +722,38 @@ mod tests {
                 .and_then(|value| value.to_str().ok())
         );
         let body = json(response).await?;
-        assert_eq!(json!(DEFAULT_PAGE_SIZE), body["size"]);
+        assert_eq!(json!(1), body["size"]);
         assert!(body.get("searchAfter").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_report_zero_size_for_empty_collection() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let response = test_router(
+            Ok(CursoredResult {
+                items: Vec::new(),
+                cursor: Cursor {
+                    size: DEFAULT_PAGE_SIZE,
+                    search_after: None,
+                },
+                total: None,
+            }),
+            Arc::clone(&requests),
+            false,
+        )
+        .oneshot(
+            Request::get("/api/v1/admin/partnerships")
+                .header("Authorization", "Bearer valid")
+                .body(Body::empty())?,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        let body = json(response).await?;
+        assert_eq!(json!(0), body["size"]);
+        assert_eq!(json!([]), body["items"]);
         Ok(())
     }
 

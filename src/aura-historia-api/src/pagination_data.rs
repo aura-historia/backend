@@ -18,11 +18,50 @@ where
     T: Into<TData>,
 {
     fn from(result: CursoredResult<T, Value>) -> Self {
+        let items = result.items.into_iter().map(Into::into).collect::<Vec<_>>();
+        Self::new(items, result.cursor.search_after, result.total)
+    }
+}
+
+impl<T> JsonCursoredData<T> {
+    pub(crate) fn new(items: Vec<T>, search_after: Option<Value>, total: Option<u64>) -> Self {
         Self {
-            items: result.items.into_iter().map(Into::into).collect(),
-            size: result.cursor.size,
-            search_after: result.cursor.search_after,
-            total: result.total,
+            size: items.len() as u64,
+            items,
+            search_after,
+            total,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::pagination::Cursor;
+    use serde_json::json;
+
+    #[test]
+    fn size_reports_returned_items_instead_of_the_requested_page_size() {
+        let empty: JsonCursoredData<Value> = CursoredResult {
+            items: Vec::<Value>::new(),
+            cursor: Cursor {
+                size: 21,
+                search_after: None,
+            },
+            total: None,
+        }
+        .into();
+        assert_eq!(0, empty.size);
+
+        let one: JsonCursoredData<Value> = CursoredResult {
+            items: vec![json!({ "id": "one" })],
+            cursor: Cursor {
+                size: 21,
+                search_after: None,
+            },
+            total: None,
+        }
+        .into();
+        assert_eq!(1, one.size);
     }
 }

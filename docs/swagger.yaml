@@ -3999,8 +3999,9 @@ paths:
                       $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
                   size:
                     type: integer
-                    minimum: 1
+                    minimum: 0
                     maximum: 100
+                    description: Number of items returned in the current page.
                   searchAfter:
                     type: array
                     items:
@@ -13042,9 +13043,9 @@ components:
           description: Personalized Product summaries in OpenSearch result order.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         total:
           type: integer
@@ -14335,7 +14336,7 @@ components:
         size:
           type: integer
           minimum: 0
-          description: Number of product-listings in the current page
+          description: Number of search filters returned in the current page.
           example: 21
         total:
           type: integer
@@ -14391,9 +14392,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -14801,9 +14802,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -15158,9 +15159,9 @@ components:
           description: Party summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string
@@ -15260,9 +15261,9 @@ components:
           description: Persisted matches in ascending match-creation order.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Effective page size after runtime defaulting and clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -15305,9 +15306,9 @@ components:
           description: Admin user summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string
@@ -15869,8 +15870,9 @@ components:
             $ref: "#/components/schemas/NotificationData"
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
+          description: Number of items returned in the current page.
         searchAfter:
           type: array
           nullable: true
@@ -16467,9 +16469,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: array
@@ -16678,8 +16680,9 @@ components:
         size:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
           maximum: 100
+          description: Number of items returned in the current page.
         searchAfter:
           type: array
           minItems: 2
@@ -16750,9 +16753,9 @@ components:
             $ref: "#/components/schemas/PublicListingSourceData"
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 50
-          description: Accepted requested page size, not item count.
+          description: Number of items returned in the current page.
         searchAfter:
           type: string
           description: Opaque continuation, omitted on a terminal page.
@@ -16819,9 +16822,9 @@ components:
           description: ListingSource summaries returned in the current page.
         size:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 100
-          description: Requested page size after server-side clamping.
+          description: Number of items returned in the current page.
           example: 21
         searchAfter:
           type: string

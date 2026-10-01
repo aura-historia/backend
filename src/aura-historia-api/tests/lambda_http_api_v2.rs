@@ -61,8 +61,8 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
         assert!(uuid::Uuid::parse_str(request_id).is_ok());
         let response_body = to_bytes(response.into_body(), usize::MAX).await?;
         let response_data: serde_json::Value = serde_json::from_slice(&response_body)?;
-        assert_eq!(response_data["size"], 1);
-        assert!(response_data["items"].is_array());
+        assert_eq!(response_data["size"], 0);
+        assert_eq!(response_data["items"], serde_json::json!([]));
 
         let mut invalid_auth_request = listing_sources_request()?;
         invalid_auth_request.headers_mut().insert(

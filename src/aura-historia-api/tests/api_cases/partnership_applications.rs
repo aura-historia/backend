@@ -979,6 +979,7 @@ async fn should_return_empty_admin_partnership_application_collection() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(Some(0), body["items"].as_array().map(Vec::len));
+    assert_eq!(json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
 }
 

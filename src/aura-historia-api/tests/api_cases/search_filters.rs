@@ -202,7 +202,7 @@ async fn should_list_search_filter_matches() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store"), cache_control.as_deref());
     assert!(body["items"].is_array());
-    assert_eq!(serde_json::json!(21), body["size"]);
+    assert_eq!(serde_json::json!(1), body["size"]);
     assert!(body.get("total").is_none_or(serde_json::Value::is_u64));
     assert!(body.get("searchAfter").is_none());
     assert_eq!(
@@ -329,8 +329,9 @@ async fn should_clamp_search_filter_match_page_size() {
     let client = reqwest::Client::new();
     let filter_id = create_search_filter(&client, &token).await;
     seed_search_filter_match(user_id, &filter_id).await;
+    seed_search_filter_match(user_id, &filter_id).await;
 
-    for (size, expected) in [("0", 1), ("1", 1), ("21", 21), ("100", 100), ("101", 100)] {
+    for (size, expected) in [("0", 1), ("1", 1), ("21", 2), ("100", 2), ("101", 2)] {
         let response = client
             .get(format!(
                 "{}/api/v1/me/search-filters/{filter_id}/matches",
@@ -345,6 +346,7 @@ async fn should_clamp_search_filter_match_page_size() {
 
         assert_eq!(reqwest::StatusCode::OK, status);
         assert_eq!(serde_json::json!(expected), body["size"]);
+        assert_eq!(Some(expected), body["items"].as_array().map(Vec::len));
     }
 
     for size in ["not-an-integer", "-1"] {

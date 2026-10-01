@@ -1032,6 +1032,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let (second_status, second_body) = json_response(second_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(json!(2), second_body["size"]);
     assert_eq!(
         vec![products[2].0.clone(), products[3].0.clone()],
         product_listing_ids(&second_body)

@@ -349,6 +349,7 @@ async fn should_follow_admin_user_search_cursor() {
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert_eq!(serde_json::json!(1), second_body["size"]);
     assert_eq!(
         serde_json::json!(third_user_id.to_string()),
         second_body["items"][0]["userId"]
@@ -1238,7 +1239,7 @@ async fn should_return_empty_admin_access_token_page_for_existing_user() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(serde_json::json!([]), body["items"]);
-    assert_eq!(serde_json::json!(21), body["size"]);
+    assert_eq!(serde_json::json!(0), body["size"]);
     assert!(body.get("searchAfter").is_none());
 }
 

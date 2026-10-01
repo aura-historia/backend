@@ -263,7 +263,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
-    assert_eq!(serde_json::json!(100), body["size"]);
+    assert_eq!(serde_json::json!(1), body["size"]);
     assert!(body.get("searchAfter").is_none());
     assert_eq!(
         Some(credentials.client_id_issued_at),
@@ -1325,6 +1325,7 @@ async fn should_paginate_and_filter_admin_oauth_clients() {
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert_eq!(serde_json::json!(1), second_body["size"]);
     assert!(second_body.get("searchAfter").is_none());
     assert!(second_body["items"][0].get("client_secret").is_none());
 
