@@ -28,12 +28,37 @@ For unconfirmed/retryable transport outcomes, retry the **unchanged ordered arra
 | Control | Decision | Security and cache implication |
 | --- | --- | --- |
 | HTTP API custom domain | Use the regional TLS 1.2 domain and default API mapping for the public host. | `/api/v1` is forwarded unchanged; `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true` avoids adding the named `dev` stage in `lambda_http`. The Lambda transport adapter removes the matching stage prefix if the HTTP API v2 request URI already contains it; public Axum routes remain unprefixed. DNS records are externally owned and must be verified before cutover. |
-| CloudFront | Use exact aliases `api.stage.aura-historia.com` for AWS `dev` and `api.aura-historia.com` for prod, with HTTPS redirect. Do not claim `*.stage.aura-historia.com`. | The origin forwards viewer headers (including `Host`), query strings, and cookies. API caching is disabled for `/api/*` as well as the default behavior, so optional/personalized responses cannot share an edge cache key. The former JWT-only cache-key function is omitted because it did not cover opaque Aura tokens. |
+| CloudFront | Use exact aliases `api.stage.aura-historia.com` for AWS `dev` and `api.aura-historia.com` for prod, with HTTPS redirect. Do not claim `*.stage.aura-historia.com`. | Keep the existing AllViewer origin request policy and HTTPS-only regional API Gateway origin. The default and generic `/api/*` behaviors remain on managed `CachingDisabled`; only the reviewed discovery behaviors use a pay-as-you-go custom cache policy. |
 | WAF | Retain the CloudFront-scoped AWS IP reputation, common-rule-set, and known-bad-input managed rules. | The common rule set's `NoUserAgent_HEADER` remains count-only. There is no new WAF rate rule in this migration. |
 | CORS | Retain HTTP API preflight and Axum response CORS. | Gateway permits `Authorization`, `Content-Type`, `Accept`, `X-Correlation-Id`, required WooCommerce headers, and (for async partner submission) `Idempotency-Key`. Axum must expose `Idempotency-Key` on evaluated async reports alongside response correlation headers, without relaxing allowed origins or raw-body limits. |
 | Throttling | Retain the explicit stage policy: prod burst/rate `5000/2000`, dev/ephemeral `50/20`. | This is Gateway request shaping, not a database connection, account-Lambda concurrency, or hard capacity guarantee. No reserved/provisioned concurrency or hidden replacement cap is introduced. Route-family limits remain absent until a separately reviewed policy specifies values and WAF/application ownership. |
 
-CloudFront, WAF, API Gateway access logging, and Lambda invocations all incur their normal request/logging charges. Disabling API edge caching can increase origin/Lambda request volume; it is intentional until a response-by-response cache policy demonstrates that shared caching is safe.
+## Selective anonymous discovery caching (#1827)
+
+The distribution is operated on CloudFront pay-as-you-go pricing so it can use a stage-specific custom cache policy. Multi-auth remains application-owned: CloudFront does not parse tokens, add an authorizer, or use a function at the edge. Cognito access JWTs, Aura opaque access tokens, malformed credentials, and future bearer formats are forwarded unchanged to Axum.
+
+Only successful anonymous `200` representations for the explicit discovery allowlist below may be shared. A request containing any `Authorization` header uses `private, no-store`, even if that credential is valid or the response body would otherwise be identical. The API transport layer defaults every unmarked response—including errors—to `private, no-store`; `202`, redirects, other non-`200` responses, and similar-product pending results are not cached.
+
+| Discovery route | Initial shared TTL |
+| --- | ---: |
+| `GET /api/v1/listing-sources` | 300 s |
+| `GET /api/v1/listing-sources/by-slug/{listing_source_slug_id}` | 300 s |
+| `GET /api/v1/auctions` | 60 s |
+| `GET /api/v1/auctions/{auction_id}` | 60 s |
+| `GET /api/v1/auctions/{auction_id}/product-listings` | 60 s |
+| `GET /api/v1/product-listings` | 60 s |
+| `GET /api/v1/product-listings/by-slug/{product_listing_title_slug_id}` | 120 s |
+| `GET /api/v1/product-listings/{product_listing_id}` | 120 s |
+| `GET /api/v1/product-listings/{product_listing_id}/history` | 300 s |
+| `GET /api/v1/product-listings/{product_listing_id}/similar` (Ready only) | 300 s |
+
+The cache key includes `Authorization`, `Origin`, and `Host`, plus **all query strings**; it includes no cookies. The unchanged managed AllViewer origin request policy still forwards viewer headers, query strings, and cookies (including `Host`) to the origin. This isolates credential-bearing requests from the anonymous object, preserves CORS/host/query variation, and keeps malformed or unknown query parameters from aliasing another response. Gzip and Brotli variations are enabled. OPTIONS is allowed but not cached. No stale-while-revalidate or stale-if-error behavior is configured.
+
+Only six reviewed CloudFront path behaviors have the custom cache and response-headers policies. Their path wildcards are guarded against route-catalog expansion in `infra/test/api-route-matrix.test.ts`; new routes remain uncached unless deliberately reviewed and allowlisted. The generic `/api/*` fallback and default behavior remain `CachingDisabled`. Do not add a JWT-only cache-key function, CloudFront Function, Lambda@Edge association, API Gateway authorizer, token-derived key, synthetic query parameter, or cookie partition.
+
+CloudFront removes `X-Request-Id` and `X-Correlation-Id` from all viewer responses on the cache-enabled behaviors, on both hits and origin misses, so origin-generated IDs are never replayed between viewers. Those headers remain available on uncached behavior responses. Custom error responses set `ErrorCachingMinTTL: 0` for 400, 403, 404, 405, 414, 500, 501, 502, 503, and 504; application errors also carry `private, no-store`. CORS policy is unchanged, and `Origin` remains in the cache key.
+
+CloudFront, WAF, API Gateway access logging, and Lambda invocations all incur their normal request/logging charges. Shared caching is deliberately limited to these anonymous reads; all other API traffic continues to the origin uncached.
 
 ## Deployment, cutover, and rollback
 

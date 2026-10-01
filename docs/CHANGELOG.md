@@ -2,6 +2,12 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-01 — Selective anonymous discovery caching (#1827)
+
+- Enabled shared CloudFront caching only for the ten reviewed anonymous discovery GET representations: ListingSource search/detail (300 s), Auction directory/detail/catalogue (60 s), ProductListing search (60 s), detail by ID/slug (120 s), history (300 s), and Ready similar results (300 s). Only successful anonymous `200` responses are shared; every request with an `Authorization` header and every error/non-`200` response uses `private, no-store`.
+- The pay-as-you-go custom cache key varies on `Authorization`, `Origin`, `Host`, and all query strings, with no cookies. The default and generic `/api/*` behaviors remain caching-disabled; OPTIONS is not cached. Cognito/Aura multi-auth continues to be validated in Axum without edge token parsing or authorizer changes.
+- The cache-enabled behaviors remove `X-Request-Id` and `X-Correlation-Id` from viewer responses so shared objects do not replay origin request IDs. CloudFront error caching minimum TTL is zero for the configured API error statuses.
+
 ## 2026-10-01 — Optional partner product-listing create text (#1916)
 
 - Partner `CreateProductListingData` no longer requires `title` or `description`; both may be omitted or sent as `null`, in line with upsert, service commands, and the ProductListing domain model. Sync and async create share this contract.

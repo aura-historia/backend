@@ -26,9 +26,6 @@ struct SimilarProductListingsQuery {
     currency: Currency,
 }
 
-const READY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
-const PENDING_CACHE_CONTROL: &str = "public, max-age=300, s-maxage=900";
-
 pub async fn get_similar_products_by_id(
     State(state): State<ProductListingsState>,
     headers: HeaderMap,
@@ -41,11 +38,11 @@ pub async fn get_similar_products_by_id(
         "ProductListing",
     ) {
         Ok(value) => value,
-        Err(error) => return error.into_response(),
+        Err(error) => return crate::transport::cache::private_no_store(error.into_response()),
     };
     let query = match parse_query(raw_query.as_deref()) {
         Ok(query) => query,
-        Err(error) => return error.into_response(),
+        Err(error) => return crate::transport::cache::private_no_store(error.into_response()),
     };
     similar_response(
         state,
@@ -75,7 +72,11 @@ async fn similar_response(
         .await
     {
         Ok(principal) => principal,
-        Err(error) => return ApiError::from(error).into_response(),
+        Err(error) => {
+            return crate::transport::cache::private_no_store(
+                ApiError::from(error).into_response(),
+            );
+        }
     };
     let context = principal.operation_context(metadata);
     match state
@@ -91,33 +92,32 @@ async fn similar_response(
         .await
     {
         Ok(GetSimilarProductListingsResult::Ready(products)) => {
-            ready_response(products, &principal)
+            ready_response(products, &principal, &headers)
         }
         Ok(GetSimilarProductListingsResult::EmbeddingPending) => pending_response(lookup),
-        Err(error) => ApiError::from(error).into_response(),
+        Err(error) => {
+            crate::transport::cache::private_no_store(ApiError::from(error).into_response())
+        }
     }
 }
 
 fn ready_response(
     product_listings: Vec<product_listing_service::use_cases::PersonalizedProductListingSummary>,
     principal: &crate::auth::TransportPrincipal,
+    request_headers: &HeaderMap,
 ) -> Response {
-    let mut response = Json(
-        product_listings
-            .into_iter()
-            .map(personalized_product_summary_data)
-            .collect::<Vec<_>>(),
+    crate::transport::cache::anonymous_shared_success(
+        Json(
+            product_listings
+                .into_iter()
+                .map(personalized_product_summary_data)
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        request_headers,
+        matches!(principal, crate::auth::TransportPrincipal::Anonymous),
+        300,
     )
-    .into_response();
-    let cache_control = match principal {
-        crate::auth::TransportPrincipal::Anonymous => READY_CACHE_CONTROL,
-        crate::auth::TransportPrincipal::User { .. } => "no-store",
-    };
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(cache_control),
-    );
-    response
 }
 
 fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
@@ -126,28 +126,28 @@ fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
             format!("/api/v1/product-listings/{product_listing_id}/similar")
         }
         ProductListingEmbeddingLookup::ByTitleSlug(_) => {
-            return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-                .with_detail(
-                    "Similar product polling location is unavailable for a title-slug lookup.",
-                )
-                .into_response();
+            return crate::transport::cache::private_no_store(
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                    .with_detail(
+                        "Similar product polling location is unavailable for a title-slug lookup.",
+                    )
+                    .into_response(),
+            );
         }
     };
     let location = match HeaderValue::from_str(&location_path) {
         Ok(value) => value,
         Err(_) => {
-            return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-                .with_detail("Similar product polling location failed internally.")
-                .into_response();
+            return crate::transport::cache::private_no_store(
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                    .with_detail("Similar product polling location failed internally.")
+                    .into_response(),
+            );
         }
     };
     let mut response = StatusCode::ACCEPTED.into_response();
     response.headers_mut().insert(header::LOCATION, location);
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(PENDING_CACHE_CONTROL),
-    );
-    response
+    crate::transport::cache::private_no_store(response)
 }
 
 #[cfg(test)]
@@ -305,7 +305,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            READY_CACHE_CONTROL,
+            "public, max-age=0, s-maxage=300",
             response.headers()[header::CACHE_CONTROL]
         );
         let body = body_json(response).await?;
@@ -347,7 +347,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
         assert_eq!(
             serde_json::json!([]),
             body_json(response).await?[0]["userState"]["notification"]["unseenNotificationIds"]
@@ -356,7 +359,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_pending_response_with_id_location_and_cache_header()
+    async fn should_return_pending_response_with_id_location_and_private_no_store()
     -> Result<(), Box<dyn std::error::Error>> {
         let product_listing_id = ProductListingId::new();
         let app = app(
@@ -379,7 +382,7 @@ mod tests {
             response.headers()[header::LOCATION]
         );
         assert_eq!(
-            PENDING_CACHE_CONTROL,
+            "private, no-store",
             response.headers()[header::CACHE_CONTROL]
         );
         Ok(())

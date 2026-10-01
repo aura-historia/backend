@@ -28,10 +28,10 @@ info:
     \ product-listings use the latest persisted\n  snapshot; sold product-listings use their immutable sale snapshot. Product\
     \ history remains immutable, source-only,\n  and is not localized.\n- Request-wide errors are returned as **`application/problem+json`**\
     \ using a consistent RFC 9457-style structure\n  with `status`, `title`, `error`, optional `source`, and optional `detail`\n\
-    - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Every canonical API response includes\
+    - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Origin API responses include\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
-    \ Both headers are CORS-exposed.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /api/v1/health` is a\
+    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /api/v1/health` is a\
     \ process liveness check. `GET /api/v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
@@ -128,7 +128,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: "Bounded newest-first Auction directory. All responses use `Cache-Control: no-store`."
+          description: "Bounded newest-first Auction directory. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -148,7 +148,7 @@ paths:
           description: Strict `auc_` UUIDv7 TypeID.
       responses:
         "200":
-          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Always `Cache-Control: no-store`."
+          description: "Public Auction facts, source summary, schedule, reported lot count, and visible listing count. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -178,7 +178,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Always `Cache-Control: no-store`."
+          description: "Visible assigned ProductListings in normal personalized detail presentation, ordered by catalogue position, null positions last, then backing listing UUID. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -2074,6 +2074,9 @@ paths:
         Retrieves an active ProductListing by its immutable Aura-owned
         `productListingTitleSlugId`, derived from its title. Withdrawn listings
         return `404 PRODUCT_LISTING_NOT_FOUND`; this endpoint never returns `410`.
+        Anonymous successful 200 responses without Authorization use
+        `public, max-age=0, s-maxage=120`; any request with Authorization and all
+        non-200 responses use `private, no-store`.
       operationId: getProductListingByTitleSlug
       tags:
         - ProductListings
@@ -2104,6 +2107,11 @@ paths:
       responses:
         "200":
           description: ProductListing found and returned successfully
+          headers:
+            Cache-Control:
+              description: Anonymous edge freshness is 120 seconds; credential-bearing responses are private and not stored.
+              schema: { type: string }
+              example: public, max-age=0, s-maxage=120
           content:
             application/json:
               schema:
@@ -2151,12 +2159,14 @@ paths:
 
         Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
 
-        current display pricing may change when the selected persisted FX snapshot changes.
+        current display pricing may change when the selected persisted FX snapshot changes. An anonymous successful
+        200 response without Authorization uses `public, max-age=0, s-maxage=120`; any request with Authorization and
+        all non-200 responses use `private, no-store`.
 
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
 
-        adds optional top-level `userState`; authenticated responses are not cached.
+        adds optional top-level `userState`; credential-bearing responses are not cached.
 
         "
       operationId: getProductListing
@@ -2195,6 +2205,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
           headers:
+            Cache-Control:
+              description: Anonymous edge freshness is 120 seconds; credential-bearing responses are private and not stored.
+              schema: { type: string }
+              example: public, max-age=0, s-maxage=120
             Content-Language:
               description: The language of the returned content
               schema:
@@ -2269,12 +2283,12 @@ paths:
             example: pl_5xdb465tg1enarx2knf04mxbxj
       responses:
         "200":
-          description: Product history retrieved successfully
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema:
                 type: string
-              example: public, max-age=180, s-maxage=900
+              example: public, max-age=0, s-maxage=300
           content:
             application/json:
               schema:
@@ -2374,7 +2388,7 @@ paths:
 
         sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
 
-        `userState`. Personalized KNN results use `Cache-Control: no-store`.
+        `userState`. Ready anonymous 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization uses `private, no-store`. The `202 EmbeddingPending` response and all errors are always `private, no-store`.
 
         "
       operationId: getSimilarProductListings
@@ -2405,7 +2419,11 @@ paths:
         - {}
       responses:
         "200":
-          description: Similar product-listings found and returned successfully
+          description: Ready anonymous responses without Authorization are shared for 300 seconds; credential-bearing responses are private and not stored.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: public, max-age=0, s-maxage=300
           content:
             application/json:
               schema:
@@ -2413,8 +2431,11 @@ paths:
                 items:
                   $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
         "202":
-          description: Product embedding is not available yet. Poll the Location URL for KNN results.
+          description: Product embedding is not available yet. Poll the Location URL for KNN results. This response is never cached and uses `private, no-store`.
           headers:
+            Cache-Control:
+              schema: { type: string }
+              example: private, no-store
             Location:
               description: URL to poll for similar product-listings once the embedding is available
               schema:
@@ -2456,8 +2477,9 @@ paths:
       description:
         "Performs canonical ProductListing search with query parameters. Text queries combine BM25 and embedding
         KNN retrieval when embedding generation succeeds; otherwise the backend falls back to BM25. Explicit non-score sorts
-        use BM25. A valid bearer token adds user state and makes the response `Cache-Control: no-store`. `language` defaults
-        to `en` and `currency` defaults to `EUR`."
+        use BM25. Any request with an Authorization header is private and not stored, including valid credentials that add
+        user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60`; errors use `private, no-store`.
+        `language` defaults to `en` and `currency` defaults to `EUR`."
       operationId: simpleSearchProductListings
       tags:
         - ProductListings
@@ -2735,10 +2757,10 @@ paths:
           description: Simple search results returned successfully
           headers:
             Cache-Control:
-              description: Shared/public cache directives for GET simple-search responses
+              description: Anonymous responses without Authorization are shared for 60 seconds; credential-bearing responses are private and not stored.
               schema:
                 type: string
-              example: public, max-age=60, s-maxage=300
+              example: public, max-age=0, s-maxage=60
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -10511,11 +10533,11 @@ paths:
           description: Opaque URL-safe base64 continuation from this endpoint. Omit on the first page and restart after a query or size change.
       responses:
         "200":
-          description: Public collection page. Cache-Control is no-store.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema: { type: string }
-              example: no-store
+              example: public, max-age=0, s-maxage=300
           content:
             application/json:
               schema:
@@ -10560,11 +10582,11 @@ paths:
           description: Exact persisted immutable ListingSource slug.
       responses:
         "200":
-          description: Public ListingSource. Cache-Control is no-store.
+          description: Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=300`; any request with Authorization and all errors use `private, no-store`.
           headers:
             Cache-Control:
               schema: { type: string }
-              example: no-store
+              example: public, max-age=0, s-maxage=300
           content:
             application/json:
               schema:

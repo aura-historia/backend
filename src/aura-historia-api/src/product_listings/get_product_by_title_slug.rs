@@ -67,7 +67,7 @@ pub async fn get_product_by_title_slug(
         )
         .await
     {
-        Ok(view) => product_response(view, &context.principal),
+        Ok(view) => product_response(view, &context.principal, &headers),
         Err(error) => ApiError::from(error).into_response(),
     }
 }

@@ -5,14 +5,12 @@ use crate::state::ProductListingsState;
 use crate::wire::parse_path_object_id;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     GetProductListingHistoryRequest, ProductListingHistoryLookup,
 };
-
-const HISTORY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 
 pub async fn get_product_listing_history_by_id(
     State(state): State<ProductListingsState>,
@@ -25,7 +23,7 @@ pub async fn get_product_listing_history_by_id(
         "ProductListing",
     ) {
         Ok(id) => id,
-        Err(error) => return error.into_response(),
+        Err(error) => return crate::transport::cache::private_no_store(error.into_response()),
     };
     history_response(
         state,
@@ -46,32 +44,38 @@ async fn history_response(
         .await
     {
         Ok(value) => value,
-        Err(error) => return ApiError::from(error).into_response(),
+        Err(error) => {
+            return crate::transport::cache::private_no_store(
+                ApiError::from(error).into_response(),
+            );
+        }
     };
     let Some(use_case) = state.get_product_listing_history.as_ref() else {
-        return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-            .with_detail("ProductListing history is not configured.")
-            .into_response();
+        return crate::transport::cache::private_no_store(
+            ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                .with_detail("ProductListing history is not configured.")
+                .into_response(),
+        );
     };
     let context = principal.operation_context(metadata);
     match use_case
         .execute(&context, GetProductListingHistoryRequest { lookup })
         .await
     {
-        Ok(history) => {
-            let mut response = Json(
+        Ok(history) => crate::transport::cache::anonymous_shared_success(
+            Json(
                 history
                     .into_iter()
                     .map(ProductListingHistoryEntryData::from)
                     .collect::<Vec<_>>(),
             )
-            .into_response();
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static(HISTORY_CACHE_CONTROL),
-            );
-            response
+            .into_response(),
+            &headers,
+            matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+            300,
+        ),
+        Err(error) => {
+            crate::transport::cache::private_no_store(ApiError::from(error).into_response())
         }
-        Err(error) => ApiError::from(error).into_response(),
     }
 }

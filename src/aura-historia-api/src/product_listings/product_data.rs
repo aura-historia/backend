@@ -3,7 +3,7 @@ use application::operation_context::Principal;
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus, AuctionSchedule};
 
 use axum::Json;
-use axum::http::{HeaderValue, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use domain_primitives::event_id::EventId;
 
@@ -581,29 +581,21 @@ pub(crate) fn personalized_product_summary_data(
 pub(crate) fn product_response(
     view: PersonalizedProductListingDetailsView,
     principal: &Principal,
+    request_headers: &HeaderMap,
 ) -> Response {
-    let lifecycle = view.item.lifecycle;
     let content_language = view
         .item
         .title
         .as_ref()
         .map(|title| title.localization.as_str());
-    let mut response = Json(personalized_product_details_data(view)).into_response();
-    let cache_control = match principal {
-        Principal::Anonymous if matches!(lifecycle, ListingLifecycle::Withdrawn) => {
-            "public, max-age=180, s-maxage=86400"
-        }
-        Principal::Anonymous => "public, max-age=180, s-maxage=900",
-        Principal::User(_)
-        | Principal::DelegatedUser { .. }
-        | Principal::Service(_)
-        | Principal::System => "no-store",
-    };
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(cache_control),
+    let response = Json(personalized_product_details_data(view)).into_response();
+    let mut response = crate::transport::cache::anonymous_shared_success(
+        response,
+        request_headers,
+        matches!(principal, Principal::Anonymous),
+        120,
     );
+    let headers = response.headers_mut();
     if let Some(language) = content_language {
         headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
     }

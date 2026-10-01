@@ -19,7 +19,7 @@ use auction_service::{
 use axum::{
     Json,
     extract::{Path, RawQuery, State},
-    http::{HeaderMap, HeaderValue, header},
+    http::HeaderMap,
     response::{IntoResponse, Response},
 };
 use listing_source_core::ListingSourceId;
@@ -50,7 +50,12 @@ pub async fn get_public_auction(
         .await
     {
         Ok(view) => match PublicAuctionData::try_from(view) {
-            Ok(data) => no_store(Json(data).into_response()),
+            Ok(data) => crate::transport::cache::anonymous_shared_success(
+                Json(data).into_response(),
+                &headers,
+                matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+                60,
+            ),
             Err(error) => no_store(error.into_response()),
         },
         Err(error) => no_store(ApiError::from(error).into_response()),
@@ -107,7 +112,12 @@ pub async fn get_auction_catalogue(
         )
         .await
     {
-        Ok(page) => no_store(Json(CatalogueData::from(page)).into_response()),
+        Ok(page) => crate::transport::cache::anonymous_shared_success(
+            Json(CatalogueData::from(page)).into_response(),
+            &headers,
+            matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+            60,
+        ),
         Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }
@@ -145,7 +155,12 @@ pub async fn list_public_auctions(
         .execute(&principal.operation_context(metadata), request)
         .await
     {
-        Ok(result) => no_store(Json(PublicAuctionDirectoryData::from(result)).into_response()),
+        Ok(result) => crate::transport::cache::anonymous_shared_success(
+            Json(PublicAuctionDirectoryData::from(result)).into_response(),
+            &headers,
+            matches!(&principal, crate::auth::TransportPrincipal::Anonymous),
+            60,
+        ),
         Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }
@@ -577,17 +592,16 @@ impl From<ListAuctionsError> for ApiError {
         }
     }
 }
-fn no_store(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
+fn no_store(response: Response) -> Response {
+    crate::transport::cache::private_no_store(response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use crate::auth::{
+        AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
+    };
     use application::{operation_context::OperationContext, pagination::CursoredResult};
     use auction_service::{
         ports::PublicAuctionSourceSummary,
@@ -605,6 +619,7 @@ mod tests {
     use money::Currency;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     #[derive(Clone)]
     struct FakeGet {
@@ -660,7 +675,9 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    struct FakeAuthenticator;
+    struct FakeAuthenticator {
+        reject: bool,
+    }
 
     #[async_trait::async_trait]
     impl TokenAuthenticator for FakeAuthenticator {
@@ -669,7 +686,15 @@ mod tests {
             _bearer_token: &str,
             _metadata: &RequestMetadata,
         ) -> Result<TransportPrincipal, AuthError> {
-            Err(AuthError::InvalidCredentials)
+            if self.reject {
+                Err(AuthError::InvalidCredentials)
+            } else {
+                Ok(TransportPrincipal::User {
+                    user_id: UserId::new(),
+                    auth_method: AuthMethod::CognitoJwt,
+                    capabilities: Default::default(),
+                })
+            }
         }
     }
 
@@ -702,6 +727,10 @@ mod tests {
     }
 
     fn app(catalogue: FakeCatalogue) -> Router {
+        app_with_auth(catalogue, FakeAuthenticator { reject: true })
+    }
+
+    fn app_with_auth(catalogue: FakeCatalogue, authenticator: FakeAuthenticator) -> Router {
         Router::new()
             .route("/api/v1/auctions", get(list_public_auctions))
             .route("/api/v1/auctions/{auction_id}", get(get_public_auction))
@@ -713,12 +742,12 @@ mod tests {
                 Arc::new(FakeGet { result: detail() }),
                 Arc::new(FakeList),
                 Arc::new(catalogue),
-                Arc::new(FakeAuthenticator),
+                Arc::new(authenticator),
             ))
     }
 
     #[tokio::test]
-    async fn should_return_safe_public_auction_detail_without_store_for_anonymous_request()
+    async fn should_return_safe_public_auction_detail_with_shared_cache_for_anonymous_request()
     -> Result<(), Box<dyn std::error::Error>> {
         let auction_id = detail().auction_id;
         let response = app(FakeCatalogue::default())
@@ -726,7 +755,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "public, max-age=0, s-maxage=60",
+            response.headers()[header::CACHE_CONTROL]
+        );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: serde_json::Value = serde_json::from_slice(&body)?;
         assert!(body.get("sourceAuctionId").is_none());
@@ -743,7 +775,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
         Ok(())
     }
 
@@ -762,7 +797,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "public, max-age=0, s-maxage=60",
+            response.headers()[header::CACHE_CONTROL]
+        );
         assert!(matches!(
             lock(&catalogue.requests).as_slice(),
             [request] if request.auction_id == auction_id
@@ -784,7 +822,59 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::UNAUTHORIZED, response.status());
-        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_private_no_store_for_valid_credential_on_detail_and_catalogue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let auction_id = detail().auction_id;
+        let authenticator = FakeAuthenticator { reject: false };
+
+        let detail_response = app_with_auth(FakeCatalogue::default(), authenticator)
+            .oneshot(
+                Request::get(format!("/api/v1/auctions/{auction_id}"))
+                    .header(header::AUTHORIZATION, "Bearer valid")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(StatusCode::OK, detail_response.status());
+        assert_eq!(
+            "private, no-store",
+            detail_response.headers()[header::CACHE_CONTROL]
+        );
+
+        let catalogue_response = app_with_auth(FakeCatalogue::default(), authenticator)
+            .oneshot(
+                Request::get(format!("/api/v1/auctions/{auction_id}/product-listings"))
+                    .header(header::AUTHORIZATION, "Bearer valid")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(StatusCode::OK, catalogue_response.status());
+        assert_eq!(
+            "private, no-store",
+            catalogue_response.headers()[header::CACHE_CONTROL]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_cache_anonymous_auction_directory_for_sixty_seconds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = app(FakeCatalogue::default())
+            .oneshot(Request::get("/api/v1/auctions").body(Body::empty())?)
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "public, max-age=0, s-maxage=60",
+            response.headers()[header::CACHE_CONTROL]
+        );
         Ok(())
     }
 
