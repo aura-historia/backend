@@ -878,6 +878,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /stripe/{stage}/ultimate-yearly-price-id
 /certificates/{stage}/api-regional-certificate-arn
 /certificates/{stage}/api-cloudfront-certificate-arn
+/cognito/{stage}/identity-providers/google/{client-id,client-secret}
 /vertex-ai/{stage}/project-id
 /vertex-ai/{stage}/location
 /vertex-ai/{stage}/model
@@ -885,6 +886,8 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /loops/{stage}/api-key
 /loops/{stage}/newsletter-list-id
 ```
+
+The Google Cognito identity provider resolves both its client ID and client secret from SSM `String` parameters. CloudFormation does not support `ssm-secure` in Cognito `ProviderDetails.client_secret`, so the client secret must be a plain `String`, not `SecureString`. Restrict SSM reads and CloudFormation/Cognito configuration access; never put the value in source, logs, or CLI arguments. Changing the SSM value alone does not update the deployed provider: deploy an identity-provider configuration change to re-resolve it before revoking an old Google client secret.
 
 The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 The initialization-stack `fxrate-lambda-<stage>` resolves `/fxratesapi/<stage>/api-token`.

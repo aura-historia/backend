@@ -55,7 +55,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(pool.Properties.LambdaConfig.PreSignUp).toBeDefined();
   });
 
-  test("creates Google with secure credentials and the narrow mapped profile", () => {
+  test("creates Google with an SSM String client secret and the narrow mapped profile", () => {
     const template = computeTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 1);
     const [[, provider]] = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider");
@@ -65,7 +65,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ProviderType: "Google",
       ProviderDetails: {
         client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/google/client-id}}`,
-        client_secret: `{{resolve:ssm-secure:/cognito/${stage}/identity-providers/google/client-secret}}`,
+        client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/google/client-secret}}`,
         authorize_scopes: "openid email profile",
       },
       AttributeMapping: {

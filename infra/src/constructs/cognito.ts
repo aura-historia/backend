@@ -150,7 +150,8 @@ function createIdentityProvider(
       const resource = new cognito.UserPoolIdentityProviderGoogle(scope, `${provider.providerName}IdentityProvider`, {
         userPool,
         clientId: ssmValue(provider.clientIdParameterName),
-        clientSecretValue: cdk.SecretValue.ssmSecure(provider.clientSecretParameterName),
+        // Cognito ProviderDetails rejects ssm-secure; this is a dynamic reference, not a literal secret.
+                clientSecretValue: cdk.SecretValue.unsafePlainText(ssmValue(provider.clientSecretParameterName)),
         scopes: [...provider.scopes],
         attributeMapping: {
           email: cognito.ProviderAttribute.GOOGLE_EMAIL,
