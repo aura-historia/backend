@@ -14749,7 +14749,8 @@ components:
     OAuthClientConsentMetadataData:
       type: object
       additionalProperties: false
-      description: "Minimal secret-free OAuth client metadata returned to an authenticated user before consent.
+      description:
+        "Minimal secret-free OAuth client metadata returned to an authenticated user before consent.
 
         `client_id`, URLs, redirect URIs, and allowed scopes come from the persisted registration. Redirect URIs are
         returned as registered and must not be treated as a wildcard allowlist. `scope` contains allowed scopes only,
@@ -17719,6 +17720,9 @@ components:
         slugId:
           type: string
 x-tagGroups:
+  - name: Operations
+    tags:
+      - Operations
   - name: Discovery
     tags:
       - ProductListings
