@@ -86,8 +86,9 @@ use oauth_postgres::{
 };
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
-    IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
-    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
+    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
+    UpdateOAuthClientHandler,
 };
 use opensearch::{
     OpenSearch, SearchParts,
@@ -809,6 +810,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     get(oauth::get_client::get_client)
                         .patch(oauth::update_client::update_client)
                         .delete(oauth::delete_client::delete_client),
+                )
+                .route(
+                    "/api/v1/oauth/clients/{client_id}",
+                    get(oauth::get_consent_client::get_consent_client),
                 )
                 .route("/api/v1/oauth/authorize", get(oauth::authorize::authorize))
                 .route("/api/v1/oauth/token", post(oauth::token::token))
@@ -1654,6 +1659,9 @@ async fn app_state_from_config_and_pool(
         get_client: Arc::new(GetOAuthClientHandler::new(
             SqlxOAuthClientDetailsReader::new(pool.clone()),
             CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+        )),
+        get_consent_client: Arc::new(GetOAuthConsentClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
         )),
         update_client: Arc::new(UpdateOAuthClientHandler::new(
             unit_of_work.clone(),

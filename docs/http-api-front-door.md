@@ -11,6 +11,7 @@ Gateway deliberately applies no Cognito JWT authorizer to these routes. Axum rem
 - anonymous health/readiness probes stay anonymous;
 - optional-bearer discovery and newsletter routes can run anonymously but reject invalid supplied credentials;
 - user, administrator, and partner routes enforce their required application bearer and authorization checks in Axum;
+- `GET /api/v1/oauth/clients/{clientId}` accepts only a Cognito access JWT in Axum and returns registered consent metadata with `Cache-Control: no-store`; its application-bearer Gateway route uses the generic uncached `/api/*` behavior;
 - OAuth credentials and WooCommerce raw-body/signature validation reach their dedicated Axum handlers unchanged.
 
 This is not an authorization bypass: every protected handler retains its existing application authorization. It prevents a Cognito-only Gateway policy from incorrectly rejecting valid non-Cognito credentials before the application can evaluate them.

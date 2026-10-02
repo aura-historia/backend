@@ -8920,6 +8920,141 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/v1/oauth/clients/{clientId}:
+    get:
+      summary: Get OAuth client metadata for consent
+      description: |
+        Reads the authoritative registered metadata for one OAuth client before the user begins or completes consent.
+        This is a read only: it does not record consent, issue an authorization code or token, or grant privileges.
+        Any signed-in ordinary user can read a registered client without the ADMIN role, client ownership, an existing
+        client token, or a source partnership. Only a Cognito access JWT is accepted through `BearerAuth`; Cognito ID
+        tokens, Aura opaque access tokens, and client-secret credentials are rejected. Centralized account restrictions
+        continue to apply. Redirect URIs and allowed scopes are returned exactly as registered; `scope: []` means the
+        client has no allowed scopes and does not imply user consent. `/api/v1/oauth/authorize` remains authoritative
+        and revalidates registration, exact redirect URI, requested-scope subset, and S256 PKCE before issuing a code.
+        Every success and error response uses `Cache-Control: no-store`.
+      operationId: getOAuthConsentClient
+      tags:
+        - OAuth
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          description: Canonical OAuthClient ID (`oc_` TypeID).
+          schema:
+            type: string
+          example: oc_7b0gwc1x49e0mvbt3tfexfqgb5
+      responses:
+        "200":
+          description: Secret-free registered consent metadata retrieved successfully.
+          headers:
+            Cache-Control:
+              description: Success responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthClientConsentMetadataData"
+              example:
+                client_id: oc_7b0gwc1x49e0mvbt3tfexfqgb5
+                client_name: Aura Historia WooCommerce
+                tos_uri: https://integration.example/terms
+                policy_uri: https://integration.example/privacy
+                client_uri: https://integration.example
+                logo_uri: https://integration.example/logo.png
+                redirect_uris:
+                  - https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce
+                scope:
+                  - product-listings:write
+        "400":
+          description: Malformed or non-canonical OAuthClient ID (`INVALID_OBJECT_ID`); the problem source has `field` `clientId` and `type` `PATH`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_OBJECT_ID
+                source:
+                  field: clientId
+                  type: PATH
+                detail: must be a valid OAuthClient ID
+        "401":
+          description: Missing, invalid, expired, or unsupported bearer credentials, including ID tokens, opaque Aura tokens, and client-secret credentials (`INVALID_CREDENTIALS`).
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "404":
+          description: Well-formed OAuthClient ID has no current registration (`OAUTH_CLIENT_NOT_FOUND`).
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
+                detail: OAuth client not found.
+        "500":
+          description: Internal OAuth metadata read failure (`OAUTH_INTERNAL_ERROR`); internal details are not returned.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary metadata reader failure (`OAUTH_TEMPORARILY_UNAVAILABLE`) or temporary authentication dependency failure (`AUTH_TEMPORARILY_UNAVAILABLE`); no database or credential details are returned.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
   /api/v1/oauth/authorize:
     get:
       summary: OAuth2 authorization endpoint
@@ -14611,6 +14746,72 @@ components:
           nullable: true
           description: Omit to leave unchanged. Send null to clear the expiration timestamp.
           example: "2026-07-31T00:00:00Z"
+    OAuthClientConsentMetadataData:
+      type: object
+      additionalProperties: false
+      description: "Minimal secret-free OAuth client metadata returned to an authenticated user before consent.
+
+        `client_id`, URLs, redirect URIs, and allowed scopes come from the persisted registration. Redirect URIs are
+        returned as registered and must not be treated as a wildcard allowlist. `scope` contains allowed scopes only,
+        not scopes the user has granted; an empty set is `[]`. This schema intentionally excludes client secrets,
+        secret hashes or short-token material, bearer tokens, authorization codes, verifiers, timestamps, and audit data.
+
+        "
+      required:
+        - client_id
+        - client_name
+        - tos_uri
+        - policy_uri
+        - client_uri
+        - logo_uri
+        - redirect_uris
+        - scope
+      properties:
+        client_id:
+          type: string
+          description: Canonical OAuthClient ID (`oc_` TypeID).
+          example: oc_7b0gwc1x49e0mvbt3tfexfqgb5
+        client_name:
+          type: string
+          description: Display name stored for the OAuth client.
+          example: Aura Historia WooCommerce
+        tos_uri:
+          type: string
+          format: uri
+          description: Terms-of-service URL stored for the OAuth client.
+          example: https://integration.example/terms
+        policy_uri:
+          type: string
+          format: uri
+          description: Privacy-policy URL stored for the OAuth client.
+          example: https://integration.example/privacy
+        client_uri:
+          type: string
+          format: uri
+          description: Homepage URL stored for the OAuth client.
+          example: https://integration.example
+        logo_uri:
+          type: string
+          format: uri
+          description: Logo URL stored for the OAuth client.
+          example: https://integration.example/logo.png
+        redirect_uris:
+          type: array
+          uniqueItems: true
+          description: Exact registered redirect URLs, including their registered query strings and other URI components.
+          items:
+            type: string
+            format: uri
+          example:
+            - https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce
+        scope:
+          type: array
+          uniqueItems: true
+          description: Allowed OAuth scopes; this does not mean that the user has granted them. Empty registrations return `[]`.
+          items:
+            $ref: "#/components/schemas/AccessTokenScopeData"
+          example:
+            - product-listings:write
     OAuthClientMetadataRequestData:
       type: object
       description: "Request body for creating OAuth client metadata.

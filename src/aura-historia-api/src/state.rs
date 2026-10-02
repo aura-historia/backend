@@ -27,8 +27,9 @@ use notification_service::use_cases::commands::update_notifications_seen::Update
 use notification_service::use_cases::queries::list_notifications::ListNotificationsUseCase;
 use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
-    IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
-    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
+    GetOAuthConsentClientUseCase, IntrospectTokenUseCase, ListOAuthClientsUseCase,
+    RevokeTokenUseCase, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase,
+    UpdateOAuthClientUseCase,
 };
 use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
 use partnership_service::use_cases::queries::list_admin_partnerships::ListAdminPartnershipsUseCase;
@@ -472,6 +473,7 @@ pub struct OAuthState {
     pub(crate) create_client: Arc<dyn CreateOAuthClientUseCase>,
     pub(crate) list_clients: Arc<dyn ListOAuthClientsUseCase>,
     pub(crate) get_client: Arc<dyn GetOAuthClientUseCase>,
+    pub(crate) get_consent_client: Arc<dyn GetOAuthConsentClientUseCase>,
     pub(crate) update_client: Arc<dyn UpdateOAuthClientUseCase>,
     pub(crate) delete_client: Arc<dyn DeleteOAuthClientUseCase>,
     pub(crate) authorize: Arc<dyn AuthorizeUseCase>,
@@ -488,6 +490,7 @@ impl OAuthState {
         create_client: Arc<dyn CreateOAuthClientUseCase>,
         list_clients: Arc<dyn ListOAuthClientsUseCase>,
         get_client: Arc<dyn GetOAuthClientUseCase>,
+        get_consent_client: Arc<dyn GetOAuthConsentClientUseCase>,
         update_client: Arc<dyn UpdateOAuthClientUseCase>,
         delete_client: Arc<dyn DeleteOAuthClientUseCase>,
         authorize: Arc<dyn AuthorizeUseCase>,
@@ -501,6 +504,7 @@ impl OAuthState {
             create_client,
             list_clients,
             get_client,
+            get_consent_client,
             update_client,
             delete_client,
             authorize,

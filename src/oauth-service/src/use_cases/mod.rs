@@ -3,6 +3,7 @@ pub mod cleanup_expired_credentials;
 pub mod create_client;
 pub mod delete_client;
 pub mod get_client;
+pub mod get_consent_client;
 pub mod introspect_token;
 pub mod list_clients;
 pub mod revoke_token;
@@ -29,6 +30,7 @@ pub use delete_client::{
     DeleteOAuthClientHandler, DeleteOAuthClientResult, DeleteOAuthClientUseCase,
 };
 pub use get_client::{GetOAuthClientHandler, GetOAuthClientUseCase};
+pub use get_consent_client::{GetOAuthConsentClientHandler, GetOAuthConsentClientUseCase};
 pub use introspect_token::{
     IntrospectTokenHandler, IntrospectTokenRequest, IntrospectTokenResponse, IntrospectTokenUseCase,
 };

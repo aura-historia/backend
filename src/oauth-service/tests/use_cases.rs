@@ -20,7 +20,8 @@ use oauth_service::ports::*;
 use oauth_service::use_cases::{
     AuthorizeHandler, AuthorizeRequest, AuthorizeUseCase, CreateOAuthClientCommand,
     CreateOAuthClientHandler, CreateOAuthClientUseCase, DeleteOAuthClientHandler,
-    DeleteOAuthClientUseCase, GetOAuthClientHandler, GetOAuthClientUseCase, IntrospectTokenHandler,
+    DeleteOAuthClientUseCase, GetOAuthClientHandler, GetOAuthClientUseCase,
+    GetOAuthConsentClientHandler, GetOAuthConsentClientUseCase, IntrospectTokenHandler,
     IntrospectTokenRequest, IntrospectTokenUseCase, ListOAuthClientsHandler,
     ListOAuthClientsRequest, ListOAuthClientsResult, ListOAuthClientsUseCase, OAuthGrantType,
     OAuthResponseType, OAuthState, OAuthTokenType, RevokeTokenHandler, RevokeTokenRequest,
@@ -971,6 +972,56 @@ async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
     );
     assert_eq!(2, lock(&ports.0).details_reads);
     assert_eq!(2, lock(&ports.0).list_reads);
+}
+
+#[tokio::test]
+async fn should_allow_an_ordinary_user_to_read_consent_metadata_without_side_effects() {
+    let ports = FakePorts::default();
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    let client_id = client.client_id();
+    lock(&ports.0).client = Some(client);
+    let get = GetOAuthConsentClientHandler::new(ports.clone());
+
+    let ordinary_user = context(Principal::User(UserId::new()));
+    let result = get
+        .execute(&ordinary_user, &client_id)
+        .await
+        .unwrap_or_else(|error| panic!("ordinary user should read consent metadata: {error}"));
+
+    assert_eq!(client_id, result.client_id);
+    assert_eq!(OAuthClientName::from("Test Client"), result.name);
+    assert_eq!(1, lock(&ports.0).details_reads);
+    assert!(lock(&ports.0).issued.is_none());
+    assert!(lock(&ports.0).code.is_none());
+    assert!(lock(&ports.0).exchange.is_none());
+    assert_eq!(0, lock(&ports.0).transaction_begins);
+}
+
+#[tokio::test]
+async fn should_require_an_ordinary_authenticated_user_for_consent_metadata() {
+    let ports = FakePorts::default();
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    let client_id = client.client_id();
+    lock(&ports.0).client = Some(client);
+    let get = GetOAuthConsentClientHandler::new(ports.clone());
+
+    assert!(matches!(
+        get.execute(&context(Principal::Anonymous), &client_id)
+            .await,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+    assert!(matches!(
+        get.execute(
+            &context(Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
+            }),
+            &client_id,
+        )
+        .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+    assert_eq!(0, lock(&ports.0).details_reads);
 }
 
 #[tokio::test]
