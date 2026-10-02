@@ -18,6 +18,7 @@ import { Network } from "./constructs/network";
 import {
   addUserPoolEnvironment,
   grantCognitoAdminAccess,
+  grantCognitoFederatedLinkingAccess,
   importLambdaCatalog,
   InitializationLambdas,
   Lambdas,
@@ -287,6 +288,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       config,
       stageName,
       postConfirmationLambda: this.lambdas.functions.postConfirmation,
+      preSignUpLambda: this.lambdas.functions.preSignUp,
     });
     addUserPoolEnvironment(
       this.lambdas.functions,
@@ -294,6 +296,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.identity.publicClient.userPoolClientId,
     );
     grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
+    grantCognitoFederatedLinkingAccess(this.lambdas.functions);
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
@@ -438,6 +441,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       config,
       stageName,
       postConfirmationLambda: this.lambdas.functions.postConfirmation,
+      preSignUpLambda: this.lambdas.functions.preSignUp,
     });
     addUserPoolEnvironment(
       this.lambdas.functions,
@@ -445,6 +449,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       this.identity.publicClient.userPoolClientId,
     );
     grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
+    grantCognitoFederatedLinkingAccess(this.lambdas.functions);
 
     this.eventing = new Eventing(this, "Eventing", {
       config,

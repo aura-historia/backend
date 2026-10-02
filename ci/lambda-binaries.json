@@ -2,6 +2,7 @@
   "aura-historia-api",
   "shopify-lambda",
   "cognito-post-confirmation",
+  "cognito-pre-sign-up",
   "cloudwatch-log-retention-lambda",
   "database-migration-lambda",
   "fxrate-lambda",

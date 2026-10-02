@@ -134,12 +134,20 @@ mod tests {
         subject: &str,
         email: &str,
     ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+        post_confirmation_event_with_username("provider-username", subject, email)
+    }
+
+    fn post_confirmation_event_with_username(
+        username: &str,
+        subject: &str,
+        email: &str,
+    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
         event(serde_json::json!({
             "version": "1",
             "triggerSource": "PostConfirmation_ConfirmSignUp",
             "region": "eu-central-1",
             "userPoolId": "pool-id",
-            "userName": "provider-username",
+            "userName": username,
             "callerContext": {},
             "request": {
                 "userAttributes": {
@@ -179,6 +187,36 @@ mod tests {
             calls[0].1.identity.issuer.as_str()
         );
         assert_eq!("provider|not-a-uuid", calls[0].1.identity.subject.as_str());
+        assert_eq!(email("ada@example.com"), calls[0].1.email);
+    }
+
+    #[tokio::test]
+    async fn should_register_external_provider_profile_using_only_canonical_cognito_identity() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let event = post_confirmation_event_with_username(
+            "Google_external-provider-subject",
+            "canonical-cognito-subject",
+            "ada@example.com",
+        );
+
+        let response = match handler(event, &service).await {
+            Ok(response) => response,
+            Err(error) => panic!("expected success: {error}"),
+        };
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+
+        assert_eq!(
+            "canonical-cognito-subject",
+            response.request.user_attributes["sub"]
+        );
+        assert_eq!(1, calls.len());
+        assert_eq!(
+            "canonical-cognito-subject",
+            calls[0].1.identity.subject.as_str()
+        );
         assert_eq!(email("ada@example.com"), calls[0].1.email);
     }
 

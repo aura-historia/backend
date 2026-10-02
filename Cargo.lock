@@ -1746,6 +1746,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cognito-pre-sign-up"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-cognitoidentityprovider",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "serde-email",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "user-cognito",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8962,6 +8981,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
+ "serde_json",
  "thiserror 2.0.21",
  "user-service",
 ]

@@ -111,6 +111,58 @@ async fn should_register_once_when_same_confirmation_runs_concurrently() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_external_login_idempotent_for_the_canonical_cognito_subject() {
+    let pool = get_postgres_client().await;
+    let service = RegisterCognitoUserHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+    );
+    let canonical_subject = "canonical-cognito-subject";
+
+    handler(
+        post_confirmation_event_with_username(
+            "ExampleOidc_external-subject",
+            "eu-central-1",
+            "pool-a",
+            canonical_subject,
+            "ada@example.com",
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("first canonical registration failed: {error}"));
+    handler(
+        post_confirmation_event_with_username(
+            "ExampleOidc_external-subject",
+            "eu-central-1",
+            "pool-a",
+            canonical_subject,
+            "ada@example.com",
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("repeated canonical registration failed: {error}"));
+
+    let user_id = resolve(identity("eu-central-1", "pool-a", canonical_subject))
+        .await
+        .unwrap_or_else(|error| panic!("canonical identity did not resolve: {error}"));
+    let (users, identities) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM user_cognito_identities)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count canonical registration rows: {error}"));
+
+    assert_eq!((1, 1), (users, identities));
+    let repeated_user_id = resolve(identity("eu-central-1", "pool-a", canonical_subject))
+        .await
+        .unwrap_or_else(|error| panic!("repeated canonical identity did not resolve: {error}"));
+    assert_eq!(user_id, repeated_user_id);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_isolate_same_subject_by_cognito_issuer() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
@@ -264,12 +316,22 @@ fn post_confirmation_event(
     subject: &str,
     email: &str,
 ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    post_confirmation_event_with_username("provider-username", region, user_pool_id, subject, email)
+}
+
+fn post_confirmation_event_with_username(
+    username: &str,
+    region: &str,
+    user_pool_id: &str,
+    subject: &str,
+    email: &str,
+) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
     let payload = serde_json::from_value(serde_json::json!({
         "version": "1",
         "triggerSource": "PostConfirmation_ConfirmSignUp",
         "region": region,
         "userPoolId": user_pool_id,
-        "userName": "provider-username",
+        "userName": username,
         "callerContext": {},
         "request": {
             "userAttributes": {

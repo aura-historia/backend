@@ -66,6 +66,7 @@ product-service = ["application", "domain-primitives", "indexmap", "listing-sour
 
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]
 cognito-post-confirmation = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-core", "user-postgres", "user-service"]
+cognito-pre-sign-up = ["platform-lambda-bootstrap", "platform-observability", "user-cognito"]
 crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-postgres", "product-listing-service", "public-network-policy"]
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "user-core"]
 
@@ -77,7 +78,7 @@ search-filter-core = ["domain-primitives", "fxrate-core", "product-listing-core"
 shopify-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "fxrate-postgres", "listing-source-core", "listing-source-postgres", "listing-source-service", "product-listing-ingestion-sqs", "product-listing-normalization", "product-listing-postgres", "product-listing-service"]
 stripe-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-core", "user-postgres", "user-service"]
 user-postgres = ["application", "domain-primitives", "geo", "localization", "money", "platform-postgres", "user-core", "user-service"]
-user-cognito = ["application", "user-core", "user-service"]
+user-cognito = ["application", "serde_json", "user-core", "user-service"]
 user-loops = ["application", "user-core", "user-service"]
 watchlist-service = ["application", "domain-primitives", "fxrate-core", "fxrate-service", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "user-core", "user-service", "watchlist-core"]
 notification-service = ["application", "domain-primitives", "localization", "money", "notification-core", "product-listing-core", "user-core"]
