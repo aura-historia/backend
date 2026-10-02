@@ -2,10 +2,14 @@ use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use cognito_post_confirmation::handler;
 use lambda_runtime::{Context, LambdaEvent};
+use localization::Language;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::first_name::FirstName;
+use user_core::last_name::LastName;
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
+use user_core::user::UserProfile;
 use user_core::user_id::UserId;
 use user_postgres::{
     SqlxCognitoUserIdentityReader, SqlxUserCognitoIdentityRegistryFactory,
@@ -57,7 +61,67 @@ async fn should_register_opaque_cognito_subject_as_independent_default_user() {
     assert_eq!(UserTier::Free, stored.value.account().tier);
     assert_eq!(UserRole::User, stored.value.account().role);
     assert!(stored.value.profile().first_name.is_none());
+    assert!(stored.value.profile().last_name.is_none());
     assert!(stored.value.preferences().language.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_persist_federated_bootstrap_profile_and_language_on_first_creation() {
+    let pool = get_postgres_client().await;
+    let service = RegisterCognitoUserHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+    );
+    let subject = "canonical-cognito-subject";
+
+    handler(
+        post_confirmation_event_with_profile(
+            "eu-central-1",
+            "pool-a",
+            subject,
+            "ada@example.com",
+            Some("Ada"),
+            Some("Lovelace"),
+            Some("de-DE"),
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("federated registration failed: {error}"));
+    let user_id = resolve(identity("eu-central-1", "pool-a", subject))
+        .await
+        .unwrap_or_else(|error| panic!("registered identity did not resolve: {error}"));
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let mut tx = begin(&unit_of_work).await;
+    let stored = SqlxUserRepositoryFactory::new()
+        .in_transaction(&mut tx)
+        .find_by_id(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read created user: {error:?}"))
+        .unwrap_or_else(|| panic!("created user missing from Postgres"));
+    commit(tx).await;
+
+    assert_eq!("ada@example.com", stored.value.email().to_string());
+    assert_eq!(
+        Some(FirstName::from("Ada")),
+        stored.value.profile().first_name.clone()
+    );
+    assert_eq!(
+        Some(LastName::from("Lovelace")),
+        stored.value.profile().last_name.clone()
+    );
+    assert_eq!(Some(Language::De), stored.value.preferences().language);
+    assert_eq!(None, stored.value.preferences().currency);
+    assert_eq!(None, stored.value.preferences().measurement_unit);
+    assert!(
+        !stored
+            .value
+            .preferences()
+            .show_unassessed_or_sensitive_content
+    );
+    assert_eq!(UserTier::Free, stored.value.account().tier);
+    assert_eq!(UserRole::User, stored.value.account().role);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -108,6 +172,146 @@ async fn should_register_once_when_same_confirmation_runs_concurrently() {
 
     assert_eq!((1, 1), (users, identities));
     assert_eq!(1, version);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_external_login_idempotent_for_the_canonical_cognito_subject() {
+    let pool = get_postgres_client().await;
+    let service = RegisterCognitoUserHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+    );
+    let canonical_subject = "canonical-cognito-subject";
+
+    handler(
+        post_confirmation_event_with_username(
+            "ExampleOidc_external-subject",
+            "eu-central-1",
+            "pool-a",
+            canonical_subject,
+            "ada@example.com",
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("first canonical registration failed: {error}"));
+    handler(
+        post_confirmation_event_with_username(
+            "ExampleOidc_external-subject",
+            "eu-central-1",
+            "pool-a",
+            canonical_subject,
+            "ada@example.com",
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("repeated canonical registration failed: {error}"));
+
+    let user_id = resolve(identity("eu-central-1", "pool-a", canonical_subject))
+        .await
+        .unwrap_or_else(|error| panic!("canonical identity did not resolve: {error}"));
+    let (users, identities) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM user_cognito_identities)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count canonical registration rows: {error}"));
+
+    assert_eq!((1, 1), (users, identities));
+    let repeated_user_id = resolve(identity("eu-central-1", "pool-a", canonical_subject))
+        .await
+        .unwrap_or_else(|error| panic!("repeated canonical identity did not resolve: {error}"));
+    assert_eq!(user_id, repeated_user_id);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_not_overwrite_application_profile_on_registration_replay() {
+    let pool = get_postgres_client().await;
+    let service = RegisterCognitoUserHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+    );
+    let subject = "provider|bootstrap-replay-subject";
+
+    handler(
+        post_confirmation_event_with_profile(
+            "eu-central-1",
+            "pool-a",
+            subject,
+            "ada@example.com",
+            Some("Julian"),
+            Some("ProviderValue"),
+            Some("de-DE"),
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("initial registration failed: {error}"));
+    let user_id = resolve(identity("eu-central-1", "pool-a", subject))
+        .await
+        .unwrap_or_else(|error| panic!("registered identity did not resolve: {error}"));
+
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let user_repository_factory = SqlxUserRepositoryFactory::new();
+    let mut tx = begin(&unit_of_work).await;
+    let mut users = user_repository_factory.in_transaction(&mut tx);
+    let stored = users
+        .find_by_id(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read created user: {error:?}"))
+        .unwrap_or_else(|| panic!("created user missing from Postgres"));
+    let version = stored.version;
+    let mut edited_user = stored.value;
+    edited_user.replace_profile(UserProfile {
+        first_name: Some(FirstName::from("Jules")),
+        last_name: Some(LastName::from("Bruder")),
+    });
+    let mut preferences = edited_user.preferences().clone();
+    preferences.language = Some(Language::Fr);
+    edited_user.replace_preferences(preferences);
+    users
+        .update(&edited_user, version)
+        .await
+        .unwrap_or_else(|error| panic!("failed to update application profile: {error:?}"));
+    drop(users);
+    commit(tx).await;
+
+    handler(
+        post_confirmation_event_with_profile(
+            "eu-central-1",
+            "pool-a",
+            subject,
+            "ada@example.com",
+            Some("Julius"),
+            Some("ChangedProviderValue"),
+            Some("de-DE"),
+        ),
+        &service,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("registration replay failed: {error}"));
+
+    let mut tx = begin(&unit_of_work).await;
+    let stored = SqlxUserRepositoryFactory::new()
+        .in_transaction(&mut tx)
+        .find_by_id(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read replayed user: {error:?}"))
+        .unwrap_or_else(|| panic!("replayed user missing from Postgres"));
+    commit(tx).await;
+
+    assert_eq!(
+        Some(FirstName::from("Jules")),
+        stored.value.profile().first_name
+    );
+    assert_eq!(
+        Some(LastName::from("Bruder")),
+        stored.value.profile().last_name
+    );
+    assert_eq!(Some(Language::Fr), stored.value.preferences().language);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -264,18 +468,83 @@ fn post_confirmation_event(
     subject: &str,
     email: &str,
 ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    post_confirmation_event_with_username("provider-username", region, user_pool_id, subject, email)
+}
+
+#[derive(Default)]
+struct ProfileAttributes<'a> {
+    given_name: Option<&'a str>,
+    family_name: Option<&'a str>,
+    locale: Option<&'a str>,
+}
+
+fn post_confirmation_event_with_username(
+    username: &str,
+    region: &str,
+    user_pool_id: &str,
+    subject: &str,
+    email: &str,
+) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    post_confirmation_event_with_username_and_profile(
+        username,
+        region,
+        user_pool_id,
+        subject,
+        email,
+        ProfileAttributes::default(),
+    )
+}
+
+fn post_confirmation_event_with_profile(
+    region: &str,
+    user_pool_id: &str,
+    subject: &str,
+    email: &str,
+    given_name: Option<&str>,
+    family_name: Option<&str>,
+    locale: Option<&str>,
+) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    post_confirmation_event_with_username_and_profile(
+        "provider-username",
+        region,
+        user_pool_id,
+        subject,
+        email,
+        ProfileAttributes {
+            given_name,
+            family_name,
+            locale,
+        },
+    )
+}
+
+fn post_confirmation_event_with_username_and_profile(
+    username: &str,
+    region: &str,
+    user_pool_id: &str,
+    subject: &str,
+    email: &str,
+    profile: ProfileAttributes<'_>,
+) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+    for (attribute, value) in [
+        ("given_name", profile.given_name),
+        ("family_name", profile.family_name),
+        ("locale", profile.locale),
+    ] {
+        if let Some(value) = value {
+            user_attributes[attribute] = serde_json::json!(value);
+        }
+    }
     let payload = serde_json::from_value(serde_json::json!({
         "version": "1",
         "triggerSource": "PostConfirmation_ConfirmSignUp",
         "region": region,
         "userPoolId": user_pool_id,
-        "userName": "provider-username",
+        "userName": username,
         "callerContext": {},
         "request": {
-            "userAttributes": {
-                "sub": subject,
-                "email": email
-            },
+            "userAttributes": user_attributes,
             "clientMetadata": {}
         },
         "response": {}

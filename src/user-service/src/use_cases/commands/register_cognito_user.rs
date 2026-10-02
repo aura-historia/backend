@@ -5,14 +5,19 @@ use crate::ports::{
 use application::error::{BoxError, static_error};
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
+use localization::Language;
 use serde_email::Email;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
+use user_core::{first_name::FirstName, last_name::LastName};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegisterCognitoUserCommand {
     pub identity: CognitoIdentity,
     pub email: Email,
+    pub initial_first_name: Option<FirstName>,
+    pub initial_last_name: Option<LastName>,
+    pub initial_language: Option<Language>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,7 +140,12 @@ where
             }
             user
         } else {
-            let user = create_user(command.email.clone());
+            let user = create_user(
+                command.email.clone(),
+                command.initial_first_name.clone(),
+                command.initial_last_name.clone(),
+                command.initial_language,
+            );
             let user = self
                 .users
                 .in_transaction(&mut tx)
@@ -167,12 +177,23 @@ where
     }
 }
 
-fn create_user(email: Email) -> User {
+fn create_user(
+    email: Email,
+    initial_first_name: Option<FirstName>,
+    initial_last_name: Option<LastName>,
+    initial_language: Option<Language>,
+) -> User {
     match User::create(NewUser {
         id: UserId::new(),
         email,
-        profile: UserProfile::default(),
-        preferences: UserPreferences::default(),
+        profile: UserProfile {
+            first_name: initial_first_name,
+            last_name: initial_last_name,
+        },
+        preferences: UserPreferences {
+            language: initial_language,
+            ..UserPreferences::default()
+        },
         account: UserAccount::default(),
     }) {
         Ok(user) => user,
@@ -241,6 +262,7 @@ mod tests {
     struct State {
         operations: Vec<Operation>,
         inserted_user_ids: Vec<UserId>,
+        inserted_users: Vec<User>,
         bindings: Vec<(CognitoIdentity, UserId)>,
     }
 
@@ -332,6 +354,29 @@ mod tests {
         .unwrap_or_else(|error| match error {})
     }
 
+    fn user_with_profile_and_language(
+        user_id: UserId,
+        email_value: &str,
+        first_name: &str,
+        last_name: &str,
+        language: Language,
+    ) -> User {
+        User::create(NewUser {
+            id: user_id,
+            email: email(email_value),
+            profile: UserProfile {
+                first_name: Some(FirstName::from(first_name)),
+                last_name: Some(LastName::from(last_name)),
+            },
+            preferences: UserPreferences {
+                language: Some(language),
+                ..UserPreferences::default()
+            },
+            account: UserAccount::default(),
+        })
+        .unwrap_or_else(|error| match error {})
+    }
+
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
             principal,
@@ -341,9 +386,21 @@ mod tests {
     }
 
     fn command(email_value: &str) -> RegisterCognitoUserCommand {
+        command_with_initial_profile(email_value, None, None, None)
+    }
+
+    fn command_with_initial_profile(
+        email_value: &str,
+        first_name: Option<FirstName>,
+        last_name: Option<LastName>,
+        language: Option<Language>,
+    ) -> RegisterCognitoUserCommand {
         RegisterCognitoUserCommand {
             identity: identity(),
             email: email(email_value),
+            initial_first_name: first_name,
+            initial_last_name: last_name,
+            initial_language: language,
         }
     }
 
@@ -447,7 +504,9 @@ mod tests {
                     source: box_error(std::io::Error::other("email conflict")),
                 });
             }
-            lock(&self.state).inserted_user_ids.push(user.id());
+            let mut state = lock(&self.state);
+            state.inserted_user_ids.push(user.id());
+            state.inserted_users.push(user.clone());
             Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
 
@@ -463,6 +522,7 @@ mod tests {
             user: &User,
             _: UserStorageVersion,
         ) -> Result<VersionedUser, UserRepositoryError> {
+            record(&self.state, "update_user", self.tx_id);
             Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
 
@@ -559,23 +619,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_replay_existing_identity_without_new_user_or_binding() {
+    async fn should_create_new_user_with_initial_profile_and_language_and_other_defaults() {
+        let state = SharedState::default();
+        let result = handler(&state, None, None, None, false)
+            .execute(
+                &context(Principal::System),
+                command_with_initial_profile(
+                    "ada@example.com",
+                    Some(FirstName::from("Ada")),
+                    Some(LastName::from("Lovelace")),
+                    Some(Language::En),
+                ),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("registration failed: {error}"));
+        let state = lock(&state);
+        let inserted = state
+            .inserted_users
+            .first()
+            .unwrap_or_else(|| panic!("expected inserted user"));
+
+        assert_eq!(Some(FirstName::from("Ada")), inserted.profile().first_name);
+        assert_eq!(
+            Some(LastName::from("Lovelace")),
+            inserted.profile().last_name
+        );
+        assert_eq!(Some(Language::En), inserted.preferences().language);
+        assert_eq!(None, inserted.preferences().currency);
+        assert_eq!(None, inserted.preferences().measurement_unit);
+        assert!(!inserted.preferences().show_unassessed_or_sensitive_content);
+        assert_eq!(user_core::tier::UserTier::Free, inserted.account().tier);
+        assert_eq!(user_core::role::UserRole::User, inserted.account().role);
+        assert_eq!(None, inserted.account().stripe_customer_id);
+        assert_eq!(result.user_id, inserted.id());
+    }
+
+    #[tokio::test]
+    async fn should_replay_existing_identity_without_overwriting_application_profile() {
         let state = SharedState::default();
         let user_id = UserId::new();
+        let existing_user = user_with_profile_and_language(
+            user_id,
+            "ada@example.com",
+            "Jules",
+            "Bruder",
+            Language::Fr,
+        );
         let result = handler(
             &state,
-            Some(user(user_id, "ada@example.com")),
+            Some(existing_user.clone()),
             Some(user_id),
             None,
             false,
         )
-        .execute(&context(Principal::System), command("ada@example.com"))
+        .execute(
+            &context(Principal::System),
+            command_with_initial_profile(
+                "ada@example.com",
+                Some(FirstName::from("Julian")),
+                Some(LastName::from("ProviderValue")),
+                Some(Language::De),
+            ),
+        )
         .await;
         let state = lock(&state);
 
         assert!(matches!(result, Ok(result) if result.user_id == user_id));
         assert!(state.inserted_user_ids.is_empty());
+        assert!(state.inserted_users.is_empty());
         assert!(state.bindings.is_empty());
+        assert!(
+            !state
+                .operations
+                .iter()
+                .any(|operation| operation.name == "update_user")
+        );
+        assert_eq!(
+            Some(FirstName::from("Jules")),
+            existing_user.profile().first_name
+        );
+        assert_eq!(
+            Some(LastName::from("Bruder")),
+            existing_user.profile().last_name
+        );
+        assert_eq!(Some(Language::Fr), existing_user.preferences().language);
         assert_eq!(
             vec!["begin", "lock_identity", "find_user", "commit"],
             state

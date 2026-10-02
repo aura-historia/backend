@@ -33,6 +33,19 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
+export interface CognitoGoogleIdentityProviderConfig {
+  readonly kind: "google";
+  readonly providerName: "Google";
+  readonly clientIdParameterName: string;
+  readonly clientSecretParameterName: string;
+  readonly scopes: readonly string[];
+  readonly autoLinkVerifiedEmail: boolean;
+  readonly linkSourceAttributeName: "Cognito_Subject";
+}
+
+// New providers must explicitly define credentials, scopes, mappings, client support, and verified-email trust.
+export type CognitoIdentityProviderConfig = CognitoGoogleIdentityProviderConfig;
+
 export interface NotificationEmailConfig {
   readonly from: string;
   readonly identityDomain: string;
@@ -80,6 +93,7 @@ export interface StageConfig {
   readonly apiCorsAllowOrigins: string[];
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
+  readonly cognitoIdentityProviders: readonly CognitoIdentityProviderConfig[];
   readonly cognitoEmail: CognitoEmailConfig | undefined;
   readonly notificationEmail: NotificationEmailConfig;
   readonly opensearchDomainName: string;
@@ -166,6 +180,19 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
         : stage === "dev"
           ? [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL]
           : [LOCALHOST_CALLBACK_URL],
+    cognitoIdentityProviders: isEphemeral
+      ? []
+      : [
+          {
+            kind: "google",
+            providerName: "Google",
+            clientIdParameterName: `/cognito/${stage}/identity-providers/google/client-id`,
+            clientSecretParameterName: `/cognito/${stage}/identity-providers/google/client-secret`,
+            scopes: ["openid", "email", "profile"],
+            autoLinkVerifiedEmail: true,
+            linkSourceAttributeName: "Cognito_Subject",
+          },
+        ],
     cognitoEmail: isEphemeral
       ? undefined
       : {

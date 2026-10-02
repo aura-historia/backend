@@ -4,6 +4,11 @@ use user_service::ports::{
     CognitoIdentity, CognitoSubject, UserSessionRevocationError, UserSessionRevoker,
 };
 
+mod account_linker;
+pub use account_linker::{
+    CognitoAccountLinkError, CognitoAccountLinkOutcome, CognitoAccountLinker,
+};
+
 pub struct CognitoUserSessionRevoker {
     provider: Box<dyn CognitoProvider>,
     user_pool_id: String,

@@ -79,6 +79,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 5,
   },
+  preSignUp: {
+    id: "PrimaryUserPoolPreSignUpLambda",
+    binaryName: "cognito-pre-sign-up",
+    memorySize: 256,
+    skipEphemeral: true,
+    timeoutSeconds: 5,
+    environment: identityProviderLinkingEnvironment,
+  },
   shopify: {
     id: "ShopifyLambda",
     binaryName: "shopify-lambda",
@@ -248,7 +256,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
-type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter";
+type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "preSignUp";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
 export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
@@ -627,6 +635,34 @@ export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn:
       resources: [userPoolArn],
     }),
   );
+}
+
+export function grantCognitoFederatedLinkingAccess(functions: LambdaFunctions): void {
+  const preSignUp = functions.preSignUp;
+  if (!preSignUp) return;
+
+  const sameRegionUserPoolArn = cdk.Stack.of(preSignUp).formatArn({
+    service: "cognito-idp",
+    resource: "userpool",
+    resourceName: "*",
+    arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+  });
+  preSignUp.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser"],
+    resources: [sameRegionUserPoolArn],
+  }));
+}
+
+function identityProviderLinkingEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    COGNITO_IDENTITY_PROVIDER_LINKING_POLICY: JSON.stringify(
+      context.config.cognitoIdentityProviders.map((provider) => ({
+        providerName: provider.providerName,
+        autoLinkVerifiedEmail: provider.autoLinkVerifiedEmail,
+        linkSourceAttributeName: provider.linkSourceAttributeName,
+      })),
+    ),
+  };
 }
 
 function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {

@@ -1,7 +1,8 @@
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use lambda_runtime::LambdaEvent;
-use serde_email::Email;
+use localization::Language;
+use user_core::{first_name::FirstName, last_name::LastName};
 use user_service::ports::{CognitoIdentity, CognitoIssuer, CognitoSubject};
 use user_service::use_cases::{RegisterCognitoUserCommand, RegisterCognitoUserUseCase};
 
@@ -23,7 +24,7 @@ pub async fn handler(
     event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>,
     service: &impl RegisterCognitoUserUseCase,
 ) -> Result<CognitoEventUserPoolsPostConfirmation, lambda_runtime::Error> {
-    let (identity, email) = parse_user(&event.payload)?;
+    let command = parse_user(&event.payload)?;
     let request_id = event.context.request_id.clone();
 
     service
@@ -33,7 +34,7 @@ pub async fn handler(
                 request_id: RequestId::new(request_id.clone()),
                 correlation_id: CorrelationId::new(request_id),
             },
-            RegisterCognitoUserCommand { identity, email },
+            command,
         )
         .await?;
 
@@ -42,7 +43,7 @@ pub async fn handler(
 
 fn parse_user(
     event: &CognitoEventUserPoolsPostConfirmation,
-) -> Result<(CognitoIdentity, Email), PostConfirmationInputError> {
+) -> Result<RegisterCognitoUserCommand, PostConfirmationInputError> {
     let header = &event.cognito_event_user_pools_header;
     let region = header
         .region
@@ -74,7 +75,38 @@ fn parse_user(
         .try_into()
         .map_err(|_| PostConfirmationInputError::InvalidEmail)?;
 
-    Ok((CognitoIdentity { issuer, subject }, email))
+    let attributes = &event.request.user_attributes;
+    Ok(RegisterCognitoUserCommand {
+        identity: CognitoIdentity { issuer, subject },
+        email,
+        initial_first_name: parse_first_name(attributes.get("given_name").map(String::as_str)),
+        initial_last_name: parse_last_name(attributes.get("family_name").map(String::as_str)),
+        initial_language: parse_language(attributes.get("locale").map(String::as_str)),
+    })
+}
+
+fn parse_first_name(value: Option<&str>) -> Option<FirstName> {
+    value
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(FirstName::from)
+}
+
+fn parse_last_name(value: Option<&str>) -> Option<LastName> {
+    value
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(LastName::from)
+}
+
+fn parse_language(value: Option<&str>) -> Option<Language> {
+    let locale = value?.trim();
+    let primary_subtag = locale.split(['-', '_']).next()?;
+    if primary_subtag.is_empty() {
+        return None;
+    }
+
+    Language::from_code(&primary_subtag.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -83,9 +115,11 @@ mod tests {
     use application::operation_context::{OperationContext, Principal};
     use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
     use lambda_runtime::{Context, LambdaEvent};
+    use localization::Language;
     use serde_email::Email;
     use std::sync::Mutex;
     use user_core::user_id::UserId;
+    use user_core::{first_name::FirstName, last_name::LastName};
     use user_service::use_cases::{
         RegisterCognitoUserCommand, RegisterCognitoUserError, RegisterCognitoUserResult,
         RegisterCognitoUserUseCase,
@@ -134,18 +168,45 @@ mod tests {
         subject: &str,
         email: &str,
     ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+        post_confirmation_event_with_username("provider-username", subject, email)
+    }
+
+    fn post_confirmation_event_with_username(
+        username: &str,
+        subject: &str,
+        email: &str,
+    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+        post_confirmation_event_with_profile(username, subject, email, None, None, None)
+    }
+
+    fn post_confirmation_event_with_profile(
+        username: &str,
+        subject: &str,
+        email: &str,
+        given_name: Option<&str>,
+        family_name: Option<&str>,
+        locale: Option<&str>,
+    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+        let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+        for (attribute, value) in [
+            ("given_name", given_name),
+            ("family_name", family_name),
+            ("locale", locale),
+        ] {
+            if let Some(value) = value {
+                user_attributes[attribute] = serde_json::json!(value);
+            }
+        }
+
         event(serde_json::json!({
             "version": "1",
             "triggerSource": "PostConfirmation_ConfirmSignUp",
             "region": "eu-central-1",
             "userPoolId": "pool-id",
-            "userName": "provider-username",
+            "userName": username,
             "callerContext": {},
             "request": {
-                "userAttributes": {
-                    "sub": subject,
-                    "email": email
-                },
+                "userAttributes": user_attributes,
                 "clientMetadata": {}
             },
             "response": {}
@@ -180,6 +241,171 @@ mod tests {
         );
         assert_eq!("provider|not-a-uuid", calls[0].1.identity.subject.as_str());
         assert_eq!(email("ada@example.com"), calls[0].1.email);
+    }
+
+    #[tokio::test]
+    async fn should_register_external_provider_profile_using_only_canonical_cognito_identity() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let event = post_confirmation_event_with_username(
+            "Google_external-provider-subject",
+            "canonical-cognito-subject",
+            "ada@example.com",
+        );
+
+        let response = match handler(event, &service).await {
+            Ok(response) => response,
+            Err(error) => panic!("expected success: {error}"),
+        };
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+
+        assert_eq!(
+            "canonical-cognito-subject",
+            response.request.user_attributes["sub"]
+        );
+        assert_eq!(1, calls.len());
+        assert_eq!(
+            "canonical-cognito-subject",
+            calls[0].1.identity.subject.as_str()
+        );
+        assert_eq!(email("ada@example.com"), calls[0].1.email);
+    }
+
+    #[tokio::test]
+    async fn should_pass_normalized_provider_profile_to_registration_service() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let event = post_confirmation_event_with_profile(
+            "provider-username",
+            "canonical-sub",
+            "ada@example.com",
+            Some("  Ada  "),
+            Some("Mary Jane"),
+            Some("en-GB"),
+        );
+
+        assert!(handler(event, &service).await.is_ok());
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(1, calls.len());
+        assert_eq!(Some(FirstName::from("Ada")), calls[0].1.initial_first_name);
+        assert_eq!(
+            Some(LastName::from("Mary Jane")),
+            calls[0].1.initial_last_name
+        );
+        assert_eq!(Some(Language::En), calls[0].1.initial_language);
+    }
+
+    #[tokio::test]
+    async fn should_succeed_for_native_registration_without_optional_profile_attributes() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+
+        assert!(
+            handler(
+                post_confirmation_event("canonical-sub", "ada@example.com"),
+                &service
+            )
+            .await
+            .is_ok()
+        );
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(1, calls.len());
+        assert_eq!(None, calls[0].1.initial_first_name);
+        assert_eq!(None, calls[0].1.initial_last_name);
+        assert_eq!(None, calls[0].1.initial_language);
+    }
+
+    #[test]
+    fn should_parse_partial_profile_attributes_independently() {
+        let cases = [
+            (
+                Some("Ada"),
+                None,
+                None,
+                Some(FirstName::from("Ada")),
+                None,
+                None,
+            ),
+            (
+                None,
+                Some("Lovelace"),
+                None,
+                None,
+                Some(LastName::from("Lovelace")),
+                None,
+            ),
+            (None, None, Some("fr-FR"), None, None, Some(Language::Fr)),
+        ];
+
+        for (given_name, family_name, locale, expected_first, expected_last, expected_language) in
+            cases
+        {
+            let event = post_confirmation_event_with_profile(
+                "provider-username",
+                "canonical-sub",
+                "ada@example.com",
+                given_name,
+                family_name,
+                locale,
+            );
+            let command = parse_user(&event.payload)
+                .unwrap_or_else(|error| panic!("failed to parse optional profile: {error}"));
+
+            assert_eq!(expected_first, command.initial_first_name);
+            assert_eq!(expected_last, command.initial_last_name);
+            assert_eq!(expected_language, command.initial_language);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_succeed_with_empty_names_and_unsupported_locale() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let event = post_confirmation_event_with_profile(
+            "provider-username",
+            "canonical-sub",
+            "ada@example.com",
+            Some("   "),
+            Some(""),
+            Some("xx-YY"),
+        );
+
+        assert!(handler(event, &service).await.is_ok());
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(1, calls.len());
+        assert_eq!(None, calls[0].1.initial_first_name);
+        assert_eq!(None, calls[0].1.initial_last_name);
+        assert_eq!(None, calls[0].1.initial_language);
+    }
+
+    #[test]
+    fn should_reduce_supported_locale_variants_to_primary_language() {
+        for (locale, expected) in [
+            ("de", Some(Language::De)),
+            ("de-DE", Some(Language::De)),
+            ("DE-de", Some(Language::De)),
+            ("en-US", Some(Language::En)),
+            ("en_US", Some(Language::En)),
+            ("EN_us", Some(Language::En)),
+            ("pt-BR", Some(Language::Pt)),
+            ("zh-CN", Some(Language::Zh)),
+            ("zh-Hans", Some(Language::Zh)),
+            ("", None),
+            ("  ", None),
+            ("xx-YY", None),
+            ("-en", None),
+        ] {
+            assert_eq!(expected, super::parse_language(Some(locale)));
+        }
+        assert_eq!(None, super::parse_language(None));
     }
 
     #[tokio::test]
@@ -232,22 +458,20 @@ mod tests {
                 Ok(event) => event,
                 Err(error) => panic!("invalid test Cognito event: {error}"),
             };
-        let invalid_email: CognitoEventUserPoolsPostConfirmation =
-            match serde_json::from_value(serde_json::json!({
-                "region": "eu-central-1",
-                "userPoolId": "pool-id",
-                "callerContext": {},
-                "request": {
-                    "userAttributes": { "sub": "opaque", "email": "invalid" }
-                },
-                "response": {}
-            })) {
-                Ok(event) => event,
-                Err(error) => panic!("invalid test Cognito event: {error}"),
-            };
+        let missing_email = event(serde_json::json!({
+            "region": "eu-central-1",
+            "userPoolId": "pool-id",
+            "callerContext": {},
+            "request": { "userAttributes": { "sub": "opaque" } },
+            "response": {}
+        }));
+        let invalid_sub = post_confirmation_event("", "ada@example.com");
+        let invalid_email = post_confirmation_event("opaque", "invalid");
 
         assert!(parse_user(&missing_pool).is_err());
-        assert!(parse_user(&invalid_email).is_err());
+        assert!(parse_user(&missing_email.payload).is_err());
+        assert!(parse_user(&invalid_sub.payload).is_err());
+        assert!(parse_user(&invalid_email.payload).is_err());
     }
 
     fn email(value: &str) -> Email {
