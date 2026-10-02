@@ -345,9 +345,15 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .send()
         .await
         .unwrap_or_else(|error| {
-            panic!("failed to check removed OAuth client detail route: {error}")
+            panic!("failed to reject Aura access token on OAuth consent route: {error}")
         });
-    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
 
     let response = client
         .patch(format!(
@@ -360,9 +366,9 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .send()
         .await
         .unwrap_or_else(|error| {
-            panic!("failed to check removed OAuth client update route: {error}")
+            panic!("failed to reject update method on OAuth consent route: {error}")
         });
-    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
 
     let response = client
         .patch(format!(
@@ -458,9 +464,9 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .send()
         .await
         .unwrap_or_else(|error| {
-            panic!("failed to check removed OAuth client delete route: {error}")
+            panic!("failed to reject delete method on OAuth consent route: {error}")
         });
-    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
 
     let response = client
         .delete(format!(
@@ -563,6 +569,29 @@ async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
         .await
         .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+
+    let ordinary_user_id = seed_user("USER").await;
+    let cognito_access_token = api_support::cognito_access_token_for_test_user(ordinary_user_id);
+    let consent_url = format!(
+        "{}/api/v1/oauth/clients/{}",
+        AURA_API.base_url(),
+        credentials.client_id
+    );
+    let response =
+        get_oauth_consent_metadata(&client, &consent_url, Some(&cognito_access_token)).await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
 
     let (status, body) = exchange_code_response(&client, &credentials, &pending_code).await;
     api_support::assert_problem(
@@ -1132,6 +1161,9 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
     )
     .await;
     let id_token = format!("test-cognito-id.{user_id}.signature");
+    // This synthetic expired-credential marker checks the endpoint's 401 contract;
+    // signed Cognito JWT expiry is checked by the Cognito authenticator unit tests.
+    let expired_access_token = format!("test-cognito-access.{user_id}.expired");
     let invalid_jwt = "not.a.valid.jwt";
     let client_secret = String::from(RawOAuthClientSecret::new());
     let client_id = OAuthClientId::new();
@@ -1143,6 +1175,7 @@ async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store(
         Some(String::from("opaque-aura-token")),
         Some(String::from(aura_access_token)),
         Some(id_token),
+        Some(expired_access_token),
         Some(String::from(invalid_jwt)),
         Some(client_secret),
     ] {

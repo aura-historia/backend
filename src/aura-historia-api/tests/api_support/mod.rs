@@ -1206,7 +1206,7 @@ async fn test_state(
     );
     let authenticator = Arc::new(UserAuthenticationAuthenticator::new(
         ApiAuthService::new(
-            RejectJwtAuthenticator,
+            TestJwtAuthenticator,
             AuraAccessTokenAuthenticator::new(access_token_use_case),
         ),
         authenticate_user,
@@ -1917,10 +1917,10 @@ async fn test_state(
         .with_billing(billing_state)
 }
 
-struct RejectJwtAuthenticator;
+struct TestJwtAuthenticator;
 
 #[async_trait::async_trait]
-impl TokenAuthenticator for RejectJwtAuthenticator {
+impl TokenAuthenticator for TestJwtAuthenticator {
     async fn authenticate(
         &self,
         bearer_token: &str,
