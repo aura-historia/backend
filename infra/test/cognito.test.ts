@@ -33,6 +33,9 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(pool.Properties.Schema).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ Name: "email", Required: true, Mutable: true }),
+        expect.objectContaining({ Name: "given_name", Required: false, Mutable: true }),
+        expect.objectContaining({ Name: "family_name", Required: false, Mutable: true }),
+        expect.objectContaining({ Name: "locale", Required: false, Mutable: true }),
       ]),
     );
     expect(pool.Properties.AutoVerifiedAttributes).toEqual(["email"]);
@@ -70,6 +73,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
         email_verified: "email_verified",
         given_name: "given_name",
         family_name: "family_name",
+        locale: "locale",
       },
     });
 
@@ -96,7 +100,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       IdTokenValidity: 60,
       RefreshTokenValidity: 43200,
       TokenValidityUnits: { AccessToken: "minutes", IdToken: "minutes", RefreshToken: "minutes" },
-      ReadAttributes: expect.arrayContaining(["email", "email_verified", "given_name", "family_name"]),
+      ReadAttributes: expect.arrayContaining(["email", "email_verified", "given_name", "family_name", "locale"]),
     });
     expect(client.DependsOn ?? []).toEqual(expect.arrayContaining([providerId]));
   });

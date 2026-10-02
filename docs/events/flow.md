@@ -6,6 +6,10 @@ Target (not verified live): PostgreSQL → DMS → Kinesis → router Lambda →
 
 PostgreSQL owns business state, `product_listing_events` (domain/enrichment journal), immutable `product_listing_raw_revisions` (normalization wake-ups), `notification_deliveries` (intent/lease) and `auction_events` (atomic Auction discovery/change journal). No Auction worker/projection exists yet; a future schedule notifier must use event snapshots, not fabricate member ProductListing changes. DMS/Kinesis/router and ten Standard SQS source/DLQ pairs carry selected CDC to dedicated Lambdas; OpenSearch holds rebuildable projections. The separate ProductListing FIFO is command ingress, not CDC. See [CDC routing](#cdc-routing), [consumers](#consumers-and-scheduled-matching), and [AWS survivor event flow](#aws-survivor-event-flow).
 
+## Cognito post-confirmation registration
+
+Cognito issuer, `sub`, and email remain the registration identity inputs. The provider-agnostic post-confirmation adapter can also map optional standard Cognito `given_name`, `family_name`, and `locale` attributes into initial Aura Historia first name, last name, and a supported language derived from the locale. These bootstrap values are applied only when the PostgreSQL user is first created; sign-ins and registration replays do not synchronize provider refreshes over application profile data. PostgreSQL is authoritative after creation. Missing or unsupported optional values remain absent; no other provider attributes are persisted.
+
 ## DMS/Kinesis routing (target; live cutover unverified)
 
 DMS captures committed selected rows only; no outbox or custom CDC transport. Source removal does not decommission external Sequin subscriptions or drain native-worker in-flight work. See the [runbook](../durable-worker-runbook.md#activation-and-legacy-handoff).

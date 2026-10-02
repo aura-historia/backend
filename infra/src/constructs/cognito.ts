@@ -35,6 +35,9 @@ export class Identity extends Construct {
       autoVerify: { email: true },
       standardAttributes: {
         email: { required: true, mutable: true },
+        givenName: { required: false, mutable: true },
+        familyName: { required: false, mutable: true },
+        locale: { required: false, mutable: true },
       },
       passwordPolicy: {
         minLength: 8,
@@ -91,6 +94,7 @@ export class Identity extends Construct {
         emailVerified: true,
         givenName: true,
         familyName: true,
+        locale: true,
       }),
     });
     for (const provider of identityProviders) {
@@ -153,6 +157,7 @@ function createIdentityProvider(
           emailVerified: cognito.ProviderAttribute.GOOGLE_EMAIL_VERIFIED,
           givenName: cognito.ProviderAttribute.GOOGLE_GIVEN_NAME,
           familyName: cognito.ProviderAttribute.GOOGLE_FAMILY_NAME,
+          locale: cognito.ProviderAttribute.other("locale"),
         },
       });
 

@@ -1728,6 +1728,7 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "lambda_runtime",
+ "localization",
  "platform-lambda-bootstrap",
  "platform-observability",
  "platform-postgres",

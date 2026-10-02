@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
+localization = { workspace = true }
 platform-observability = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
@@ -15,6 +16,7 @@ tokio = { workspace = true, features = ["macros"] }
 aws_lambda_events = { workspace = true, features = ["cognito"] }
 lambda_runtime = { workspace = true }
 serde-email = { workspace = true }
+user-core = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
 
@@ -24,4 +26,3 @@ serde_json = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
-user-core = { workspace = true }

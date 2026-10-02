@@ -2225,7 +2225,7 @@ REST authentication is performed by middleware or extractors.
 
 The transport layer validates JWTs or other access tokens and maps validated credentials into a transport principal. Service and core code MUST NOT parse tokens, inspect authorization headers, or depend on JWT/framework types.
 
-`aura-historia-api/auth/` owns this boundary for the axum runtime. It accepts Cognito JWTs and Aura Historia access tokens through one authenticator interface. Aura Historia access tokens identify delegated users and map persisted token scopes to `CredentialCapability` values. Cognito remains the only external authentication issuer trusted by the API; federated providers authenticate through Cognito and never send provider tokens to the API for validation.
+`aura-historia-api/auth/` owns this boundary for the axum runtime. It accepts Cognito JWTs and Aura Historia access tokens through one authenticator interface. Aura Historia access tokens identify delegated users and map persisted token scopes to `CredentialCapability` values. Cognito remains the only external authentication issuer trusted by the API; federated providers authenticate through Cognito and never send provider tokens to the API for validation. Federated identity-provider attributes may initialize application profile/preferences at first user creation, but PostgreSQL is authoritative thereafter; later provider attribute refreshes do not overwrite application-managed user data.
 
 Protected endpoints SHOULD use an extractor that guarantees an authenticated principal:
 
