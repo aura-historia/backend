@@ -36,6 +36,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ]),
     );
     expect(pool.Properties.AutoVerifiedAttributes).toEqual(["email"]);
+    expect(pool.Properties.UsernameConfiguration).toEqual({ CaseSensitive: true });
     expect(pool.Properties.Policies.PasswordPolicy).toMatchObject({
       MinimumLength: 8,
       RequireLowercase: true,

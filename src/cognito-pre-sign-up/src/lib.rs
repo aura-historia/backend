@@ -138,6 +138,16 @@ pub async fn handler<L: FederatedIdentityLinker>(
         .ok_or(PreSignUpError::InvalidEvent)?;
     let (provider, source_subject) = resolve_provider(username, providers)?;
 
+    if !provider.auto_link_verified_email {
+        tracing::info!(
+            request_id,
+            trigger_kind = "external_provider",
+            provider_name = %provider.provider_name,
+            result_category = "linking_not_enabled",
+        );
+        return Ok(payload);
+    }
+
     let email_value = payload
         .request
         .user_attributes
@@ -148,16 +158,6 @@ pub async fn handler<L: FederatedIdentityLinker>(
         .try_into()
         .map_err(|_| PreSignUpError::InvalidEvent)?;
     let email = email.to_string();
-
-    if !provider.auto_link_verified_email {
-        tracing::info!(
-            request_id,
-            trigger_kind = "external_provider",
-            provider_name = %provider.provider_name,
-            result_category = "linking_not_enabled",
-        );
-        return Ok(payload);
-    }
 
     if payload
         .request
@@ -459,22 +459,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn configured_provider_without_explicit_trust_never_links() {
+    async fn configured_provider_without_explicit_trust_is_a_noop_without_linking_attributes() {
         let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("FutureProvider_subject"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
-        );
+        for attributes in [
+            serde_json::json!({}),
+            serde_json::json!({ "email_verified": "false" }),
+            serde_json::json!({ "email_verified": "not-a-boolean" }),
+        ] {
+            let event = event(
+                "PreSignUp_ExternalProvider",
+                Some("FutureProvider_subject"),
+                attributes,
+            );
+            let original = event.payload.clone();
 
-        let result = handler(
-            event,
-            &[policy("FutureProvider", false, "Cognito_Subject")],
-            &linker,
-        )
-        .await;
+            let result = handler(
+                event,
+                &[policy("FutureProvider", false, "Cognito_Subject")],
+                &linker,
+            )
+            .await;
 
-        assert!(result.is_ok());
+            assert_eq!(Ok(original), result);
+        }
         assert!(calls(&linker).is_empty());
     }
 

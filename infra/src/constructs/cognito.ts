@@ -30,6 +30,8 @@ export class Identity extends Construct {
       userPoolName: `primary-userpool-${props.stageName}`,
       selfSignUpEnabled: true,
       signInAliases: { email: true },
+      // Federated source subjects are derived from usernames, so preserve case.
+      signInCaseSensitive: true,
       autoVerify: { email: true },
       standardAttributes: {
         email: { required: true, mutable: true },

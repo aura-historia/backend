@@ -231,9 +231,6 @@ fn destination_for(user: &UserType) -> Result<ProviderIdentity, CognitoAccountLi
         | UserStatusType::Unconfirmed
         | UserStatusType::ForceChangePassword
         | UserStatusType::ResetRequired => {
-            if attribute(user, "identities")?.is_some() {
-                return Err(CognitoAccountLinkError::InvalidState);
-            }
             let username = user
                 .username()
                 .filter(|username| !username.is_empty())
@@ -677,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_missing_or_unknown_status_and_native_identity_contradictions() {
+    fn should_reject_missing_or_unknown_status() {
         let missing_status =
             user_with_status(None, "missing-status", "person@example.com", "true", None);
         let ambiguous_status = user_with_status(
@@ -687,32 +684,57 @@ mod tests {
             "true",
             None,
         );
-        let native_with_external_identity = user(
-            UserStatusType::Confirmed,
-            "native-user",
-            "person@example.com",
-            "true",
-            Some(r#"[{"providerName":"IdP","userId":"id","primary":"true"}]"#),
-        );
-        let native_with_empty_identities = user(
-            UserStatusType::Confirmed,
-            "native-user-empty-identities",
-            "person@example.com",
-            "true",
-            Some("[]"),
-        );
 
-        for candidate in [
-            missing_status,
-            ambiguous_status,
-            native_with_external_identity,
-            native_with_empty_identities,
-        ] {
+        for candidate in [missing_status, ambiguous_status] {
             assert_eq!(
                 Err(CognitoAccountLinkError::InvalidState),
                 destination_for(&candidate)
             );
         }
+    }
+
+    #[test]
+    fn should_link_an_additional_provider_to_native_user_with_existing_linked_identities() {
+        let identities = r#"[
+            {"providerName":"Google","userId":"google-subject","primary":"true"},
+            {"providerName":"ExistingOidc","userId":"existing-subject","primary":"false"}
+        ]"#;
+        let provider = Arc::new(FakeProvider {
+            users: vec![user(
+                UserStatusType::Confirmed,
+                "native-user",
+                "person@example.com",
+                "true",
+                Some(identities),
+            )],
+            ..FakeProvider::default()
+        });
+
+        let result = block_on(linker(provider.clone()).link_account(
+            "pool",
+            "NewProvider",
+            "Cognito_Subject",
+            "new-provider-subject",
+            "person@example.com",
+        ));
+
+        assert_eq!(Ok(CognitoAccountLinkOutcome::Linked), result);
+        assert_eq!(
+            vec![LinkCall {
+                user_pool_id: "pool".to_owned(),
+                source: ProviderIdentity {
+                    provider_name: "NewProvider".to_owned(),
+                    attribute_name: "Cognito_Subject".to_owned(),
+                    attribute_value: "new-provider-subject".to_owned(),
+                },
+                destination: ProviderIdentity {
+                    provider_name: "Cognito".to_owned(),
+                    attribute_name: "Cognito_Subject".to_owned(),
+                    attribute_value: "native-user".to_owned(),
+                },
+            }],
+            *provider.links.lock().expect("link mutex")
+        );
     }
 
     #[test]
