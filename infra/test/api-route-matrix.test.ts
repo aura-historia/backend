@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(100);
+    expect(catalog).toHaveLength(101);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -269,6 +269,18 @@ describe("HTTP API route policy matrix", () => {
       path: "/api/v1/oauth/authorize",
       policy: expect.objectContaining({ bearer: "REQUIRED", oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce }),
     }));
+    expect(API_ROUTE_CATALOG).toContainEqual({
+      method: "GET",
+      path: "/api/v1/oauth/clients/{client_id}",
+      lambda: "auraHistoriaApi",
+      auth: RouteAuthPolicy.ApplicationBearer,
+      policy: {
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.AuthenticatedUser,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      },
+    });
     for (const path of ["/api/v1/oauth/token", "/api/v1/oauth/revoke", "/api/v1/oauth/introspect"]) {
       expect(API_ROUTE_CATALOG).toContainEqual(expect.objectContaining({
         path,
@@ -338,7 +350,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(100);
+    expect(routes).toHaveLength(101);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

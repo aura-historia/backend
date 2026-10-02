@@ -14,8 +14,8 @@ use auction_service::use_cases::{
     },
 };
 use aura_historia_api::auth::{
-    ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
-    TransportPrincipal, UserAuthenticationAuthenticator,
+    ApiAuthService, AuraAccessTokenAuthenticator, AuthError, AuthMethod, RequestMetadata,
+    TokenAuthenticator, TransportPrincipal, UserAuthenticationAuthenticator,
 };
 use aura_historia_api::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
@@ -75,8 +75,9 @@ use oauth_postgres::{
 };
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
-    IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
-    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
+    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
+    UpdateOAuthClientHandler,
 };
 use partnership_core::{
     partnership_application_id::PartnershipApplicationId, partnership_id::PartnershipId,
@@ -689,6 +690,10 @@ async fn seed_user_with_tier_and_consent(
     let subject = format!("provider|opaque:{}", uuid::Uuid::new_v4());
     seed_user_cognito_identity(user_id, TEST_COGNITO_ISSUER, &subject).await;
     user_id
+}
+
+pub fn cognito_access_token_for_test_user(user_id: UserId) -> String {
+    format!("test-cognito-access.{user_id}.signature")
 }
 
 pub async fn seed_user_cognito_identity(
@@ -1827,6 +1832,9 @@ async fn test_state(
                 user_postgres::SqlxUserAdminReaderFactory::new(),
             ),
         )),
+        Arc::new(GetOAuthConsentClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
+        )),
         Arc::new(UpdateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -1915,9 +1923,22 @@ struct RejectJwtAuthenticator;
 impl TokenAuthenticator for RejectJwtAuthenticator {
     async fn authenticate(
         &self,
-        _bearer_token: &str,
+        bearer_token: &str,
         _metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
-        Err(AuthError::InvalidCredentials)
+        let mut parts = bearer_token.split('.');
+        let (Some("test-cognito-access"), Some(user_id), Some("signature"), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return Err(AuthError::InvalidCredentials);
+        };
+        let user_id = user_id
+            .parse::<UserId>()
+            .map_err(|_| AuthError::InvalidCredentials)?;
+        Ok(TransportPrincipal::User {
+            user_id,
+            auth_method: AuthMethod::CognitoJwt,
+            capabilities: std::collections::BTreeSet::new(),
+        })
     }
 }

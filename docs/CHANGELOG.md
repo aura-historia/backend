@@ -2,6 +2,12 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-02 — Secret-free OAuth consent metadata read (#1926)
+
+- Added `GET /api/v1/oauth/clients/{clientId}` for signed-in users to read persisted OAuth registration metadata before consent. It requires a Cognito access JWT (`BearerAuth`) and does not require the ADMIN role, client ownership, an existing client token, or a source partnership; Aura opaque tokens and Cognito ID tokens are rejected.
+- The response uses the dedicated `OAuthClientConsentMetadataData` schema with the canonical OAuthClient ID, registration URLs, exact registered redirect URIs, and allowed scope enum. It never includes client secrets, hashes, timestamps, or admin/audit fields; an empty allowed-scope set is returned as `[]`.
+- Success and errors return `Cache-Control: no-store`. The route remains behind the generic CloudFront `CachingDisabled` API behavior. This metadata read does not grant consent or issue codes or tokens; `/oauth/authorize` continues to validate redirects, scopes, and S256 PKCE.
+
 ## 2026-10-01 — Selective anonymous discovery caching (#1827)
 
 - Enabled shared CloudFront caching only for the ten reviewed anonymous discovery GET representations: ListingSource search/detail (300 s), Auction directory/detail/catalogue (60 s), ProductListing search (60 s), detail by ID/slug (120 s), history (300 s), and Ready similar results (300 s). Only successful anonymous `200` responses are shared. Cache-enabled discovery requests carrying `Authorization`, unmarked responses without an explicit `no-store` directive, and unapproved cache directives fail closed to `private, no-store`. Unrelated handlers that already explicitly return `no-store` retain that exact header contract and remain behind `CachingDisabled`.

@@ -121,6 +121,22 @@ async fn create_oauth_client_with_name(
     }
 }
 
+async fn get_oauth_consent_metadata(
+    client: &reqwest::Client,
+    url: &str,
+    bearer_token: Option<&str>,
+) -> reqwest::Response {
+    let request = client.get(url);
+    let request = match bearer_token {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    };
+    request
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get OAuth consent metadata: {error}"))
+}
+
 async fn admin_read_token() -> String {
     let admin_id = seed_user("ADMIN").await;
     String::from(
@@ -1024,6 +1040,168 @@ async fn should_require_admin_role_and_delegated_read_for_oauth_client_detail() 
         .map(str::to_owned);
     let (status, body) = json_response(response).await;
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_secret_free_consent_metadata_to_an_ordinary_cognito_user() {
+    let (admin_client, admin_token) = authenticated_client().await;
+    let registered_redirects = [
+        "https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce?target=integration&shop=merchant.example",
+        "https://stage.aura-historia.com/api/oauth/client/redirect-broker/woocommerce?target=staging",
+    ];
+    let create_response = admin_client
+        .post(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&admin_token)
+        .json(&serde_json::json!({
+            "client_name": "Aura Historia WooCommerce",
+            "tos_uri": "https://integration.example/terms",
+            "policy_uri": "https://integration.example/privacy",
+            "client_uri": "https://integration.example",
+            "logo_uri": "https://integration.example/logo.png",
+            "redirect_uris": registered_redirects,
+            "scope": ["product-listings:write", "users:read"]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to register consent test client: {error}"));
+    let (create_status, create_body) = json_response(create_response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, create_status);
+    let client_id = create_body["client_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("client creation response omitted client_id"));
+
+    let ordinary_user_id = seed_user("USER").await;
+    let cognito_access_token = api_support::cognito_access_token_for_test_user(ordinary_user_id);
+    let url = format!("{}/api/v1/oauth/clients/{client_id}", AURA_API.base_url());
+    let response =
+        get_oauth_consent_metadata(&reqwest::Client::new(), &url, Some(&cognito_access_token))
+            .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(
+        serde_json::json!({
+            "client_id": client_id,
+            "client_name": "Aura Historia WooCommerce",
+            "tos_uri": "https://integration.example/terms",
+            "policy_uri": "https://integration.example/privacy",
+            "client_uri": "https://integration.example/",
+            "logo_uri": "https://integration.example/logo.png",
+            "redirect_uris": registered_redirects,
+            "scope": ["product-listings:write", "users:read"]
+        }),
+        body
+    );
+    let pool = get_postgres_client().await;
+    let client_uuid = client_id
+        .parse::<OAuthClientId>()
+        .unwrap_or_else(|error| panic!("expected canonical client ID: {error}"));
+    let authorization_codes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM oauth_authorization_codes WHERE client_id = $1")
+            .bind(client_uuid.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to verify consent read side effects: {error}"));
+    let issued_tokens: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM access_tokens WHERE oauth_client_id = $1")
+            .bind(client_uuid.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to verify consent read side effects: {error}"));
+    assert_eq!(0, authorization_codes);
+    assert_eq!(0, issued_tokens);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_unsupported_consent_credentials_and_mark_errors_no_store() {
+    let user_id = seed_user("USER").await;
+    let cognito_access_token = api_support::cognito_access_token_for_test_user(user_id);
+    let aura_access_token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::AccessTokensRead]),
+    )
+    .await;
+    let id_token = format!("test-cognito-id.{user_id}.signature");
+    let invalid_jwt = "not.a.valid.jwt";
+    let client_secret = String::from(RawOAuthClientSecret::new());
+    let client_id = OAuthClientId::new();
+    let url = format!("{}/api/v1/oauth/clients/{client_id}", AURA_API.base_url());
+    let client = reqwest::Client::new();
+
+    for bearer_token in [
+        None,
+        Some(String::from("opaque-aura-token")),
+        Some(String::from(aura_access_token)),
+        Some(id_token),
+        Some(String::from(invalid_jwt)),
+        Some(client_secret),
+    ] {
+        let response = get_oauth_consent_metadata(&client, &url, bearer_token.as_deref()).await;
+        let cache_control = response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let (status, body) = json_response(response).await;
+        api_support::assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::UNAUTHORIZED,
+            "INVALID_CREDENTIALS",
+        );
+        assert_eq!(Some("no-store".to_owned()), cache_control);
+    }
+
+    let malformed_url = format!(
+        "{}/api/v1/oauth/clients/not-an-oauth-client-id",
+        AURA_API.base_url()
+    );
+    let response =
+        get_oauth_consent_metadata(&client, &malformed_url, Some(&cognito_access_token)).await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_OBJECT_ID",
+    );
+    assert_eq!("clientId", body["source"]["field"]);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+
+    let missing_url = format!(
+        "{}/api/v1/oauth/clients/{}",
+        AURA_API.base_url(),
+        OAuthClientId::new()
+    );
+    let response =
+        get_oauth_consent_metadata(&client, &missing_url, Some(&cognito_access_token)).await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
     assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 

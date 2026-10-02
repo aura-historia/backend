@@ -132,6 +132,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/oauth-clients", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/oauth/clients/{client_id}", ["GET"]),
 
   ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/authorize", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/token", ["POST"]),
