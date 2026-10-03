@@ -297,7 +297,6 @@ mod tests {
     use application::{
         error::static_error,
         operation_context::{CorrelationId, Principal, RequestId},
-        patch_field::PatchField,
         transaction::TransactionError,
     };
     use domain_primitives::versioned::Versioned;
@@ -545,7 +544,6 @@ mod tests {
             &mut self,
             _source: &ListingSource,
             _configuration: &ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {
                 source: static_error("unexpected listing source insert"),
@@ -556,7 +554,6 @@ mod tests {
             &mut self,
             _source: &ListingSource,
             _configuration: &ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: PatchField<&str>,
             _expected: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {

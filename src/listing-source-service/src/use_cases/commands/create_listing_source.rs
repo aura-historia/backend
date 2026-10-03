@@ -25,7 +25,6 @@ pub struct CreateListingSourceCommand {
     pub operator: ListingSourceOperator,
 
     pub ingestion_configuration: ListingSourceIngestionConfigurations,
-    pub woocommerce_webhook_secret: Option<String>,
     pub presentation: ListingSourcePresentation,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
@@ -178,19 +177,10 @@ where
             .ingestion_configuration
             .validate_for(&source)
             .map_err(|_| CreateListingSourceError::ListingIngestionConfigurationMismatch)?;
-        if command.woocommerce_webhook_secret.is_some()
-            && !command.ingestion_configuration.has_woocommerce()
-        {
-            return Err(CreateListingSourceError::ListingIngestionConfigurationMismatch);
-        }
         let result = self
             .sources
             .in_transaction(&mut tx)
-            .insert(
-                &source,
-                &command.ingestion_configuration,
-                command.woocommerce_webhook_secret.as_deref(),
-            )
+            .insert(&source, &command.ingestion_configuration)
             .await
             .map_err(CreateListingSourceError::from)?;
         tx.commit()
@@ -454,7 +444,6 @@ mod tests {
             &mut self,
             source: &ListingSource,
             config: &ListingSourceIngestionConfigurations,
-            _: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             let mut state = self.tx.state.lock().map_err(|_| source_error())?;
             if state.fail_source {
@@ -468,7 +457,6 @@ mod tests {
             &mut self,
             _: &ListingSource,
             _: &ListingSourceIngestionConfigurations,
-            _: application::patch_field::PatchField<&str>,
             _: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(source_error())
@@ -509,11 +497,14 @@ mod tests {
 
             ingestion_configuration: ListingSourceIngestionConfigurations(vec![
                 ListingIngestionConfiguration::Woocommerce {
+                    webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
+                        "secret",
+                    )
+                    .unwrap_or_else(|error| panic!("invalid test webhook secret: {error}")),
                     currency: None,
                     language: None,
                 },
             ]),
-            woocommerce_webhook_secret: Some("secret".into()),
             presentation: ListingSourcePresentation::default(),
             referral_configuration: None,
         }
@@ -582,10 +573,14 @@ mod tests {
             Admin(true),
         );
         let mut command = command();
-        command.ingestion_configuration =
-            ListingSourceIngestionConfigurations(vec![ListingIngestionConfiguration::WebCrawl {
+        command.ingestion_configuration = ListingSourceIngestionConfigurations(vec![
+            ListingIngestionConfiguration::WebCrawl {
                 fallback_currency: None,
-            }]);
+            },
+            ListingIngestionConfiguration::WebCrawl {
+                fallback_currency: None,
+            },
+        ]);
         assert!(matches!(
             handler.execute(&context(), command).await,
             Err(CreateListingSourceError::ListingIngestionConfigurationMismatch)

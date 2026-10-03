@@ -33,6 +33,7 @@ use partnership_service::use_cases::{
         grant_partnership_listing_source::GrantPartnershipListingSourceError,
         grant_partnership_membership::GrantPartnershipMembershipError,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
+        put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationError,
         reject_partnership_application::RejectPartnershipApplicationError,
         revoke_partnership_listing_source::RevokePartnershipListingSourceError,
         revoke_partnership_membership::RevokePartnershipMembershipError,
@@ -1003,6 +1004,45 @@ impl From<UpdateListingSourceError> for ApiError {
             | UpdateListingSourceError::Internal { .. } => {
                 ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
                     .with_detail("Listing source update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<PutListingSourceIngestionConfigurationError> for ApiError {
+    fn from(error: PutListingSourceIngestionConfigurationError) -> Self {
+        match error {
+            PutListingSourceIngestionConfigurationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            PutListingSourceIngestionConfigurationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            PutListingSourceIngestionConfigurationError::NotFound => {
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
+            }
+            PutListingSourceIngestionConfigurationError::InvalidConfiguration => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("Listing source ingestion configuration is invalid.")
+            }
+            PutListingSourceIngestionConfigurationError::ConcurrencyConflict
+            | PutListingSourceIngestionConfigurationError::ShopifyDomainConflict { .. } => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Listing source conflicts with current state.")
+            }
+            PutListingSourceIngestionConfigurationError::TemporarilyUnavailable { .. }
+            | PutListingSourceIngestionConfigurationError::BeginTransactionFailed
+            | PutListingSourceIngestionConfigurationError::CommitTransactionFailed => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Listing source configuration could not be updated right now.")
+            }
+            PutListingSourceIngestionConfigurationError::InvalidPersistedState { .. }
+            | PutListingSourceIngestionConfigurationError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Listing source configuration failed internally.")
             }
         }
     }

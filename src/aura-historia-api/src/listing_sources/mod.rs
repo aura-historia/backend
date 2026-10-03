@@ -3,6 +3,7 @@ pub mod delete_listing_source;
 pub mod get_listing_source;
 pub mod get_listing_source_by_slug;
 pub mod list_my_listing_sources;
+pub mod put_ingestion_configuration;
 pub mod search_listing_sources;
 pub mod search_public_listing_sources;
 pub(crate) mod types;

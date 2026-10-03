@@ -126,6 +126,7 @@ use partnership_service::use_cases::{
         grant_partnership_listing_source::GrantPartnershipListingSourceHandler,
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
+        put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
         revoke_partnership_listing_source::RevokePartnershipListingSourceHandler,
         revoke_partnership_membership::RevokePartnershipMembershipHandler,
@@ -775,6 +776,14 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     get(listing_sources::get_listing_source::get_listing_source)
                         .patch(listing_sources::update_listing_source::update_listing_source)
                         .delete(listing_sources::delete_listing_source::delete_listing_source),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
+                    axum::routing::put(listing_sources::put_ingestion_configuration::put_woocommerce_configuration),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
+                    axum::routing::put(listing_sources::put_ingestion_configuration::put_shopify_configuration),
                 )
                 .route(
                     "/api/v1/listing-sources",
@@ -1522,6 +1531,13 @@ async fn app_state_from_config_and_pool(
         Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
+    .with_ingestion_configuration(Arc::new(
+        PutListingSourceIngestionConfigurationHandler::new(
+            unit_of_work.clone(),
+            SqlxListingSourceRepositoryFactory::new(),
+            SqlxListingSourceAuthorization::new(pool.clone()),
+        ),
+    ))
     .with_public_reads(
         Arc::new(search_public_listing_sources),
         Arc::new(get_public_listing_source_by_slug),

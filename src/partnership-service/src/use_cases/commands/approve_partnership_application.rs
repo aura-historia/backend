@@ -252,7 +252,7 @@ where
                     let source = self
                         .sources
                         .in_transaction(&mut tx)
-                        .insert(&source, &config, None)
+                        .insert(&source, &config)
                         .await?
                         .source;
                     (
@@ -904,7 +904,6 @@ mod tests {
             &mut self,
             source: &ListingSource,
             configuration: &ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             let mut state = lock(&self.state);
             if let Some(error) = state.source_insert_error.take() {
@@ -931,7 +930,6 @@ mod tests {
             &mut self,
             _source: &ListingSource,
             _configuration: &ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: application::patch_field::PatchField<&str>,
             _expected: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {

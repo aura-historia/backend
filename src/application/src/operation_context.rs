@@ -420,6 +420,10 @@ mod tests {
                 CredentialCapability::ProductListingsWrite,
                 "product-listings:write",
             ),
+            (
+                CredentialCapability::ListingSourcesWrite,
+                "listing-sources:write",
+            ),
             (CredentialCapability::UsersRead, "users:read"),
             (CredentialCapability::UsersWrite, "users:write"),
             (CredentialCapability::AccessTokensRead, "access-tokens:read"),

@@ -33,7 +33,7 @@ WOOCOMMERCE
 PARTNER_API
 ```
 
-Provider configuration belongs to ListingSource service/PostgreSQL adapters. `WEB_CRAWL` may persist an optional ISO 4217 `fallbackCurrency`; crawler uses it only when extracted price text has no currency hint, otherwise that price assertion is omitted. Crawler domains, schedules, retries, schemas, budgets, and review artifacts belong to crawler-local PostgreSQL.
+Provider configuration belongs to ListingSource service/PostgreSQL adapters. `WEB_CRAWL` may persist an optional ISO 4217 `fallbackCurrency`; crawler uses it only when extracted price text has no currency hint, otherwise that price assertion is omitted. Shopify stores a validated, globally unique domain plus optional currency and language. WooCommerce stores a required nonblank webhook secret plus optional currency and language; the secret is preserved exactly for HMAC verification and is write-only over REST. A WooCommerce method cannot be persisted without its complete configuration and secret.
 
 ## Partnership
 
@@ -63,6 +63,8 @@ ListingSource is the only public source resource:
 ```text
 GET   /api/v1/listing-sources
 GET   /api/v1/listing-sources/by-slug/{listingSourceSlugId}
+PUT   /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce
+PUT   /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/shopify
 POST  /api/v1/admin/listing-sources
 GET   /api/v1/admin/listing-sources/{listingSourceId}
 PATCH /api/v1/admin/listing-sources/{listingSourceId}
@@ -83,6 +85,8 @@ DELETE /api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listing
 ```
 
 Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. Admins can create ListingSources through `POST /api/v1/admin/listing-sources`, read details through `GET /api/v1/admin/listing-sources/{listingSourceId}`, and update through `PATCH /api/v1/admin/listing-sources/{listingSourceId}`; the create response includes the stable identity plus a `Location` for the admin detail resource. Admins can search Party summaries, create Parties through `GET`/`POST /api/v1/admin/parties`, get details through `GET /api/v1/admin/parties/{partyId}`, and update name/contact through `PATCH /api/v1/admin/parties/{partyId}`. Search uses bounded cursor pagination and name/contact filters; create, detail, and update return the stable identity and immutable slug. Anonymous callers can browse or literally partial-name search all persisted ListingSources at `GET /api/v1/listing-sources`; cards expose only source ID/immutable slug/name, operator name, and optional presentation URL/image. The same public object is available by exact immutable slug at `GET /api/v1/listing-sources/by-slug/{listingSourceSlugId}`. Both use optional authentication, never widen fields for valid credentials, and send `Cache-Control: no-store`. Public search uses bounded opaque keyset pages; it is not autocomplete and does not search Party contact, source slugs, ingestion/provider/referral data, or ProductListings. Admins can search ListingSources at `GET /api/v1/admin/listing-sources` with bounded cursor pagination, text/name, operator Party ID, ingestion-method, and exact ID/slug filters; the response contains only safe source, operator, presentation, and referral summary fields. The admin collection remains protected.
+
+Partner users with source access can configure WooCommerce or Shopify using the matching provider-specific PUT route above. Omitted or `null` currency/language values clear those fields; the WooCommerce request always replaces its required secret too. Aura delegated access tokens need `listing-sources:write`; integrations that also submit ProductListings need both `listing-sources:write` and `product-listings:write`. First enable returns `201`, replacement and identical retries return `204`; responses never contain provider secrets and use `Cache-Control: no-store`. Partnership application approval grants authority only and does not create empty provider configuration.
 
 Admins can hard-delete an unused Party at `DELETE /api/v1/admin/parties/{partyId}`. The transaction locks the Party, checks ListingSource and Partnership blockers, then makes a version-checked Party-only delete. Missing/repeated deletion is `404 PARTY_NOT_FOUND`; it introduces no Party lifecycle state or tombstone.
 

@@ -7,6 +7,7 @@ pub mod listing_source_search;
 pub mod listing_source_slug_id;
 pub mod referral_configuration;
 pub mod sort_listing_source_field;
+pub mod woocommerce_webhook_secret;
 
 pub use domain::{Domain, InvalidDomain};
 pub use listing_ingestion_method::{InvalidListingIngestionMethod, ListingIngestionMethod};
@@ -22,3 +23,4 @@ pub use referral_configuration::{
     PartnerizeCamref, PartnerizeCamrefError, ReferralConfiguration, ReferralUrlError, outbound_url,
 };
 pub use sort_listing_source_field::SortListingSourceField;
+pub use woocommerce_webhook_secret::{InvalidWoocommerceWebhookSecret, WoocommerceWebhookSecret};

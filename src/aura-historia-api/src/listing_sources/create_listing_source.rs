@@ -48,7 +48,6 @@ pub async fn create_listing_source(
         name,
         operator,
         ingestion_configuration,
-        woocommerce_webhook_secret: data.woocommerce_webhook_secret,
         presentation: ListingSourcePresentation {
             url: data.url,
             image: data.image,

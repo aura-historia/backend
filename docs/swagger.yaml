@@ -308,6 +308,190 @@ paths:
             description: Temporary Auction persistence failure (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
           }
 
+  /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce:
+    put:
+      summary: Replace WooCommerce ListingSource ingestion configuration
+      description: |
+        Creates or completely replaces the WooCommerce ingestion configuration for a ListingSource.
+        The caller must be a Cognito-authenticated user or Aura access token owner with Partnership
+        write access to the source. Delegated Aura access tokens require `listing-sources:write`.
+        This PUT atomically enables WOOCOMMERCE when needed. The webhook secret is required,
+        nonblank, write-only, and never returned. Omitted or null currency and language clear those
+        optional values. Repeating the same request is safe.
+      operationId: putWoocommerceListingSourceIngestionConfiguration
+      tags:
+        - ListingSources
+      parameters:
+        - name: listingSourceId
+          in: path
+          required: true
+          description: Strict `ls_` ListingSource TypeID.
+          schema: { type: string, example: ls_6rd827eqfefsva9teecmwa3ate }
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutWoocommerceListingSourceIngestionConfigurationData"
+            example:
+              webhookSecret: generated-provider-secret
+              currency: EUR
+              language: de
+      responses:
+        "201":
+          description: WooCommerce was newly enabled and configured. No response body is returned.
+          headers:
+            Cache-Control:
+              {
+                description: Always `no-store`.,
+                schema: { type: string, example: no-store },
+              }
+        "204":
+          description: Existing WooCommerce configuration was replaced or already matched. No response body is returned.
+          headers:
+            Cache-Control:
+              {
+                description: Always `no-store`.,
+                schema: { type: string, example: no-store },
+              }
+        "400":
+          description: Invalid ListingSource ID (`INVALID_OBJECT_ID`), or malformed JSON, unknown request property, or invalid request value (`BAD_BODY_VALUE`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid bearer credential (`INVALID_CREDENTIALS`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Delegated scope missing or Partnership write access denied (`FORBIDDEN`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Authorized ListingSource no longer exists (`LISTING_SOURCE_NOT_FOUND`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Optimistic concurrency conflict (`CONFLICT`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Unexpected internal failure (`LISTING_SOURCE_INTERNAL_ERROR`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Temporary authorization or persistence failure (`LISTING_SOURCE_TEMPORARILY_UNAVAILABLE`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/shopify:
+    put:
+      summary: Replace Shopify ListingSource ingestion configuration
+      description: |
+        Creates or completely replaces the Shopify ingestion configuration for a ListingSource.
+        The caller must be a Cognito-authenticated user or Aura access token owner with Partnership
+        write access to the source. Delegated Aura access tokens require `listing-sources:write`.
+        This PUT atomically enables SHOPIFY when needed. The domain is validated and remains unique
+        across configured sources. Omitted or null currency and language clear those optional values.
+        Repeating the same request is safe.
+      operationId: putShopifyListingSourceIngestionConfiguration
+      tags:
+        - ListingSources
+      parameters:
+        - name: listingSourceId
+          in: path
+          required: true
+          description: Strict `ls_` ListingSource TypeID.
+          schema: { type: string, example: ls_6rd827eqfefsva9teecmwa3ate }
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutShopifyListingSourceIngestionConfigurationData"
+            example:
+              domain: merchant.myshopify.com
+              currency: EUR
+              language: de
+      responses:
+        "201":
+          description: Shopify was newly enabled and configured. No response body is returned.
+          headers:
+            Cache-Control:
+              {
+                description: Always `no-store`.,
+                schema: { type: string, example: no-store },
+              }
+        "204":
+          description: Existing Shopify configuration was replaced or already matched. No response body is returned.
+          headers:
+            Cache-Control:
+              {
+                description: Always `no-store`.,
+                schema: { type: string, example: no-store },
+              }
+        "400":
+          description: Invalid ListingSource ID (`INVALID_OBJECT_ID`), or malformed JSON, unknown request property, or invalid request value (`BAD_BODY_VALUE`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid bearer credential (`INVALID_CREDENTIALS`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Delegated scope missing or Partnership write access denied (`FORBIDDEN`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Authorized ListingSource no longer exists (`LISTING_SOURCE_NOT_FOUND`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Shopify domain uniqueness or optimistic concurrency conflict (`CONFLICT`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Unexpected internal failure (`LISTING_SOURCE_INTERNAL_ERROR`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Temporary authorization or persistence failure (`LISTING_SOURCE_TEMPORARILY_UNAVAILABLE`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   /api/v1/listing-sources/{listingSourceId}/product-listings:
     post:
       summary: Batch create product-listings (Partner API)
@@ -1754,9 +1938,9 @@ paths:
         - `product.deleted` captures a DELETE and requires only `id`
 
 
-        The listing source identified by `listingSourceId` must have a stored `woocommerceWebhookSecret`
+        The listing source identified by `listingSourceId` must have a WooCommerce ingestion configuration
 
-        and a configured `woocommerceLanguage`.
+        with a nonblank write-only `webhookSecret` and a configured language.
 
         A nonblank `price` maps to a `SET` and requires the listing source to have `woocommerceCurrency` configured.
 
@@ -1797,7 +1981,7 @@ paths:
           description:
             "Base64-encoded HMAC-SHA256 signature of the raw HTTP request body, calculated with the
 
-            listing source's configured `woocommerceWebhookSecret`.
+            WooCommerce ingestion configuration's `webhookSecret`.
 
             "
           schema:
@@ -4267,8 +4451,8 @@ paths:
         `operator` accepts either an existing Party reference (`EXISTING` with `partyId`) or a
         new Party with name and optional contact details (`NEW`). Ingestion configuration,
         provider uniqueness, presentation, and referral validation remain service-owned.
-        `woocommerceWebhookSecret` is accepted only when WooCommerce ingestion is configured and
-        is never returned or logged.
+        A WooCommerce ingestion configuration carries its required `webhookSecret` as a write-only
+        member; it is never returned or logged.
       operationId: adminCreateListingSource
       tags:
         - ListingSources
@@ -7190,7 +7374,7 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: "unknown scope `product-listings_write`, expected one of: product-listings:write, users:read, users:write, access-tokens:read, access-tokens:write, search-filters:write, watchlist:read, watchlist:write"
+                    detail: "unknown scope `product-listings_write`, expected one of: product-listings:write, listing-sources:write, users:read, users:write, access-tokens:read, access-tokens:write, search-filters:write, watchlist:read, watchlist:write"
         "401":
           description: Unauthorized - invalid or missing JWT token
           content:
@@ -8693,10 +8877,12 @@ paths:
         Updates one ListingSource for an authenticated administrator.
 
         `listingSourceId` must be a valid ListingSource ID. Omitted members remain unchanged; `null` clears only
-        `woocommerceWebhookSecret`, `url`, `image`, and `referralConfiguration`. `name` and
-        `ingestionConfiguration` are non-nullable and cannot be cleared. The ingestion
-        configuration methods must match the ListingSource ingestion methods. An empty object is a
-        valid no-op PATCH; an empty HTTP body is invalid.
+        `url`, `image`, and `referralConfiguration`. `name` and
+        `ingestionConfiguration` are non-nullable and cannot be cleared. Supplying
+        `ingestionConfiguration` replaces the whole configuration list and its methods must match
+        the ListingSource ingestion methods. A WooCommerce entry may omit `webhookSecret` only when
+        WooCommerce is already configured; omission preserves the existing secret, a string rotates
+        it, and `null` is invalid. An empty object is a valid no-op PATCH; an empty HTTP body is invalid.
 
         Renaming a ListingSource never changes its immutable slug. The response contains only the
         stable ListingSource ID and slug. WooCommerce webhook secrets are write-only: they are
@@ -8736,14 +8922,9 @@ paths:
                   referralConfiguration:
                     type: PARTNERIZE
                     camref: campaign123
-              set_webhook_secret:
-                summary: Set the WooCommerce webhook secret
-                value:
-                  woocommerceWebhookSecret: provider-secret
               clear_values:
                 summary: Clear nullable ListingSource values
                 value:
-                  woocommerceWebhookSecret: null
                   url: null
                   image: null
                   referralConfiguration: null
@@ -14506,6 +14687,7 @@ components:
       type: string
       enum:
         - product-listings:write
+        - listing-sources:write
         - users:read
         - users:write
         - access-tokens:read
@@ -17118,9 +17300,45 @@ components:
         - SHOPIFY
         - WOOCOMMERCE
         - PARTNER_API
-    ListingIngestionConfigurationData:
+    PutWoocommerceListingSourceIngestionConfigurationData:
+      type: object
+      additionalProperties: false
+      required:
+        - webhookSecret
+      properties:
+        webhookSecret:
+          type: string
+          writeOnly: true
+          description: Required nonblank provider secret. Preserved exactly for HMAC verification and never returned.
+        currency:
+          allOf:
+            - $ref: "#/components/schemas/CurrencyData"
+          nullable: true
+        language:
+          allOf:
+            - $ref: "#/components/schemas/LanguageData"
+          nullable: true
+    PutShopifyListingSourceIngestionConfigurationData:
+      type: object
+      additionalProperties: false
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+          description: Valid Shopify store domain. Must be unique across ListingSources.
+        currency:
+          allOf:
+            - $ref: "#/components/schemas/CurrencyData"
+          nullable: true
+        language:
+          allOf:
+            - $ref: "#/components/schemas/LanguageData"
+          nullable: true
+    CreateListingIngestionConfigurationData:
       oneOf:
         - type: object
+          additionalProperties: false
           required:
             - type
             - ingestionMethod
@@ -17132,6 +17350,7 @@ components:
             ingestionMethod:
               $ref: "#/components/schemas/ListingIngestionMethodData"
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17143,6 +17362,7 @@ components:
               type: string
               description: Optional ISO 4217 fallback used only when crawler-extracted price text contains no currency hint.
         - type: object
+          additionalProperties: false
           required:
             - type
             - domain
@@ -17158,18 +17378,25 @@ components:
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
+            - webhookSecret
           properties:
             type:
               type: string
               enum:
                 - WOOCOMMERCE
+            webhookSecret:
+              type: string
+              writeOnly: true
+              description: Required nonblank WooCommerce secret. Never returned or logged.
             currency:
               type: string
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17234,6 +17461,7 @@ components:
               format: email
     CreateListingSourceData:
       type: object
+      additionalProperties: false
       required:
         - name
         - operator
@@ -17247,11 +17475,7 @@ components:
         ingestionConfiguration:
           type: array
           items:
-            $ref: "#/components/schemas/ListingIngestionConfigurationData"
-        woocommerceWebhookSecret:
-          type: string
-          writeOnly: true
-          description: Optional WooCommerce webhook secret. Accepted only when WOOCOMMERCE ingestion is configured; never returned or logged.
+            $ref: "#/components/schemas/CreateListingIngestionConfigurationData"
         url:
           type: string
           format: uri
@@ -17260,9 +17484,61 @@ components:
           format: uri
         referralConfiguration:
           $ref: "#/components/schemas/ReferralConfigurationData"
+    UpdateListingIngestionConfigurationData:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [WEB_CRAWL]
+            fallbackCurrency:
+              type: string
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+            - domain
+          properties:
+            type:
+              type: string
+              enum: [SHOPIFY]
+            domain:
+              type: string
+            currency:
+              type: string
+            language:
+              type: string
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [WOOCOMMERCE]
+            webhookSecret:
+              type: string
+              writeOnly: true
+              description: Optional only when WooCommerce is already configured. Omission preserves the existing secret; a string rotates it. Null is invalid, and when adding WooCommerce a secret is required.
+            currency:
+              type: string
+            language:
+              type: string
+        - type: object
+          additionalProperties: false
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [PARTNER_API]
     UpdateListingSourceData:
       type: object
-      description: Omitted fields are unchanged. `null` clears only `woocommerceWebhookSecret`, `url`, `image`, and `referralConfiguration`.
+      additionalProperties: false
+      description: Omitted fields are unchanged. `null` clears only `url`, `image`, and `referralConfiguration`. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
       properties:
         name:
           type: string
@@ -17270,12 +17546,7 @@ components:
         ingestionConfiguration:
           type: array
           items:
-            $ref: "#/components/schemas/ListingIngestionConfigurationData"
-        woocommerceWebhookSecret:
-          type: string
-          nullable: true
-          writeOnly: true
-          description: Optional WooCommerce webhook secret. Never returned or logged.
+            $ref: "#/components/schemas/UpdateListingIngestionConfigurationData"
         url:
           type: string
           format: uri

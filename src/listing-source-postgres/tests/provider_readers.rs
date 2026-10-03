@@ -52,6 +52,7 @@ async fn should_require_the_operator_partnership_exact_source_grant_for_provider
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert provider listing source: {error}"));
+
     sqlx::query(
             "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'SHOPIFY'), ($1, 'WOOCOMMERCE')",
         )

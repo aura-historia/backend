@@ -74,6 +74,7 @@ fn parse_scope_with_field(
 ) -> Result<Scope, Response> {
     let scope = match value {
         "product-listings:write" => Scope::ProductListingsWrite,
+        "listing-sources:write" => Scope::ListingSourcesWrite,
         "users:read" => Scope::UsersRead,
         "users:write" => Scope::UsersWrite,
         "access-tokens:read" => Scope::AccessTokensRead,
@@ -117,4 +118,25 @@ pub(crate) fn required_form<'a>(
                 .with_detail(format!("Form field '{field}' is required."))
                 .into_response()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_parse_listing_source_write_for_oauth_scopes() {
+        let expected = HashSet::from([Scope::ListingSourcesWrite]);
+
+        assert_eq!(
+            expected,
+            parse_scopes(["listing-sources:write".to_owned()]).unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!(
+            expected,
+            parse_scope_string(Some("listing-sources:write"), "scope")
+                .unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!("listing-sources:write", scope_string(&expected));
+    }
 }
