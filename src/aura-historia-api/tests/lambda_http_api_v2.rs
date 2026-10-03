@@ -508,21 +508,19 @@ async fn configure_woocommerce_listing_source(
     listing_source_id: uuid::Uuid,
 ) -> Result<(), sqlx::Error> {
     let pool = get_postgres_client().await;
-    let mut transaction = pool.begin().await?;
     sqlx::query(
         "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'WOOCOMMERCE')",
     )
     .bind(listing_source_id)
-    .execute(&mut *transaction)
+    .execute(&pool)
     .await?;
     sqlx::query(
         "INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret, currency, language) VALUES ($1, $2, 'EUR', 'en')",
     )
     .bind(listing_source_id)
     .bind(WOOCOMMERCE_WEBHOOK_SECRET)
-    .execute(&mut *transaction)
+    .execute(&pool)
     .await?;
-    transaction.commit().await?;
     Ok(())
 }
 

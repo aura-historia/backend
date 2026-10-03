@@ -23,7 +23,7 @@ pub struct UpdateListingSourceCommand {
     pub listing_source_id: ListingSourceId,
     pub name: RequiredPatch<ListingSourceName>,
 
-    pub ingestion_configuration: RequiredPatch<ListingSourceIngestionConfigurations>,
+    pub ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub url: PatchField<url::Url>,
     pub image: PatchField<url::Url>,
     pub referral_configuration: PatchField<ReferralConfiguration>,
@@ -189,12 +189,15 @@ fn apply_update(
         outcome = outcome.combine(source.rename(name.clone()));
     }
     if let RequiredPatch::Set(value) = &command.ingestion_configuration {
-        let methods = value
+        let resolved = value
+            .resolve(configuration)
+            .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
+        let methods = resolved
             .methods()
             .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
         outcome = outcome.combine(source.replace_ingestion_methods(methods));
-        outcome = outcome.combine(ChangeOutcome::from(*configuration != *value));
-        *configuration = value.clone();
+        outcome = outcome.combine(ChangeOutcome::from(*configuration != resolved));
+        *configuration = resolved;
     }
     if command.url.is_changed() || command.image.is_changed() {
         let presentation = ListingSourcePresentation {

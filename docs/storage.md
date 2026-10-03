@@ -32,7 +32,7 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 
 - PostgreSQL stores Shopify and WooCommerce configuration in provider-specific rows linked to the ListingSource. The WooCommerce row owns its required nonblank `webhook_secret`; service state uses a redacted validated secret type, and the value is never included in read models or REST responses.
 - ListingSource service writes the ingestion-method row and matching provider configuration in one transaction. Reads fail closed when a declared method is missing configuration, when provider rows are orphaned, or when a WooCommerce secret is invalid. Partner provider PUTs authorize against Partnership grants before mutation and use the ListingSource optimistic version for changed writes.
-- Migration disables legacy WooCommerce methods whose rows have no nonblank secret, removes their incomplete configuration rows, then enforces database-level nonnull/nonblank secret constraints. Partners can re-enable a provider only by supplying its complete PUT representation.
+- Migration adds `listing-sources:write` to persisted scope constraints and enforces database-level nonnull/nonblank WooCommerce secrets. It does not remove or disable provider configuration; invalid existing secrets fail the migration so the environment can be repaired explicitly.
 
 ## Auctions
 

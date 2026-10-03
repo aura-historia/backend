@@ -52,15 +52,12 @@ async fn should_require_the_operator_partnership_exact_source_grant_for_provider
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert provider listing source: {error}"));
-    let mut configuration_transaction = pool
-        .begin()
-        .await
-        .unwrap_or_else(|error| panic!("begin provider configuration transaction: {error}"));
+
     sqlx::query(
             "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'SHOPIFY'), ($1, 'WOOCOMMERCE')",
         )
         .bind(source_id.into_uuid())
-        .execute(&mut *configuration_transaction)
+        .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert provider ingestion methods: {error}"));
     sqlx::query(
@@ -68,7 +65,7 @@ async fn should_require_the_operator_partnership_exact_source_grant_for_provider
         )
         .bind(source_id.into_uuid())
         .bind(domain.as_str())
-        .execute(&mut *configuration_transaction)
+        .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert Shopify configuration: {error}"));
     sqlx::query(
@@ -76,13 +73,9 @@ async fn should_require_the_operator_partnership_exact_source_grant_for_provider
         )
         .bind(source_id.into_uuid())
         .bind("provider-reader-secret")
-        .execute(&mut *configuration_transaction)
+        .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert WooCommerce configuration: {error}"));
-    configuration_transaction
-        .commit()
-        .await
-        .unwrap_or_else(|error| panic!("commit provider configuration transaction: {error}"));
     for (partnership_id, party_id) in [
         (operator_partnership_id, operator_party_id),
         (unrelated_partnership_id, unrelated_party_id),

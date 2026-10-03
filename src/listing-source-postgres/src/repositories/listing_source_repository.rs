@@ -182,6 +182,8 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         configuration: &ListingSourceIngestionConfigurations,
         expected: ListingSourceStorageVersion,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
+        let _existing_configuration =
+            read_configuration(self.connection, source.id().into_uuid()).await?;
         configuration.validate_for(source).map_err(|_| {
             ListingSourceRepositoryError::InvalidPersistedState {
                 source: box_error(ListingIngestionConfigurationMismatch),
@@ -828,23 +830,20 @@ mod tests {
         let (source_id, party_id) = insert_basic_source(&pool, "Delete target").await;
         let (other_source_id, other_party_id) =
             insert_basic_source(&pool, "Unrelated source").await;
-        let mut configuration_transaction = pool
-            .begin()
-            .await
-            .unwrap_or_else(|error| panic!("begin source configuration setup: {error}"));
+
         sqlx::query("INSERT INTO listing_source_web_crawl_ingestion_configurations (listing_source_id, fallback_currency) VALUES ($1, 'EUR')")
             .bind(source_id.into_uuid())
-            .execute(&mut *configuration_transaction)
+            .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert WebCrawl configuration: {error}"));
         sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id, domain) VALUES ($1, 'delete-target.example')")
             .bind(source_id.into_uuid())
-            .execute(&mut *configuration_transaction)
+            .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert Shopify configuration: {error}"));
         sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret) VALUES ($1, 'nonempty-secret')")
             .bind(source_id.into_uuid())
-            .execute(&mut *configuration_transaction)
+            .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert WooCommerce configuration: {error}"));
         for method in ["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE"] {
@@ -853,14 +852,11 @@ mod tests {
             )
             .bind(source_id.into_uuid())
             .bind(method)
-            .execute(&mut *configuration_transaction)
+            .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert configured ingestion method: {error}"));
         }
-        configuration_transaction
-            .commit()
-            .await
-            .unwrap_or_else(|error| panic!("commit source configuration setup: {error}"));
+
         sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
             .bind(uuid::Uuid::now_v7())
             .bind(party_id.into_uuid())

@@ -437,6 +437,87 @@ async fn should_admit_delete_without_immediate_withdrawal() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_verify_webhooks_against_rotated_secret_using_exact_raw_body() {
+    let result: TestResult = async {
+        let (source, webhook_token) = webhook_auth().await?;
+        let source_id = source.parse::<ListingSourceId>()?;
+        let before_rotation_body = r#" { "id": 97, "name": "Rotation \\u00e9", "permalink": "https://partner.example/products/97", "price": "42.00", "status": "publish", "stock_status": "instock", "images": [] } "#;
+        let after_rotation_body = r#" { "id": 98, "name": "Rotation \\u00e9", "permalink": "https://partner.example/products/98", "price": "43.00", "status": "publish", "stock_status": "instock", "images": [] } "#;
+
+        let before_rotation = send_signed(
+            &source,
+            &webhook_token,
+            "product.created",
+            before_rotation_body,
+            Some("rotation-before"),
+            SECRET,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, before_rotation.status());
+        assert_eq!(1, woocommerce_ingestion_messages(source_id).len());
+
+        let partner_user = seed_user("USER").await;
+        seed_partnership_membership(partner_user, source_id.into_uuid()).await;
+        let partner_token = String::from(
+            seed_access_token_for(
+                partner_user,
+                HashSet::from([Scope::ListingSourcesWrite]),
+            )
+            .await,
+        );
+        let rotation = reqwest::Client::new()
+            .put(format!(
+                "{}/api/v1/listing-sources/{source}/ingestion-configurations/woocommerce",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(partner_token)
+            .json(&json!({
+                            "webhookSecret": "rotated-webhook-secret",
+                            "currency": "EUR",
+                            "language": "en"
+                        }))
+            .send()
+            .await?;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, rotation.status());
+
+        let old_secret = send_signed(
+            &source,
+            &webhook_token,
+            "product.created",
+            after_rotation_body,
+            Some("rotation-old-secret"),
+            SECRET,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::UNAUTHORIZED, old_secret.status());
+        assert_eq!("BAD_HEADER_VALUE", old_secret.json::<Value>().await?["error"]);
+        assert_eq!(1, woocommerce_ingestion_messages(source_id).len());
+
+        let new_secret = send_signed(
+            &source,
+            &webhook_token,
+            "product.created",
+            after_rotation_body,
+            Some("rotation-new-secret"),
+            "rotated-webhook-secret",
+        )
+        .await?;
+        let new_secret_status = new_secret.status();
+        let new_secret_body = new_secret.text().await?;
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            new_secret_status,
+            "unexpected response body: {new_secret_body}"
+        );
+        assert!(new_secret_body.is_empty());
+        assert_eq!(2, woocommerce_ingestion_messages(source_id).len());
+        Ok(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_missing_invalid_or_tampered_signatures_before_publication() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
@@ -633,22 +714,27 @@ async fn should_fail_closed_when_woocommerce_secret_or_configuration_is_unavaila
         let invalid_secret_update = sqlx::query("UPDATE listing_source_woocommerce_ingestion_configurations SET webhook_secret = '  ' WHERE listing_source_id = $1")
             .bind(source_id.as_uuid()).execute(&pool).await;
         assert!(invalid_secret_update.is_err(), "database accepted a blank WooCommerce secret");
+        let persisted_secret = sqlx::query_scalar::<_, String>(
+            "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(SECRET, persisted_secret);
+
         let body = product_body(36, "42.00", "publish");
         let response = send(&source, &token, "product.created", &body, None).await?;
-        assert_eq!(reqwest::StatusCode::INTERNAL_SERVER_ERROR, response.status());
-        assert_eq!("LISTING_SOURCE_INTERNAL_ERROR", response.json::<serde_json::Value>().await?["error"]);
-        assert!(woocommerce_ingestion_messages(source_id).is_empty());
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_eq!(1, woocommerce_ingestion_messages(source_id).len());
 
-        let mut transaction = pool.begin().await?;
         sqlx::query("DELETE FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1")
-            .bind(source_id.as_uuid()).execute(&mut *transaction).await?;
+            .bind(source_id.as_uuid()).execute(&pool).await?;
         sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id = $1 AND ingestion_method = 'WOOCOMMERCE'")
-            .bind(source_id.as_uuid()).execute(&mut *transaction).await?;
-        transaction.commit().await?;
+            .bind(source_id.as_uuid()).execute(&pool).await?;
         let response = send(&source, &token, "product.created", &body, None).await?;
         assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
         assert_eq!("LISTING_SOURCE_NOT_FOUND", response.json::<serde_json::Value>().await?["error"]);
-        assert!(woocommerce_ingestion_messages(source_id).is_empty());
+        assert_eq!(1, woocommerce_ingestion_messages(source_id).len());
         assert_no_raw_rows(source_id).await?;
         Ok(())
     }.await;
@@ -841,12 +927,10 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
 
 async fn configure_woocommerce_source(source: uuid::Uuid) -> Result<(), sqlx::Error> {
     let pool = get_postgres_client().await;
-    let mut transaction = pool.begin().await?;
     sqlx::query("INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'WOOCOMMERCE')")
-        .bind(source).execute(&mut *transaction).await?;
+        .bind(source).execute(&pool).await?;
     sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret, currency, language) VALUES ($1, $2, 'EUR', 'en')")
-        .bind(source).bind(SECRET).execute(&mut *transaction).await?;
-    transaction.commit().await?;
+        .bind(source).bind(SECRET).execute(&pool).await?;
     Ok(())
 }
 
@@ -869,6 +953,17 @@ async fn send(
     body: &str,
     delivery: Option<&str>,
 ) -> Result<reqwest::Response, reqwest::Error> {
+    send_signed(source, token, topic, body, delivery, SECRET).await
+}
+
+async fn send_signed(
+    source: &str,
+    token: &str,
+    topic: &str,
+    body: &str,
+    delivery: Option<&str>,
+    secret: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
     let request = reqwest::Client::new()
         .post(format!(
             "{}/api/v1/webhooks/woocommerce/{source}",
@@ -876,7 +971,10 @@ async fn send(
         ))
         .bearer_auth(token)
         .header("x-wc-webhook-topic", topic)
-        .header("x-wc-webhook-signature", signature(body));
+        .header(
+            "x-wc-webhook-signature",
+            signature_with_secret(body, secret),
+        );
     let request = match delivery {
         Some(delivery) => request.header("x-wc-webhook-delivery-id", delivery),
         None => request,
@@ -885,7 +983,11 @@ async fn send(
 }
 
 fn signature(body: &str) -> String {
-    let key = PKey::hmac(SECRET.as_bytes()).expect("HMAC key");
+    signature_with_secret(body, SECRET)
+}
+
+fn signature_with_secret(body: &str, secret: &str) -> String {
+    let key = PKey::hmac(secret.as_bytes()).expect("HMAC key");
     let mut signer = Signer::new(MessageDigest::sha256(), &key).expect("HMAC signer");
     signer.update(body.as_bytes()).expect("sign body");
     base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec().expect("HMAC signature"))

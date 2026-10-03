@@ -1236,6 +1236,36 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_nested_woocommerce_secret_on_admin_create() {
+    let party_id = seed_party("Missing WooCommerce Secret Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/listing-sources",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({
+            "name": "Missing WooCommerce Secret",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{"type": "WOOCOMMERCE", "currency": "EUR"}]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject missing WooCommerce secret: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_listing_source_create_for_non_admin() {
     let party_id = seed_party("Unauthorized Listing Source Operator", None, None).await;
     let user_id = seed_user("USER").await;
@@ -1404,6 +1434,100 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     );
     assert!(!detail_body.to_string().contains("provider-secret"));
 
+    let pool = get_postgres_client().await;
+    let replacement = client
+        .patch(&path)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "ingestionConfiguration": [{
+                "type": "WOOCOMMERCE",
+                "currency": "USD",
+                "language": "de"
+            }]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to replace WooCommerce config without secret: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::OK, replacement.status());
+    let stored = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+        "SELECT webhook_secret, currency, language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify preserved WooCommerce secret: {error}"));
+    assert_eq!(
+        (
+            "provider-secret".to_owned(),
+            Some("USD".to_owned()),
+            Some("de".to_owned())
+        ),
+        stored
+    );
+
+    let rotation = client
+        .patch(&path)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "ingestionConfiguration": [{
+                "type": "WOOCOMMERCE",
+                "webhookSecret": "rotated-provider-secret",
+                "currency": "EUR",
+                "language": "en"
+            }]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to rotate WooCommerce secret: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, rotation.status());
+
+    let invalid_clear = client
+        .patch(&path)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "ingestionConfiguration": [{
+                "type": "WOOCOMMERCE",
+                "webhookSecret": null
+            }]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject clearing WooCommerce secret: {error}"));
+    let (invalid_status, invalid_body) = json_response(invalid_clear).await;
+    assert_problem(
+        invalid_status,
+        &invalid_body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+
+    let rotated_secret = sqlx::query_scalar::<_, String>(
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify rotated WooCommerce secret: {error}"));
+    assert_eq!("rotated-provider-secret", rotated_secret);
+
+    let after_rotation = client
+        .get(&path)
+        .bearer_auth(token.clone())
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to read ListingSource after secret rotation: {error}")
+        });
+    let (after_rotation_status, after_rotation_body) = json_response(after_rotation).await;
+    assert_eq!(reqwest::StatusCode::OK, after_rotation_status);
+    assert!(
+        !after_rotation_body
+            .to_string()
+            .contains("rotated-provider-secret")
+    );
+
     let summary = client
         .get(format!(
             "{}/api/v1/admin/listing-sources",
@@ -1457,10 +1581,18 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     assert!(cleared_detail_body.get("url").is_none());
     assert!(cleared_detail_body.get("image").is_none());
     assert!(!cleared_detail_body.to_string().contains("provider-secret"));
+    let preserved_after_unrelated_patch = sqlx::query_scalar::<_, String>(
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify secret after unrelated patch: {error}"));
+    assert_eq!("rotated-provider-secret", preserved_after_unrelated_patch);
 
     let no_op = client
         .patch(&path)
-        .bearer_auth(token)
+        .bearer_auth(token.clone())
         .json(&json!({}))
         .send()
         .await
@@ -1468,6 +1600,23 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     let (no_op_status, no_op_body) = json_response(no_op).await;
     assert_eq!(reqwest::StatusCode::OK, no_op_status);
     assert_eq!(cleared_body, no_op_body);
+
+    let removed = client
+        .patch(&path)
+        .bearer_auth(token)
+        .json(&json!({"ingestionConfiguration": []}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to remove WooCommerce configuration: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, removed.status());
+    let configuration_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1)",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify removed WooCommerce configuration: {error}"));
+    assert!(!configuration_exists);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -1485,6 +1634,9 @@ async fn should_reject_listing_source_update_when_configuration_is_invalid() {
     for request in [
         json!({
             "ingestionConfiguration": [{"type": "PARTNER_API"}, {"type": "PARTNER_API"}]
+        }),
+        json!({
+            "ingestionConfiguration": [{"type": "WOOCOMMERCE", "currency": "EUR"}]
         }),
         json!({"woocommerceWebhookSecret": "must-have-woocommerce"}),
     ] {
@@ -1518,6 +1670,22 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
         )
         .await,
     );
+    let pool = get_postgres_client().await;
+    sqlx::query("INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'WEB_CRAWL'), ($1, 'SHOPIFY')")
+        .bind(listing_source_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed unrelated ingestion methods: {error}"));
+    sqlx::query("INSERT INTO listing_source_web_crawl_ingestion_configurations (listing_source_id, fallback_currency) VALUES ($1, 'EUR')")
+        .bind(listing_source_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed WebCrawl configuration: {error}"));
+    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id, domain, currency, language) VALUES ($1, 'preserved-shopify.example', 'GBP', 'en')")
+        .bind(listing_source_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed Shopify configuration: {error}"));
     let client = reqwest::Client::new();
     let base = format!(
         "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations",
@@ -1544,7 +1712,6 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     );
     assert!(woo.bytes().await.is_ok_and(|body| body.is_empty()));
 
-    let pool = get_postgres_client().await;
     let stored_secret = sqlx::query_scalar::<_, String>(
         "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
     )
@@ -1553,6 +1720,31 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     .await
     .unwrap_or_else(|error| panic!("failed to read stored WooCommerce secret: {error}"));
     assert_eq!("  provider-secret\t", stored_secret);
+    let unrelated = sqlx::query_as::<_, (Option<String>, String)>(
+        "SELECT web_crawl.fallback_currency, shopify.domain FROM listing_source_web_crawl_ingestion_configurations web_crawl JOIN listing_source_shopify_ingestion_configurations shopify USING (listing_source_id) WHERE web_crawl.listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read unrelated provider configuration: {error}"));
+    assert_eq!(
+        (
+            Some("EUR".to_owned()),
+            "preserved-shopify.example".to_owned()
+        ),
+        unrelated
+    );
+    let methods = sqlx::query_scalar::<_, Vec<String>>(
+        "SELECT array_agg(ingestion_method ORDER BY ingestion_method) FROM listing_source_ingestion_methods WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read configured ingestion methods: {error}"));
+    assert_eq!(
+        vec!["PARTNER_API", "SHOPIFY", "WEB_CRAWL", "WOOCOMMERCE"],
+        methods
+    );
 
     let replacement = client
         .put(format!("{base}/woocommerce"))
@@ -1579,15 +1771,27 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     .await
     .unwrap_or_else(|error| panic!("failed to read replaced WooCommerce configuration: {error}"));
     assert_eq!((None, None), cleared);
+    let same_woocommerce = client
+        .put(format!("{base}/woocommerce"))
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "webhookSecret": "  provider-secret\t",
+            "currency": null,
+            "language": null
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to repeat WooCommerce configuration: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, same_woocommerce.status());
 
     let shopify = client
         .put(format!("{base}/shopify"))
-        .bearer_auth(token)
-        .json(&json!({"domain": "Merchant.MyShopify.com", "currency": "EUR"}))
+        .bearer_auth(token.clone())
+        .json(&json!({"domain": "Merchant.MyShopify.com", "currency": null, "language": null}))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to configure Shopify ingestion: {error}"));
-    assert_eq!(reqwest::StatusCode::CREATED, shopify.status());
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, shopify.status());
     assert_eq!(
         Some("no-store"),
         shopify
@@ -1605,6 +1809,223 @@ async fn should_put_partner_provider_ingestion_configurations_idempotently() {
     .await
     .unwrap_or_else(|error| panic!("failed to read stored Shopify domain: {error}"));
     assert_eq!("merchant.myshopify.com", stored_domain);
+    let stored_shopify_optional_values = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT currency, language FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify cleared Shopify values: {error}"));
+    assert_eq!((None, None), stored_shopify_optional_values);
+    let woo_after_shopify_replacement = sqlx::query_scalar::<_, String>(
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify WooCommerce preservation: {error}"));
+    assert_eq!("  provider-secret\t", woo_after_shopify_replacement);
+
+    let shopify_no_op = client
+        .put(format!("{base}/shopify"))
+        .bearer_auth(token.clone())
+        .json(&json!({"domain": "Merchant.MyShopify.com"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to repeat Shopify configuration: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, shopify_no_op.status());
+
+    let second_source = seed_listing_source().await;
+    seed_partnership_membership(user_id, second_source.into_uuid()).await;
+    seed_operator_partnership_listing_source_grant(second_source.into_uuid()).await;
+    let second_base = format!(
+        "{}/api/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
+        AURA_API.base_url()
+    );
+    let shopify_created = client
+        .put(&second_base)
+        .bearer_auth(token.clone())
+        .json(&json!({"domain": "new-merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create Shopify configuration: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, shopify_created.status());
+    let shopify_same = client
+        .put(&second_base)
+        .bearer_auth(token)
+        .json(&json!({"domain": "new-merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to repeat newly created Shopify config: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, shopify_same.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_partner_provider_put_payloads() {
+    let listing_source_id = seed_listing_source().await;
+    let user_id = seed_user("USER").await;
+    seed_partnership_membership(user_id, listing_source_id.into_uuid()).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id.into_uuid()).await;
+    let token = String::from(
+        seed_access_token_for(
+            user_id,
+            std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
+    let client = reqwest::Client::new();
+    let base = format!(
+        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations",
+        AURA_API.base_url()
+    );
+    let cases = [
+        ("woocommerce", json!({})),
+        ("woocommerce", json!({"webhookSecret": null})),
+        ("woocommerce", json!({"webhookSecret": ""})),
+        ("woocommerce", json!({"webhookSecret": " \t"})),
+        (
+            "woocommerce",
+            json!({"webhookSecret": "valid-secret", "unknown": true}),
+        ),
+        (
+            "woocommerce",
+            json!({"webhookSecret": "valid-secret", "currency": "INVALID"}),
+        ),
+        (
+            "woocommerce",
+            json!({"webhookSecret": "valid-secret", "language": "not-a-language"}),
+        ),
+        ("shopify", json!({})),
+        (
+            "shopify",
+            json!({"domain": "https://merchant.example/path"}),
+        ),
+        (
+            "shopify",
+            json!({"domain": "merchant.example", "unknown": true}),
+        ),
+        (
+            "shopify",
+            json!({"domain": "merchant.example", "currency": "INVALID"}),
+        ),
+        (
+            "shopify",
+            json!({"domain": "merchant.example", "language": "not-a-language"}),
+        ),
+    ];
+
+    for (provider, body) in cases {
+        let response = client
+            .put(format!("{base}/{provider}"))
+            .bearer_auth(token.clone())
+            .json(&body)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to validate {provider} PUT body: {error}"));
+        let (status, response_body) = json_response(response).await;
+        assert_problem(
+            status,
+            &response_body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_BODY_VALUE",
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_duplicate_shopify_domain_on_partner_put() {
+    let user_id = seed_user("USER").await;
+    let first_source = seed_listing_source().await;
+    let second_source = seed_listing_source().await;
+    for source in [first_source, second_source] {
+        seed_partnership_membership(user_id, source.into_uuid()).await;
+        seed_operator_partnership_listing_source_grant(source.into_uuid()).await;
+    }
+    let token = String::from(
+        seed_access_token_for(
+            user_id,
+            std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
+    let client = reqwest::Client::new();
+    let first_path = format!(
+        "{}/api/v1/listing-sources/{first_source}/ingestion-configurations/shopify",
+        AURA_API.base_url()
+    );
+    let second_path = format!(
+        "{}/api/v1/listing-sources/{second_source}/ingestion-configurations/shopify",
+        AURA_API.base_url()
+    );
+
+    let first = client
+        .put(&first_path)
+        .bearer_auth(token.clone())
+        .json(&json!({"domain": "duplicate-partner-shop.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to configure first Shopify source: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, first.status());
+
+    let conflict = client
+        .put(&second_path)
+        .bearer_auth(token)
+        .json(&json!({"domain": "duplicate-partner-shop.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to configure duplicate Shopify domain: {error}"));
+    let (status, body) = json_response(conflict).await;
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_serialize_concurrent_identical_provider_puts_idempotently() {
+    let listing_source_id = seed_listing_source().await;
+    let user_id = seed_user("USER").await;
+    seed_partnership_membership(user_id, listing_source_id.into_uuid()).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id.into_uuid()).await;
+    let token = String::from(
+        seed_access_token_for(
+            user_id,
+            std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
+    let path = format!(
+        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce",
+        AURA_API.base_url()
+    );
+    let client = reqwest::Client::new();
+    let (first, second) = tokio::join!(
+        client
+            .put(&path)
+            .bearer_auth(token.clone())
+            .json(&json!({"webhookSecret": "concurrent-secret", "currency": "EUR"}))
+            .send(),
+        client
+            .put(&path)
+            .bearer_auth(token)
+            .json(&json!({"webhookSecret": "concurrent-secret", "currency": "EUR"}))
+            .send(),
+    );
+    let first = first.unwrap_or_else(|error| panic!("first concurrent PUT failed: {error}"));
+    let second = second.unwrap_or_else(|error| panic!("second concurrent PUT failed: {error}"));
+    let statuses = [first.status(), second.status()];
+    assert!(
+        statuses.contains(&reqwest::StatusCode::CREATED)
+            && statuses.contains(&reqwest::StatusCode::NO_CONTENT),
+        "expected one create and one idempotent replacement; got {statuses:?}"
+    );
+
+    let pool = get_postgres_client().await;
+    let counts = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT (SELECT count(*) FROM listing_source_ingestion_methods WHERE listing_source_id = $1 AND ingestion_method = 'WOOCOMMERCE'), (SELECT count(*) FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1)",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to verify concurrent provider state: {error}"));
+    assert_eq!((1, 1), counts);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -1615,6 +2036,59 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
     let path = format!(
         "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
         AURA_API.base_url()
+    );
+
+    let unauthenticated = client
+        .put(&path)
+        .json(&json!({"domain": "merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test missing provider PUT credentials: {error}"));
+    let (status, body) = json_response(unauthenticated).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let invalid_credentials = client
+        .put(&path)
+        .bearer_auth("invalid-token")
+        .json(&json!({"domain": "merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test invalid provider PUT credentials: {error}"));
+    let (status, body) = json_response(invalid_credentials).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let malformed_id = client
+        .put(format!(
+            "{}/api/v1/listing-sources/ls_invalid/ingestion-configurations/shopify",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(
+            seed_access_token_for(
+                user_id,
+                std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+            )
+            .await,
+        ))
+        .json(&json!({"domain": "merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test malformed ListingSource ID: {error}"));
+    let (status, body) = json_response(malformed_id).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_OBJECT_ID",
     );
 
     let no_scope_token =

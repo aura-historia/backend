@@ -573,10 +573,14 @@ mod tests {
             Admin(true),
         );
         let mut command = command();
-        command.ingestion_configuration =
-            ListingSourceIngestionConfigurations(vec![ListingIngestionConfiguration::WebCrawl {
+        command.ingestion_configuration = ListingSourceIngestionConfigurations(vec![
+            ListingIngestionConfiguration::WebCrawl {
                 fallback_currency: None,
-            }]);
+            },
+            ListingIngestionConfiguration::WebCrawl {
+                fallback_currency: None,
+            },
+        ]);
         assert!(matches!(
             handler.execute(&context(), command).await,
             Err(CreateListingSourceError::ListingIngestionConfigurationMismatch)
