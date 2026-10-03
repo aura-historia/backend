@@ -358,7 +358,7 @@ paths:
                 schema: { type: string, example: no-store },
               }
         "400":
-          description: Invalid ListingSource ID, malformed JSON, unknown property, or invalid value (`BAD_BODY_VALUE`).
+          description: Invalid ListingSource ID (`INVALID_OBJECT_ID`), or malformed JSON, unknown request property, or invalid request value (`BAD_BODY_VALUE`).
           content:
             application/problem+json:
               schema:
@@ -450,7 +450,7 @@ paths:
                 schema: { type: string, example: no-store },
               }
         "400":
-          description: Invalid ListingSource ID, malformed JSON, unknown property, or invalid value (`BAD_BODY_VALUE`).
+          description: Invalid ListingSource ID (`INVALID_OBJECT_ID`), or malformed JSON, unknown request property, or invalid request value (`BAD_BODY_VALUE`).
           content:
             application/problem+json:
               schema:
@@ -17338,6 +17338,7 @@ components:
     CreateListingIngestionConfigurationData:
       oneOf:
         - type: object
+          additionalProperties: false
           required:
             - type
             - ingestionMethod
@@ -17349,6 +17350,7 @@ components:
             ingestionMethod:
               $ref: "#/components/schemas/ListingIngestionMethodData"
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17360,6 +17362,7 @@ components:
               type: string
               description: Optional ISO 4217 fallback used only when crawler-extracted price text contains no currency hint.
         - type: object
+          additionalProperties: false
           required:
             - type
             - domain
@@ -17375,6 +17378,7 @@ components:
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
             - webhookSecret
@@ -17392,6 +17396,7 @@ components:
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17456,6 +17461,7 @@ components:
               format: email
     CreateListingSourceData:
       type: object
+      additionalProperties: false
       required:
         - name
         - operator
@@ -17481,6 +17487,7 @@ components:
     UpdateListingIngestionConfigurationData:
       oneOf:
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17490,6 +17497,7 @@ components:
             fallbackCurrency:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
             - domain
@@ -17504,6 +17512,7 @@ components:
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17519,6 +17528,7 @@ components:
             language:
               type: string
         - type: object
+          additionalProperties: false
           required:
             - type
           properties:
@@ -17527,6 +17537,7 @@ components:
               enum: [PARTNER_API]
     UpdateListingSourceData:
       type: object
+      additionalProperties: false
       description: Omitted fields are unchanged. `null` clears only `url`, `image`, and `referralConfiguration`. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
       properties:
         name:
