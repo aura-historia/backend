@@ -167,6 +167,7 @@ fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, AccessTokenRowMap
         .into_iter()
         .map(|value| match value.as_str() {
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
+            "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
             "users:read" => Ok(Scope::UsersRead),
             "users:write" => Ok(Scope::UsersWrite),
             "access-tokens:read" => Ok(Scope::AccessTokensRead),
@@ -223,6 +224,15 @@ mod tests {
 
     fn uuid_v4_fixture() -> Uuid {
         Uuid::from_u128(0x550e8400e29b41d4a716446655440000)
+    }
+
+    #[test]
+    fn should_map_listing_source_write_scope_from_storage() {
+        assert_eq!(
+            HashSet::from([Scope::ListingSourcesWrite]),
+            parse_scopes(vec!["listing-sources:write".to_owned()])
+                .unwrap_or_else(|_| unreachable!())
+        );
     }
 
     fn persisted_ids(case: PersistedObjectIdCase) -> (Uuid, Uuid, Uuid) {

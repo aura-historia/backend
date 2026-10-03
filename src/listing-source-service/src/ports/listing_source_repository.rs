@@ -1,6 +1,7 @@
-use application::{error::BoxError, patch_field::PatchField};
+use application::error::BoxError;
 use listing_source_core::{
     Domain, ListingIngestionMethod, ListingSource, ListingSourceId, ListingSourceSlugId,
+    WoocommerceWebhookSecret,
 };
 use localization::Language;
 use money::Currency;
@@ -19,6 +20,7 @@ pub enum ListingIngestionConfiguration {
         language: Option<Language>,
     },
     Woocommerce {
+        webhook_secret: WoocommerceWebhookSecret,
         currency: Option<Currency>,
         language: Option<Language>,
     },
@@ -72,13 +74,29 @@ impl ListingSourceIngestionConfigurations {
             .ok_or(ListingIngestionConfigurationMismatch)
     }
 
-    pub fn has_woocommerce(&self) -> bool {
-        self.0.iter().any(|configuration| {
-            matches!(
-                configuration,
-                ListingIngestionConfiguration::Woocommerce { .. }
-            )
-        })
+    pub fn replace_provider_configuration(
+        &mut self,
+        configuration: ListingIngestionConfiguration,
+    ) -> Result<bool, ListingIngestionConfigurationMismatch> {
+        let method = configuration.method();
+        if !matches!(
+            method,
+            ListingIngestionMethod::Shopify | ListingIngestionMethod::Woocommerce
+        ) {
+            return Err(ListingIngestionConfigurationMismatch);
+        }
+        if let Some(existing) = self
+            .0
+            .iter_mut()
+            .find(|existing| existing.method() == method)
+        {
+            let changed = *existing != configuration;
+            *existing = configuration;
+            Ok(changed)
+        } else {
+            self.0.push(configuration);
+            Ok(true)
+        }
     }
 }
 
@@ -166,13 +184,11 @@ pub trait ListingSourceRepository: Send {
         &mut self,
         source: &ListingSource,
         configuration: &ListingSourceIngestionConfigurations,
-        woocommerce_webhook_secret: Option<&str>,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError>;
     async fn update(
         &mut self,
         source: &ListingSource,
         configuration: &ListingSourceIngestionConfigurations,
-        woocommerce_webhook_secret: PatchField<&str>,
         expected: ListingSourceStorageVersion,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError>;
 }

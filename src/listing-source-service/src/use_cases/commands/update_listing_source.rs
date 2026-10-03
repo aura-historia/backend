@@ -24,7 +24,6 @@ pub struct UpdateListingSourceCommand {
     pub name: RequiredPatch<ListingSourceName>,
 
     pub ingestion_configuration: RequiredPatch<ListingSourceIngestionConfigurations>,
-    pub woocommerce_webhook_secret: PatchField<String>,
     pub url: PatchField<url::Url>,
     pub image: PatchField<url::Url>,
     pub referral_configuration: PatchField<ReferralConfiguration>,
@@ -151,18 +150,10 @@ where
         configuration
             .validate_for(&source)
             .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
-        if command.woocommerce_webhook_secret.is_changed() && !configuration.has_woocommerce() {
-            return Err(UpdateListingSourceError::ListingIngestionConfigurationMismatch);
-        }
         let result = if outcome.changed() {
             self.sources
                 .in_transaction(&mut tx)
-                .update(
-                    &source,
-                    &configuration,
-                    command.woocommerce_webhook_secret.as_str_patch(),
-                    stored.version,
-                )
+                .update(&source, &configuration, stored.version)
                 .await?
                 .into()
         } else {
@@ -176,19 +167,6 @@ where
             .map_err(|_| UpdateListingSourceError::CommitTransactionFailed)?;
         tracing::info!(event = "listing_source.updated", actor_type = context.principal.kind(), actor_id = %context.principal.label(), listing_source_id = %result.listing_source_id, listing_source_slug_id = %result.slug_id, changed = outcome.changed(), outcome = "success");
         Ok(result)
-    }
-}
-
-trait PatchFieldStrRef {
-    fn as_str_patch(&self) -> PatchField<&str>;
-}
-impl PatchFieldStrRef for PatchField<String> {
-    fn as_str_patch(&self) -> PatchField<&str> {
-        match self {
-            PatchField::Unchanged => PatchField::Unchanged,
-            PatchField::Set(value) => PatchField::Set(value.as_str()),
-            PatchField::Clear => PatchField::Clear,
-        }
     }
 }
 
@@ -231,9 +209,6 @@ fn apply_update(
             outcome = outcome.combine(source.replace_referral_configuration(Some(value.clone())))
         }
         PatchField::Clear => outcome = outcome.combine(source.replace_referral_configuration(None)),
-    }
-    if command.woocommerce_webhook_secret.is_changed() && configuration.has_woocommerce() {
-        outcome = outcome.combine(ChangeOutcome::Changed);
     }
     Ok(outcome)
 }
@@ -386,7 +361,6 @@ mod tests {
             &mut self,
             _: &ListingSource,
             _: &ListingSourceIngestionConfigurations,
-            _: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(error())
         }
@@ -394,7 +368,6 @@ mod tests {
             &mut self,
             source: &ListingSource,
             config: &ListingSourceIngestionConfigurations,
-            _: PatchField<&str>,
             _: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             self.0.0.lock().map_err(|_| error())?.updates += 1;
@@ -446,7 +419,6 @@ mod tests {
             name: RequiredPatch::Unchanged,
 
             ingestion_configuration: RequiredPatch::Unchanged,
-            woocommerce_webhook_secret: PatchField::Unchanged,
             url: PatchField::Unchanged,
             image: PatchField::Unchanged,
             referral_configuration: PatchField::Unchanged,

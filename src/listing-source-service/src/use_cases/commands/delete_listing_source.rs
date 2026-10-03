@@ -350,7 +350,6 @@ mod tests {
             &mut self,
             _: &ListingSource,
             _: &ListingSourceIngestionConfigurations,
-            _: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(failure())
         }
@@ -358,7 +357,6 @@ mod tests {
             &mut self,
             _: &ListingSource,
             _: &ListingSourceIngestionConfigurations,
-            _: application::patch_field::PatchField<&str>,
             _: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(failure())

@@ -31,6 +31,7 @@ use oauth_service::use_cases::{
     RevokeTokenUseCase, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase,
     UpdateOAuthClientUseCase,
 };
+use partnership_service::use_cases::commands::put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationUseCase;
 use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
 use partnership_service::use_cases::queries::list_admin_partnerships::ListAdminPartnershipsUseCase;
 use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesUseCase;
@@ -579,6 +580,8 @@ pub struct ListingSourcesState {
     pub(crate) create: Arc<dyn CreateListingSourceUseCase>,
     pub(crate) get: Arc<dyn GetListingSourceUseCase>,
     pub(crate) update: Arc<dyn UpdateListingSourceUseCase>,
+    pub(crate) put_ingestion_configuration:
+        Option<Arc<dyn PutListingSourceIngestionConfigurationUseCase>>,
     pub(crate) delete: Option<Arc<dyn DeleteListingSourceUseCase>>,
     pub(crate) list_administered: Arc<dyn ListAdministeredListingSourcesUseCase>,
     pub(crate) search: Arc<dyn SearchListingSourcesUseCase>,
@@ -638,6 +641,7 @@ impl ListingSourcesState {
             create,
             get,
             update,
+            put_ingestion_configuration: None,
             delete: None,
             list_administered,
             search,
@@ -662,6 +666,14 @@ impl ListingSourcesState {
 
     pub fn with_delete(mut self, delete: Arc<dyn DeleteListingSourceUseCase>) -> Self {
         self.delete = Some(delete);
+        self
+    }
+
+    pub fn with_ingestion_configuration(
+        mut self,
+        put_ingestion_configuration: Arc<dyn PutListingSourceIngestionConfigurationUseCase>,
+    ) -> Self {
+        self.put_ingestion_configuration = Some(put_ingestion_configuration);
         self
     }
 }

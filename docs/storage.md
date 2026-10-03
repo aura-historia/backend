@@ -28,6 +28,12 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 - Source-grant revocation explicitly deletes only the targeted `(partnership_id, listing_source_id)` join row; deleting an absent row is a successful no-op and does not remove historical or referenced records. Eligible ListingSource hard deletion explicitly removes all of that source's grant rows in its own business transaction.
 - Admin collection counts distinct members/grants in one joined query; exact `partyId`, `memberUserId`, `listingSourceId` filters use `EXISTS` without reducing counts. Detail uses one joined statement with UUID-ordered arrays limited in SQL to 100 member and 100 source IDs, complete counts and empty arrays for no associations. Safe read models include only Partnership ID, Party ID/immutable slug/name, references or counts, and `created`/`updated`; never Party contact, `version`, credentials, webhook secrets or crawler configuration.
 
+## ListingSource provider ingestion configuration
+
+- PostgreSQL stores Shopify and WooCommerce configuration in provider-specific rows linked to the ListingSource. The WooCommerce row owns its required nonblank `webhook_secret`; service state uses a redacted validated secret type, and the value is never included in read models or REST responses.
+- ListingSource service writes the ingestion-method row and matching provider configuration in one transaction. Reads fail closed when a declared method is missing configuration, when provider rows are orphaned, or when a WooCommerce secret is invalid. Partner provider PUTs authorize against Partnership grants before mutation and use the ListingSource optimistic version for changed writes.
+- Migration disables legacy WooCommerce methods whose rows have no nonblank secret, removes their incomplete configuration rows, then enforces database-level nonnull/nonblank secret constraints. Partners can re-enable a provider only by supplying its complete PUT representation.
+
 ## Auctions
 
 PostgreSQL is authoritative for standalone source-scoped Auction state. `auctions` stores the immutable `(listing_source_id, source_auction_id)` key, an optional canonical name, four optional exact `timestamptz` schedule columns, and a positive root optimistic-concurrency version. Its ListingSource foreign key is restrictive, so any retained Auction blocks source deletion.

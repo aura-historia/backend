@@ -630,16 +630,21 @@ async fn should_fail_closed_when_woocommerce_secret_or_configuration_is_unavaila
         let (source, token) = webhook_auth().await?;
         let source_id = source.parse::<ListingSourceId>()?;
         let pool = get_postgres_client().await;
-        sqlx::query("UPDATE listing_source_woocommerce_ingestion_configurations SET webhook_secret = NULL WHERE listing_source_id = $1")
-            .bind(source_id.as_uuid()).execute(&pool).await?;
+        let invalid_secret_update = sqlx::query("UPDATE listing_source_woocommerce_ingestion_configurations SET webhook_secret = '  ' WHERE listing_source_id = $1")
+            .bind(source_id.as_uuid()).execute(&pool).await;
+        assert!(invalid_secret_update.is_err(), "database accepted a blank WooCommerce secret");
         let body = product_body(36, "42.00", "publish");
         let response = send(&source, &token, "product.created", &body, None).await?;
         assert_eq!(reqwest::StatusCode::INTERNAL_SERVER_ERROR, response.status());
         assert_eq!("LISTING_SOURCE_INTERNAL_ERROR", response.json::<serde_json::Value>().await?["error"]);
         assert!(woocommerce_ingestion_messages(source_id).is_empty());
 
+        let mut transaction = pool.begin().await?;
         sqlx::query("DELETE FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1")
-            .bind(source_id.as_uuid()).execute(&pool).await?;
+            .bind(source_id.as_uuid()).execute(&mut *transaction).await?;
+        sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id = $1 AND ingestion_method = 'WOOCOMMERCE'")
+            .bind(source_id.as_uuid()).execute(&mut *transaction).await?;
+        transaction.commit().await?;
         let response = send(&source, &token, "product.created", &body, None).await?;
         assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
         assert_eq!("LISTING_SOURCE_NOT_FOUND", response.json::<serde_json::Value>().await?["error"]);
@@ -836,10 +841,12 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
 
 async fn configure_woocommerce_source(source: uuid::Uuid) -> Result<(), sqlx::Error> {
     let pool = get_postgres_client().await;
+    let mut transaction = pool.begin().await?;
     sqlx::query("INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'WOOCOMMERCE')")
-        .bind(source).execute(&pool).await?;
+        .bind(source).execute(&mut *transaction).await?;
     sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret, currency, language) VALUES ($1, $2, 'EUR', 'en')")
-        .bind(source).bind(SECRET).execute(&pool).await?;
+        .bind(source).bind(SECRET).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 

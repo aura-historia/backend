@@ -1,4 +1,4 @@
-use application::{error::box_error, patch_field::PatchField};
+use application::error::box_error;
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::*;
 use listing_source_service::ports::*;
@@ -165,7 +165,6 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         &mut self,
         source: &ListingSource,
         configuration: &ListingSourceIngestionConfigurations,
-        woocommerce_webhook_secret: Option<&str>,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
         configuration.validate_for(source).map_err(|_| {
             ListingSourceRepositoryError::InvalidPersistedState {
@@ -174,20 +173,13 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
         let row=sqlx::query_as::<_,SourceRow>("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration,version,created,updated").bind(source.id().into_uuid()).bind(source.slug_id().as_ref()).bind(source.name().as_ref()).bind(source.operator_party_id().into_uuid()).bind(source.presentation().url.as_ref().map(Url::as_str)).bind(source.presentation().image.as_ref().map(Url::as_str)).bind(referral_configuration).fetch_one(&mut *self.connection).await.map_err(db_write)?;
-        write_configuration(
-            self.connection,
-            source.id(),
-            configuration,
-            woocommerce_webhook_secret,
-        )
-        .await?;
+        write_configuration(self.connection, source.id(), configuration).await?;
         load(self.connection, row).await
     }
     async fn update(
         &mut self,
         source: &ListingSource,
         configuration: &ListingSourceIngestionConfigurations,
-        woocommerce_webhook_secret: PatchField<&str>,
         expected: ListingSourceStorageVersion,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
         configuration.validate_for(source).map_err(|_| {
@@ -195,24 +187,11 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
                 source: box_error(ListingIngestionConfigurationMismatch),
             }
         })?;
-        let existing_configuration =
-            read_configuration(self.connection, source.id().into_uuid()).await?;
-        let had_woocommerce = existing_configuration
-            .0
-            .iter()
-            .any(|configuration| configuration.method() == ListingIngestionMethod::Woocommerce);
         let expected = i64::try_from(expected.into_inner()).map_err(|error| {
             ListingSourceRepositoryError::InvalidPersistedState {
                 source: box_error(error),
             }
         })?;
-        let webhook_secret = match woocommerce_webhook_secret {
-            PatchField::Unchanged if had_woocommerce => {
-                existing_woocommerce_webhook_secret(self.connection, source.id()).await?
-            }
-            PatchField::Unchanged | PatchField::Clear => None,
-            PatchField::Set(secret) => Some(secret.to_owned()),
-        };
         let referral_configuration = referral_json(source.referral_configuration());
         let row=sqlx::query_as::<_,SourceRow>("UPDATE listing_sources SET name=$1,operator_party_id=$2,url=$3,image=$4,referral_configuration=$5,version=version+1,updated=now() WHERE listing_source_id=$6 AND version=$7 RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration,version,created,updated").bind(source.name().as_ref()).bind(source.operator_party_id().into_uuid()).bind(source.presentation().url.as_ref().map(Url::as_str)).bind(source.presentation().image.as_ref().map(Url::as_str)).bind(referral_configuration).bind(source.id().into_uuid()).bind(expected).fetch_optional(&mut *self.connection).await.map_err(db_write)?.ok_or(ListingSourceRepositoryError::ConcurrencyConflict)?;
         sqlx::query("DELETE FROM listing_source_ingestion_methods WHERE listing_source_id=$1")
@@ -239,13 +218,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         .execute(&mut *self.connection)
         .await
         .map_err(db_write)?;
-        write_configuration(
-            self.connection,
-            source.id(),
-            configuration,
-            webhook_secret.as_deref(),
-        )
-        .await?;
+        write_configuration(self.connection, source.id(), configuration).await?;
         load(self.connection, row).await
     }
 }
@@ -306,25 +279,10 @@ async fn load(
         updated: row.updated,
     })
 }
-async fn existing_woocommerce_webhook_secret(
-    connection: &mut PgConnection,
-    id: ListingSourceId,
-) -> Result<Option<String>, ListingSourceRepositoryError> {
-    sqlx::query_scalar::<_, Option<String>>(
-        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1",
-    )
-    .bind(id.into_uuid())
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(db_read)?
-    .ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))
-}
-
 async fn write_configuration(
     connection: &mut PgConnection,
     id: ListingSourceId,
     configs: &ListingSourceIngestionConfigurations,
-    woocommerce_webhook_secret: Option<&str>,
 ) -> Result<(), ListingSourceRepositoryError> {
     let id = id.into_uuid();
     for config in &configs.0 {
@@ -337,8 +295,12 @@ async fn write_configuration(
             } => {
                 sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id,domain,currency,language) VALUES ($1,$2,$3,$4)").bind(id).bind(domain.as_str()).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
             }
-            ListingIngestionConfiguration::Woocommerce { currency, language } => {
-                sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id,webhook_secret,currency,language) VALUES ($1,$2,$3,$4)").bind(id).bind(woocommerce_webhook_secret).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
+            ListingIngestionConfiguration::Woocommerce {
+                webhook_secret,
+                currency,
+                language,
+            } => {
+                sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id,webhook_secret,currency,language) VALUES ($1,$2,$3,$4)").bind(id).bind(webhook_secret.as_str()).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
             }
             ListingIngestionConfiguration::WebCrawl { fallback_currency } => {
                 sqlx::query("INSERT INTO listing_source_web_crawl_ingestion_configurations (listing_source_id,fallback_currency) VALUES ($1,$2)").bind(id).bind(fallback_currency.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
@@ -380,10 +342,12 @@ async fn read_configuration(
                 });
             }
             ListingIngestionMethod::Woocommerce => {
-                let row=sqlx::query_as::<_,(Option<String>,Option<String>)>("SELECT currency,language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))?;
+                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT webhook_secret,currency,language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))?;
                 configs.push(ListingIngestionConfiguration::Woocommerce {
-                    currency: parse_optional_currency(row.0.as_deref())?,
-                    language: parse_optional_language(row.1.as_deref())?,
+                    webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(row.0)
+                        .map_err(invalid)?,
+                    currency: parse_optional_currency(row.1.as_deref())?,
+                    language: parse_optional_language(row.2.as_deref())?,
                 });
             }
         }
@@ -592,7 +556,7 @@ mod tests {
     }
 
     async fn insert_source_with_missing_declared_configuration(
-        pool: &sqlx::PgPool,
+        connection: &mut PgConnection,
         method: ListingIngestionMethod,
     ) -> ListingSource {
         let operator_party_id = PartyId::new();
@@ -617,7 +581,7 @@ mod tests {
                 "Missing {} configuration operator",
                 method.as_str()
             ))
-            .execute(pool)
+            .execute(&mut *connection)
             .await
             .unwrap_or_else(|error| panic!("insert missing-configuration operator: {error}"));
         sqlx::query(
@@ -627,7 +591,7 @@ mod tests {
         .bind(source.slug_id().as_ref())
         .bind(source.name().as_ref())
         .bind(source.operator_party_id().into_uuid())
-        .execute(pool)
+        .execute(&mut *connection)
         .await
         .unwrap_or_else(|error| panic!("insert missing-configuration source: {error}"));
         sqlx::query(
@@ -635,7 +599,7 @@ mod tests {
         )
         .bind(source.id().into_uuid())
         .bind(method.as_str())
-        .execute(pool)
+        .execute(&mut *connection)
         .await
         .unwrap_or_else(|error| panic!("insert declared ingestion method: {error}"));
         source
@@ -653,6 +617,10 @@ mod tests {
                 language: None,
             },
             ListingIngestionMethod::Woocommerce => ListingIngestionConfiguration::Woocommerce {
+                webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
+                    "test-secret",
+                )
+                .unwrap_or_else(|error| panic!("invalid test webhook secret: {error}")),
                 currency: None,
                 language: None,
             },
@@ -722,6 +690,10 @@ mod tests {
                 language: Some(localization::Language::En),
             },
             ListingIngestionConfiguration::Woocommerce {
+                webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
+                    "test-webhook-secret",
+                )
+                .unwrap_or_else(|error| panic!("invalid test webhook secret: {error}")),
                 currency: Some(money::Currency::Usd),
                 language: Some(localization::Language::De),
             },
@@ -733,7 +705,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("begin transaction: {error}"));
         let stored = SqlxListingSourceRepositoryFactory::new()
             .in_transaction(&mut transaction)
-            .insert(&source, &configuration, Some("test-webhook-secret"))
+            .insert(&source, &configuration)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
         transaction
@@ -831,12 +803,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("begin update transaction: {error}"));
         let updated = SqlxListingSourceRepositoryFactory::new()
             .in_transaction(&mut transaction)
-            .update(
-                &source,
-                &updated_configuration,
-                PatchField::Unchanged,
-                stored.version,
-            )
+            .update(&source, &updated_configuration, stored.version)
             .await
             .unwrap_or_else(|error| panic!("update listing source: {error}"));
         transaction
@@ -861,19 +828,23 @@ mod tests {
         let (source_id, party_id) = insert_basic_source(&pool, "Delete target").await;
         let (other_source_id, other_party_id) =
             insert_basic_source(&pool, "Unrelated source").await;
+        let mut configuration_transaction = pool
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin source configuration setup: {error}"));
         sqlx::query("INSERT INTO listing_source_web_crawl_ingestion_configurations (listing_source_id, fallback_currency) VALUES ($1, 'EUR')")
             .bind(source_id.into_uuid())
-            .execute(&pool)
+            .execute(&mut *configuration_transaction)
             .await
             .unwrap_or_else(|error| panic!("insert WebCrawl configuration: {error}"));
         sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id, domain) VALUES ($1, 'delete-target.example')")
             .bind(source_id.into_uuid())
-            .execute(&pool)
+            .execute(&mut *configuration_transaction)
             .await
             .unwrap_or_else(|error| panic!("insert Shopify configuration: {error}"));
         sqlx::query("INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret) VALUES ($1, 'nonempty-secret')")
             .bind(source_id.into_uuid())
-            .execute(&pool)
+            .execute(&mut *configuration_transaction)
             .await
             .unwrap_or_else(|error| panic!("insert WooCommerce configuration: {error}"));
         for method in ["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE"] {
@@ -882,10 +853,14 @@ mod tests {
             )
             .bind(source_id.into_uuid())
             .bind(method)
-            .execute(&pool)
+            .execute(&mut *configuration_transaction)
             .await
             .unwrap_or_else(|error| panic!("insert configured ingestion method: {error}"));
         }
+        configuration_transaction
+            .commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit source configuration setup: {error}"));
         sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
             .bind(uuid::Uuid::now_v7())
             .bind(party_id.into_uuid())
@@ -1267,17 +1242,20 @@ mod tests {
             ListingIngestionMethod::Shopify,
             ListingIngestionMethod::Woocommerce,
         ] {
-            let source = insert_source_with_missing_declared_configuration(&pool, method).await;
             let mut transaction = unit_of_work
                 .begin()
                 .await
                 .unwrap_or_else(|error| panic!("begin missing-configuration read: {error}"));
+            let source =
+                insert_source_with_missing_declared_configuration(transaction.connection(), method)
+                    .await;
             let result = SqlxListingSourceRepositoryFactory::new()
                 .in_transaction(&mut transaction)
                 .find_by_id(source.id())
                 .await;
 
             assert_configuration_mismatch(result, method);
+            drop(transaction);
         }
     }
 
@@ -1293,19 +1271,20 @@ mod tests {
             ListingIngestionMethod::Shopify,
             ListingIngestionMethod::Woocommerce,
         ] {
-            let source = insert_source_with_missing_declared_configuration(&pool, method).await;
-            let configuration = configuration_for(method);
             let mut transaction = unit_of_work
                 .begin()
                 .await
                 .unwrap_or_else(|error| panic!("begin missing-configuration update: {error}"));
+            let source =
+                insert_source_with_missing_declared_configuration(transaction.connection(), method)
+                    .await;
+            let configuration = configuration_for(method);
             let result = SqlxListingSourceRepositoryFactory::new()
                 .in_transaction(&mut transaction)
-                .update(&source, &configuration, PatchField::Unchanged, expected)
+                .update(&source, &configuration, expected)
                 .await;
 
             assert_configuration_mismatch(result, method);
-            drop(transaction);
 
             let state = sqlx::query_as::<_, (i64, bool)>(
                 r#"
@@ -1329,10 +1308,11 @@ mod tests {
                 "#,
             )
             .bind(source.id().into_uuid())
-            .fetch_one(&pool)
+            .fetch_one(&mut *transaction.connection())
             .await
             .unwrap_or_else(|error| panic!("read source after rejected update: {error}"));
             assert_eq!((1, false), state, "update changed corrupted source");
+            drop(transaction);
         }
     }
 

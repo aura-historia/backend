@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
     ProductListingsWrite,
+    ListingSourcesWrite,
     UsersRead,
     UsersWrite,
     AccessTokensRead,
@@ -16,6 +17,7 @@ impl Scope {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ProductListingsWrite => "product-listings:write",
+            Self::ListingSourcesWrite => "listing-sources:write",
             Self::UsersRead => "users:read",
             Self::UsersWrite => "users:write",
             Self::AccessTokensRead => "access-tokens:read",
@@ -46,6 +48,10 @@ mod tests {
         assert_eq!(
             "product-listings:write",
             Scope::ProductListingsWrite.as_str()
+        );
+        assert_eq!(
+            "listing-sources:write",
+            Scope::ListingSourcesWrite.to_string()
         );
         assert_eq!("access-tokens:read", Scope::AccessTokensRead.to_string());
     }

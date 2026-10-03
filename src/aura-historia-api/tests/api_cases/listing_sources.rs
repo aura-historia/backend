@@ -3,14 +3,16 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 use api_support::{
     assert_problem, json_response, seed_access_token_for,
     seed_listing_source as seed_raw_listing_source,
-    seed_listing_source_for_search as seed_raw_listing_source_for_search, seed_party, seed_product,
-    seed_user,
+    seed_listing_source_for_search as seed_raw_listing_source_for_search,
+    seed_operator_partnership_listing_source_grant, seed_partnership_membership, seed_party,
+    seed_product, seed_user,
 };
 use listing_source_core::ListingSourceId;
 use party_core::party_id::PartyId;
 use product_listing_core::product_listing_id::ProductListingId;
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
+use user_core::access_token::Scope;
 use user_core::user_id::UserId;
 
 async fn seed_listing_source() -> ListingSourceId {
@@ -1188,10 +1190,10 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
             },
             "ingestionConfiguration": [{
                 "type": "WOOCOMMERCE",
+                "webhookSecret": "provider-secret",
                 "currency": "EUR",
                 "language": "en"
-            }],
-            "woocommerceWebhookSecret": "provider-secret"
+            }]
         }))
         .send()
         .await
@@ -1360,10 +1362,10 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
             "name": "  Renamed Listing Source  ",
             "ingestionConfiguration": [{
                 "type": "WOOCOMMERCE",
+                "webhookSecret": "provider-secret",
                 "currency": "EUR",
                 "language": "en"
             }],
-            "woocommerceWebhookSecret": "provider-secret",
             "url": "https://updated-listing-source.example/",
             "image": "https://updated-listing-source.example/image.jpg",
             "referralConfiguration": {"type": "PARTNERIZE", "camref": "campaign123"}
@@ -1423,7 +1425,6 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         .patch(&path)
         .bearer_auth(token.clone())
         .json(&json!({
-            "woocommerceWebhookSecret": null,
             "url": null,
             "image": null,
             "referralConfiguration": null
@@ -1502,6 +1503,149 @@ async fn should_reject_listing_source_update_when_configuration_is_invalid() {
             "BAD_BODY_VALUE",
         );
     }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_put_partner_provider_ingestion_configurations_idempotently() {
+    let listing_source_id = seed_listing_source().await;
+    let user_id = seed_user("USER").await;
+    seed_partnership_membership(user_id, listing_source_id.into_uuid()).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id.into_uuid()).await;
+    let token = String::from(
+        seed_access_token_for(
+            user_id,
+            std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
+    let client = reqwest::Client::new();
+    let base = format!(
+        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations",
+        AURA_API.base_url()
+    );
+
+    let woo = client
+        .put(format!("{base}/woocommerce"))
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "webhookSecret": "  provider-secret\t",
+            "currency": "EUR",
+            "language": "de"
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to configure WooCommerce ingestion: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, woo.status());
+    assert_eq!(
+        Some("no-store"),
+        woo.headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+    assert!(woo.bytes().await.is_ok_and(|body| body.is_empty()));
+
+    let pool = get_postgres_client().await;
+    let stored_secret = sqlx::query_scalar::<_, String>(
+        "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read stored WooCommerce secret: {error}"));
+    assert_eq!("  provider-secret\t", stored_secret);
+
+    let replacement = client
+        .put(format!("{base}/woocommerce"))
+        .bearer_auth(token.clone())
+        .json(&json!({"webhookSecret": "  provider-secret\t"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to replace WooCommerce ingestion: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, replacement.status());
+    assert_eq!(
+        Some("no-store"),
+        replacement
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+    assert!(replacement.bytes().await.is_ok_and(|body| body.is_empty()));
+
+    let cleared = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT currency, language FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read replaced WooCommerce configuration: {error}"));
+    assert_eq!((None, None), cleared);
+
+    let shopify = client
+        .put(format!("{base}/shopify"))
+        .bearer_auth(token)
+        .json(&json!({"domain": "Merchant.MyShopify.com", "currency": "EUR"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to configure Shopify ingestion: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, shopify.status());
+    assert_eq!(
+        Some("no-store"),
+        shopify
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+    assert!(shopify.bytes().await.is_ok_and(|body| body.is_empty()));
+
+    let stored_domain = sqlx::query_scalar::<_, String>(
+        "SELECT domain FROM listing_source_shopify_ingestion_configurations WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read stored Shopify domain: {error}"));
+    assert_eq!("merchant.myshopify.com", stored_domain);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_listing_source_scope_and_partnership_access_for_provider_put() {
+    let listing_source_id = seed_listing_source().await;
+    let user_id = seed_user("USER").await;
+    let client = reqwest::Client::new();
+    let path = format!(
+        "{}/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify",
+        AURA_API.base_url()
+    );
+
+    let no_scope_token =
+        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
+    let no_scope = client
+        .put(&path)
+        .bearer_auth(no_scope_token)
+        .json(&json!({"domain": "merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test missing delegated scope: {error}"));
+    let (status, body) = json_response(no_scope).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    let missing_grant_user = seed_user("USER").await;
+    let no_grant_token = String::from(
+        seed_access_token_for(
+            missing_grant_user,
+            std::collections::HashSet::from([Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
+    let no_grant = client
+        .put(&path)
+        .bearer_auth(no_grant_token)
+        .json(&json!({"domain": "merchant.example"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test missing source grant: {error}"));
+    let (status, body) = json_response(no_grant).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

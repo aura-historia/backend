@@ -36,7 +36,6 @@ pub async fn update_listing_source(
         listing_source_id,
         name: parts.name,
         ingestion_configuration: parts.ingestion_configuration,
-        woocommerce_webhook_secret: parts.woocommerce_webhook_secret,
         url: parts.url,
         image: parts.image,
         referral_configuration: parts.referral_configuration,

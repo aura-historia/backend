@@ -562,6 +562,7 @@ mod access_token_state_tests {
     fn should_render_all_scope_strings() {
         for (scope, value) in [
             (Scope::ProductListingsWrite, "product-listings:write"),
+            (Scope::ListingSourcesWrite, "listing-sources:write"),
             (Scope::UsersRead, "users:read"),
             (Scope::UsersWrite, "users:write"),
             (Scope::AccessTokensRead, "access-tokens:read"),

@@ -30,15 +30,13 @@ use std::collections::HashSet;
 
 use url::Url;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CreateListingSourceData {
     pub(crate) name: String,
     pub(crate) operator: ListingSourceOperatorData,
 
     pub(crate) ingestion_configuration: Vec<ListingIngestionConfigurationData>,
-    #[serde(default)]
-    pub(crate) woocommerce_webhook_secret: Option<String>,
     #[serde(default)]
     pub(crate) url: Option<Url>,
     #[serde(default)]
@@ -83,16 +81,14 @@ impl TryFrom<ListingSourceOperatorData> for ListingSourceOperator {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct UpdateListingSourceData {
     #[serde(default)]
     pub(crate) name: PatchValue<String>,
 
     #[serde(default)]
     pub(crate) ingestion_configuration: PatchValue<Vec<ListingIngestionConfigurationData>>,
-    #[serde(default)]
-    pub(crate) woocommerce_webhook_secret: PatchValue<String>,
     #[serde(default)]
     pub(crate) url: PatchValue<Url>,
     #[serde(default)]
@@ -116,7 +112,6 @@ impl UpdateListingSourceData {
                 "ingestionConfiguration",
                 configurations,
             )?,
-            woocommerce_webhook_secret: clearable(self.woocommerce_webhook_secret),
             url: clearable(self.url),
             image: clearable(self.image),
             referral_configuration: map_patch_result(
@@ -131,14 +126,13 @@ pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) name: RequiredPatch<listing_source_core::ListingSourceName>,
 
     pub(crate) ingestion_configuration: RequiredPatch<ListingSourceIngestionConfigurations>,
-    pub(crate) woocommerce_webhook_secret: PatchField<String>,
     pub(crate) url: PatchField<Url>,
     pub(crate) image: PatchField<Url>,
     pub(crate) referral_configuration: PatchField<ReferralConfiguration>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
+#[derive(Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
 pub(crate) enum ListingIngestionConfigurationData {
     #[serde(rename = "WEB_CRAWL")]
     WebCrawl {
@@ -155,6 +149,7 @@ pub(crate) enum ListingIngestionConfigurationData {
     },
     #[serde(rename = "WOOCOMMERCE")]
     Woocommerce {
+        webhook_secret: String,
         #[serde(default)]
         currency: Option<String>,
         #[serde(default)]
@@ -183,12 +178,18 @@ impl TryFrom<ListingIngestionConfigurationData> for ListingIngestionConfiguratio
                 currency: parse_currency(currency)?,
                 language: parse_language(language)?,
             }),
-            ListingIngestionConfigurationData::Woocommerce { currency, language } => {
-                Ok(Self::Woocommerce {
-                    currency: parse_currency(currency)?,
-                    language: parse_language(language)?,
-                })
-            }
+            ListingIngestionConfigurationData::Woocommerce {
+                webhook_secret,
+                currency,
+                language,
+            } => Ok(Self::Woocommerce {
+                webhook_secret: listing_source_core::WoocommerceWebhookSecret::try_from(
+                    webhook_secret,
+                )
+                .map_err(|_| invalid_body("webhookSecret"))?,
+                currency: parse_currency(currency)?,
+                language: parse_language(language)?,
+            }),
             ListingIngestionConfigurationData::PartnerApi => Ok(Self::PartnerApi),
         }
     }

@@ -95,6 +95,7 @@ use partnership_service::use_cases::{
         grant_partnership_listing_source::GrantPartnershipListingSourceHandler,
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
+        put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
         revoke_partnership_listing_source::RevokePartnershipListingSourceHandler,
         revoke_partnership_membership::RevokePartnershipMembershipHandler,
@@ -1523,6 +1524,13 @@ async fn test_state(
         Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
+    .with_ingestion_configuration(Arc::new(
+        PutListingSourceIngestionConfigurationHandler::new(
+            unit_of_work.clone(),
+            SqlxListingSourceRepositoryFactory::new(),
+            SqlxListingSourceAuthorization::new(pool.clone()),
+        ),
+    ))
     .with_delete(Arc::new(DeleteListingSourceHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceRepositoryFactory::new(),

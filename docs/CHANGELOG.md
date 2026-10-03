@@ -2,6 +2,13 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-03 — Partner-managed provider ingestion configuration (#1929)
+
+- Added idempotent provider-specific `PUT /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce` and `/shopify` endpoints. They atomically enable or fully replace only that provider configuration and return bodyless `201` for first enable or `204` for replacement/no-op, always with `Cache-Control: no-store`.
+- Both routes require Partnership write access to the ListingSource. Cognito users use their normal authenticated identity; delegated Aura access tokens also require `listing-sources:write`. Integrations that also submit ProductListings need both `listing-sources:write` and `product-listings:write`.
+- WooCommerce `webhookSecret` is required, nonblank, write-only, preserved exactly for HMAC verification and never returned. Currency/language are optional and omitted or `null` values clear them. Shopify `domain` remains validated and unique.
+- Admin ListingSource create and configuration replacement now carry `webhookSecret` inside the WooCommerce ingestion configuration object. The previous top-level `woocommerceWebhookSecret` field is removed. Historical enabled WooCommerce methods with no nonblank secret are disabled by migration and may be safely re-enabled through the new PUT.
+
 ## 2026-10-02 — Secret-free OAuth consent metadata read (#1926)
 
 - Added `GET /api/v1/oauth/clients/{clientId}` for signed-in users to read persisted OAuth registration metadata before consent. It requires a Cognito access JWT (`BearerAuth`) and does not require the ADMIN role, client ownership, an existing client token, or a source partnership; Aura opaque tokens and Cognito ID tokens are rejected.

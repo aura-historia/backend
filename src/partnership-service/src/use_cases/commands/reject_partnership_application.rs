@@ -714,7 +714,6 @@ mod tests {
             &mut self,
             _source: &listing_source_core::ListingSource,
             _configuration: &listing_source_service::ports::ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {
                 source: static_error("unexpected source write"),
@@ -725,7 +724,6 @@ mod tests {
             &mut self,
             _source: &listing_source_core::ListingSource,
             _configuration: &listing_source_service::ports::ListingSourceIngestionConfigurations,
-            _woocommerce_webhook_secret: application::patch_field::PatchField<&str>,
             _expected: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {
