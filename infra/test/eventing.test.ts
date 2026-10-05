@@ -30,9 +30,20 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     const { compute } = templates(stage);
     const json = compute.toJSON();
     if (stage === "ephemeral") {
-      expect(Object.keys(json.Parameters)).toEqual(["CommitSHA"]);
+      expect(Object.keys(json.Parameters)).toEqual([
+        "CommitSHA",
+        "SearchFilterClassifierModel",
+        "SearchFilterMatchShouldShowThresholdBps",
+      ]);
     } else {
-      expect(Object.keys(json.Parameters)).toEqual(expect.arrayContaining(["CommitSHA", "CdcRouterEnabled", "PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]));
+      expect(Object.keys(json.Parameters)).toEqual(expect.arrayContaining([
+        "CommitSHA",
+        "SearchFilterClassifierModel",
+        "SearchFilterMatchShouldShowThresholdBps",
+        "CdcRouterEnabled",
+        "PeriodicMatcherImageDigest",
+        "PeriodicMatcherEnabled",
+      ]));
     }
     expect(json.Conditions ?? {}).toEqual(stage === "ephemeral" ? {} : {
       CdcRouterActivation: { "Fn::Equals": [{ Ref: "CdcRouterEnabled" }, "true"] },

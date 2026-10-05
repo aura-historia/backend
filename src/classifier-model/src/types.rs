@@ -122,6 +122,35 @@ pub struct ClassificationUsage {
 pub struct ClassificationResponse {
     pub answers: BTreeMap<QuestionId, Probability>,
     pub usage: ClassificationUsage,
+    pub diagnostics: ClassificationDiagnostics,
+}
+
+/// Bounded, provider-neutral attempt metadata safe for structured operational logging.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClassificationDiagnostics {
+    pub provider: String,
+    pub model: String,
+    pub duration_millis: u64,
+    pub requested_image_count: usize,
+    pub sent_image_count: usize,
+    pub image_omission_reason: Option<ImageOmissionReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageOmissionReason {
+    FetchFailed,
+    UnsupportedFormat,
+    InvalidOrOversized,
+}
+
+impl ImageOmissionReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FetchFailed => "fetch_failed",
+            Self::UnsupportedFormat => "unsupported_format",
+            Self::InvalidOrOversized => "invalid_or_oversized",
+        }
+    }
 }
 
 /// A provider-neutral classification capability. The default batch method preserves input order,
@@ -129,6 +158,16 @@ pub struct ClassificationResponse {
 /// It does not spawn detached tasks: dropping the batch future drops its in-flight request futures.
 #[async_trait::async_trait]
 pub trait ClassifierModel: Send + Sync {
+    /// Stable, non-secret classifier identity for operational diagnostics.
+    fn provider_name(&self) -> &'static str {
+        "unknown"
+    }
+
+    /// Stable configured model identifier for operational diagnostics.
+    fn model_name(&self) -> &'static str {
+        "unknown"
+    }
+
     async fn classify(
         &self,
         request: ClassificationRequest,
@@ -209,6 +248,7 @@ mod tests {
                     input_tokens: Some(index),
                     output_tokens: None,
                 },
+                diagnostics: ClassificationDiagnostics::default(),
             })
         }
     }
@@ -253,6 +293,7 @@ mod tests {
             Ok(ClassificationResponse {
                 answers: BTreeMap::new(),
                 usage: ClassificationUsage::default(),
+                diagnostics: ClassificationDiagnostics::default(),
             })
         }
     }
@@ -285,6 +326,7 @@ mod tests {
                 Ok(ClassificationResponse {
                     answers: BTreeMap::new(),
                     usage: ClassificationUsage::default(),
+                    diagnostics: ClassificationDiagnostics::default(),
                 })
             }
         }

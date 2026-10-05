@@ -18,6 +18,8 @@ import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly commitSha: string;
+  readonly searchFilterClassifierModel: string;
+  readonly searchFilterMatchShouldShowThresholdBps: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
@@ -218,9 +220,9 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({
       STAGE: context.config.stage,
       OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      CLASSIFIER_MODEL_PROVIDER: "cloudflare",
-      CLASSIFIER_MODEL: "clef-flash",
-      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: "5000",
+      CLASSIFIER_MODEL_PROVIDER: context.config.searchFilterClassifier.provider,
+      CLASSIFIER_MODEL: context.searchFilterClassifierModel,
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: context.searchFilterMatchShouldShowThresholdBps,
       CLOUDFLARE_ACCOUNT_ID: context.config.isEphemeral
         ? "aura-historia-ephemeral-test"
         : ssmValue(`/cloudflare/${context.config.stage}/account-id`),
@@ -309,6 +311,9 @@ export class Lambdas extends Construct {
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       commitSha: props.parameters.commitSha,
+      searchFilterClassifierModel: props.parameters.searchFilterClassifierModel,
+      searchFilterMatchShouldShowThresholdBps:
+        props.parameters.searchFilterMatchShouldShowThresholdBps,
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,

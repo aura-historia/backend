@@ -21,7 +21,7 @@ bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, RDS shape, SSM dynamic refs
 src/worker-queue-config.ts # typed worker queue scopes, timing, retention, alarms
-src/parameters.ts          # deployment artifact version input
+src/parameters.ts          # artifact version and shared runtime configuration inputs
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
 src/constructs/            # focused infrastructure modules
   api.ts                   # HTTP API Gateway routes, domain, CloudFront, WAF, CORS, JWT authorizer
@@ -635,6 +635,14 @@ the ten worker mappings, partner integrations and FX/cleanup schedules together;
 there is no separate release flag for them and **no built-in readiness marker**
 proving migrations, FX, OpenSearch or handoff are complete. Neither stack existence
 nor a successful foundation summary proves application readiness.
+
+The per-stage compute stack also exposes `SearchFilterClassifierModel` and
+`SearchFilterMatchShouldShowThresholdBps`. Their defaults come from the stage
+configuration (`clef-flash` and `5000`, respectively); the model accepts `clef`
+as an alternative and the threshold is an inclusive basis-point value from 0 to
+10000. Both the percolator Lambda and periodic matcher use these same stack
+parameters, so a stage can tune model selection and acceptance without editing
+either runtime construct.
 
 ### First-time stage
 

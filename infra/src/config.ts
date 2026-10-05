@@ -76,6 +76,18 @@ export interface DmsConfig {
   readonly kinesisRetentionDays: 7;
 }
 
+export interface SearchFilterClassifierConfig {
+  readonly provider: "cloudflare";
+  readonly model: "clef-flash" | "clef";
+  readonly shouldShowThresholdBps: number;
+}
+
+const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierConfig> = {
+  prod: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
+  dev: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
+  ephemeral: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
+};
+
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
@@ -83,6 +95,7 @@ export interface StageConfig {
   readonly network: NetworkConfig | undefined;
   readonly rds: RdsConfig | undefined;
   readonly dms: DmsConfig | undefined;
+  readonly searchFilterClassifier: SearchFilterClassifierConfig;
   readonly removalPolicy: cdk.RemovalPolicy;
   readonly workerQueues: WorkerQueueSettings;
   readonly apiEndpointUrl: string | undefined;
@@ -160,6 +173,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
           lobMaxSizeKiB: 512,
           kinesisRetentionDays: 7,
         },
+    searchFilterClassifier: SEARCH_FILTER_CLASSIFIER_CONFIG[stage],
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,
     apiEndpointUrl: apiDomainName ? `https://${apiDomainName}` : undefined,

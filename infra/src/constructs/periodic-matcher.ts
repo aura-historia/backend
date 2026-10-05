@@ -20,6 +20,8 @@ export interface PeriodicMatcherProps {
   readonly imageDigest: string;
   readonly enabled: cdk.CfnCondition;
   readonly commitSha: string;
+  readonly classifierModel: string;
+  readonly shouldShowThresholdBps: string;
 }
 
 export class PeriodicMatcher extends ScheduledEcsJob {
@@ -40,8 +42,9 @@ export class PeriodicMatcher extends ScheduledEcsJob {
         STAGE: config.stage, LOG_LEVEL: "info", POSTGRES_HOST: postgres.host, POSTGRES_PORT: postgres.port,
         POSTGRES_DATABASE: postgres.database, POSTGRES_MAX_CONNECTIONS: "1", POSTGRES_TLS_ROOT_CERT: postgres.tlsRootCert,
         OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
-        CLASSIFIER_MODEL_PROVIDER: "cloudflare", CLASSIFIER_MODEL: "clef-flash",
-        SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: "5000",
+        CLASSIFIER_MODEL_PROVIDER: config.searchFilterClassifier.provider,
+        CLASSIFIER_MODEL: props.classifierModel,
+        SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: props.shouldShowThresholdBps,
         CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${config.stage}/account-id`),
         PERIODIC_MATCH_FILTER_PAGE_SIZE: "100", PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100",
         PERIODIC_MATCH_EVALUATION_LIMIT: "50", PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY: "8",

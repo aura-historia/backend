@@ -264,7 +264,11 @@ export class ApplicationComputeStack extends cdk.Stack {
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
     });
-    const parameters = applicationParameters(this, !config.isEphemeral);
+    const parameters = applicationParameters(
+      this,
+      !config.isEphemeral,
+      config.searchFilterClassifier,
+    );
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -341,6 +345,8 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
         config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
         imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
+        classifierModel: parameters.searchFilterClassifierModel,
+        shouldShowThresholdBps: parameters.searchFilterMatchShouldShowThresholdBps,
       });
       new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
         value: this.periodicMatcher.taskDefinitionArn,
@@ -406,7 +412,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       throw new Error("ApplicationEphemeralStack only supports the ephemeral stage.");
     }
 
-    const parameters = applicationParameters(this);
+    const parameters = applicationParameters(this, false, config.searchFilterClassifier);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia ephemeral acceptance-test stack";

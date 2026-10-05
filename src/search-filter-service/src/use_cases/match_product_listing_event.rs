@@ -1016,11 +1016,18 @@ mod tests {
 
     fn evaluator_response(should_show: f64) -> Result<ClassificationResponse, ClassificationError> {
         Ok(ClassificationResponse {
-            answers: std::collections::BTreeMap::from([(
-                QuestionId::new("should_show").unwrap_or_else(|_| unreachable!()),
-                Probability::new(should_show)?,
-            )]),
+            answers: std::collections::BTreeMap::from([
+                (
+                    QuestionId::new("hard_conflict").unwrap_or_else(|_| unreachable!()),
+                    Probability::new(0.0)?,
+                ),
+                (
+                    QuestionId::new("should_show").unwrap_or_else(|_| unreachable!()),
+                    Probability::new(should_show)?,
+                ),
+            ]),
             usage: ClassificationUsage::default(),
+            diagnostics: classifier_model::ClassificationDiagnostics::default(),
         })
     }
 

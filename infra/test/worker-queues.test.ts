@@ -720,6 +720,23 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    const classifierConfig = stageConfig(stage).searchFilterClassifier;
+    expect(compute.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
+      Default: classifierConfig.model,
+      AllowedValues: ["clef-flash", "clef"],
+    });
+    expect(compute.toJSON().Parameters.SearchFilterMatchShouldShowThresholdBps).toMatchObject({
+      Default: classifierConfig.shouldShowThresholdBps,
+      MinValue: 0,
+      MaxValue: 10_000,
+    });
+    expect(functions[0].Properties.Environment.Variables).toMatchObject({
+      CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
+      CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: {
+        Ref: "SearchFilterMatchShouldShowThresholdBps",
+      },
+    });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       stage === "ephemeral"
         ? ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"]

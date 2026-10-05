@@ -23,3 +23,32 @@ pub enum ClassificationError {
     #[error("candidate cannot be classified permanently")]
     PermanentCandidateFailure,
 }
+
+impl ClassificationError {
+    pub const fn category(&self) -> &'static str {
+        match self {
+            Self::InvalidRequest => "invalid_request",
+            Self::InvalidConfiguration => "invalid_configuration",
+            Self::Authentication => "authentication",
+            Self::Timeout => "timeout",
+            Self::RateLimited { .. } => "rate_limited",
+            Self::Transient => "transient_provider_failure",
+            Self::InvalidResponse => "invalid_provider_response",
+            Self::UnsupportedCapability => "unsupported_capability",
+            Self::PermanentCandidateFailure => "permanent_candidate_failure",
+        }
+    }
+
+    pub const fn retry_category(&self) -> &'static str {
+        match self {
+            Self::Timeout | Self::RateLimited { .. } | Self::Transient | Self::InvalidResponse => {
+                "retryable"
+            }
+            Self::InvalidRequest
+            | Self::InvalidConfiguration
+            | Self::Authentication
+            | Self::UnsupportedCapability
+            | Self::PermanentCandidateFailure => "operator_or_candidate_action",
+        }
+    }
+}
