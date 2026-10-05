@@ -1754,7 +1754,7 @@ PostgreSQL owns business truth for:
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
 
-User email-marketing permission is part of the authoritative User row and applies only to that User's current account email. `marketing_email_consent_revision` is repository/service concurrency metadata, separate from the root User version and the core model. A changed email clears consent and advances that fence; other User mutations preserve consent. Accepted consent decisions advance both fences, including a newly accepted decision when the boolean is already true. Provider propagation belongs to the explicit consent transition flow in dependent work; `users` is not a CDC signal for outbound marketing changes.
+PostgreSQL owns the current email-marketing permission for registered Users. A grant applies only to the User's canonical account email, and provider propagation belongs to an explicit consent transition flow; changes to the `users` table are not an outbound marketing signal.
 
 Credential tables are operational PostgreSQL storage, not CDC sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 

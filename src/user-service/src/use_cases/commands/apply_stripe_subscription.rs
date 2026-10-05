@@ -1,6 +1,6 @@
 use crate::ports::{
     UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory,
-    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory, VersionedUser,
+    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
 use application::error::BoxError;
 use application::operation_context::{OperationAuthorizationError, OperationContext};
@@ -152,10 +152,9 @@ where
             .await?
             .ok_or(ApplyStripeSubscriptionError::UserNotFound)?;
 
-        let VersionedUser {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
-            ..
         } = self
             .users
             .in_transaction(&mut tx)
@@ -258,6 +257,7 @@ mod tests {
     use crate::ports::{UserRepository, UserStorageVersion, VersionedUser};
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
@@ -315,11 +315,7 @@ mod tests {
             Ok(user) => user,
             Err(error) => panic!("test user must be valid: {error}"),
         };
-        VersionedUser::new(
-            user,
-            UserStorageVersion::INITIAL,
-            crate::ports::UserMarketingEmailConsentRevision::INITIAL,
-        )
+        Versioned::new(user, UserStorageVersion::INITIAL)
     }
 
     #[async_trait::async_trait]
@@ -389,30 +385,9 @@ mod tests {
         ) -> Result<VersionedUser, UserRepositoryError> {
             let mut state = lock(&self.0.0);
             state.update_calls += 1;
-            let persisted = VersionedUser::new(
-                user.clone(),
-                UserStorageVersion::INITIAL,
-                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
-            );
+            let persisted = Versioned::new(user.clone(), UserStorageVersion::INITIAL);
             state.user = Some(persisted.clone());
             Ok(persisted)
-        }
-
-        async fn record_marketing_email_consent_decision(
-            &mut self,
-            user: &User,
-            expected_version: UserStorageVersion,
-            expected_consent_revision: crate::ports::UserMarketingEmailConsentRevision,
-        ) -> Result<VersionedUser, UserRepositoryError> {
-            let updated = VersionedUser::new(
-                user.clone(),
-                expected_version.next(),
-                expected_consent_revision
-                    .checked_next()
-                    .expect("test revision should not overflow"),
-            );
-            lock(&self.0.0).user = Some(updated.clone());
-            Ok(updated)
         }
 
         async fn delete_by_id(&mut self, _user_id: UserId) -> Result<bool, UserRepositoryError> {

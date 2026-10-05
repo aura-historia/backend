@@ -4,7 +4,7 @@ Only document REST API contract changes here. No internal changes.
 
 ## 2026-10-05 — Read-only current email marketing consent (#1935)
 
-- Added required boolean `marketingEmailConsent` to authenticated own-account reads and the existing admin user detail response. It reports whether the current account email has an active email-marketing grant; the field is read-only and generic account PATCH operations cannot change it.
+- Added `marketingEmailConsent` to authenticated own-account and admin user detail reads. The field reports the current email-marketing grant and cannot be changed through account PATCH.
 
 ## 2026-10-03 — Partner-managed provider ingestion configuration (#1929)
 

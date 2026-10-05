@@ -1882,11 +1882,9 @@ impl From<UpdateUserProfileError> for ApiError {
             UpdateUserProfileError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            UpdateUserProfileError::ConcurrencyConflict
-            | UpdateUserProfileError::EmailConflict { .. } => ApiError::conflict(CONFLICT)
+            UpdateUserProfileError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
-            UpdateUserProfileError::EmailRequired
-            | UpdateUserProfileError::InvalidUserState { .. } => {
+            UpdateUserProfileError::InvalidUserState { .. } => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
             }
             UpdateUserProfileError::TemporarilyUnavailable { .. }

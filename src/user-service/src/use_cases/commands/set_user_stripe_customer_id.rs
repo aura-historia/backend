@@ -1,6 +1,4 @@
-use crate::ports::{
-    UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory, VersionedUser,
-};
+use crate::ports::{UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory};
 use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -117,10 +115,9 @@ where
             .await
             .map_err(|_| SetUserStripeCustomerIdError::BeginTransactionFailed)?;
         let mut users = self.users.in_transaction(&mut tx);
-        let VersionedUser {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
-            ..
         } = users
             .find_by_id(command.user_id)
             .await?

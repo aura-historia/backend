@@ -16,8 +16,7 @@ use user_core::user::{
 };
 use user_postgres::SqlxUserRepositoryFactory;
 use user_service::ports::{
-    UserInsertOutcome, UserMarketingEmailConsentRevision, UserRepository, UserRepositoryError,
-    UserRepositoryFactory,
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -62,11 +61,6 @@ async fn should_insert_find_update_user_in_postgres() {
     assert_eq!(user.id(), loaded_by_email.value.id());
     assert_eq!(user.id(), loaded_by_stripe.value.id());
     assert!(!loaded_by_id.value.has_marketing_email_consent());
-    assert_eq!(
-        UserMarketingEmailConsentRevision::INITIAL,
-        loaded_by_id.marketing_email_consent_revision
-    );
-
     let account_email = user.email().clone();
     user.grant_marketing_email_consent(&account_email)
         .expect("matching user email should be accepted");
@@ -79,9 +73,7 @@ async fn should_insert_find_update_user_in_postgres() {
         Err(error) => panic!("failed to grant test consent: {error:?}"),
     };
     assert!(consented.value.has_marketing_email_consent());
-    assert_eq!(1, consented.marketing_email_consent_revision.into_inner());
 
-    user.change_email(email("postgres-main-updated@example.com"));
     user.change_role(UserRole::User);
     user.change_tier(UserTier::Ultimate);
     user.change_stripe_customer_id(None);
@@ -107,8 +99,7 @@ async fn should_insert_find_update_user_in_postgres() {
     assert_eq!(UserRole::User, updated.value.account().role);
     assert_eq!(UserTier::Ultimate, updated.value.account().tier);
     assert_eq!(None, updated.value.account().stripe_customer_id);
-    assert!(!updated.value.has_marketing_email_consent());
-    assert_eq!(2, updated.marketing_email_consent_revision.into_inner());
+    assert!(updated.value.has_marketing_email_consent());
     assert!(updated.version.into_inner() > consented.version.into_inner());
 }
 
@@ -161,7 +152,7 @@ async fn should_durably_update_and_rehydrate_user_suspension() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_default_newly_migrated_user_rows_to_no_consent_and_revision_zero() {
+async fn should_default_newly_migrated_user_rows_to_no_consent() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let users = SqlxUserRepositoryFactory::new();
@@ -189,14 +180,10 @@ async fn should_default_newly_migrated_user_rows_to_no_consent_and_revision_zero
     commit(tx).await;
 
     assert!(!migrated.value.has_marketing_email_consent());
-    assert_eq!(
-        UserMarketingEmailConsentRevision::INITIAL,
-        migrated.marketing_email_consent_revision
-    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn ordinary_user_updates_preserve_consent_without_advancing_its_revision() {
+async fn ordinary_user_updates_preserve_consent() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let users = SqlxUserRepositoryFactory::new();
@@ -241,53 +228,6 @@ async fn ordinary_user_updates_preserve_consent_without_advancing_its_revision()
     commit(tx).await;
 
     assert!(updated.value.has_marketing_email_consent());
-    assert_eq!(1, updated.marketing_email_consent_revision.into_inner());
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn accepted_consent_decisions_advance_both_user_and_consent_versions() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let users = SqlxUserRepositoryFactory::new();
-    let mut user = sample_user("postgres-repeat-consent", UserRole::User, None);
-    let mut tx = begin(&unit_of_work).await;
-    let inserted = users
-        .in_transaction(&mut tx)
-        .insert(&user)
-        .await
-        .unwrap_or_else(|error| panic!("failed to insert user: {error:?}"));
-
-    let account_email = user.email().clone();
-    user.grant_marketing_email_consent(&account_email)
-        .expect("matching user email should be accepted");
-    let first = users
-        .in_transaction(&mut tx)
-        .record_marketing_email_consent_decision(
-            &user,
-            inserted.version,
-            inserted.marketing_email_consent_revision,
-        )
-        .await
-        .unwrap_or_else(|error| panic!("failed to record consent: {error:?}"));
-    let account_email = user.email().clone();
-    assert!(matches!(
-        user.grant_marketing_email_consent(&account_email),
-        Ok(domain_primitives::change_outcome::ChangeOutcome::Unchanged)
-    ));
-    let second = users
-        .in_transaction(&mut tx)
-        .record_marketing_email_consent_decision(
-            &user,
-            first.version,
-            first.marketing_email_consent_revision,
-        )
-        .await
-        .unwrap_or_else(|error| panic!("failed to record fresh consent decision: {error:?}"));
-    commit(tx).await;
-
-    assert!(second.value.has_marketing_email_consent());
-    assert_eq!(3, second.version.into_inner());
-    assert_eq!(2, second.marketing_email_consent_revision.into_inner());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -416,9 +356,6 @@ async fn should_return_existing_user_when_insert_if_absent_replays_user_id() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let users = SqlxUserRepositoryFactory::new();
     let user = sample_user("postgres-idempotent", UserRole::User, None);
-    let mut changed_email = user.clone();
-    changed_email.change_email(email("postgres-idempotent-changed@example.com"));
-
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert_if_absent(&user).await {
         Ok(UserInsertOutcome::Created(_)) => {}
@@ -429,18 +366,10 @@ async fn should_return_existing_user_when_insert_if_absent_replays_user_id() {
 
     let mut tx = begin(&unit_of_work).await;
     let same_user = users.in_transaction(&mut tx).insert_if_absent(&user).await;
-    let changed_user = users
-        .in_transaction(&mut tx)
-        .insert_if_absent(&changed_email)
-        .await;
     commit(tx).await;
 
     assert!(matches!(
         same_user,
-        Ok(UserInsertOutcome::Existing(existing)) if existing.value.email() == user.email()
-    ));
-    assert!(matches!(
-        changed_user,
         Ok(UserInsertOutcome::Existing(existing)) if existing.value.email() == user.email()
     ));
 }

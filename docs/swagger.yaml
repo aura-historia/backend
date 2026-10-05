@@ -15863,13 +15863,10 @@ components:
 
         Only one logical change category may be sent per request: profile/preferences fields, `role`, or `tier`.
         `marketingEmailConsent` is read-only and cannot be changed through this payload.
+        The canonical account email is read-only.
 
         "
       properties:
-        email:
-          type: string
-          format: email
-          description: New email address. Null is invalid.
         firstName:
           type: string
           maxLength: 64
@@ -15917,6 +15914,7 @@ components:
 
         All fields are optional - only provided fields will be updated.
         `marketingEmailConsent` is read-only and cannot be changed through this payload.
+        The canonical account email is read-only.
 
         "
       properties:

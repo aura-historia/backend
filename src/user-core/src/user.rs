@@ -113,16 +113,6 @@ impl User {
         })
     }
 
-    pub fn change_email(&mut self, email: Email) -> ChangeOutcome {
-        if self.email == email {
-            return ChangeOutcome::Unchanged;
-        }
-
-        self.email = email;
-        self.marketing_email_consent = false;
-        ChangeOutcome::Changed
-    }
-
     pub fn grant_marketing_email_consent(
         &mut self,
         confirmed_email: &Email,
@@ -332,56 +322,6 @@ mod tests {
         let outcome = user.change_tier(UserTier::Free);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
-    }
-
-    #[test]
-    fn should_change_email_when_email_differs() {
-        let mut user =
-            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
-
-        let outcome = user.change_email(email("grace@example.com"));
-
-        assert_eq!(ChangeOutcome::Changed, outcome);
-        assert_eq!(email("grace@example.com"), *user.email());
-    }
-
-    #[test]
-    fn should_report_unchanged_when_email_same() {
-        let mut user =
-            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
-        let email = user.email().clone();
-
-        let outcome = user.change_email(email);
-
-        assert_eq!(ChangeOutcome::Unchanged, outcome);
-    }
-
-    #[test]
-    fn should_clear_marketing_email_consent_when_account_email_changes() {
-        let mut user = User::create(new_user()).expect("user should be created");
-        let account_email = user.email().clone();
-        user.grant_marketing_email_consent(&account_email)
-            .expect("matching account email should be accepted");
-
-        let outcome = user.change_email(email("grace@example.com"));
-
-        assert_eq!(ChangeOutcome::Changed, outcome);
-        assert_eq!(email("grace@example.com"), *user.email());
-        assert!(!user.has_marketing_email_consent());
-    }
-
-    #[test]
-    fn should_keep_marketing_email_consent_when_account_email_is_unchanged() {
-        let mut user = User::create(new_user()).expect("user should be created");
-        let account_email = user.email().clone();
-        user.grant_marketing_email_consent(&account_email)
-            .expect("matching account email should be accepted");
-        let email = user.email().clone();
-
-        let outcome = user.change_email(email);
-
-        assert_eq!(ChangeOutcome::Unchanged, outcome);
-        assert!(user.has_marketing_email_consent());
     }
 
     #[test]

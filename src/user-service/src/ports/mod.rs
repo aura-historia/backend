@@ -50,8 +50,8 @@ pub use user_admin_reader::{
 };
 pub use user_authentication_reader::{UserAuthenticationReadError, UserAuthenticationReader};
 pub use user_repository::{
-    InvalidUserMarketingEmailConsentRevision, UserInsertOutcome, UserMarketingEmailConsentRevision,
-    UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion, VersionedUser,
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion, VersionedUser,
 };
 pub use user_search_reader::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
 pub use user_session_revoker::{UserSessionRevocationError, UserSessionRevoker};

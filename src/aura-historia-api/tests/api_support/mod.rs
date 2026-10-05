@@ -659,6 +659,47 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
     seed_user_with_tier_and_consent(role, tier, false).await
 }
 
+pub async fn seed_user_with_search_fields(
+    role: &'static str,
+    tier: UserTier,
+    email: &str,
+    first_name: &str,
+    last_name: &str,
+    created: OffsetDateTime,
+    updated: OffsetDateTime,
+) -> UserId {
+    let user_id = UserId::new();
+    let tier = match tier {
+        UserTier::Free => "FREE",
+        UserTier::Pro => "PRO",
+        UserTier::Ultimate => "ULTIMATE",
+    };
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO users (
+            user_id, email, first_name, last_name, tier, role, created, updated
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(user_id.as_uuid())
+    .bind(email)
+    .bind(first_name)
+    .bind(last_name)
+    .bind(tier)
+    .bind(role)
+    .bind(created)
+    .bind(updated)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed user search fixture: {error}");
+    }
+    let subject = format!("provider|opaque:{}", uuid::Uuid::new_v4());
+    seed_user_cognito_identity(user_id, TEST_COGNITO_ISSUER, &subject).await;
+    user_id
+}
+
 async fn seed_user_with_tier_and_consent(
     role: &'static str,
     tier: UserTier,
@@ -738,31 +779,6 @@ pub async fn seed_user_cognito_identity(
         }
     }
     identity
-}
-
-pub async fn set_user_search_fields(
-    user_id: UserId,
-    email: &str,
-    first_name: &str,
-    last_name: &str,
-    created: OffsetDateTime,
-    updated: OffsetDateTime,
-) {
-    let pool = get_postgres_client().await;
-    if let Err(error) = sqlx::query(
-        "UPDATE users SET email = $2, first_name = $3, last_name = $4, created = $5, updated = $6 WHERE user_id = $1",
-    )
-    .bind(user_id.as_uuid())
-    .bind(email)
-    .bind(first_name)
-    .bind(last_name)
-    .bind(created)
-    .bind(updated)
-    .execute(&pool)
-    .await
-    {
-        panic!("failed to set user search fields: {error}");
-    }
 }
 
 pub async fn set_user_stripe_customer_id(user_id: UserId, stripe_customer_id: &str) {

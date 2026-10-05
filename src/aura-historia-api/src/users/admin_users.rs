@@ -297,8 +297,7 @@ async fn admin_patch_user(
     user_id: user_core::user_id::UserId,
     data: PatchAdminUserData,
 ) -> Response {
-    let profile_changed = data.email.is_present()
-        || data.first_name.is_present()
+    let profile_changed = data.first_name.is_present()
         || data.last_name.is_present()
         || data.language.is_present()
         || data.currency.is_present()
@@ -314,7 +313,6 @@ async fn admin_patch_user(
     }
 
     let PatchAdminUserData {
-        email,
         first_name,
         last_name,
         language,
@@ -357,7 +355,6 @@ async fn admin_patch_user(
 
     let command = match profile_command(
         PatchOwnUserData {
-            email,
             first_name,
             last_name,
             language,
@@ -382,7 +379,6 @@ fn profile_command(
 ) -> Result<UpdateUserProfileCommand, ApiError> {
     Ok(UpdateUserProfileCommand {
         user_id,
-        email: non_nullable_patch(data.email, "email")?,
         first_name: clearable(data.first_name),
         last_name: clearable(data.last_name),
         language: clearable(data.language),

@@ -160,8 +160,6 @@ pub(crate) struct CursorData<T, C> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchOwnUserData {
     #[serde(default)]
-    pub(crate) email: PatchValue<serde_email::Email>,
-    #[serde(default)]
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]
     pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
@@ -187,8 +185,6 @@ pub(crate) struct PatchOwnUserData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchAdminUserData {
-    #[serde(default)]
-    pub(crate) email: PatchValue<serde_email::Email>,
     #[serde(default)]
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]

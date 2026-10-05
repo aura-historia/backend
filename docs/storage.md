@@ -2,11 +2,11 @@
 
 ## Users and email-marketing consent
 
-PostgreSQL is authoritative for registered User state. `users.marketing_email_consent` is a current, email-bound grant for the single email-marketing purpose; it is not a delivery guarantee or permission for another channel. New users and rows present when the forward migration runs start with consent `false` and revision `0`. The revision is nonnegative technical stale-work metadata, separate from `users.version` and not exposed in REST. There is no consent-history table or client-supplied consent version.
+PostgreSQL is authoritative for registered User state. `users.email` is the immutable canonical account email. `users.marketing_email_consent` is a current grant for the single email-marketing purpose and that account email; it is not a delivery guarantee or permission for another channel. New users and rows present when the forward migration runs start with consent `false`. There is no consent-history table or client-supplied consent version.
 
-Changing a User's account email clears consent and advances the consent revision, even if consent was already false; writing the same email is a no-op. A consent decision advances both the User storage version and consent revision, including fresh accepted proof when the boolean is already true. Ordinary profile, preferences, tier, billing, notification and content-preference writes preserve consent and do not advance its revision. Root optimistic concurrency prevents stale aggregate writes from restoring older consent. Email-based anonymous newsletter subscriptions remain separate and do not create Aura Users.
+Grant and revoke operations update the User aggregate, and a grant is accepted only when the confirmed address matches the canonical account email. Profile, preferences, tier, billing and other User changes preserve consent. Aggregate optimistic concurrency prevents a stale User write from restoring an older consent state. Email-based anonymous newsletter subscriptions remain separate and do not create Aura Users.
 
-Provider propagation is owned by the explicit consent transition work, not by CDC of `users`. A change to the User row alone does not claim that a provider subscription or delivery state has been updated.
+Provider propagation is owned by explicit consent transition work, not by CDC of `users`. A User row change alone does not claim that a provider subscription or delivery state has been updated.
 
 ## Notifications
 

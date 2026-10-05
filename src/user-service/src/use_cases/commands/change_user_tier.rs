@@ -1,7 +1,7 @@
 use crate::ports::{
     UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
     UserRepositoryError, UserRepositoryFactory, UserTierEntitlements, UserTierEntitlementsError,
-    UserTierEntitlementsFactory, VersionedUser,
+    UserTierEntitlementsFactory,
 };
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
@@ -146,10 +146,9 @@ where
             .await?
             .ok_or(ChangeUserTierError::UserNotFound)?;
 
-        let VersionedUser {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
-            ..
         } = self
             .users
             .in_transaction(&mut tx)
@@ -270,6 +269,7 @@ mod tests {
     use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::fmt::Debug;
@@ -391,11 +391,10 @@ mod tests {
     }
 
     fn versioned(user: User) -> VersionedUser {
-        VersionedUser::new(
-            user,
-            UserStorageVersion::INITIAL,
-            crate::ports::UserMarketingEmailConsentRevision::INITIAL,
-        )
+        Versioned {
+            value: user,
+            version: UserStorageVersion::INITIAL,
+        }
     }
 
     fn user_details(user_id: UserId, role: UserRole) -> UserDetailsView {
@@ -564,23 +563,6 @@ mod tests {
                 state.user = Some(user.clone());
                 Ok(user)
             }
-        }
-
-        async fn record_marketing_email_consent_decision(
-            &mut self,
-            user: &User,
-            expected_version: UserStorageVersion,
-            expected_consent_revision: crate::ports::UserMarketingEmailConsentRevision,
-        ) -> Result<VersionedUser, UserRepositoryError> {
-            let updated = VersionedUser::new(
-                user.clone(),
-                expected_version.next(),
-                expected_consent_revision
-                    .checked_next()
-                    .expect("test revision should not overflow"),
-            );
-            lock(&self.state).user = Some(updated.clone());
-            Ok(updated)
         }
 
         async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {

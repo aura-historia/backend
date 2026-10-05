@@ -10,8 +10,8 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user::User;
 use user_core::user_id::UserId;
 use user_service::ports::{
-    UserInsertOutcome, UserMarketingEmailConsentRevision, UserRepository, UserRepositoryError,
-    UserRepositoryFactory, UserStorageVersion, VersionedUser,
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion, VersionedUser,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -110,10 +110,10 @@ impl UserRepository for SqlxUserRepository<'_> {
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
                 show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id,
-                marketing_email_consent, marketing_email_consent_revision
+                marketing_email_consent
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12, $13, 0
+                $8, $9, $10, $11, $12, $13
             )
             RETURNING {}
             "#,
@@ -156,10 +156,10 @@ impl UserRepository for SqlxUserRepository<'_> {
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
                 show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id,
-                marketing_email_consent, marketing_email_consent_revision
+                marketing_email_consent
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12, $13, 0
+                $8, $9, $10, $11, $12, $13
             )
             ON CONFLICT (user_id) DO NOTHING
             RETURNING {}
@@ -215,23 +215,20 @@ impl UserRepository for SqlxUserRepository<'_> {
         let sql = format!(
             r#"
             UPDATE users SET
-                email = $2,
-                first_name = $3,
-                last_name = $4,
-                language = $5,
-                currency = $6,
-                measurement_unit = $7,
-                show_unassessed_or_sensitive_content = $8,
-                suspended = $9,
-                tier = $10,
-                role = $11,
-                stripe_customer_id = $12,
-                marketing_email_consent = $13,
-                marketing_email_consent_revision = marketing_email_consent_revision +
-                    CASE WHEN email <> $2 OR marketing_email_consent <> $13 THEN 1 ELSE 0 END,
+                first_name = $2,
+                last_name = $3,
+                language = $4,
+                currency = $5,
+                measurement_unit = $6,
+                show_unassessed_or_sensitive_content = $7,
+                suspended = $8,
+                tier = $9,
+                role = $10,
+                stripe_customer_id = $11,
+                marketing_email_consent = $12,
                 version = version + 1,
                 updated = now()
-            WHERE user_id = $1 AND version = $14
+            WHERE user_id = $1 AND version = $13
             RETURNING {}
             "#,
             user_columns(),
@@ -239,7 +236,6 @@ impl UserRepository for SqlxUserRepository<'_> {
 
         let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(user.id().into_uuid())
-            .bind::<&str>(user.email().as_ref())
             .bind(profile.first_name.as_ref().map(AsRef::as_ref))
             .bind(profile.last_name.as_ref().map(AsRef::as_ref))
             .bind(bind_language(preferences.language))
@@ -252,44 +248,6 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
             .bind(user.has_marketing_email_consent())
             .bind(version_to_i64(expected_version))
-            .fetch_optional(&mut *self.connection)
-            .await
-            .map_err(map_write_error)?
-            .ok_or(UserRepositoryError::ConcurrencyConflict)?;
-
-        VersionedUser::try_from(row).map_err(|source| UserRepositoryError::InvalidPersistedState {
-            source: box_error(source),
-        })
-    }
-
-    async fn record_marketing_email_consent_decision(
-        &mut self,
-        user: &User,
-        expected_version: UserStorageVersion,
-        expected_consent_revision: UserMarketingEmailConsentRevision,
-    ) -> Result<VersionedUser, UserRepositoryError> {
-        let sql = format!(
-            r#"
-            UPDATE users SET
-                marketing_email_consent = $2,
-                marketing_email_consent_revision = marketing_email_consent_revision + 1,
-                version = version + 1,
-                updated = now()
-            WHERE user_id = $1
-              AND email = $3
-              AND version = $4
-              AND marketing_email_consent_revision = $5
-            RETURNING {}
-            "#,
-            user_columns(),
-        );
-
-        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
-            .bind(user.id().into_uuid())
-            .bind(user.has_marketing_email_consent())
-            .bind::<&str>(user.email().as_ref())
-            .bind(version_to_i64(expected_version))
-            .bind(expected_consent_revision.into_inner())
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(map_write_error)?

@@ -12,7 +12,6 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
 use localization::Language;
 use money::Currency;
-use serde_email::Email;
 use user_core::measurement_unit::MeasurementUnit;
 use user_core::user::{RehydrateUserError, User, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
@@ -21,7 +20,6 @@ use user_core::{first_name::FirstName, last_name::LastName};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateUserProfileCommand {
     pub user_id: UserId,
-    pub email: PatchField<Email>,
     pub first_name: PatchField<FirstName>,
     pub last_name: PatchField<LastName>,
     pub language: PatchField<Language>,
@@ -32,8 +30,7 @@ pub struct UpdateUserProfileCommand {
 
 impl UpdateUserProfileCommand {
     pub fn is_empty(&self) -> bool {
-        !self.email.is_changed()
-            && !self.first_name.is_changed()
+        !self.first_name.is_changed()
             && !self.last_name.is_changed()
             && !self.language.is_changed()
             && !self.currency.is_changed()
@@ -57,13 +54,6 @@ pub enum UpdateUserProfileError {
     UserNotFound,
     #[error("concurrent user update")]
     ConcurrencyConflict,
-    #[error("user email already exists")]
-    EmailConflict {
-        #[source]
-        source: BoxError,
-    },
-    #[error("user email is required")]
-    EmailRequired,
     #[error("invalid user state")]
     InvalidUserState {
         #[source]
@@ -212,12 +202,6 @@ fn apply_update(
 ) -> Result<ChangeOutcome, UpdateUserProfileError> {
     let mut outcome = ChangeOutcome::Unchanged;
 
-    outcome = outcome.combine(match command.email {
-        PatchField::Unchanged => ChangeOutcome::Unchanged,
-        PatchField::Set(value) => user.change_email(value),
-        PatchField::Clear => return Err(UpdateUserProfileError::EmailRequired),
-    });
-
     let mut profile = user.profile().clone();
     let profile_before = profile.clone();
     apply_optional_patch(&mut profile.first_name, command.first_name);
@@ -347,7 +331,7 @@ impl From<UserRepositoryError> for UpdateUserProfileError {
     fn from(error: UserRepositoryError) -> Self {
         match error {
             UserRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
-            UserRepositoryError::EmailConflict { source } => Self::EmailConflict { source },
+            UserRepositoryError::EmailConflict { source } => Self::Internal { source },
             UserRepositoryError::StripeCustomerConflict { source } => Self::Internal { source },
             UserRepositoryError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }

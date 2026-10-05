@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use application::error::BoxError;
+use domain_primitives::versioned::Versioned;
 use serde_email::Email;
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user::User;
@@ -8,57 +9,7 @@ use user_core::user_id::UserId;
 
 domain_primitives::version_newtype!(UserStorageVersion);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UserMarketingEmailConsentRevision(i64);
-
-impl UserMarketingEmailConsentRevision {
-    pub const INITIAL: Self = Self(0);
-
-    pub fn into_inner(self) -> i64 {
-        self.0
-    }
-
-    pub fn checked_next(self) -> Option<Self> {
-        self.0.checked_add(1).map(Self)
-    }
-}
-
-impl TryFrom<i64> for UserMarketingEmailConsentRevision {
-    type Error = InvalidUserMarketingEmailConsentRevision;
-
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
-        if value < 0 {
-            Err(InvalidUserMarketingEmailConsentRevision)
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("marketing email consent revision must be nonnegative")]
-pub struct InvalidUserMarketingEmailConsentRevision;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct VersionedUser {
-    pub value: User,
-    pub version: UserStorageVersion,
-    pub marketing_email_consent_revision: UserMarketingEmailConsentRevision,
-}
-
-impl VersionedUser {
-    pub fn new(
-        value: User,
-        version: UserStorageVersion,
-        marketing_email_consent_revision: UserMarketingEmailConsentRevision,
-    ) -> Self {
-        Self {
-            value,
-            version,
-            marketing_email_consent_revision,
-        }
-    }
-}
+pub type VersionedUser = Versioned<User, UserStorageVersion>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UserInsertOutcome {
@@ -125,16 +76,6 @@ pub trait UserRepository: Send {
         &mut self,
         user: &User,
         expected_version: UserStorageVersion,
-    ) -> Result<VersionedUser, UserRepositoryError>;
-
-    /// Records one newly accepted consent decision and fences stale proof work.
-    /// Each call advances both the root User version and the consent revision,
-    /// even when the consent boolean is already true.
-    async fn record_marketing_email_consent_decision(
-        &mut self,
-        user: &User,
-        expected_version: UserStorageVersion,
-        expected_consent_revision: UserMarketingEmailConsentRevision,
     ) -> Result<VersionedUser, UserRepositoryError>;
 
     async fn delete_by_id(&mut self, id: UserId) -> Result<bool, UserRepositoryError>;

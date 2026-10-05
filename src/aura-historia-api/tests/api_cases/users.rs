@@ -2,7 +2,7 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, fail_session_revocation_for, json_response, seed_access_token_for, seed_user,
-    seed_user_cognito_identity, seed_user_with_tier, set_user_search_fields,
+    seed_user_cognito_identity, seed_user_with_search_fields, seed_user_with_tier,
     set_user_stripe_customer_id,
 };
 
@@ -52,6 +52,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
             "currency": "EUR",
             "measurementUnit": "METRIC",
             "showUnassessedOrSensitiveContent": true,
+            "email": "changed@example.test",
             "marketingEmailConsent": true
         }))
         .send()
@@ -60,6 +61,10 @@ async fn should_update_current_user_profile_when_body_is_valid() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        serde_json::json!(format!("{}@example.test", user_id.as_uuid())),
+        body["email"]
+    );
     assert_eq!(serde_json::json!("Ada"), body["firstName"]);
     assert_eq!(
         serde_json::json!(true),
@@ -225,9 +230,9 @@ async fn should_search_users_when_actor_is_admin() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
-    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
-    set_user_search_fields(
-        user_id,
+    let user_id = seed_user_with_search_fields(
+        "USER",
+        UserTier::Pro,
         "ada@example.test",
         "Ada",
         "Lovelace",
@@ -277,11 +282,9 @@ async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_follow_admin_user_search_cursor() {
-    let first_user_id = seed_user_with_tier("USER", UserTier::Free).await;
-    let second_user_id = seed_user_with_tier("USER", UserTier::Free).await;
-    let third_user_id = seed_user_with_tier("USER", UserTier::Free).await;
-    set_user_search_fields(
-        first_user_id,
+    seed_user_with_search_fields(
+        "USER",
+        UserTier::Free,
         "a@example.test",
         "A",
         "User",
@@ -289,8 +292,9 @@ async fn should_follow_admin_user_search_cursor() {
         datetime!(2026-01-01 00:00 UTC),
     )
     .await;
-    set_user_search_fields(
-        second_user_id,
+    seed_user_with_search_fields(
+        "USER",
+        UserTier::Free,
         "b@example.test",
         "B",
         "User",
@@ -298,8 +302,9 @@ async fn should_follow_admin_user_search_cursor() {
         datetime!(2026-01-02 00:00 UTC),
     )
     .await;
-    set_user_search_fields(
-        third_user_id,
+    let third_user_id = seed_user_with_search_fields(
+        "USER",
+        UserTier::Free,
         "c@example.test",
         "C",
         "User",
