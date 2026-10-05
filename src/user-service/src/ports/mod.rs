@@ -6,6 +6,7 @@ pub mod admin_access_token_list_reader;
 pub mod cognito_identity;
 pub mod newsletter_profile_reader;
 pub mod newsletter_subscription_writer;
+pub mod newsletter_webhook_verifier;
 pub mod user_account_reader;
 pub mod user_admin_reader;
 pub mod user_authentication_reader;
@@ -40,6 +41,15 @@ pub use newsletter_profile_reader::{
 };
 pub use newsletter_subscription_writer::{
     NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
+};
+pub use newsletter_webhook_verifier::{
+    IgnoredNewsletterWebhookEvent, NewsletterWebhookDeliveryId, NewsletterWebhookEmailAddress,
+    NewsletterWebhookEventKind, NewsletterWebhookEventName, NewsletterWebhookHeader,
+    NewsletterWebhookMailingListId, NewsletterWebhookProviderContactId,
+    NewsletterWebhookRawBodySha256, NewsletterWebhookVerification,
+    NewsletterWebhookVerificationError, NewsletterWebhookVerificationOutcome,
+    NewsletterWebhookVerificationRequest, NewsletterWebhookVerifier,
+    VerifiedNewsletterWebhookEvent,
 };
 pub use user_account_reader::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
