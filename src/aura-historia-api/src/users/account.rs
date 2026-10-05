@@ -76,7 +76,6 @@ fn into_command(
 ) -> Result<UpdateUserProfileCommand, ApiError> {
     Ok(UpdateUserProfileCommand {
         user_id,
-        email: non_nullable_patch(data.email, "email")?,
         first_name: clearable(data.first_name),
         last_name: clearable(data.last_name),
         language: clearable(data.language),

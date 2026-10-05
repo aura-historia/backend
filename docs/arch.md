@@ -775,7 +775,14 @@ IdempotencyStore
 
 They belong to service crates or a small shared application crate for genuinely cross-cutting abstractions.
 
-Newsletter marketing membership and opt-out state are owned by Loops; PostgreSQL remains authoritative for Aura Historia user identity and profile data. The user service owns the `NewsletterSubscriptionWriter` outbound port, and a provider adapter implements it. Controllers and service/core code MUST depend on the port rather than Loops protocol types; the composition root injects the selected adapter. There is no local newsletter-subscription projection or synchronized `newsletterSubscribed` profile flag, so this boundary does not require a Loops webhook. Application account/profile lifecycle changes are not implicit marketing consent or resubscription.
+Newsletter marketing membership and opt-out state are owned by Loops; PostgreSQL remains authoritative for Aura Historia user identity and profile data. The user service owns the `NewsletterSubscriptionWriter` outbound port, and a provider adapter implements it. Controllers and service/core code MUST depend on the port rather than Loops protocol types; the composition root injects the selected adapter. There is no local newsletter-subscription projection or synchronized `newsletterSubscribed` profile flag. Application account/profile lifecycle changes are not implicit marketing consent or resubscription.
+
+Webhook verification MUST happen in a provider adapter behind a service-owned port and authenticate the original request before parsing. The transport owns acknowledgement; the service owns event meaning, durable receipts, idempotency, and application-state decisions.
+
+- Processing MUST deduplicate by provider delivery identity, reject reuse with different content, and distinguish provider event time from receipt time.
+- Unverifiable or malformed input MUST fail closed. Authenticated events outside supported application semantics MAY be ignored; provider-supplied identity MUST NOT be trusted as local user identity.
+- Subscription, opt-out, bounce, and complaint remain distinct facts. Events and account/profile lifecycle changes MUST NOT by themselves grant consent.
+- Errors and logs MUST NOT expose signing material, signatures, or sensitive webhook content.
 
 A neutral reusable capability crate MAY own a technology-neutral contract plus its provider implementation when it has no bounded-context types. For example, `embedding` may own embedding generation, `large-language-model` may own typed structured generation, `classifier-model` may own binary classification, and `image-fetcher` may own safe external-image retrieval. The consuming service owns semantic fields, application response types and schemas, result mapping, concurrency, business retry policy, and application-specific input limits. A capability with explicit semantic operations owns provider/model-specific prompt or request encoding; callers MUST NOT construct provider-recommended instruction strings. Provider/model selection belongs to composition and provider configuration, not a service request: a configured provider implementation may be injected separately for each use case. Provider implementations own provider authentication, protocol, configured model identifiers, media preparation, transport timeouts, provider error classification, and provider-specific prompt format. Such a crate MUST NOT import an entity core/service crate or contain entity-specific behavior.
 
@@ -1753,8 +1760,6 @@ PostgreSQL owns business truth for:
 * OAuth clients;
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
-
-Credential tables are operational PostgreSQL storage, not CDC sources. Expiry remains service-side correctness; bounded PostgreSQL cleanup is physical only.
 
 OpenSearch contains rebuildable search projections only. The independently operated single-node stage service, asset application, security boundary, and live acceptance gates are documented in [Stage OpenSearch](opensearch-stage.md); application releases must not administer or restart it.
 

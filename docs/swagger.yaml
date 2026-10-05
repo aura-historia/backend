@@ -15750,6 +15750,7 @@ components:
         - userId
         - email
         - showUnassessedOrSensitiveContent
+        - marketingEmailConsent
         - tier
         - role
       properties:
@@ -15783,6 +15784,10 @@ components:
         showUnassessedOrSensitiveContent:
           type: boolean
           description: Stored preference for showing unassessed or sensitive content.
+        marketingEmailConsent:
+          type: boolean
+          readOnly: true
+          description: Whether the current account email has an active grant for email marketing.
         tier:
           $ref: "#/components/schemas/UserTierData"
         role:
@@ -15842,13 +15847,11 @@ components:
         All fields are optional. Omitted fields remain unchanged.
 
         Only one logical change category may be sent per request: profile/preferences fields, `role`, or `tier`.
+        `marketingEmailConsent` is read-only and cannot be changed through this payload.
+        The canonical account email is read-only.
 
         "
       properties:
-        email:
-          type: string
-          format: email
-          description: New email address. Null is invalid.
         firstName:
           type: string
           maxLength: 64
@@ -15895,6 +15898,8 @@ components:
       description: "Partial user account update data.
 
         All fields are optional - only provided fields will be updated.
+        `marketingEmailConsent` is read-only and cannot be changed through this payload.
+        The canonical account email is read-only.
 
         "
       properties:

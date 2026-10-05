@@ -109,10 +109,11 @@ impl UserRepository for SqlxUserRepository<'_> {
             r#"
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
-                show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id
+                show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id,
+                marketing_email_consent
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12
+                $8, $9, $10, $11, $12, $13
             )
             RETURNING {}
             "#,
@@ -132,6 +133,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(user.has_marketing_email_consent())
             .fetch_one(&mut *self.connection)
             .await
             .map_err(map_write_error)?;
@@ -153,10 +155,11 @@ impl UserRepository for SqlxUserRepository<'_> {
             r#"
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
-                show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id
+                show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id,
+                marketing_email_consent
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, $11, $12
+                $8, $9, $10, $11, $12, $13
             )
             ON CONFLICT (user_id) DO NOTHING
             RETURNING {}
@@ -177,6 +180,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(user.has_marketing_email_consent())
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(map_write_error)?;
@@ -211,17 +215,17 @@ impl UserRepository for SqlxUserRepository<'_> {
         let sql = format!(
             r#"
             UPDATE users SET
-                email = $2,
-                first_name = $3,
-                last_name = $4,
-                language = $5,
-                currency = $6,
-                measurement_unit = $7,
-                show_unassessed_or_sensitive_content = $8,
-                suspended = $9,
-                tier = $10,
-                role = $11,
-                stripe_customer_id = $12,
+                first_name = $2,
+                last_name = $3,
+                language = $4,
+                currency = $5,
+                measurement_unit = $6,
+                show_unassessed_or_sensitive_content = $7,
+                suspended = $8,
+                tier = $9,
+                role = $10,
+                stripe_customer_id = $11,
+                marketing_email_consent = $12,
                 version = version + 1,
                 updated = now()
             WHERE user_id = $1 AND version = $13
@@ -232,7 +236,6 @@ impl UserRepository for SqlxUserRepository<'_> {
 
         let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(user.id().into_uuid())
-            .bind::<&str>(user.email().as_ref())
             .bind(profile.first_name.as_ref().map(AsRef::as_ref))
             .bind(profile.last_name.as_ref().map(AsRef::as_ref))
             .bind(bind_language(preferences.language))
@@ -243,6 +246,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(user.has_marketing_email_consent())
             .bind(version_to_i64(expected_version))
             .fetch_optional(&mut *self.connection)
             .await
