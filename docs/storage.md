@@ -1,5 +1,13 @@
 # Storage Contracts
 
+## Users and email-marketing consent
+
+PostgreSQL is authoritative for registered User state. `users.email` is the immutable canonical account email. `users.marketing_email_consent` is a current grant for the single email-marketing purpose and that account email; it is not a delivery guarantee or permission for another channel. New users and rows present when the forward migration runs start with consent `false`. There is no consent-history table or client-supplied consent version.
+
+Grant and revoke operations update the User aggregate, and a grant is accepted only when the confirmed address matches the canonical account email. Profile, preferences, tier, billing and other User changes preserve consent. Aggregate optimistic concurrency prevents a stale User write from restoring an older consent state. Email-based anonymous newsletter subscriptions remain separate and do not create Aura Users.
+
+Provider propagation is owned by explicit consent transition work, not by CDC of `users`. A User row change alone does not claim that a provider subscription or delivery state has been updated.
+
 ## Notifications
 
 PostgreSQL is the sole production owner of notifications and external-delivery intent. Notification storage has no TTL.

@@ -1,6 +1,6 @@
 use crate::ports::{
     UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
-    UserRepositoryError, UserRepositoryFactory,
+    UserRepositoryError, UserRepositoryFactory, VersionedUser,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use application::error::{BoxError, box_error};
@@ -12,7 +12,6 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
 use localization::Language;
 use money::Currency;
-use serde_email::Email;
 use user_core::measurement_unit::MeasurementUnit;
 use user_core::user::{RehydrateUserError, User, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
@@ -21,7 +20,6 @@ use user_core::{first_name::FirstName, last_name::LastName};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateUserProfileCommand {
     pub user_id: UserId,
-    pub email: PatchField<Email>,
     pub first_name: PatchField<FirstName>,
     pub last_name: PatchField<LastName>,
     pub language: PatchField<Language>,
@@ -32,8 +30,7 @@ pub struct UpdateUserProfileCommand {
 
 impl UpdateUserProfileCommand {
     pub fn is_empty(&self) -> bool {
-        !self.email.is_changed()
-            && !self.first_name.is_changed()
+        !self.first_name.is_changed()
             && !self.last_name.is_changed()
             && !self.language.is_changed()
             && !self.currency.is_changed()
@@ -57,13 +54,6 @@ pub enum UpdateUserProfileError {
     UserNotFound,
     #[error("concurrent user update")]
     ConcurrencyConflict,
-    #[error("user email already exists")]
-    EmailConflict {
-        #[source]
-        source: BoxError,
-    },
-    #[error("user email is required")]
-    EmailRequired,
     #[error("invalid user state")]
     InvalidUserState {
         #[source]
@@ -172,9 +162,10 @@ where
         )
         .await?;
         let mut users = self.users.in_transaction(&mut tx);
-        let domain_primitives::versioned::Versioned {
+        let VersionedUser {
             value: mut user,
             version,
+            ..
         } = users
             .find_by_id(command.user_id)
             .await?
@@ -210,12 +201,6 @@ fn apply_update(
     command: UpdateUserProfileCommand,
 ) -> Result<ChangeOutcome, UpdateUserProfileError> {
     let mut outcome = ChangeOutcome::Unchanged;
-
-    outcome = outcome.combine(match command.email {
-        PatchField::Unchanged => ChangeOutcome::Unchanged,
-        PatchField::Set(value) => user.change_email(value),
-        PatchField::Clear => return Err(UpdateUserProfileError::EmailRequired),
-    });
 
     let mut profile = user.profile().clone();
     let profile_before = profile.clone();
@@ -298,6 +283,7 @@ impl From<&User> for UserDetailsView {
             currency: preferences.currency,
             measurement_unit: preferences.measurement_unit,
             show_unassessed_or_sensitive_content: preferences.show_unassessed_or_sensitive_content,
+            marketing_email_consent: user.has_marketing_email_consent(),
             tier: user.account().tier,
             role: user.account().role,
             stripe_customer_id: user.account().stripe_customer_id.clone(),
@@ -345,7 +331,7 @@ impl From<UserRepositoryError> for UpdateUserProfileError {
     fn from(error: UserRepositoryError) -> Self {
         match error {
             UserRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
-            UserRepositoryError::EmailConflict { source } => Self::EmailConflict { source },
+            UserRepositoryError::EmailConflict { source } => Self::Internal { source },
             UserRepositoryError::StripeCustomerConflict { source } => Self::Internal { source },
             UserRepositoryError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }

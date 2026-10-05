@@ -552,6 +552,7 @@ mod tests {
             currency: None,
             measurement_unit: None,
             show_unassessed_or_sensitive_content: false,
+            marketing_email_consent: false,
             tier: user_core::tier::UserTier::Free,
             role: UserRole::User,
             stripe_customer_id: None,

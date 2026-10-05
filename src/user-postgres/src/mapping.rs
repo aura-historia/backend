@@ -31,13 +31,14 @@ pub(crate) struct UserRow {
     pub tier: String,
     pub role: String,
     pub stripe_customer_id: Option<String>,
+    pub marketing_email_consent: bool,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 pub(crate) fn user_columns() -> &'static str {
-    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id, version, created, updated"
+    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id, marketing_email_consent, version, created, updated"
 }
 
 impl TryFrom<UserRow> for VersionedUser {
@@ -48,13 +49,14 @@ impl TryFrom<UserRow> for VersionedUser {
         let value = User::rehydrate(RehydratedUserState {
             id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
+            marketing_email_consent: row.marketing_email_consent,
             profile: profile_from_row(&row)?,
             preferences: preferences_from_row(&row)?,
             account: account_from_row(&row)?,
             suspended: row.suspended,
         })?;
 
-        Ok(VersionedUser::new(value, version))
+        Ok(domain_primitives::versioned::Versioned::new(value, version))
     }
 }
 
@@ -71,6 +73,7 @@ impl TryFrom<UserRow> for UserDetailsView {
             currency: parse_optional_currency(row.currency.as_deref())?,
             measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
             show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
+            marketing_email_consent: row.marketing_email_consent,
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
@@ -362,6 +365,7 @@ mod tests {
         assert_eq!(Some(Language::En), details.language);
         assert_eq!(Some(Currency::Gbp), details.currency);
         assert_eq!(Some(MeasurementUnit::Imperial), details.measurement_unit);
+        assert!(details.marketing_email_consent);
         assert_eq!(UserTier::Pro, details.tier);
         assert_eq!(UserRole::Admin, details.role);
     }
@@ -473,6 +477,7 @@ mod tests {
             tier: "PRO".to_owned(),
             role: "ADMIN".to_owned(),
             stripe_customer_id: Some("cus_test".to_owned()),
+            marketing_email_consent: true,
             version: 1,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

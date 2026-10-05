@@ -34,6 +34,7 @@ pub(crate) struct OwnUserData {
     )]
     pub(crate) measurement_unit: Option<MeasurementUnit>,
     pub(crate) show_unassessed_or_sensitive_content: bool,
+    pub(crate) marketing_email_consent: bool,
     #[serde(with = "crate::wire::user_tier")]
     pub(crate) tier: UserTier,
     #[serde(with = "crate::wire::user_role")]
@@ -53,6 +54,7 @@ impl From<UserDetailsView> for OwnUserData {
             currency: view.currency,
             measurement_unit: view.measurement_unit,
             show_unassessed_or_sensitive_content: view.show_unassessed_or_sensitive_content,
+            marketing_email_consent: view.marketing_email_consent,
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
@@ -85,6 +87,7 @@ pub(crate) struct AdminUserData {
     )]
     pub(crate) measurement_unit: Option<MeasurementUnit>,
     pub(crate) show_unassessed_or_sensitive_content: bool,
+    pub(crate) marketing_email_consent: bool,
     #[serde(with = "crate::wire::user_tier")]
     pub(crate) tier: UserTier,
     #[serde(with = "crate::wire::user_role")]
@@ -104,6 +107,7 @@ impl From<UserDetailsView> for AdminUserData {
             currency: view.currency,
             measurement_unit: view.measurement_unit,
             show_unassessed_or_sensitive_content: view.show_unassessed_or_sensitive_content,
+            marketing_email_consent: view.marketing_email_consent,
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
@@ -156,8 +160,6 @@ pub(crate) struct CursorData<T, C> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchOwnUserData {
     #[serde(default)]
-    pub(crate) email: PatchValue<serde_email::Email>,
-    #[serde(default)]
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]
     pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
@@ -183,8 +185,6 @@ pub(crate) struct PatchOwnUserData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchAdminUserData {
-    #[serde(default)]
-    pub(crate) email: PatchValue<serde_email::Email>,
     #[serde(default)]
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]

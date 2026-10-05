@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-05 — Read-only current email marketing consent (#1935)
+
+- Added `marketingEmailConsent` to authenticated own-account and admin user detail reads. The field reports the current email-marketing grant and cannot be changed through account PATCH.
+
 ## 2026-10-03 — Partner-managed provider ingestion configuration (#1929)
 
 - Added idempotent provider-specific `PUT /api/v1/listing-sources/{listingSourceId}/ingestion-configurations/woocommerce` and `/shopify` endpoints. They atomically enable or fully replace only that provider configuration and return bodyless `201` for first enable or `204` for replacement/no-op, always with `Cache-Control: no-store`.
