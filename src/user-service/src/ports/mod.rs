@@ -46,7 +46,8 @@ pub use newsletter_webhook_verifier::{
     IgnoredNewsletterWebhookEvent, NewsletterWebhookDeliveryId, NewsletterWebhookEmailAddress,
     NewsletterWebhookEventKind, NewsletterWebhookEventName, NewsletterWebhookHeader,
     NewsletterWebhookMailingListId, NewsletterWebhookProviderContactId,
-    NewsletterWebhookVerification, NewsletterWebhookVerificationError,
+    NewsletterWebhookRawBodySha256, NewsletterWebhookVerification,
+    NewsletterWebhookVerificationError, NewsletterWebhookVerificationOutcome,
     NewsletterWebhookVerificationRequest, NewsletterWebhookVerifier,
     VerifiedNewsletterWebhookEvent,
 };

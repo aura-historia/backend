@@ -92,6 +92,29 @@ impl fmt::Debug for NewsletterWebhookVerificationRequest {
     }
 }
 
+/// SHA-256 evidence over the exact raw body bytes authenticated by the provider
+/// verifier. Consumers can persist this with the delivery ID to detect reuse of
+/// one delivery identity with different bytes; they must not hash reconstructed
+/// JSON in its place.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct NewsletterWebhookRawBodySha256([u8; 32]);
+
+impl NewsletterWebhookRawBodySha256 {
+    pub fn new(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for NewsletterWebhookRawBodySha256 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("NewsletterWebhookRawBodySha256([REDACTED])")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewsletterWebhookEventKind {
     ContactUnsubscribed,
@@ -147,8 +170,15 @@ impl fmt::Debug for IgnoredNewsletterWebhookEvent {
     }
 }
 
+/// Authenticated result envelope shared by supported and ignored events.
 #[derive(Debug)]
-pub enum NewsletterWebhookVerification {
+pub struct NewsletterWebhookVerification {
+    pub raw_body_sha256: NewsletterWebhookRawBodySha256,
+    pub outcome: NewsletterWebhookVerificationOutcome,
+}
+
+#[derive(Debug)]
+pub enum NewsletterWebhookVerificationOutcome {
     Verified(VerifiedNewsletterWebhookEvent),
     Ignored(IgnoredNewsletterWebhookEvent),
 }

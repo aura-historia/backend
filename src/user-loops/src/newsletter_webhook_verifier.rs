@@ -1,11 +1,16 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
+use openssl::{
+    hash::{MessageDigest, hash},
+    pkey::PKey,
+    sign::Signer,
+};
 use serde_json::Value;
 use user_service::ports::{
     IgnoredNewsletterWebhookEvent, NewsletterWebhookDeliveryId, NewsletterWebhookEmailAddress,
     NewsletterWebhookEventKind, NewsletterWebhookEventName, NewsletterWebhookHeader,
     NewsletterWebhookMailingListId, NewsletterWebhookProviderContactId,
-    NewsletterWebhookVerification, NewsletterWebhookVerificationError,
+    NewsletterWebhookRawBodySha256, NewsletterWebhookVerification,
+    NewsletterWebhookVerificationError, NewsletterWebhookVerificationOutcome,
     NewsletterWebhookVerificationRequest, NewsletterWebhookVerifier,
     VerifiedNewsletterWebhookEvent,
 };
@@ -71,6 +76,13 @@ impl NewsletterWebhookVerifier for LoopsNewsletterWebhookVerifier {
         if !verified {
             return Err(NewsletterWebhookVerificationError::InvalidSignature);
         }
+        let body_digest = hash(MessageDigest::sha256(), &request.raw_body)
+            .map_err(|_| NewsletterWebhookVerificationError::CryptographicFailure)?;
+        let raw_body_sha256: [u8; 32] = body_digest
+            .as_ref()
+            .try_into()
+            .map_err(|_| NewsletterWebhookVerificationError::CryptographicFailure)?;
+        let raw_body_sha256 = NewsletterWebhookRawBodySha256::new(raw_body_sha256);
 
         let payload: Value = serde_json::from_slice(&request.raw_body)
             .map_err(|_| NewsletterWebhookVerificationError::MalformedPayload)?;
@@ -97,13 +109,16 @@ impl NewsletterWebhookVerifier for LoopsNewsletterWebhookVerifier {
         .ok_or(NewsletterWebhookVerificationError::InvalidHeaderEncoding)?;
 
         let Some(kind) = event_kind(provider_event_name.as_str()) else {
-            return Ok(NewsletterWebhookVerification::Ignored(
-                IgnoredNewsletterWebhookEvent {
-                    delivery_id,
-                    provider_event_name,
-                    event_time_unix_seconds,
-                },
-            ));
+            return Ok(NewsletterWebhookVerification {
+                raw_body_sha256,
+                outcome: NewsletterWebhookVerificationOutcome::Ignored(
+                    IgnoredNewsletterWebhookEvent {
+                        delivery_id,
+                        provider_event_name,
+                        event_time_unix_seconds,
+                    },
+                ),
+            });
         };
 
         let identity = payload
@@ -135,17 +150,20 @@ impl NewsletterWebhookVerifier for LoopsNewsletterWebhookVerifier {
             None
         };
 
-        Ok(NewsletterWebhookVerification::Verified(
-            VerifiedNewsletterWebhookEvent {
-                delivery_id,
-                provider_event_name,
-                kind,
-                event_time_unix_seconds,
-                provider_contact_id,
-                email,
-                mailing_list_id,
-            },
-        ))
+        Ok(NewsletterWebhookVerification {
+            raw_body_sha256,
+            outcome: NewsletterWebhookVerificationOutcome::Verified(
+                VerifiedNewsletterWebhookEvent {
+                    delivery_id,
+                    provider_event_name,
+                    kind,
+                    event_time_unix_seconds,
+                    provider_contact_id,
+                    email,
+                    mailing_list_id,
+                },
+            ),
+        })
     }
 }
 
@@ -184,10 +202,10 @@ fn select_headers(
         } else {
             None
         };
-        if let Some(slot) = slot {
-            if slot.replace(header.value.as_slice()).is_some() {
-                return Err(NewsletterWebhookVerificationError::AmbiguousHeader);
-            }
+        if let Some(slot) = slot
+            && slot.replace(header.value.as_slice()).is_some()
+        {
+            return Err(NewsletterWebhookVerificationError::AmbiguousHeader);
         }
     }
     Ok(selected)
@@ -215,7 +233,11 @@ fn is_header_name_byte(byte: u8) -> bool {
 }
 
 fn validate_delivery_id_header(id: &[u8]) -> Result<(), NewsletterWebhookVerificationError> {
-    if id.is_empty() || id.len() > 256 || !id.iter().all(|byte| byte.is_ascii_graphic()) {
+    if id.is_empty()
+        || id.len() > 256
+        || id.contains(&b'.')
+        || !id.iter().all(|byte| byte.is_ascii_graphic())
+    {
         return Err(NewsletterWebhookVerificationError::InvalidHeaderEncoding);
     }
     Ok(())
@@ -437,9 +459,21 @@ mod tests {
         let result = verifier()
             .verify(request(GOLDEN_BODY, &format!("v1,{GOLDEN_SIGNATURE}")))
             .expect("golden request verifies");
-        let NewsletterWebhookVerification::Verified(event) = result else {
+        let NewsletterWebhookVerification {
+            outcome: NewsletterWebhookVerificationOutcome::Verified(event),
+            raw_body_sha256,
+        } = result
+        else {
             panic!("supported event was ignored");
         };
+        assert_eq!(
+            [
+                0x92, 0x3d, 0x73, 0x10, 0xcc, 0x71, 0x85, 0x07, 0xf0, 0xbf, 0x04, 0xce, 0x11, 0x5f,
+                0xd8, 0x82, 0x53, 0xb6, 0x60, 0xcf, 0xcc, 0x60, 0xa1, 0xc4, 0x0a, 0xa2, 0xe8, 0x73,
+                0xec, 0x55, 0x55, 0xad,
+            ],
+            *raw_body_sha256.as_bytes()
+        );
         assert_eq!("msg_fixture_001", event.delivery_id.as_str());
         assert_eq!("email.resubscribed", event.provider_event_name.as_str());
         assert_eq!(NewsletterWebhookEventKind::EmailResubscribed, event.kind);
@@ -504,7 +538,10 @@ mod tests {
         let rotating = format!("v1,{PREVIOUS_KEY_SIGNATURE} v1,{GOLDEN_SIGNATURE}");
         assert!(matches!(
             verifier().verify(request(GOLDEN_BODY, &rotating)),
-            Ok(NewsletterWebhookVerification::Verified(_))
+            Ok(NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Verified(_),
+                ..
+            })
         ));
         assert!(matches!(
             verifier().verify(request(GOLDEN_BODY, &format!("v2,{GOLDEN_SIGNATURE}"))),
@@ -523,7 +560,10 @@ mod tests {
     fn enforces_stale_and_future_timestamp_tolerance_boundaries() {
         assert!(matches!(
             verifier().verify(request_for(GOLDEN_BODY, ARRIVAL_AT + 300)),
-            Ok(NewsletterWebhookVerification::Verified(_))
+            Ok(NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Verified(_),
+                ..
+            })
         ));
         assert!(matches!(
             verifier().verify(request_for(GOLDEN_BODY, ARRIVAL_AT + 301)),
@@ -531,7 +571,10 @@ mod tests {
         ));
         assert!(matches!(
             verifier().verify(request_for(GOLDEN_BODY, ARRIVAL_AT - 300)),
-            Ok(NewsletterWebhookVerification::Verified(_))
+            Ok(NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Verified(_),
+                ..
+            })
         ));
         assert!(matches!(
             verifier().verify(request_for(GOLDEN_BODY, ARRIVAL_AT - 301)),
@@ -545,7 +588,10 @@ mod tests {
         mixed_case.headers[0].name = b"wEbHoOk-iD".to_vec();
         assert!(matches!(
             verifier().verify(mixed_case),
-            Ok(NewsletterWebhookVerification::Verified(_))
+            Ok(NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Verified(_),
+                ..
+            })
         ));
 
         for duplicate_name in [b"WEBHOOK-ID".as_slice(), b"webhook-timestamp".as_slice()] {
@@ -583,6 +629,13 @@ mod tests {
         invalid_id.headers[0].value = vec![0xff];
         assert!(matches!(
             verifier().verify(invalid_id),
+            Err(NewsletterWebhookVerificationError::InvalidHeaderEncoding)
+        ));
+
+        let mut dotted_id = request(GOLDEN_BODY, &format!("v1,{GOLDEN_SIGNATURE}"));
+        dotted_id.headers[0].value = b"msg.fixture.001".to_vec();
+        assert!(matches!(
+            verifier().verify(dotted_id),
             Err(NewsletterWebhookVerificationError::InvalidHeaderEncoding)
         ));
     }
@@ -671,7 +724,11 @@ mod tests {
             let result = verifier()
                 .verify(request_for(&body, ARRIVAL_AT))
                 .expect("supported event verifies");
-            let NewsletterWebhookVerification::Verified(event) = result else {
+            let NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Verified(event),
+                ..
+            } = result
+            else {
                 panic!("{name} was ignored");
             };
             assert_eq!(name, event.provider_event_name.as_str());
@@ -720,12 +777,36 @@ mod tests {
             let result = verifier()
                 .verify(request_for(&body, ARRIVAL_AT))
                 .expect("valid unrelated event is ignored");
-            let NewsletterWebhookVerification::Ignored(event) = result else {
+            let NewsletterWebhookVerification {
+                outcome: NewsletterWebhookVerificationOutcome::Ignored(event),
+                ..
+            } = result
+            else {
                 panic!("unrelated event was mapped to a consent fact");
             };
             assert_eq!(event_name, event.provider_event_name.as_str());
             assert_eq!(1_699_990_000, event.event_time_unix_seconds);
         }
+    }
+
+    #[test]
+    fn carries_exact_raw_body_digest_for_ignored_events() {
+        let body = br#"{"eventName":"testing.testEvent","eventTime":1699990000,"webhookSchemaVersion":"1.0.0","message":"test"}"#;
+        let result = verifier()
+            .verify(request_for(body, ARRIVAL_AT))
+            .expect("valid test event is authenticated");
+        assert_eq!(
+            [
+                0x52, 0xa7, 0x59, 0xaa, 0x3f, 0x2b, 0xc2, 0x33, 0x1d, 0x72, 0xec, 0xcb, 0x50, 0x44,
+                0xc9, 0xef, 0x32, 0x9b, 0x74, 0x9d, 0xad, 0x46, 0xa4, 0x2f, 0x79, 0x28, 0x9b, 0x0e,
+                0x61, 0x95, 0x72, 0x7e,
+            ],
+            *result.raw_body_sha256.as_bytes()
+        );
+        assert!(matches!(
+            result.outcome,
+            NewsletterWebhookVerificationOutcome::Ignored(_)
+        ));
     }
 
     #[test]
