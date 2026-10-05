@@ -1,6 +1,7 @@
+use classifier_model::{
+    CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel, Probability,
+};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
-use large_language_model::{VertexAiConfig, VertexAiGemini};
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -31,8 +32,10 @@ use std::{
     time::Duration,
 };
 
-const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MAX_HYBRID_SCAN_LIMIT: usize = 100;
+const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
+const DEFAULT_CLASSIFIER_MODEL: &str = "clef-flash";
+const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
 
 pub async fn build_from_env()
 -> Result<(Arc<dyn RunPeriodicSearchFilterMatchingUseCase>, Duration), WiringError> {
@@ -44,19 +47,15 @@ pub async fn build_from_env()
         .map_err(|_| PostgresConnectError::Connect)
         .map_err(WiringError::Postgres)?;
     let client = opensearch_client(&config)?;
-    let credentials = GoogleCredentialsBuilder::default()
-        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
-        .build_access_token_credentials()
-        .map_err(|_| WiringError::VertexCredentials)?;
-    let evaluator = VertexAiGemini::new(
-        VertexAiConfig::new(
-            config.vertex_project_id,
-            config.vertex_location,
-            config.vertex_model,
-        ),
-        credentials,
+    let evaluator = CloudflareClassifierModel::new(
+        CloudflareClassifierConfig::new(
+            config.cloudflare_account_id,
+            config.cloudflare_api_token,
+            config.classifier_model,
+        )
+        .map_err(|_| WiringError::ClassifierConfig)?,
     )
-    .map_err(WiringError::VertexClient)?;
+    .map_err(|_| WiringError::ClassifierConfig)?;
     let handler: Arc<dyn RunPeriodicSearchFilterMatchingUseCase> = Arc::new(
         RunPeriodicSearchFilterMatchingHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
@@ -81,9 +80,9 @@ struct PeriodicMatchConfig {
     postgres: PostgresPoolConfig,
     endpoint: url::Url,
     auth: Option<(String, String)>,
-    vertex_project_id: String,
-    vertex_location: String,
-    vertex_model: String,
+    cloudflare_account_id: String,
+    cloudflare_api_token: String,
+    classifier_model: CloudflareModel,
 
     max_run_duration: Duration,
     policy: PeriodicSearchFilterMatchingPolicy,
@@ -96,7 +95,20 @@ impl PeriodicMatchConfig {
         let filter_page_size = nonzero("PERIODIC_MATCH_FILTER_PAGE_SIZE", 100)?;
         let hybrid_scan_limit = nonzero("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", 100)?;
         let evaluation_limit = nonzero("PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
-        let llm_concurrency = nonzero("PERIODIC_MATCH_LLM_CONCURRENCY", 8)?;
+        let classification_concurrency = nonzero("PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY", 8)?;
+        let provider = std::env::var("CLASSIFIER_MODEL_PROVIDER")
+            .unwrap_or_else(|_| DEFAULT_CLASSIFIER_PROVIDER.to_owned());
+        if provider != "cloudflare" {
+            return Err(WiringError::ClassifierConfig);
+        }
+        let classifier_model_name = std::env::var("CLASSIFIER_MODEL")
+            .unwrap_or_else(|_| DEFAULT_CLASSIFIER_MODEL.to_owned());
+        let classifier_model = CloudflareModel::from_str(classifier_model_name.trim())
+            .map_err(|_| WiringError::ClassifierConfig)?;
+        let should_show_threshold = threshold(number(
+            "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
+            DEFAULT_SHOULD_SHOW_THRESHOLD_BPS,
+        )?)?;
         let max_attempts = nonzero("PERIODIC_MATCH_MAX_ATTEMPTS", 3)?;
         validate_limits(hybrid_scan_limit, evaluation_limit, max_attempts)?;
         let endpoint_raw = required("OPENSEARCH_ENDPOINT_URL")?;
@@ -128,16 +140,17 @@ impl PeriodicMatchConfig {
             postgres,
             endpoint,
             auth,
-            vertex_project_id: required("VERTEX_AI_PROJECT_ID")?,
-            vertex_location: required("VERTEX_AI_LOCATION")?,
-            vertex_model: required("VERTEX_AI_MODEL")?,
+            cloudflare_account_id: required("CLOUDFLARE_ACCOUNT_ID")?,
+            cloudflare_api_token: required("CLOUDFLARE_API_TOKEN")?,
+            classifier_model,
 
             max_run_duration: positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?,
             policy: PeriodicSearchFilterMatchingPolicy {
                 filter_page_size,
                 hybrid_scan_limit,
                 evaluation_limit,
-                llm_concurrency,
+                classification_concurrency,
+                should_show_threshold,
                 max_attempts,
                 projection_lag: periodic_duration(
                     "PERIODIC_MATCH_PROJECTION_LAG_SECONDS",
@@ -205,6 +218,13 @@ fn nonzero(name: &'static str, default: usize) -> Result<NonZeroUsize, WiringErr
     NonZeroUsize::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)
 }
 
+fn threshold(basis_points: u16) -> Result<Probability, WiringError> {
+    if basis_points > 10_000 {
+        return Err(WiringError::InvalidPolicy);
+    }
+    Probability::new(f64::from(basis_points) / 10_000.0).map_err(|_| WiringError::InvalidPolicy)
+}
+
 fn periodic_duration(name: &'static str, seconds: u64) -> Result<time::Duration, WiringError> {
     let seconds = i64::try_from(seconds).map_err(|source| WiringError::InvalidNumber {
         name,
@@ -256,10 +276,8 @@ pub enum WiringError {
     Postgres(#[source] PostgresConnectError),
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
-    #[error("failed to initialize Vertex AI credentials")]
-    VertexCredentials,
-    #[error("failed to build Vertex AI client")]
-    VertexClient(#[source] reqwest::Error),
+    #[error("classifier provider configuration is invalid")]
+    ClassifierConfig,
     #[error("failed to build periodic matching handler")]
     Handler(#[source] search_filter_service::use_cases::RunPeriodicSearchFilterMatchingError),
 }
@@ -333,6 +351,7 @@ mod tests {
                 );
             }
             "policy" => assert!(matches!(config, Err(WiringError::InvalidPolicy))),
+            "classifier" => assert!(matches!(config, Err(WiringError::ClassifierConfig))),
             "url" => assert!(matches!(config, Err(WiringError::OpenSearchUrl(_)))),
             "number" => assert!(matches!(config, Err(WiringError::InvalidNumber { .. }))),
             "missing" => assert!(matches!(config, Err(WiringError::MissingEnv { .. }))),
@@ -352,9 +371,9 @@ mod tests {
             ("POSTGRES_USERNAME", "user"),
             ("POSTGRES_PASSWORD", "password"),
             ("POSTGRES_TLS_ROOT_CERT", "/path/to/ca.pem"),
-            ("VERTEX_AI_PROJECT_ID", "project"),
-            ("VERTEX_AI_LOCATION", "region"),
-            ("VERTEX_AI_MODEL", "model"),
+            ("CLASSIFIER_MODEL_PROVIDER", "cloudflare"),
+            ("CLOUDFLARE_ACCOUNT_ID", "account"),
+            ("CLOUDFLARE_API_TOKEN", "test-token"),
         ];
         let cases: &[(&[(&str, &str)], &str)] = &[
             (&[], "valid-local"),
@@ -367,7 +386,7 @@ mod tests {
                 "valid-prod",
             ),
             (&[("STAGE", "prod")], "missing"),
-            (&[("VERTEX_AI_LOCATION", "  ")], "missing"),
+            (&[("CLOUDFLARE_API_TOKEN", "  ")], "missing"),
             (&[("OPENSEARCH_ENDPOINT_URL", "not-a-url")], "url"),
             (&[("POSTGRES_PORT", "65536")], "number"),
             (&[("POSTGRES_MAX_CONNECTIONS", "0")], "policy"),
@@ -375,6 +394,12 @@ mod tests {
             (&[("PERIODIC_MATCH_EVALUATION_LIMIT", "101")], "policy"),
             (&[("PERIODIC_MATCH_MAX_RUN_SECONDS", "0")], "policy"),
             (&[("PERIODIC_MATCH_MAX_RUN_SECONDS", "7201")], "policy"),
+            (
+                &[("SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "10001")],
+                "policy",
+            ),
+            (&[("CLASSIFIER_MODEL", "gemini")], "classifier"),
+            (&[("CLASSIFIER_MODEL_PROVIDER", "jev")], "classifier"),
             (
                 &[(
                     "PERIODIC_MATCH_PROJECTION_LAG_SECONDS",

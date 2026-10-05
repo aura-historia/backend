@@ -1,11 +1,11 @@
 use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent, SqsMessage};
+use classifier_model::{
+    ClassificationError, ClassificationRequest, ClassificationResponse, ClassifierModel,
+};
 use domain_primitives::event_id::EventId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Context, LambdaEvent};
-use large_language_model::{
-    LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
-};
 use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
@@ -49,17 +49,14 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-// Plain saved filters must not call Vertex AI; only the provider boundary is stubbed.
+// Plain saved filters must not call the classifier; only the provider boundary is stubbed.
 struct UnexpectedEnhancedEvaluation;
 #[async_trait::async_trait]
-impl LargeLanguageModel for UnexpectedEnhancedEvaluation {
-    async fn generate<Output>(
+impl ClassifierModel for UnexpectedEnhancedEvaluation {
+    async fn classify(
         &self,
-        _request: StructuredGenerationRequest,
-    ) -> Result<Output, LargeLanguageModelError>
-    where
-        Output: serde::de::DeserializeOwned + Send,
-    {
+        _request: ClassificationRequest,
+    ) -> Result<ClassificationResponse, ClassificationError> {
         panic!("plain percolation unexpectedly called the enhanced evaluator")
     }
 }

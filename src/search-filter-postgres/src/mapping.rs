@@ -31,7 +31,7 @@ use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, version";
-pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
+pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback, created, updated";
 
 #[derive(Debug)]
 pub(crate) enum SearchFilterRowMappingError {
@@ -244,7 +244,6 @@ pub(crate) struct MatchRow {
     pub price_valuation_basis: Option<String>,
     pub price_fx_rate_id: Option<uuid::Uuid>,
     pub user_search_filter_name: Option<String>,
-    pub enhanced_match_reason: Option<String>,
     pub feedback: Option<bool>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -263,7 +262,6 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
                     row.price_valuation_basis.as_deref(),
                     row.price_fx_rate_id,
                 )?,
-                enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
                 feedback: row.feedback,
             },
             created: row.created,
@@ -281,7 +279,6 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
             search_filter_name: row.user_search_filter_name.map(name).transpose()?,
             product_listing_id: ProductListingId::try_from(row.product_listing_id)?,
             origin_event_id: EventId::try_from(row.origin_event_id)?,
-            enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
             feedback: row.feedback,
             created: row.created,
             updated: row.updated,
@@ -719,7 +716,6 @@ mod tests {
             price_valuation_basis: None,
             price_fx_rate_id: None,
             user_search_filter_name: Some("filter".to_owned()),
-            enhanced_match_reason: None,
             feedback: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

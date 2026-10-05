@@ -813,6 +813,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-ssm"
+version = "1.128.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1bc206dc421520fb6284710537bd2b021f6f6d3dda17a5b478de9cbafd7bed8"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-sso"
 version = "1.109.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1687,6 +1712,23 @@ dependencies = [
  "determinator",
  "guppy",
  "serde_json",
+]
+
+[[package]]
+name = "classifier-model"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "futures",
+ "httpdate",
+ "image-fetcher",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -7063,11 +7105,13 @@ dependencies = [
  "application",
  "async-trait",
  "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-ssm",
  "aws_lambda_events",
+ "classifier-model",
  "domain-primitives",
  "fxrate-postgres",
  "lambda_runtime",
- "large-language-model",
  "listing-source-core",
  "localization",
  "money",
@@ -7100,16 +7144,13 @@ name = "search-filter-periodic-match"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "classifier-model",
  "fxrate-postgres",
- "google-cloud-auth",
- "large-language-model",
  "opensearch",
- "platform-google-adc",
  "platform-observability",
  "platform-postgres",
  "product-listing-opensearch",
  "product-listing-postgres",
- "reqwest 0.12.28",
  "search-filter-postgres",
  "search-filter-service",
  "thiserror 2.0.21",
@@ -7188,12 +7229,12 @@ dependencies = [
  "application",
  "async-trait",
  "auction-core",
+ "classifier-model",
  "domain-primitives",
  "embedding",
  "fxrate-core",
  "fxrate-service",
  "indexmap 2.14.2",
- "large-language-model",
  "listing-source-core",
  "localization",
  "money",

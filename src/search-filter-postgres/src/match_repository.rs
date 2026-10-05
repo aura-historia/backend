@@ -52,7 +52,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = v.user_search_filter_id.into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_listing_id,origin_event_id,price_valuation_basis,price_fx_rate_id,user_search_filter_name,enhanced_match_reason,feedback) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ",
+            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_listing_id,origin_event_id,price_valuation_basis,price_fx_rate_id,user_search_filter_name,feedback) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ",
         );
         query.push(MATCH_COLUMNS);
         let row = query
@@ -70,7 +70,6 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
                     .map(|valuation| valuation.fx_rate_id.into_uuid()),
             )
             .bind(v.user_search_filter_name.as_ref().map(AsRef::as_ref))
-            .bind(v.enhanced_match_reason.as_ref().map(AsRef::as_ref))
             .bind(v.feedback)
             .fetch_one(self.tx.connection())
             .await
@@ -84,7 +83,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = v.user_search_filter_id.into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE search_filter_matches SET user_search_filter_name=$3,enhanced_match_reason=$4,feedback=$5,updated=now() WHERE user_search_filter_id=$1 AND product_listing_id=$2 RETURNING ",
+            "UPDATE search_filter_matches SET user_search_filter_name=$3,feedback=$4,updated=now() WHERE user_search_filter_id=$1 AND product_listing_id=$2 RETURNING ",
         );
         query.push(MATCH_COLUMNS);
         let row = query
@@ -92,7 +91,6 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
             .bind(id)
             .bind(v.product_listing_id.into_uuid())
             .bind(v.user_search_filter_name.as_ref().map(AsRef::as_ref))
-            .bind(v.enhanced_match_reason.as_ref().map(AsRef::as_ref))
             .bind(v.feedback)
             .fetch_optional(self.tx.connection())
             .await

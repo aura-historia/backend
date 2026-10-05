@@ -11,6 +11,7 @@ use crate::product_match_evaluator::{
 };
 use application::error::{BoxError, box_error};
 use application::transaction::{Transaction, UnitOfWork};
+use classifier_model::{ClassificationError, ClassifierModel, Probability};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 #[cfg(test)]
@@ -18,9 +19,6 @@ use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-#[cfg(test)]
-use large_language_model::StructuredGenerationRequest;
-use large_language_model::{LargeLanguageModel, LargeLanguageModelError};
 use product_listing_core::{
     listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
     product_listing::ProductListingPriceValuationBasis, product_listing_id::ProductListingId,
@@ -40,10 +38,11 @@ use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::{PriceMatchValuation, SearchFilterProductListingMatch};
 use std::num::NonZeroUsize;
 
-const MAX_CONCURRENT_LLM_REQUESTS: NonZeroUsize = match NonZeroUsize::new(4) {
+const MAX_CONCURRENT_CLASSIFICATION_REQUESTS: NonZeroUsize = match NonZeroUsize::new(4) {
     Some(value) => value,
     None => NonZeroUsize::MIN,
 };
+const DEFAULT_SHOULD_SHOW_THRESHOLD: f64 = 0.50;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchProductListingEventCommand {
@@ -192,6 +191,7 @@ pub struct MatchProductListingEventHandler<U, S, G, F, I, E, R, W> {
     evaluator: E,
     candidates: R,
     matches: W,
+    should_show_threshold: Probability,
 }
 
 impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R, W> {
@@ -215,7 +215,14 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R
             evaluator,
             candidates,
             matches,
+            should_show_threshold: Probability::new(DEFAULT_SHOULD_SHOW_THRESHOLD)
+                .unwrap_or_else(|_| unreachable!("default threshold is valid")),
         }
+    }
+
+    pub fn with_should_show_threshold(mut self, threshold: Probability) -> Self {
+        self.should_show_threshold = threshold;
+        self
     }
 }
 
@@ -228,7 +235,7 @@ where
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     I: SearchFilterIndex,
-    E: LargeLanguageModel,
+    E: ClassifierModel,
     R: ActiveSearchFilterMatchCandidateReaderFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
 {
@@ -302,6 +309,7 @@ where
             &product.source,
             percolated,
             price_match_valuation,
+            self.should_show_threshold,
         )
         .await;
         let candidates = evaluated.candidates;
@@ -346,7 +354,6 @@ where
                 product_listing_id: command.product_listing_id,
                 origin_event_id: command.origin_event_id,
                 price_match_valuation: candidate.price_match_valuation,
-                enhanced_match_reason: candidate.enhanced_match_reason,
                 feedback: None,
             };
             let outcome = self
@@ -495,17 +502,18 @@ where
 struct EvaluatedCandidates {
     candidates: Vec<SearchFilterMatchCandidate>,
     enhanced_evaluation_failure_count: usize,
-    retryable_error: Option<LargeLanguageModelError>,
+    retryable_error: Option<ClassificationError>,
 }
 
 async fn evaluate_candidates<E>(
-    llm: &E,
+    classifier: &E,
     product: &ProductListingSearchFilterMatchSource,
     mut filters: Vec<crate::ports::SearchFilterView>,
     price_match_valuation: Option<PriceMatchValuation>,
+    should_show_threshold: Probability,
 ) -> EvaluatedCandidates
 where
-    E: LargeLanguageModel,
+    E: ClassifierModel,
 {
     filters.retain(|filter| {
         filter.state == search_filter_core::search_filter_state::SearchFilterState::Active
@@ -528,20 +536,24 @@ where
                 })
         })
         .collect();
-    let mut enhanced_evaluations =
-        evaluate_product_matches(llm, evaluations, MAX_CONCURRENT_LLM_REQUESTS)
-            .await
-            .into_iter()
-            .map(|evaluation| (evaluation.key, evaluation.outcome))
-            .collect::<std::collections::HashMap<_, _>>();
+    let mut enhanced_evaluations = evaluate_product_matches(
+        classifier,
+        evaluations,
+        MAX_CONCURRENT_CLASSIFICATION_REQUESTS,
+        should_show_threshold,
+    )
+    .await
+    .into_iter()
+    .map(|evaluation| (evaluation.key, evaluation.outcome))
+    .collect::<std::collections::HashMap<_, _>>();
 
     let mut candidates = Vec::with_capacity(filters.len());
     let mut enhanced_evaluation_failure_count = 0;
     let mut retryable_error = None;
     for filter in filters {
-        let enhanced_match_reason = if filter.search.enhanced_search_description.is_some() {
+        if filter.search.enhanced_search_description.is_some() {
             match enhanced_evaluations.remove(&filter.search_filter_id) {
-                Some(ProductListingMatchEvaluationOutcome::Matched(reason)) => Some(reason),
+                Some(ProductListingMatchEvaluationOutcome::Matched) => {}
                 Some(ProductListingMatchEvaluationOutcome::Rejected) => continue,
                 Some(ProductListingMatchEvaluationOutcome::RetryableFailure(error)) => {
                     enhanced_evaluation_failure_count += 1;
@@ -573,9 +585,7 @@ where
                     continue;
                 }
             }
-        } else {
-            None
-        };
+        }
         candidates.push(SearchFilterMatchCandidate {
             user_id: filter.user_id,
             search_filter_id: filter.search_filter_id,
@@ -584,7 +594,6 @@ where
             } else {
                 None
             },
-            enhanced_match_reason,
             expected_search: filter.search,
             expected_embedding: filter.embedding,
         });
@@ -651,7 +660,7 @@ fn percolation_error(error: SearchFilterIndexError) -> MatchProductListingEventE
     }
 }
 
-fn product_match_evaluation_error(error: LargeLanguageModelError) -> MatchProductListingEventError {
+fn product_match_evaluation_error(error: ClassificationError) -> MatchProductListingEventError {
     MatchProductListingEventError::ProductListingMatchEvaluationFailed {
         source: box_error(error),
     }
@@ -696,6 +705,9 @@ mod tests {
         SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use application::transaction::TransactionError;
+    use classifier_model::{
+        ClassificationRequest, ClassificationResponse, ClassificationUsage, Probability, QuestionId,
+    };
     use domain_primitives::query::range_query::RangeQuery;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
@@ -1002,53 +1014,45 @@ mod tests {
         resume: Arc<tokio::sync::Notify>,
     }
 
+    fn evaluator_response(should_show: f64) -> Result<ClassificationResponse, ClassificationError> {
+        Ok(ClassificationResponse {
+            answers: std::collections::BTreeMap::from([(
+                QuestionId::new("should_show").unwrap_or_else(|_| unreachable!()),
+                Probability::new(should_show)?,
+            )]),
+            usage: ClassificationUsage::default(),
+        })
+    }
+
     #[async_trait::async_trait]
-    impl LargeLanguageModel for PausedEvaluator {
-        async fn generate<Output>(
+    impl ClassifierModel for PausedEvaluator {
+        async fn classify(
             &self,
-            _request: StructuredGenerationRequest,
-        ) -> Result<Output, LargeLanguageModelError>
-        where
-            Output: serde::de::DeserializeOwned + Send,
-        {
+            _request: ClassificationRequest,
+        ) -> Result<ClassificationResponse, ClassificationError> {
             self.entered.notify_one();
             self.resume.notified().await;
-            serde_json::from_str(r#"{"matches":true,"reason":"Matches the evaluated search"}"#)
-                .map_err(|source| LargeLanguageModelError::InvalidResponse {
-                    source: box_error(source),
-                })
+            evaluator_response(0.75)
         }
     }
 
     #[async_trait::async_trait]
-    impl LargeLanguageModel for Evaluator {
-        async fn generate<Output>(
+    impl ClassifierModel for Evaluator {
+        async fn classify(
             &self,
-            _request: StructuredGenerationRequest,
-        ) -> Result<Output, LargeLanguageModelError>
-        where
-            Output: serde::de::DeserializeOwned + Send,
-        {
-            serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
-                LargeLanguageModelError::InvalidResponse {
-                    source: box_error(source),
-                }
-            })
+            _request: ClassificationRequest,
+        ) -> Result<ClassificationResponse, ClassificationError> {
+            evaluator_response(0.25)
         }
     }
 
     #[async_trait::async_trait]
-    impl LargeLanguageModel for PermanentlyFailingEvaluator {
-        async fn generate<Output>(
+    impl ClassifierModel for PermanentlyFailingEvaluator {
+        async fn classify(
             &self,
-            _request: StructuredGenerationRequest,
-        ) -> Result<Output, LargeLanguageModelError>
-        where
-            Output: serde::de::DeserializeOwned + Send,
-        {
-            Err(LargeLanguageModelError::Permanent {
-                source: box_error(std::io::Error::other("invalid Vertex request")),
-            })
+            _request: ClassificationRequest,
+        ) -> Result<ClassificationResponse, ClassificationError> {
+            Err(ClassificationError::PermanentCandidateFailure)
         }
     }
 
@@ -1087,7 +1091,6 @@ mod tests {
                         candidate.search_filter_id.to_string(),
                     ),
                     price_match_valuation: candidate.price_match_valuation,
-                    enhanced_match_reason: candidate.enhanced_match_reason.clone(),
                 })
                 .collect())
         }
@@ -1321,7 +1324,6 @@ mod tests {
             original.embedding,
             state.candidate_requests[0].expected_embedding
         );
-        assert!(state.candidate_requests[0].enhanced_match_reason.is_some());
         Ok(())
     }
 

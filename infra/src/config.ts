@@ -245,4 +245,3 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
 export function ssmValue(path: string): string {
   return `{{resolve:ssm:${path}}}`;
 }
-

@@ -1,15 +1,16 @@
+use aws_config::BehaviorVersion;
+use classifier_model::{
+    CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel, Probability,
+};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use large_language_model::{VertexAiConfig, VertexAiGemini};
 use opensearch::{
     OpenSearch,
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
-    google_application_default_credentials, log_cold_start, log_invocation_start,
-    logging_config_from_env, materialize_google_application_credentials_from_env,
-    required_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
+    log_invocation_start, logging_config_from_env, required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
@@ -18,20 +19,19 @@ use search_filter_percolator_lambda::{
     compose_percolator_use_case, handler_with_invocation_budget, invocation_budget,
 };
 use search_filter_service::use_cases::MatchProductListingEventUseCase;
-use std::{future::Future, sync::Arc, time::Instant};
+use std::{future::Future, str::FromStr, sync::Arc, time::Instant};
 use url::Url;
 
 const COMPONENT: &str = "search-filter-percolator-lambda";
 const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
 const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
 const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
-const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
-const VERTEX_AI_MODEL_ENV: &str = "VERTEX_AI_MODEL";
-const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 const WORKER_STAGE_ENV: &str = "STAGE";
+const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
+const DEFAULT_CLASSIFIER_MODEL: &str = "clef-flash";
+const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
 fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    materialize_google_application_credentials_from_env()?;
     init(logging_config_from_env());
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -45,7 +45,7 @@ async fn async_main(initialization_started_at: Instant) -> Result<(), Error> {
     let credentials = postgres_credentials_provider_from_env()
         .await
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
-    let config = PercolatorConfig::from_env()?;
+    let config = PercolatorConfig::from_env().await?;
     let open_search = open_search_client(&config)?;
     let use_cases = Arc::new(VersionedCompositionCache::new());
 
@@ -72,11 +72,12 @@ async fn async_main(initialization_started_at: Instant) -> Result<(), Error> {
                                 .connect()
                                 .await
                                 .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
-                            let evaluator = vertex_ai_evaluator(&config)?;
+                            let evaluator = cloudflare_classifier(&config)?;
                             Ok::<_, Error>(compose_percolator_use_case(
                                 pool,
                                 open_search,
                                 evaluator,
+                                config.should_show_threshold,
                             ))
                         })
                         .await
@@ -115,13 +116,15 @@ where
 struct PercolatorConfig {
     endpoint: Url,
     basic_auth: Option<(String, String)>,
-    vertex_project_id: String,
-    vertex_location: String,
-    vertex_model: String,
+    classifier_provider: String,
+    classifier_model: CloudflareModel,
+    cloudflare_account_id: String,
+    cloudflare_api_token: String,
+    should_show_threshold: Probability,
 }
 
 impl PercolatorConfig {
-    fn from_env() -> Result<Self, Error> {
+    async fn from_env() -> Result<Self, Error> {
         let stage = required_config_from_env(WORKER_STAGE_ENV)?;
         let endpoint = required_config_from_env(OPENSEARCH_ENDPOINT_URL_ENV)?;
         let endpoint =
@@ -134,12 +137,56 @@ impl PercolatorConfig {
                 required_config_from_env(OPENSEARCH_PASSWORD_ENV)?,
             ))
         };
+        let classifier_provider = std::env::var("CLASSIFIER_MODEL_PROVIDER")
+            .unwrap_or_else(|_| DEFAULT_CLASSIFIER_PROVIDER.to_owned());
+        if classifier_provider != "cloudflare" {
+            return Err(Error::from("invalid classifier model provider"));
+        }
+        let classifier_model = CloudflareModel::from_str(
+            &std::env::var("CLASSIFIER_MODEL")
+                .unwrap_or_else(|_| DEFAULT_CLASSIFIER_MODEL.to_owned()),
+        )
+        .map_err(|_| Error::from("invalid classifier model"))?;
+        let threshold_bps = std::env::var("SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS")
+            .ok()
+            .map(|value| value.parse::<u16>())
+            .transpose()
+            .map_err(|_| Error::from("invalid saved-search match threshold"))?
+            .unwrap_or(DEFAULT_SHOULD_SHOW_THRESHOLD_BPS);
+        if threshold_bps > 10_000 {
+            return Err(Error::from("invalid saved-search match threshold"));
+        }
+        let cloudflare_account_id = required_config_from_env("CLOUDFLARE_ACCOUNT_ID")?;
+        let cloudflare_api_token = match std::env::var("CLOUDFLARE_API_TOKEN") {
+            Ok(token) if !token.trim().is_empty() => token,
+            Ok(_) => return Err(Error::from("invalid classifier credential configuration")),
+            Err(_) => {
+                let parameter_name =
+                    required_config_from_env("CLOUDFLARE_API_TOKEN_SSM_PARAMETER")?;
+                let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+                aws_sdk_ssm::Client::new(&config)
+                    .get_parameter()
+                    .name(parameter_name)
+                    .with_decryption(true)
+                    .send()
+                    .await
+                    .map_err(|_| Error::from("classifier credentials unavailable"))?
+                    .parameter()
+                    .and_then(|parameter| parameter.value())
+                    .filter(|token| !token.trim().is_empty())
+                    .map(str::to_owned)
+                    .ok_or_else(|| Error::from("classifier credentials unavailable"))?
+            }
+        };
         Ok(Self {
             endpoint,
             basic_auth,
-            vertex_project_id: required_config_from_env(VERTEX_AI_PROJECT_ID_ENV)?,
-            vertex_location: required_config_from_env(VERTEX_AI_LOCATION_ENV)?,
-            vertex_model: required_config_from_env(VERTEX_AI_MODEL_ENV)?,
+            classifier_provider,
+            classifier_model,
+            cloudflare_account_id,
+            cloudflare_api_token,
+            should_show_threshold: Probability::new(f64::from(threshold_bps) / 10_000.0)
+                .map_err(|_| Error::from("invalid saved-search match threshold"))?,
         })
     }
 }
@@ -158,15 +205,16 @@ fn open_search_client(config: &PercolatorConfig) -> Result<OpenSearch, Error> {
     Ok(OpenSearch::new(transport))
 }
 
-fn vertex_ai_evaluator(config: &PercolatorConfig) -> Result<VertexAiGemini, Error> {
-    let credentials = google_application_default_credentials()?;
-    VertexAiGemini::new(
-        VertexAiConfig::new(
-            config.vertex_project_id.clone(),
-            config.vertex_location.clone(),
-            config.vertex_model.clone(),
-        ),
-        credentials,
+fn cloudflare_classifier(config: &PercolatorConfig) -> Result<CloudflareClassifierModel, Error> {
+    if config.classifier_provider != "cloudflare" {
+        return Err(Error::from("invalid classifier model provider"));
+    }
+    let classifier_config = CloudflareClassifierConfig::new(
+        config.cloudflare_account_id.clone(),
+        config.cloudflare_api_token.clone(),
+        config.classifier_model,
     )
-    .map_err(|_| Error::from("failed to configure Vertex AI client"))
+    .map_err(|_| Error::from("failed to configure classifier client"))?;
+    CloudflareClassifierModel::new(classifier_config)
+        .map_err(|_| Error::from("failed to configure classifier client"))
 }

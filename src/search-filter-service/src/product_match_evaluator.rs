@@ -1,16 +1,14 @@
-use application::error::box_error;
-use large_language_model::{
-    BatchGenerationOptions, GenerationOptions, LargeLanguageModel, LargeLanguageModelError,
-    StructuredGenerationRequest,
+use classifier_model::{
+    BinaryClassificationQuestion, ClassificationBatchOptions, ClassificationError,
+    ClassificationOperation, ClassificationOptions, ClassificationRequest, ClassifierModel,
+    Probability, QuestionId,
 };
 use localization::Language;
 use product_listing_service::ports::ProductListingSearchFilterMatchSource;
-use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
-use serde::Deserialize;
 use std::num::NonZeroUsize;
 
-const MAX_PRODUCT_MATCH_IMAGES: usize = 5;
-const PRODUCT_MATCH_SYSTEM_INSTRUCTION: &str = "You are a product matching assistant for an antiques marketplace. Decide whether the product actually matches the requested search description using the product title, description, and optional product images. Return only JSON with a boolean `matches` and, when `matches` is true, a compact user-facing `reason` in the search language. Do not include markdown or extra fields.";
+const HARD_CONFLICT_QUESTION: &str = "hard_conflict";
+const SHOULD_SHOW_QUESTION: &str = "should_show";
 
 pub(crate) struct ProductListingMatchEvaluationRequest<'a, Key> {
     pub(crate) key: Key,
@@ -25,26 +23,20 @@ pub(crate) struct ProductListingMatchEvaluationResult<Key> {
 }
 
 pub(crate) enum ProductListingMatchEvaluationOutcome {
-    Matched(EnhancedMatchReason),
+    Matched,
     Rejected,
-    RetryableFailure(LargeLanguageModelError),
-    PermanentFailure(LargeLanguageModelError),
-}
-
-#[derive(Debug, Deserialize)]
-struct ProductListingMatchDecision {
-    matches: bool,
-    #[serde(default)]
-    reason: Option<String>,
+    RetryableFailure(ClassificationError),
+    PermanentFailure(ClassificationError),
 }
 
 pub(crate) async fn evaluate_product_matches<E, Key>(
-    llm: &E,
+    classifier: &E,
     evaluations: Vec<ProductListingMatchEvaluationRequest<'_, Key>>,
     max_concurrent_requests: NonZeroUsize,
+    should_show_threshold: Probability,
 ) -> Vec<ProductListingMatchEvaluationResult<Key>>
 where
-    E: LargeLanguageModel,
+    E: ClassifierModel,
 {
     let (keys, requests): (Vec<_>, Vec<_>) = evaluations
         .into_iter()
@@ -59,24 +51,49 @@ where
             )
         })
         .unzip();
-    let results = llm
-        .generate_batch::<ProductListingMatchDecision>(
+    if keys.is_empty() {
+        return Vec::new();
+    }
+    let results = classifier
+        .classify_batch(
             requests,
-            BatchGenerationOptions::new(max_concurrent_requests),
+            ClassificationBatchOptions::new(max_concurrent_requests),
         )
         .await;
+
+    if results.len() != keys.len() {
+        return keys
+            .into_iter()
+            .map(|key| ProductListingMatchEvaluationResult {
+                key,
+                outcome: ProductListingMatchEvaluationOutcome::RetryableFailure(
+                    ClassificationError::InvalidResponse,
+                ),
+            })
+            .collect();
+    }
 
     keys.into_iter()
         .zip(results)
         .map(|(key, result)| ProductListingMatchEvaluationResult {
             key,
-            outcome: match result.and_then(product_match_reason) {
-                Ok(Some(reason)) => ProductListingMatchEvaluationOutcome::Matched(reason),
-                Ok(None) => ProductListingMatchEvaluationOutcome::Rejected,
-                Err(error) if is_retryable_llm_error(&error) => {
-                    ProductListingMatchEvaluationOutcome::RetryableFailure(error)
+            outcome: match result.and_then(|response| {
+                response
+                    .answers
+                    .get(&question_id(SHOULD_SHOW_QUESTION))
+                    .copied()
+                    .ok_or(ClassificationError::InvalidResponse)
+            }) {
+                Ok(should_show) if should_show.get() >= should_show_threshold.get() => {
+                    ProductListingMatchEvaluationOutcome::Matched
                 }
-                Err(error) => ProductListingMatchEvaluationOutcome::PermanentFailure(error),
+                Ok(_) => ProductListingMatchEvaluationOutcome::Rejected,
+                Err(ClassificationError::PermanentCandidateFailure) => {
+                    ProductListingMatchEvaluationOutcome::PermanentFailure(
+                        ClassificationError::PermanentCandidateFailure,
+                    )
+                }
+                Err(error) => ProductListingMatchEvaluationOutcome::RetryableFailure(error),
             },
         })
         .collect()
@@ -86,56 +103,44 @@ fn product_match_request(
     product: &ProductListingSearchFilterMatchSource,
     search_description: &str,
     search_language: Language,
-) -> StructuredGenerationRequest {
+) -> ClassificationRequest {
     let (title, description) = product_text(product, search_language);
-    let prompt = format!(
-        "User's search description: {search_description}\nProduct title: {title}\nProduct description: {description}\nSearch language: {}\nReturn the reason in the search language.",
-        search_language.format_human_readable(),
-    );
-    StructuredGenerationRequest {
-        operation: large_language_model::LlmOperation::ProductEnhancedSearchDescriptionMatching,
-        system_instruction: PRODUCT_MATCH_SYSTEM_INSTRUCTION.to_owned(),
-        prompt,
+    ClassificationRequest {
+        operation: ClassificationOperation::ProductEnhancedSearchDescriptionMatching,
+        state: serde_json::json!({
+            "user_search": search_description,
+            "candidate": {
+                "title": title,
+                "description": description,
+            },
+            "evaluation_context": {
+                "purpose": "saved_search_matching",
+                "search_language": search_language.format_human_readable(),
+                "hard_conflict_is_diagnostic_only": true,
+            },
+        }),
+        questions: vec![
+            BinaryClassificationQuestion {
+                id: question_id(HARD_CONFLICT_QUESTION),
+                instructions: "What is the probability that the listing clearly contradicts a non-negotiable requirement stated by the user? Missing evidence alone is not a contradiction.".to_owned(),
+            },
+            BinaryClassificationQuestion {
+                id: question_id(SHOULD_SHOW_QUESTION),
+                instructions: "Considering the user's entire description, including hard requirements, preferences, ranges, exclusions, and uncertainty, what is the probability this listing should be shown as a saved-search match? A preference mismatch alone does not necessarily mean it should be hidden.".to_owned(),
+            },
+        ],
         image_urls: product
             .images
             .iter()
-            .take(MAX_PRODUCT_MATCH_IMAGES)
+            .take(1)
             .map(|image| image.url().clone())
             .collect(),
-        response_json_schema: product_match_response_schema(),
-        options: GenerationOptions {
-            temperature: 0.0,
-            max_output_tokens: 256,
-            request_timeout: std::time::Duration::from_secs(30),
-        },
+        options: ClassificationOptions::default(),
     }
 }
 
-fn product_match_reason(
-    decision: ProductListingMatchDecision,
-) -> Result<Option<EnhancedMatchReason>, LargeLanguageModelError> {
-    if !decision.matches {
-        return Ok(None);
-    }
-    decision
-        .reason
-        .filter(|reason| !reason.trim().is_empty())
-        .map(EnhancedMatchReason::from)
-        .map(Some)
-        .ok_or_else(|| LargeLanguageModelError::InvalidResponse {
-            source: box_error(std::io::Error::other("matched response has no reason")),
-        })
-}
-
-fn product_match_response_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "OBJECT",
-        "properties": {
-            "matches": {"type": "BOOLEAN"},
-            "reason": {"type": "STRING"}
-        },
-        "required": ["matches"]
-    })
+fn question_id(value: &str) -> QuestionId {
+    QuestionId::new(value).unwrap_or_else(|_| unreachable!("static classification question ID"))
 }
 
 fn product_text(
@@ -163,15 +168,6 @@ fn product_text(
     (title, description)
 }
 
-fn is_retryable_llm_error(error: &LargeLanguageModelError) -> bool {
-    matches!(
-        error,
-        LargeLanguageModelError::Timeout { .. }
-            | LargeLanguageModelError::Retryable { .. }
-            | LargeLanguageModelError::InvalidResponse { .. }
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +182,7 @@ mod tests {
     use product_listing_service::ports::{
         ListingSourceSummary, ProductListingSearchFilterMatchSourceEventKind,
     };
+    use std::{collections::BTreeMap, sync::Arc};
     use url::Url;
 
     fn product() -> Result<ProductListingSearchFilterMatchSource, url::ParseError> {
@@ -229,113 +226,77 @@ mod tests {
     }
 
     #[test]
-    fn should_include_description_localized_product_text_and_language_in_prompt()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn request_uses_raw_search_localized_text_and_only_first_image() -> Result<(), url::ParseError>
+    {
         let mut product = product()?;
         product.titles.insert(Language::En, "Brass lamp".into());
         product
             .descriptions
             .insert(Language::En, "From 1920".into());
-
-        let request = product_match_request(&product, "vintage lighting", Language::En);
-
-        assert!(request.prompt.contains("vintage lighting"));
-        assert!(request.prompt.contains("Brass lamp"));
-        assert!(request.prompt.contains("From 1920"));
-        assert!(request.prompt.contains("English"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_include_only_the_first_five_product_images_in_an_enhanced_request()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut product = product()?;
-        let image_urls = (0..7)
+        let image_urls = (0..3)
             .map(|index| Url::parse(&format!("https://example.test/image-{index}.jpg")))
             .collect::<Result<Vec<_>, _>>()?;
         for url in &image_urls {
             product.images.insert(ProductListingImage::new(url.clone()));
         }
 
-        let request = product_match_request(&product, "only paintings", Language::En);
-
-        assert_eq!(
-            &image_urls[..MAX_PRODUCT_MATCH_IMAGES],
-            request.image_urls.as_slice()
-        );
+        let request = product_match_request(&product, "only antique brass", Language::En);
+        assert_eq!(request.state["user_search"], "only antique brass");
+        assert_eq!(request.state["candidate"]["title"], "Brass lamp");
+        assert_eq!(request.state["candidate"]["description"], "From 1920");
+        assert_eq!(request.questions.len(), 2);
+        assert_eq!(request.questions[0].id.as_str(), HARD_CONFLICT_QUESTION);
+        assert_eq!(request.questions[1].id.as_str(), SHOULD_SHOW_QUESTION);
+        assert_eq!(request.image_urls, vec![image_urls[0].clone()]);
         Ok(())
     }
 
-    #[test]
-    fn should_reject_non_matching_response() -> Result<(), LargeLanguageModelError> {
-        assert!(
-            product_match_reason(ProductListingMatchDecision {
-                matches: false,
-                reason: Some("not relevant".to_owned()),
-            })?
-            .is_none()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_matched_response_without_reason() {
-        let error = product_match_reason(ProductListingMatchDecision {
-            matches: true,
-            reason: None,
-        });
-
-        assert!(matches!(
-            error,
-            Err(LargeLanguageModelError::InvalidResponse { .. })
-        ));
-    }
-
-    struct OrderedEvaluator;
+    struct OrderedClassifier;
 
     #[async_trait::async_trait]
-    impl LargeLanguageModel for OrderedEvaluator {
-        async fn generate<Output>(
+    impl ClassifierModel for OrderedClassifier {
+        async fn classify(
             &self,
-            request: StructuredGenerationRequest,
-        ) -> Result<Output, LargeLanguageModelError>
-        where
-            Output: serde::de::DeserializeOwned + Send,
-        {
-            let response = if request.prompt.contains("matching request") {
-                r#"{"matches":true,"reason":"matches"}"#
+            request: ClassificationRequest,
+        ) -> Result<classifier_model::ClassificationResponse, ClassificationError> {
+            let search = request.state["user_search"].as_str().unwrap_or_default();
+            let should_show = if search == "inclusive boundary" {
+                0.5
             } else {
-                r#"{"matches":false}"#
+                0.49
             };
-            serde_json::from_str(response).map_err(|source| {
-                LargeLanguageModelError::InvalidResponse {
-                    source: box_error(source),
-                }
+            Ok(classifier_model::ClassificationResponse {
+                answers: BTreeMap::from([(
+                    question_id(SHOULD_SHOW_QUESTION),
+                    Probability::new(should_show)?,
+                )]),
+                usage: classifier_model::ClassificationUsage::default(),
             })
         }
     }
 
     #[tokio::test]
-    async fn should_preserve_request_key_order_when_mapping_batch_results()
+    async fn should_show_threshold_is_inclusive_and_batch_order_is_preserved()
     -> Result<(), Box<dyn std::error::Error>> {
         let product = product()?;
         let results = evaluate_product_matches(
-            &OrderedEvaluator,
+            &OrderedClassifier,
             vec![
                 ProductListingMatchEvaluationRequest {
                     key: "first",
                     product: &product,
-                    search_description: "matching request",
+                    search_description: "inclusive boundary",
                     search_language: Language::En,
                 },
                 ProductListingMatchEvaluationRequest {
                     key: "second",
                     product: &product,
-                    search_description: "rejected request",
+                    search_description: "below boundary",
                     search_language: Language::En,
                 },
             ],
             NonZeroUsize::MIN,
+            Probability::new(0.50)?,
         )
         .await;
 
@@ -343,7 +304,7 @@ mod tests {
         assert_eq!(results[0].key, "first");
         assert!(matches!(
             results[0].outcome,
-            ProductListingMatchEvaluationOutcome::Matched(_)
+            ProductListingMatchEvaluationOutcome::Matched
         ));
         assert_eq!(results[1].key, "second");
         assert!(matches!(
@@ -353,16 +314,101 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn should_classify_invalid_responses_as_retryable_and_permanent_errors_as_permanent() {
-        let invalid_response = LargeLanguageModelError::InvalidResponse {
-            source: box_error(std::io::Error::other("invalid response")),
-        };
-        let permanent = LargeLanguageModelError::Permanent {
-            source: box_error(std::io::Error::other("invalid provider request")),
-        };
+    struct MalformedBatchClassifier;
 
-        assert!(is_retryable_llm_error(&invalid_response));
-        assert!(!is_retryable_llm_error(&permanent));
+    #[async_trait::async_trait]
+    impl ClassifierModel for MalformedBatchClassifier {
+        async fn classify(
+            &self,
+            _request: ClassificationRequest,
+        ) -> Result<classifier_model::ClassificationResponse, ClassificationError> {
+            Err(ClassificationError::Transient)
+        }
+
+        async fn classify_batch(
+            &self,
+            _requests: Vec<ClassificationRequest>,
+            _options: ClassificationBatchOptions,
+        ) -> Vec<Result<classifier_model::ClassificationResponse, ClassificationError>> {
+            Vec::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_batch_cardinality_fails_every_affected_candidate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product = product()?;
+        let results = evaluate_product_matches(
+            &MalformedBatchClassifier,
+            vec![ProductListingMatchEvaluationRequest {
+                key: "candidate",
+                product: &product,
+                search_description: "table",
+                search_language: Language::En,
+            }],
+            NonZeroUsize::MIN,
+            Probability::new(0.5)?,
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            results[0].outcome,
+            ProductListingMatchEvaluationOutcome::RetryableFailure(
+                ClassificationError::InvalidResponse
+            )
+        ));
+        Ok(())
+    }
+
+    struct ArcBatchOverrideClassifier;
+
+    #[async_trait::async_trait]
+    impl ClassifierModel for ArcBatchOverrideClassifier {
+        async fn classify(
+            &self,
+            _request: ClassificationRequest,
+        ) -> Result<classifier_model::ClassificationResponse, ClassificationError> {
+            Err(ClassificationError::Transient)
+        }
+
+        async fn classify_batch(
+            &self,
+            requests: Vec<ClassificationRequest>,
+            _options: ClassificationBatchOptions,
+        ) -> Vec<Result<classifier_model::ClassificationResponse, ClassificationError>> {
+            vec![
+                Ok(classifier_model::ClassificationResponse {
+                    answers: BTreeMap::from([(
+                        question_id(SHOULD_SHOW_QUESTION),
+                        Probability::new(0.75).unwrap(),
+                    )]),
+                    usage: classifier_model::ClassificationUsage::default(),
+                });
+                requests.len()
+            ]
+        }
+    }
+
+    #[tokio::test]
+    async fn arc_forwarding_preserves_batch_overrides() -> Result<(), Box<dyn std::error::Error>> {
+        let product = product()?;
+        let classifier: Arc<dyn ClassifierModel> = Arc::new(ArcBatchOverrideClassifier);
+        let results = evaluate_product_matches(
+            &classifier,
+            vec![ProductListingMatchEvaluationRequest {
+                key: "candidate",
+                product: &product,
+                search_description: "table",
+                search_language: Language::En,
+            }],
+            NonZeroUsize::MIN,
+            Probability::new(0.5)?,
+        )
+        .await;
+        assert!(matches!(
+            results[0].outcome,
+            ProductListingMatchEvaluationOutcome::Matched
+        ));
+        Ok(())
     }
 }

@@ -26,15 +26,16 @@ product-content-assessment-lambda = ["application", "aura-historia-jobs", "platf
 product-embedding-lambda = ["application", "aura-historia-jobs", "embedding", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service"]
 product-translation-lambda = ["application", "aura-historia-jobs", "large-language-model", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "product-listing-translation-llm"]
 search-filter-projection-lambda = ["aura-historia-jobs", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
-search-filter-percolator-lambda = ["aura-historia-jobs", "fxrate-postgres", "large-language-model", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
+search-filter-percolator-lambda = ["aura-historia-jobs", "aws-config", "aws-sdk-ssm", "classifier-model", "fxrate-postgres", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
 search-filter-match-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "search-filter-postgres", "search-filter-service", "user-postgres"]
 watchlist-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "watchlist-postgres"]
 notification-delivery-lambda = ["aura-historia-jobs", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
-search-filter-periodic-match = ["fxrate-postgres", "large-language-model", "platform-google-adc", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
+search-filter-periodic-match = ["classifier-model", "fxrate-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
 cloudwatch-log-retention-lambda = ["platform-lambda-bootstrap", "platform-observability"]
 database-migration-lambda = ["platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 
 embedding = ["image-fetcher"]
+classifier-model = ["image-fetcher"]
 public-network-policy = []
 image-fetcher = ["public-network-policy"]
 large-language-model = ["application", "image-fetcher"]
@@ -90,7 +91,7 @@ product-listing-opensearch = ["application", "auction-core", "domain-primitives"
 product-listing-postgres = ["application", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-service", "product-service", "search-filter-core", "user-core"]
 product-listing-translation-llm = ["application", "large-language-model", "localization", "product-listing-core", "product-listing-service"]
 
-search-filter-service = ["application", "auction-core", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "large-language-model", "listing-source-core", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "user-core", "user-service"]
+search-filter-service = ["application", "auction-core", "classifier-model", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "listing-source-core", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "user-core", "user-service"]
 
 watchlist-postgres = ["application", "domain-primitives", "platform-postgres", "product-listing-core", "product-listing-service", "user-core", "watchlist-core", "watchlist-service"]
 

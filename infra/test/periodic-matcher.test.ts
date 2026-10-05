@@ -136,11 +136,11 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(JSON.stringify(task.ContainerDefinitions[0].Image)).toContain("aura-historia-periodic-matcher");
     expect(task.ContainerDefinitions[0].Secrets).toHaveLength(5);
     const environmentNames = task.ContainerDefinitions[0].Environment.map((entry: { Name: string }) => entry.Name);
-    for (const forbiddenName of ["POSTGRES_PASSWORD", "OPENSEARCH_PASSWORD", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON"]) {
+    for (const forbiddenName of ["POSTGRES_PASSWORD", "OPENSEARCH_PASSWORD", "CLOUDFLARE_API_TOKEN"]) {
       expect(environmentNames).not.toContain(forbiddenName);
     }
     expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/opensearch/${stage}/reader/password`);
-    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/secrets/${stage}/google-application-credentials`);
+    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/secrets/${stage}/cloudflare-workers-ai-api-token`);
     expect(Object.keys(template.toJSON().Parameters).filter((name: string) => name.startsWith("PeriodicMatcher"))).toEqual(["PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]);
     const roles = Object.entries(template.findResources("AWS::IAM::Role"));
     const taskRole = roles.find(([id]) => id.includes("PeriodicMatcherTaskRole"));

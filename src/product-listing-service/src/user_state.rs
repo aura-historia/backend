@@ -1,7 +1,6 @@
 use notification_core::notification_id::NotificationId;
 use search_filter_core::{
-    enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -34,7 +33,6 @@ pub struct SearchFilterUserState {
     pub hidden: bool,
     pub user_search_filter_id: Option<UserSearchFilterId>,
     pub user_search_filter_name: Option<UserSearchFilterName>,
-    pub match_reason: Option<EnhancedMatchReason>,
     pub match_feedback: Option<bool>,
 }
 
@@ -61,7 +59,6 @@ mod tests {
         assert!(!state.hidden);
         assert!(state.user_search_filter_id.is_none());
         assert!(state.user_search_filter_name.is_none());
-        assert!(state.match_reason.is_none());
     }
 
     #[test]
@@ -71,6 +68,5 @@ mod tests {
         assert!(!state.search_filter.hidden);
         assert!(state.search_filter.user_search_filter_id.is_none());
         assert!(state.search_filter.user_search_filter_name.is_none());
-        assert!(state.search_filter.match_reason.is_none());
     }
 }

@@ -3,7 +3,6 @@ use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::event_id::EventId;
 use domain_primitives::sort::SortOrder;
 use product_listing_core::product_listing_id::ProductListingId;
-use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use time::OffsetDateTime;
@@ -16,7 +15,6 @@ pub struct SearchFilterMatchView {
     pub search_filter_name: Option<UserSearchFilterName>,
     pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
-    pub enhanced_match_reason: Option<EnhancedMatchReason>,
     pub feedback: Option<bool>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -31,7 +29,6 @@ impl From<PersistedSearchFilterMatch> for SearchFilterMatchView {
             search_filter_name: product_match.user_search_filter_name,
             product_listing_id: product_match.product_listing_id,
             origin_event_id: product_match.origin_event_id,
-            enhanced_match_reason: product_match.enhanced_match_reason,
             feedback: product_match.feedback,
             created: persisted.created,
             updated: persisted.updated,

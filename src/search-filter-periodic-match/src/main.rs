@@ -1,5 +1,4 @@
 mod execution;
-mod google_adc;
 mod wiring;
 
 use execution::{ExecutionError, STARTUP_LIMIT};
@@ -21,8 +20,6 @@ fn main() -> Result<(), &'static str> {
     accept_arguments(std::env::args_os().skip(1))?;
     // Tokio's default panic hook includes the payload; do not print provider or credential data.
     std::panic::set_hook(Box::new(|_| eprintln!("periodic matching task panicked")));
-    google_adc::materialize_google_application_credentials_from_env()
-        .map_err(|_| "failed to prepare Google application credentials")?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

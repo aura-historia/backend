@@ -654,8 +654,6 @@ pub(super) struct SearchFilterMatchData {
     product_listing_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    enhanced_match_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     feedback: Option<bool>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
@@ -671,7 +669,6 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             user_search_filter_name: view.search_filter_name,
             product_listing_id: view.product_listing_id,
             origin_event_id: view.origin_event_id,
-            enhanced_match_reason: view.enhanced_match_reason.map(String::from),
             feedback: view.feedback,
             created: view.created,
             updated: view.updated,
