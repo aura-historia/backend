@@ -1,6 +1,6 @@
 use crate::ports::{
     UserAdminReadError, UserAdminReaderFactory, UserRepository, UserRepositoryError,
-    UserRepositoryFactory,
+    UserRepositoryFactory, VersionedUser,
 };
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
@@ -126,9 +126,10 @@ where
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
-        let domain_primitives::versioned::Versioned {
+        let VersionedUser {
             value: mut user,
             version,
+            ..
         } = self
             .users
             .in_transaction(&mut tx)
@@ -222,7 +223,6 @@ mod tests {
     };
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
-    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -291,7 +291,11 @@ mod tests {
         if suspended {
             let _ = user.suspend();
         }
-        Versioned::new(user, UserStorageVersion::INITIAL)
+        VersionedUser::new(
+            user,
+            UserStorageVersion::INITIAL,
+            crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+        )
     }
 
     #[async_trait::async_trait]
@@ -336,16 +340,21 @@ mod tests {
         }
 
         async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            Ok(VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            ))
         }
 
         async fn insert_if_absent(
             &mut self,
             user: &User,
         ) -> Result<UserInsertOutcome, UserRepositoryError> {
-            Ok(UserInsertOutcome::Created(Versioned::new(
+            Ok(UserInsertOutcome::Created(VersionedUser::new(
                 user.clone(),
                 UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
             )))
         }
 
@@ -356,8 +365,29 @@ mod tests {
         ) -> Result<VersionedUser, UserRepositoryError> {
             let mut state = lock(&self.0);
             state.updates += 1;
-            let updated = Versioned::new(user.clone(), UserStorageVersion::INITIAL);
+            let updated = VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            );
             state.user = Some(updated.clone());
+            Ok(updated)
+        }
+
+        async fn record_marketing_email_consent_decision(
+            &mut self,
+            user: &User,
+            expected_version: UserStorageVersion,
+            expected_consent_revision: crate::ports::UserMarketingEmailConsentRevision,
+        ) -> Result<VersionedUser, UserRepositoryError> {
+            let updated = VersionedUser::new(
+                user.clone(),
+                expected_version.next(),
+                expected_consent_revision
+                    .checked_next()
+                    .expect("test revision should not overflow"),
+            );
+            lock(&self.0).user = Some(updated.clone());
             Ok(updated)
         }
 

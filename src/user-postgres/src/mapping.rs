@@ -12,7 +12,9 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
-use user_service::ports::{UserDetailsView, UserStorageVersion, VersionedUser};
+use user_service::ports::{
+    UserDetailsView, UserMarketingEmailConsentRevision, UserStorageVersion, VersionedUser,
+};
 use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 use user_service::use_cases::queries::search_users::UserSummary;
 
@@ -31,13 +33,15 @@ pub(crate) struct UserRow {
     pub tier: String,
     pub role: String,
     pub stripe_customer_id: Option<String>,
+    pub marketing_email_consent: bool,
+    pub marketing_email_consent_revision: i64,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 pub(crate) fn user_columns() -> &'static str {
-    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id, version, created, updated"
+    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, suspended, tier, role, stripe_customer_id, marketing_email_consent, marketing_email_consent_revision, version, created, updated"
 }
 
 impl TryFrom<UserRow> for VersionedUser {
@@ -45,16 +49,18 @@ impl TryFrom<UserRow> for VersionedUser {
 
     fn try_from(row: UserRow) -> Result<Self, Self::Error> {
         let version = UserStorageVersion::try_from(row.version)?;
+        let consent_revision = consent_revision_from_row(&row)?;
         let value = User::rehydrate(RehydratedUserState {
             id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
+            marketing_email_consent: row.marketing_email_consent,
             profile: profile_from_row(&row)?,
             preferences: preferences_from_row(&row)?,
             account: account_from_row(&row)?,
             suspended: row.suspended,
         })?;
 
-        Ok(VersionedUser::new(value, version))
+        Ok(VersionedUser::new(value, version, consent_revision))
     }
 }
 
@@ -62,6 +68,7 @@ impl TryFrom<UserRow> for UserDetailsView {
     type Error = UserRowMappingError;
 
     fn try_from(row: UserRow) -> Result<Self, Self::Error> {
+        consent_revision_from_row(&row)?;
         Ok(Self {
             user_id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
@@ -71,6 +78,7 @@ impl TryFrom<UserRow> for UserDetailsView {
             currency: parse_optional_currency(row.currency.as_deref())?,
             measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
             show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
+            marketing_email_consent: row.marketing_email_consent,
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
@@ -82,6 +90,7 @@ impl TryFrom<UserRow> for UserStripeLookupView {
     type Error = UserRowMappingError;
 
     fn try_from(row: UserRow) -> Result<Self, Self::Error> {
+        consent_revision_from_row(&row)?;
         Ok(Self {
             user_id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
@@ -99,6 +108,7 @@ impl TryFrom<UserRow> for UserSummary {
     type Error = UserRowMappingError;
 
     fn try_from(row: UserRow) -> Result<Self, Self::Error> {
+        consent_revision_from_row(&row)?;
         Ok(Self {
             user_id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
@@ -132,6 +142,10 @@ pub(crate) enum UserRowMappingError {
 
     #[error("invalid user version")]
     InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
+    #[error("invalid marketing email consent revision")]
+    InvalidMarketingEmailConsentRevision(
+        #[from] user_service::ports::InvalidUserMarketingEmailConsentRevision,
+    ),
     #[error("invalid rehydrated user")]
     InvalidUser(#[from] user_core::user::RehydrateUserError),
 }
@@ -195,6 +209,13 @@ fn account_from_row(row: &UserRow) -> Result<UserAccount, UserRowMappingError> {
         role: parse_role(&row.role)?,
         stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
     })
+}
+
+fn consent_revision_from_row(
+    row: &UserRow,
+) -> Result<UserMarketingEmailConsentRevision, UserRowMappingError> {
+    UserMarketingEmailConsentRevision::try_from(row.marketing_email_consent_revision)
+        .map_err(UserRowMappingError::InvalidMarketingEmailConsentRevision)
 }
 
 fn parse_email(value: &str) -> Result<Email, UserRowMappingError> {
@@ -362,6 +383,7 @@ mod tests {
         assert_eq!(Some(Language::En), details.language);
         assert_eq!(Some(Currency::Gbp), details.currency);
         assert_eq!(Some(MeasurementUnit::Imperial), details.measurement_unit);
+        assert!(details.marketing_email_consent);
         assert_eq!(UserTier::Pro, details.tier);
         assert_eq!(UserRole::Admin, details.role);
     }
@@ -456,6 +478,13 @@ mod tests {
                 InvalidVersionError::Zero
             ))
         ));
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                marketing_email_consent_revision: -1,
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidMarketingEmailConsentRevision(_))
+        ));
     }
 
     fn user_row() -> UserRow {
@@ -473,6 +502,8 @@ mod tests {
             tier: "PRO".to_owned(),
             role: "ADMIN".to_owned(),
             stripe_customer_id: Some("cus_test".to_owned()),
+            marketing_email_consent: true,
+            marketing_email_consent_revision: 8,
             version: 1,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

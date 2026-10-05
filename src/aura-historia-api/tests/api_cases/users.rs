@@ -30,6 +30,7 @@ async fn should_return_current_user_account_when_authenticated() {
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_id_prefix(&body["userId"], "usr_");
     assert_eq!(serde_json::json!("USER"), body["role"]);
+    assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -50,7 +51,8 @@ async fn should_update_current_user_profile_when_body_is_valid() {
             "language": "de",
             "currency": "EUR",
             "measurementUnit": "METRIC",
-            "showUnassessedOrSensitiveContent": true
+            "showUnassessedOrSensitiveContent": true,
+            "marketingEmailConsent": true
         }))
         .send()
         .await
@@ -63,6 +65,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
         serde_json::json!(true),
         body["showUnassessedOrSensitiveContent"]
     );
+    assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -118,6 +121,7 @@ async fn should_return_user_when_admin_reads_user() {
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(serde_json::json!("USER"), body["role"]);
     assert_eq!(serde_json::json!("PRO"), body["tier"]);
+    assert_eq!(serde_json::json!(false), body["marketingEmailConsent"]);
     assert_eq!(
         serde_json::json!(stripe_customer_id),
         body["stripeCustomerId"]

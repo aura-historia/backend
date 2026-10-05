@@ -1,6 +1,6 @@
 use crate::ports::{
     UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
-    UserRepositoryError, UserRepositoryFactory,
+    UserRepositoryError, UserRepositoryFactory, VersionedUser,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use application::error::{BoxError, box_error};
@@ -172,9 +172,10 @@ where
         )
         .await?;
         let mut users = self.users.in_transaction(&mut tx);
-        let domain_primitives::versioned::Versioned {
+        let VersionedUser {
             value: mut user,
             version,
+            ..
         } = users
             .find_by_id(command.user_id)
             .await?
@@ -298,6 +299,7 @@ impl From<&User> for UserDetailsView {
             currency: preferences.currency,
             measurement_unit: preferences.measurement_unit,
             show_unassessed_or_sensitive_content: preferences.show_unassessed_or_sensitive_content,
+            marketing_email_consent: user.has_marketing_email_consent(),
             tier: user.account().tier,
             role: user.account().role,
             stripe_customer_id: user.account().stripe_customer_id.clone(),

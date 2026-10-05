@@ -16,7 +16,8 @@ use user_core::user::{
 };
 use user_postgres::SqlxUserRepositoryFactory;
 use user_service::ports::{
-    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserInsertOutcome, UserMarketingEmailConsentRevision, UserRepository, UserRepositoryError,
+    UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -60,6 +61,25 @@ async fn should_insert_find_update_user_in_postgres() {
     assert_eq!(user.id(), loaded_by_id.value.id());
     assert_eq!(user.id(), loaded_by_email.value.id());
     assert_eq!(user.id(), loaded_by_stripe.value.id());
+    assert!(!loaded_by_id.value.has_marketing_email_consent());
+    assert_eq!(
+        UserMarketingEmailConsentRevision::INITIAL,
+        loaded_by_id.marketing_email_consent_revision
+    );
+
+    let account_email = user.email().clone();
+    user.grant_marketing_email_consent(&account_email)
+        .expect("matching user email should be accepted");
+    let consented = match users
+        .in_transaction(&mut tx)
+        .update(&user, loaded_by_id.version)
+        .await
+    {
+        Ok(updated) => updated,
+        Err(error) => panic!("failed to grant test consent: {error:?}"),
+    };
+    assert!(consented.value.has_marketing_email_consent());
+    assert_eq!(1, consented.marketing_email_consent_revision.into_inner());
 
     user.change_email(email("postgres-main-updated@example.com"));
     user.change_role(UserRole::User);
@@ -67,7 +87,7 @@ async fn should_insert_find_update_user_in_postgres() {
     user.change_stripe_customer_id(None);
     match users
         .in_transaction(&mut tx)
-        .update(&user, loaded_by_id.version)
+        .update(&user, consented.version)
         .await
     {
         Ok(_) => {}
@@ -87,7 +107,9 @@ async fn should_insert_find_update_user_in_postgres() {
     assert_eq!(UserRole::User, updated.value.account().role);
     assert_eq!(UserTier::Ultimate, updated.value.account().tier);
     assert_eq!(None, updated.value.account().stripe_customer_id);
-    assert!(updated.version.into_inner() > loaded_by_id.version.into_inner());
+    assert!(!updated.value.has_marketing_email_consent());
+    assert_eq!(2, updated.marketing_email_consent_revision.into_inner());
+    assert!(updated.version.into_inner() > consented.version.into_inner());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -107,6 +129,7 @@ async fn should_durably_update_and_rehydrate_user_suspension() {
     let suspended_user = match User::rehydrate(RehydratedUserState {
         id: user.id(),
         email: user.email().clone(),
+        marketing_email_consent: user.has_marketing_email_consent(),
         profile: user.profile().clone(),
         preferences: user.preferences().clone(),
         account: user.account().clone(),
@@ -135,6 +158,205 @@ async fn should_durably_update_and_rehydrate_user_suspension() {
 
     assert!(updated.value.is_suspended());
     assert!(rehydrated.value.is_suspended());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_default_newly_migrated_user_rows_to_no_consent_and_revision_zero() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let users = SqlxUserRepositoryFactory::new();
+    let user_id = UserId::new();
+    let email = email("postgres-migrated-consent@example.com");
+
+    if let Err(error) = sqlx::query(
+        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'FREE', 'USER')",
+    )
+    .bind(user_id.into_uuid())
+    .bind::<&str>(email.as_ref())
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to insert row using migration defaults: {error}");
+    }
+
+    let mut tx = begin(&unit_of_work).await;
+    let migrated = users
+        .in_transaction(&mut tx)
+        .find_by_id(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read migrated row: {error:?}"))
+        .unwrap_or_else(|| panic!("migrated row was not found"));
+    commit(tx).await;
+
+    assert!(!migrated.value.has_marketing_email_consent());
+    assert_eq!(
+        UserMarketingEmailConsentRevision::INITIAL,
+        migrated.marketing_email_consent_revision
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn ordinary_user_updates_preserve_consent_without_advancing_its_revision() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let mut user = sample_user("postgres-preserve-consent", UserRole::User, None);
+
+    let mut tx = begin(&unit_of_work).await;
+    let inserted = users
+        .in_transaction(&mut tx)
+        .insert(&user)
+        .await
+        .unwrap_or_else(|error| panic!("failed to insert user: {error:?}"));
+    let account_email = user.email().clone();
+    user.grant_marketing_email_consent(&account_email)
+        .expect("matching user email should be accepted");
+    let consented = users
+        .in_transaction(&mut tx)
+        .update(&user, inserted.version)
+        .await
+        .unwrap_or_else(|error| panic!("failed to update consent: {error:?}"));
+    commit(tx).await;
+
+    user.replace_profile(UserProfile {
+        first_name: Some(FirstName::from("Grace")),
+        last_name: Some(LastName::from("Hopper")),
+    })
+    .unwrap_or_else(|error| panic!("failed to replace profile: {error}"));
+    user.replace_preferences(UserPreferences {
+        language: Some(Language::De),
+        currency: Some(Currency::Eur),
+        measurement_unit: Some(MeasurementUnit::Metric),
+        show_unassessed_or_sensitive_content: false,
+    });
+    user.change_tier(UserTier::Ultimate);
+    user.change_stripe_customer_id(Some(StripeCustomerId::from("cus_preserve_consent")));
+
+    let mut tx = begin(&unit_of_work).await;
+    let updated = users
+        .in_transaction(&mut tx)
+        .update(&user, consented.version)
+        .await
+        .unwrap_or_else(|error| panic!("failed to update profile and account: {error:?}"));
+    commit(tx).await;
+
+    assert!(updated.value.has_marketing_email_consent());
+    assert_eq!(1, updated.marketing_email_consent_revision.into_inner());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn accepted_consent_decisions_advance_both_user_and_consent_versions() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let mut user = sample_user("postgres-repeat-consent", UserRole::User, None);
+    let mut tx = begin(&unit_of_work).await;
+    let inserted = users
+        .in_transaction(&mut tx)
+        .insert(&user)
+        .await
+        .unwrap_or_else(|error| panic!("failed to insert user: {error:?}"));
+
+    let account_email = user.email().clone();
+    user.grant_marketing_email_consent(&account_email)
+        .expect("matching user email should be accepted");
+    let first = users
+        .in_transaction(&mut tx)
+        .record_marketing_email_consent_decision(
+            &user,
+            inserted.version,
+            inserted.marketing_email_consent_revision,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("failed to record consent: {error:?}"));
+    let account_email = user.email().clone();
+    assert!(matches!(
+        user.grant_marketing_email_consent(&account_email),
+        Ok(domain_primitives::change_outcome::ChangeOutcome::Unchanged)
+    ));
+    let second = users
+        .in_transaction(&mut tx)
+        .record_marketing_email_consent_decision(
+            &user,
+            first.version,
+            first.marketing_email_consent_revision,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("failed to record fresh consent decision: {error:?}"));
+    commit(tx).await;
+
+    assert!(second.value.has_marketing_email_consent());
+    assert_eq!(3, second.version.into_inner());
+    assert_eq!(2, second.marketing_email_consent_revision.into_inner());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let user = sample_user("postgres-consent-race", UserRole::User, None);
+    let mut setup_tx = begin(&unit_of_work).await;
+    users
+        .in_transaction(&mut setup_tx)
+        .insert(&user)
+        .await
+        .unwrap_or_else(|error| panic!("failed to insert user: {error:?}"));
+    commit(setup_tx).await;
+
+    let mut stale_tx = begin(&unit_of_work).await;
+    let stale = users
+        .in_transaction(&mut stale_tx)
+        .find_by_id(user.id())
+        .await
+        .unwrap_or_else(|error| panic!("failed to load ordinary update state: {error:?}"))
+        .unwrap_or_else(|| panic!("ordinary update user was not found"));
+    let mut stale_profile = stale.value.clone();
+    stale_profile
+        .replace_profile(UserProfile {
+            first_name: Some(FirstName::from("Stale")),
+            last_name: None,
+        })
+        .unwrap_or_else(|error| panic!("failed to create stale profile update: {error}"));
+
+    let mut consent_tx = begin(&unit_of_work).await;
+    let current = users
+        .in_transaction(&mut consent_tx)
+        .find_by_id(user.id())
+        .await
+        .unwrap_or_else(|error| panic!("failed to load consent state: {error:?}"))
+        .unwrap_or_else(|| panic!("consent update user was not found"));
+    let mut consented = current.value;
+    let consented_email = consented.email().clone();
+    consented
+        .grant_marketing_email_consent(&consented_email)
+        .expect("matching account email should be accepted");
+    users
+        .in_transaction(&mut consent_tx)
+        .update(&consented, current.version)
+        .await
+        .unwrap_or_else(|error| panic!("failed to write consent state: {error:?}"));
+    commit(consent_tx).await;
+
+    let stale_result = users
+        .in_transaction(&mut stale_tx)
+        .update(&stale_profile, stale.version)
+        .await;
+    assert!(matches!(
+        stale_result,
+        Err(UserRepositoryError::ConcurrencyConflict)
+    ));
+    commit(stale_tx).await;
+
+    let mut verify_tx = begin(&unit_of_work).await;
+    let persisted = users
+        .in_transaction(&mut verify_tx)
+        .find_by_id(user.id())
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify consent state: {error:?}"))
+        .unwrap_or_else(|| panic!("consent update user disappeared"));
+    commit(verify_tx).await;
+    assert!(persisted.value.has_marketing_email_consent());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

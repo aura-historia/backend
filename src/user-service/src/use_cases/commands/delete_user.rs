@@ -283,7 +283,6 @@ mod tests {
     use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::{Transaction, TransactionError};
-    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -396,6 +395,7 @@ mod tests {
             currency: None,
             measurement_unit: None,
             show_unassessed_or_sensitive_content: false,
+            marketing_email_consent: false,
             tier: UserTier::Free,
             role,
             stripe_customer_id: None,
@@ -463,10 +463,13 @@ mod tests {
             if let Some(error) = state.error.take() {
                 Err(error)
             } else {
-                Ok(state
-                    .user
-                    .clone()
-                    .map(|value| Versioned::new(value, UserStorageVersion::INITIAL)))
+                Ok(state.user.clone().map(|value| {
+                    VersionedUser::new(
+                        value,
+                        UserStorageVersion::INITIAL,
+                        crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+                    )
+                }))
             }
         }
 
@@ -485,17 +488,24 @@ mod tests {
         }
 
         async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            Ok(VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            ))
         }
 
         async fn insert_if_absent(
             &mut self,
             user: &User,
         ) -> Result<crate::ports::UserInsertOutcome, UserRepositoryError> {
-            Ok(crate::ports::UserInsertOutcome::Created(Versioned::new(
-                user.clone(),
-                UserStorageVersion::INITIAL,
-            )))
+            Ok(crate::ports::UserInsertOutcome::Created(
+                VersionedUser::new(
+                    user.clone(),
+                    UserStorageVersion::INITIAL,
+                    crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+                ),
+            ))
         }
 
         async fn update(
@@ -503,7 +513,26 @@ mod tests {
             user: &User,
             _expected_version: UserStorageVersion,
         ) -> Result<VersionedUser, UserRepositoryError> {
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            Ok(VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            ))
+        }
+
+        async fn record_marketing_email_consent_decision(
+            &mut self,
+            user: &User,
+            expected_version: UserStorageVersion,
+            expected_consent_revision: crate::ports::UserMarketingEmailConsentRevision,
+        ) -> Result<VersionedUser, UserRepositoryError> {
+            Ok(VersionedUser::new(
+                user.clone(),
+                expected_version.next(),
+                expected_consent_revision
+                    .checked_next()
+                    .expect("test revision should not overflow"),
+            ))
         }
 
         async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {

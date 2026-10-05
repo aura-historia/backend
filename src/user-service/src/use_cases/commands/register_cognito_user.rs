@@ -246,7 +246,6 @@ mod tests {
     use application::error::box_error;
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
-    use domain_primitives::versioned::Versioned;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::stripe_customer_id::StripeCustomerId;
 
@@ -477,10 +476,13 @@ mod tests {
             _: UserId,
         ) -> Result<Option<VersionedUser>, UserRepositoryError> {
             record(&self.state, "find_user", self.tx_id);
-            Ok(self
-                .existing
-                .clone()
-                .map(|user| Versioned::new(user, UserStorageVersion::INITIAL)))
+            Ok(self.existing.clone().map(|user| {
+                VersionedUser::new(
+                    user,
+                    UserStorageVersion::INITIAL,
+                    crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+                )
+            }))
         }
 
         async fn find_by_email(
@@ -507,7 +509,11 @@ mod tests {
             let mut state = lock(&self.state);
             state.inserted_user_ids.push(user.id());
             state.inserted_users.push(user.clone());
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            Ok(VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            ))
         }
 
         async fn insert_if_absent(
@@ -523,7 +529,31 @@ mod tests {
             _: UserStorageVersion,
         ) -> Result<VersionedUser, UserRepositoryError> {
             record(&self.state, "update_user", self.tx_id);
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            Ok(VersionedUser::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+                crate::ports::UserMarketingEmailConsentRevision::INITIAL,
+            ))
+        }
+
+        async fn record_marketing_email_consent_decision(
+            &mut self,
+            user: &User,
+            expected_version: UserStorageVersion,
+            expected_consent_revision: crate::ports::UserMarketingEmailConsentRevision,
+        ) -> Result<VersionedUser, UserRepositoryError> {
+            record(
+                &self.state,
+                "record_marketing_email_consent_decision",
+                self.tx_id,
+            );
+            Ok(VersionedUser::new(
+                user.clone(),
+                expected_version.next(),
+                expected_consent_revision
+                    .checked_next()
+                    .expect("test revision should not overflow"),
+            ))
         }
 
         async fn delete_by_id(&mut self, _: UserId) -> Result<bool, UserRepositoryError> {

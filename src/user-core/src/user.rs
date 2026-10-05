@@ -12,6 +12,7 @@ use serde_email::Email;
 pub struct User {
     id: UserId,
     email: Email,
+    marketing_email_consent: bool,
     profile: UserProfile,
     preferences: UserPreferences,
     account: UserAccount,
@@ -32,6 +33,7 @@ pub struct NewUser {
 pub struct RehydratedUserState {
     pub id: UserId,
     pub email: Email,
+    pub marketing_email_consent: bool,
     pub profile: UserProfile,
     pub preferences: UserPreferences,
     pub account: UserAccount,
@@ -78,11 +80,18 @@ pub enum AssociateStripeCustomerIdError {
     DifferentCustomerAlreadyAssociated,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum GrantMarketingEmailConsentError {
+    #[error("confirmed email does not match the user's account email")]
+    ConfirmedEmailMismatch,
+}
+
 impl User {
     pub fn create(input: NewUser) -> Result<Self, RehydrateUserError> {
         Self::rehydrate(RehydratedUserState {
             id: input.id,
             email: input.email,
+            marketing_email_consent: false,
             profile: input.profile,
             preferences: input.preferences,
             account: input.account,
@@ -96,6 +105,7 @@ impl User {
         Ok(Self {
             id: state.id,
             email: state.email,
+            marketing_email_consent: state.marketing_email_consent,
             profile: state.profile,
             preferences: state.preferences,
             account: state.account,
@@ -104,7 +114,28 @@ impl User {
     }
 
     pub fn change_email(&mut self, email: Email) -> ChangeOutcome {
-        replace_if_changed(&mut self.email, email)
+        if self.email == email {
+            return ChangeOutcome::Unchanged;
+        }
+
+        self.email = email;
+        self.marketing_email_consent = false;
+        ChangeOutcome::Changed
+    }
+
+    pub fn grant_marketing_email_consent(
+        &mut self,
+        confirmed_email: &Email,
+    ) -> Result<ChangeOutcome, GrantMarketingEmailConsentError> {
+        if &self.email != confirmed_email {
+            return Err(GrantMarketingEmailConsentError::ConfirmedEmailMismatch);
+        }
+
+        Ok(replace_if_changed(&mut self.marketing_email_consent, true))
+    }
+
+    pub fn revoke_marketing_email_consent(&mut self) -> ChangeOutcome {
+        replace_if_changed(&mut self.marketing_email_consent, false)
     }
 
     pub fn replace_profile(
@@ -161,6 +192,10 @@ impl User {
 
     pub fn email(&self) -> &Email {
         &self.email
+    }
+
+    pub fn has_marketing_email_consent(&self) -> bool {
+        self.marketing_email_consent
     }
 
     pub fn profile(&self) -> &UserProfile {
@@ -233,7 +268,7 @@ mod tests {
         let result = User::create(input);
 
         assert!(
-            matches!(result, Ok(ref user) if user.id() == id && user.email() == &email && user.account().tier == UserTier::Free && !user.is_suspended())
+            matches!(result, Ok(ref user) if user.id() == id && user.email() == &email && user.account().tier == UserTier::Free && !user.is_suspended() && !user.has_marketing_email_consent())
         );
     }
 
@@ -319,6 +354,92 @@ mod tests {
         let outcome = user.change_email(email);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_clear_marketing_email_consent_when_account_email_changes() {
+        let mut user = User::create(new_user()).expect("user should be created");
+        let account_email = user.email().clone();
+        user.grant_marketing_email_consent(&account_email)
+            .expect("matching account email should be accepted");
+
+        let outcome = user.change_email(email("grace@example.com"));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(email("grace@example.com"), *user.email());
+        assert!(!user.has_marketing_email_consent());
+    }
+
+    #[test]
+    fn should_keep_marketing_email_consent_when_account_email_is_unchanged() {
+        let mut user = User::create(new_user()).expect("user should be created");
+        let account_email = user.email().clone();
+        user.grant_marketing_email_consent(&account_email)
+            .expect("matching account email should be accepted");
+        let email = user.email().clone();
+
+        let outcome = user.change_email(email);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(user.has_marketing_email_consent());
+    }
+
+    #[test]
+    fn should_grant_and_revoke_marketing_email_consent_idempotently() {
+        let mut user = User::create(new_user()).expect("user should be created");
+        let account_email = user.email().clone();
+
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            user.grant_marketing_email_consent(&account_email)
+        );
+        assert!(user.has_marketing_email_consent());
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            user.grant_marketing_email_consent(&account_email)
+        );
+        assert_eq!(
+            ChangeOutcome::Changed,
+            user.revoke_marketing_email_consent()
+        );
+        assert!(!user.has_marketing_email_consent());
+        assert_eq!(
+            ChangeOutcome::Unchanged,
+            user.revoke_marketing_email_consent()
+        );
+    }
+
+    #[test]
+    fn should_reject_marketing_email_consent_for_a_different_address() {
+        let mut user = User::create(new_user()).expect("user should be created");
+
+        assert_eq!(
+            Err(GrantMarketingEmailConsentError::ConfirmedEmailMismatch),
+            user.grant_marketing_email_consent(&email("newsletter@example.com"))
+        );
+        assert!(!user.has_marketing_email_consent());
+    }
+
+    #[test]
+    fn profile_preferences_tier_and_billing_changes_preserve_marketing_email_consent() {
+        let mut user = User::create(new_user()).expect("user should be created");
+        let account_email = user.email().clone();
+        user.grant_marketing_email_consent(&account_email)
+            .expect("matching account email should be accepted");
+
+        user.replace_profile(UserProfile {
+            first_name: Some("Grace".into()),
+            last_name: None,
+        })
+        .expect("profile should be valid");
+        user.replace_preferences(UserPreferences {
+            currency: Some(Currency::Gbp),
+            ..UserPreferences::default()
+        });
+        user.change_tier(UserTier::Pro);
+        user.change_stripe_customer_id(Some(StripeCustomerId::from("cus_marketing_consent")));
+
+        assert!(user.has_marketing_email_consent());
     }
 
     #[test]
@@ -454,13 +575,16 @@ mod tests {
         let result = User::rehydrate(RehydratedUserState {
             id: input.id,
             email: input.email,
+            marketing_email_consent: true,
             profile: input.profile,
             preferences: input.preferences,
             account: input.account,
             suspended: true,
         });
 
-        assert!(matches!(result, Ok(user) if user.is_suspended()));
+        assert!(
+            matches!(result, Ok(user) if user.is_suspended() && user.has_marketing_email_consent())
+        );
     }
 
     #[test]
