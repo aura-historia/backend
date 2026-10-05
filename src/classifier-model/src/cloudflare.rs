@@ -5,6 +5,7 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
+use image::{ImageDecoder, ImageFormat, ImageReader, Limits};
 use image_fetcher::{FetchedImage, ImageFetcher};
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::Serialize;
@@ -12,6 +13,7 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
+    io::Cursor,
     num::NonZeroUsize,
     str::FromStr,
     time::{Duration, Instant},
@@ -23,6 +25,7 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 13 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
+const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ACCOUNT_ID_BYTES: usize = 128;
 const MAX_API_TOKEN_BYTES: usize = 8 * 1024;
 const MAX_QUESTION_INSTRUCTIONS_BYTES: usize = 4 * 1024;
@@ -156,6 +159,7 @@ impl CloudflareClassifierModel {
         image_fetch_duration: Duration,
     ) -> Result<ClassificationResponse, ClassificationError> {
         validate_request(&request)?;
+        let operation = request.operation.as_str();
         let mut questions = BTreeMap::new();
         for question in request.questions {
             if questions
@@ -177,7 +181,6 @@ impl CloudflareClassifierModel {
             .into_iter()
             .map(|image| format!("data:{};base64,{}", image.mime_type(), image.base64_data()))
             .collect::<Vec<_>>();
-        let prompt_version = prompt_version(&request.state);
         let mut diagnostics = ClassificationDiagnostics {
             provider: "cloudflare".to_owned(),
             model: self.model.as_str().to_owned(),
@@ -241,17 +244,11 @@ impl CloudflareClassifierModel {
         match result {
             Ok(mut response) => {
                 response.diagnostics = diagnostics.clone();
-                log_classifier_attempt(
-                    prompt_version,
-                    &diagnostics,
-                    Some(&response.usage),
-                    Some(&response.answers),
-                    None,
-                );
+                log_classifier_attempt(operation, &diagnostics, Some(&response.usage), None);
                 Ok(response)
             }
             Err(error) => {
-                log_classifier_attempt(prompt_version, &diagnostics, None, None, Some(&error));
+                log_classifier_attempt(operation, &diagnostics, None, Some(&error));
                 Err(error)
             }
         }
@@ -449,49 +446,23 @@ fn duration_millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
-fn prompt_version(state: &Value) -> &'static str {
-    match state
-        .get("evaluation_context")
-        .and_then(|context| context.get("prompt_version"))
-        .and_then(Value::as_str)
-    {
-        Some("enhanced-match-v1") => "enhanced-match-v1",
-        _ => "unknown",
-    }
-}
-
 fn log_classifier_attempt(
-    prompt_version: &'static str,
+    operation: &'static str,
     diagnostics: &ClassificationDiagnostics,
     usage: Option<&ClassificationUsage>,
-    answers: Option<&BTreeMap<QuestionId, Probability>>,
     error: Option<&ClassificationError>,
 ) {
-    let hard_conflict = answers.and_then(|answers| {
-        answers
-            .iter()
-            .find(|(id, _)| id.as_str() == "hard_conflict")
-            .map(|(_, value)| value.get())
-    });
-    let should_show = answers.and_then(|answers| {
-        answers
-            .iter()
-            .find(|(id, _)| id.as_str() == "should_show")
-            .map(|(_, value)| value.get())
-    });
     tracing::info!(
         eventType = "CLASSIFIER_INVOCATION",
+        classifierOperation = operation,
         classifierProvider = %diagnostics.provider,
         classifierModel = %diagnostics.model,
-        promptVersion = prompt_version,
         durationMs = diagnostics.duration_millis,
         requestedImageCount = diagnostics.requested_image_count,
         sentImageCount = diagnostics.sent_image_count,
         imageOmissionReason = diagnostics.image_omission_reason.map(ImageOmissionReason::as_str),
         inputTokens = usage.and_then(|usage| usage.input_tokens),
         outputTokens = usage.and_then(|usage| usage.output_tokens),
-        hardConflictScore = hard_conflict,
-        shouldShowScore = should_show,
         failureCategory = error.map(ClassificationError::category),
         retryCategory = error.map(ClassificationError::retry_category),
         "Completed classifier invocation."
@@ -531,12 +502,7 @@ fn cloudflare_image_parts(
     if data.len() > MAX_IMAGE_BYTES {
         return Err(ImageOmissionReason::InvalidOrOversized);
     }
-    let (width, height) =
-        image_dimensions(mime_type, &data).ok_or(ImageOmissionReason::InvalidOrOversized)?;
-    if u64::from(width)
-        .checked_mul(u64::from(height))
-        .is_none_or(|pixels| pixels > MAX_IMAGE_PIXELS)
-    {
+    if !image_is_decodable(mime_type, &data) {
         return Err(ImageOmissionReason::InvalidOrOversized);
     }
     Ok(PreparedCloudflareImage {
@@ -550,83 +516,42 @@ fn cloudflare_image_parts(
     })
 }
 
-fn image_dimensions(mime_type: &str, bytes: &[u8]) -> Option<(u32, u32)> {
-    match mime_type {
-        "image/png" if bytes.starts_with(b"\x89PNG\r\n\x1a\n") => Some((
-            u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),
-            u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?),
-        )),
-        "image/jpeg" => jpeg_dimensions(bytes),
-        "image/webp" => webp_dimensions(bytes),
-        _ => None,
+fn image_is_decodable(mime_type: &str, bytes: &[u8]) -> bool {
+    let format = match mime_type {
+        "image/jpeg" => ImageFormat::Jpeg,
+        "image/png" => ImageFormat::Png,
+        "image/webp" => ImageFormat::WebP,
+        _ => return false,
+    };
+    let Ok(mut decoder) = ImageReader::with_format(Cursor::new(bytes), format).into_decoder()
+    else {
+        return false;
+    };
+    let (width, height) = decoder.dimensions();
+    if u64::from(width)
+        .checked_mul(u64::from(height))
+        .is_none_or(|pixels| pixels == 0 || pixels > MAX_IMAGE_PIXELS)
+    {
+        return false;
     }
-}
-
-fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
-    if !bytes.starts_with(&[0xff, 0xd8]) {
-        return None;
+    let total_bytes = decoder.total_bytes();
+    if total_bytes > MAX_DECODED_IMAGE_BYTES {
+        return false;
     }
-    let mut offset = 2;
-    while offset < bytes.len() {
-        while bytes.get(offset) == Some(&0xff) {
-            offset += 1;
-        }
-        let marker = *bytes.get(offset)?;
-        offset += 1;
-        if matches!(marker, 0xd8 | 0xd9 | 0x01 | 0xd0..=0xd7) {
-            continue;
-        }
-        let segment_length = usize::from(u16::from_be_bytes([
-            *bytes.get(offset)?,
-            *bytes.get(offset + 1)?,
-        ]));
-        if segment_length < 2 {
-            return None;
-        }
-        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
-            let height = u32::from(u16::from_be_bytes([
-                *bytes.get(offset + 3)?,
-                *bytes.get(offset + 4)?,
-            ]));
-            let width = u32::from(u16::from_be_bytes([
-                *bytes.get(offset + 5)?,
-                *bytes.get(offset + 6)?,
-            ]));
-            return Some((width, height));
-        }
-        offset = offset.checked_add(segment_length)?;
+    let mut limits = Limits::default();
+    limits.max_alloc = Some(MAX_DECODED_IMAGE_BYTES);
+    if decoder.set_limits(limits).is_err() {
+        return false;
     }
-    None
-}
-
-fn webp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
-    if !bytes.starts_with(b"RIFF") || bytes.get(8..12)? != b"WEBP" {
-        return None;
+    let Ok(output_len) = usize::try_from(total_bytes) else {
+        return false;
+    };
+    let mut output = Vec::new();
+    if output.try_reserve_exact(output_len).is_err() {
+        return false;
     }
-    match bytes.get(12..16)? {
-        b"VP8X" => {
-            let width =
-                u32::from_le_bytes([*bytes.get(24)?, *bytes.get(25)?, *bytes.get(26)?, 0]) + 1;
-            let height =
-                u32::from_le_bytes([*bytes.get(27)?, *bytes.get(28)?, *bytes.get(29)?, 0]) + 1;
-            Some((width, height))
-        }
-        b"VP8 " if bytes.get(23..26)? == [0x9d, 0x01, 0x2a] => {
-            let width = u32::from(u16::from_le_bytes([*bytes.get(26)?, *bytes.get(27)?]) & 0x3fff);
-            let height = u32::from(u16::from_le_bytes([*bytes.get(28)?, *bytes.get(29)?]) & 0x3fff);
-            Some((width, height))
-        }
-        b"VP8L" if bytes.get(20) == Some(&0x2f) => {
-            let first = u32::from(*bytes.get(21)?);
-            let second = u32::from(*bytes.get(22)?);
-            let third = u32::from(*bytes.get(23)?);
-            let fourth = u32::from(*bytes.get(24)?);
-            let width = 1 + first + ((second & 0x3f) << 8);
-            let height = 1 + ((second & 0xc0) >> 6) + (third << 2) + ((fourth & 0x0f) << 10);
-            Some((width, height))
-        }
-        _ => None,
-    }
+    output.resize(output_len, 0);
+    decoder.read_image(&mut output).is_ok()
 }
 
 async fn read_bounded_body(
@@ -764,6 +689,52 @@ mod tests {
             image_urls,
             options: crate::ClassificationOptions::default(),
         }
+    }
+
+    fn encoded_test_image(format: ImageFormat) -> Vec<u8> {
+        let mut output = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(1, 1)
+            .write_to(&mut output, format)
+            .unwrap_or_else(|_| panic!("encode valid test image"));
+        output.into_inner()
+    }
+
+    async fn assert_invalid_image_falls_back_to_text_only(mime_type: &str, bytes: &[u8]) {
+        let omission_reason = cloudflare_image_parts(mime_type, &BASE64.encode(bytes))
+            .expect_err("invalid image must be omitted");
+        assert_eq!(ImageOmissionReason::InvalidOrOversized, omission_reason);
+
+        let (endpoint, task) = serve_once(
+            r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.75}}}}"#.into(),
+            "200 OK",
+        )
+        .await;
+        let model =
+            CloudflareClassifierModel::with_endpoint(config(CloudflareModel::ClefFlash), endpoint)
+                .unwrap_or_else(|_| panic!("valid Cloudflare client"));
+        let image_url = Url::parse("https://example.test/listing-image")
+            .unwrap_or_else(|_| panic!("valid candidate image URL"));
+        let response = model
+            .classify_with_images(
+                request(vec![image_url]),
+                Vec::new(),
+                1,
+                Some(omission_reason),
+                Duration::ZERO,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("text-only fallback should classify successfully"));
+        let wire_request = task
+            .await
+            .unwrap_or_else(|_| panic!("server task completed"));
+
+        assert!(!wire_request.contains("\"images\""));
+        assert_eq!(1, response.diagnostics.requested_image_count);
+        assert_eq!(0, response.diagnostics.sent_image_count);
+        assert_eq!(
+            Some(omission_reason),
+            response.diagnostics.image_omission_reason
+        );
     }
 
     async fn serve_once(
@@ -1316,16 +1287,69 @@ mod tests {
             Err(ImageOmissionReason::InvalidOrOversized),
             cloudflare_image_parts("image/png", "not-base64!")
         );
-        let valid_png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x20";
-        assert!(cloudflare_image_parts("image/png", &BASE64.encode(valid_png)).is_ok());
     }
 
     #[test]
-    fn image_headers_are_limited_to_cloudflare_supported_formats_and_dimensions() {
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\x00\x10\0\0\0\x20";
-        assert_eq!(image_dimensions("image/png", png), Some((16, 32)));
-        assert_eq!(image_dimensions("image/png", b"GIF89a"), None);
-        let too_large = 4096_u32 * 4097_u32;
-        assert!(u64::from(too_large) > MAX_IMAGE_PIXELS);
+    fn fully_decoded_supported_images_are_accepted() {
+        for (mime_type, format) in [
+            ("image/jpeg", ImageFormat::Jpeg),
+            ("image/png", ImageFormat::Png),
+            ("image/webp", ImageFormat::WebP),
+        ] {
+            assert!(
+                cloudflare_image_parts(mime_type, &BASE64.encode(encoded_test_image(format)))
+                    .is_ok()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn truncated_images_are_omitted_and_classified_without_image_evidence() {
+        let truncated_png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x20";
+        let truncated_jpeg =
+            b"\xff\xd8\xff\xc0\0\x11\x08\0\x01\0\x01\x03\x01\x11\0\x02\x11\0\x03\x11\0";
+        let truncated_webp = b"RIFF\x16\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0\0\0\0\0\0\0";
+        let truncated_images = [
+            ("image/png", truncated_png.as_slice()),
+            ("image/jpeg", truncated_jpeg.as_slice()),
+            ("image/webp", truncated_webp.as_slice()),
+        ];
+
+        for (mime_type, bytes) in truncated_images {
+            assert_invalid_image_falls_back_to_text_only(mime_type, bytes).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn corrupt_images_are_omitted_and_classified_without_image_evidence() {
+        let mut corrupt_jpeg = encoded_test_image(ImageFormat::Jpeg);
+        let sof_offset = corrupt_jpeg
+            .windows(2)
+            .position(|marker| marker == [0xff, 0xc0])
+            .unwrap_or_else(|| panic!("test JPEG has a baseline frame header"));
+        corrupt_jpeg[sof_offset + 5] = 0;
+        corrupt_jpeg[sof_offset + 6] = 0;
+        let mut corrupt_png = encoded_test_image(ImageFormat::Png);
+        let idat_offset = corrupt_png
+            .windows(4)
+            .position(|chunk| chunk == b"IDAT")
+            .unwrap_or_else(|| panic!("test PNG has an IDAT chunk"));
+        let idat_length = u32::from_be_bytes(
+            corrupt_png[idat_offset - 4..idat_offset]
+                .try_into()
+                .unwrap_or_else(|_| panic!("test PNG IDAT length is four bytes")),
+        ) as usize;
+        let idat_crc_offset = idat_offset + 4 + idat_length;
+        corrupt_png[idat_crc_offset] ^= 1;
+        let mut corrupt_webp = encoded_test_image(ImageFormat::WebP);
+        corrupt_webp[12..16].copy_from_slice(b"NOPE");
+
+        for (mime_type, bytes) in [
+            ("image/jpeg", corrupt_jpeg.as_slice()),
+            ("image/png", corrupt_png.as_slice()),
+            ("image/webp", corrupt_webp.as_slice()),
+        ] {
+            assert_invalid_image_falls_back_to_text_only(mime_type, bytes).await;
+        }
     }
 }

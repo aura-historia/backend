@@ -9,6 +9,16 @@ pub enum ClassificationOperation {
     ProductEnhancedSearchDescriptionMatching,
 }
 
+impl ClassificationOperation {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ProductEnhancedSearchDescriptionMatching => {
+                "product_enhanced_search_description_matching"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QuestionId(String);
 
@@ -191,6 +201,14 @@ impl<M> ClassifierModel for Arc<M>
 where
     M: ClassifierModel + ?Sized,
 {
+    fn provider_name(&self) -> &'static str {
+        self.as_ref().provider_name()
+    }
+
+    fn model_name(&self) -> &'static str {
+        self.as_ref().model_name()
+    }
+
     async fn classify(
         &self,
         request: ClassificationRequest,
@@ -347,6 +365,66 @@ mod tests {
         let _ = task.await;
         sleep(Duration::from_millis(60)).await;
         assert_eq!(completed.load(Ordering::SeqCst), 0);
+    }
+
+    struct IdentifiedBatchModel(AtomicUsize);
+
+    #[async_trait::async_trait]
+    impl ClassifierModel for IdentifiedBatchModel {
+        fn provider_name(&self) -> &'static str {
+            "test-provider"
+        }
+
+        fn model_name(&self) -> &'static str {
+            "test-model"
+        }
+
+        async fn classify(
+            &self,
+            _request: ClassificationRequest,
+        ) -> Result<ClassificationResponse, ClassificationError> {
+            Err(ClassificationError::UnsupportedCapability)
+        }
+
+        async fn classify_batch(
+            &self,
+            requests: Vec<ClassificationRequest>,
+            _options: ClassificationBatchOptions,
+        ) -> Vec<Result<ClassificationResponse, ClassificationError>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            requests
+                .into_iter()
+                .map(|_| Err(ClassificationError::UnsupportedCapability))
+                .collect()
+        }
+    }
+
+    #[tokio::test]
+    async fn arc_forwarding_preserves_identity_and_batch_override() {
+        let identified = Arc::new(IdentifiedBatchModel(AtomicUsize::new(0)));
+        let concrete: Arc<dyn ClassifierModel> = identified.clone();
+        assert_eq!(
+            "test-provider",
+            <Arc<dyn ClassifierModel> as ClassifierModel>::provider_name(&concrete)
+        );
+        assert_eq!(
+            "test-model",
+            <Arc<dyn ClassifierModel> as ClassifierModel>::model_name(&concrete)
+        );
+
+        let results = <Arc<dyn ClassifierModel> as ClassifierModel>::classify_batch(
+            &concrete,
+            vec![request()],
+            ClassificationBatchOptions::new(NonZeroUsize::MIN),
+        )
+        .await;
+
+        assert_eq!(1, results.len());
+        assert!(matches!(
+            results[0],
+            Err(ClassificationError::UnsupportedCapability)
+        ));
+        assert_eq!(1, identified.0.load(Ordering::SeqCst));
     }
 
     #[test]
