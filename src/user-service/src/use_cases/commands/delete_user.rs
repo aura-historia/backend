@@ -1,7 +1,7 @@
 use crate::ports::{
+    MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
     UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
-    UserAdminReaderFactory, UserAdminRemovalDecision, UserRepository, UserRepositoryError,
-    UserRepositoryFactory,
+    UserAdminReaderFactory, UserAdminRemovalDecision,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use application::error::BoxError;
@@ -9,6 +9,7 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
+use time::OffsetDateTime;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,27 +74,27 @@ pub trait DeleteUserUseCase: Send + Sync {
     ) -> Result<DeleteUserResult, DeleteUserError>;
 }
 
-pub struct DeleteUserHandler<U, R, A> {
+pub struct DeleteUserHandler<U, C, A> {
     unit_of_work: U,
-    users: R,
+    consent: C,
     admin_reader: A,
     admin_only: bool,
 }
 
-impl<U, R, A> DeleteUserHandler<U, R, A> {
-    pub fn new(unit_of_work: U, users: R, admin_reader: A) -> Self {
+impl<U, C, A> DeleteUserHandler<U, C, A> {
+    pub fn new(unit_of_work: U, consent: C, admin_reader: A) -> Self {
         Self {
             unit_of_work,
-            users,
+            consent,
             admin_reader,
             admin_only: false,
         }
     }
 
-    pub fn new_admin_only(unit_of_work: U, users: R, admin_reader: A) -> Self {
+    pub fn new_admin_only(unit_of_work: U, consent: C, admin_reader: A) -> Self {
         Self {
             unit_of_work,
-            users,
+            consent,
             admin_reader,
             admin_only: true,
         }
@@ -101,10 +102,10 @@ impl<U, R, A> DeleteUserHandler<U, R, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, R, A> DeleteUserUseCase for DeleteUserHandler<U, R, A>
+impl<U, C, A> DeleteUserUseCase for DeleteUserHandler<U, C, A>
 where
     U: UnitOfWork,
-    R: UserRepositoryFactory<U::Tx>,
+    C: MarketingConsentIntentsFactory<U::Tx>,
     A: UserAdminReaderFactory<U::Tx> + UserAdminMutationGuardFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -157,13 +158,19 @@ where
             }
             UserAdminRemovalDecision::TargetNotAdmin | UserAdminRemovalDecision::Allowed => {}
         }
-        let mut users = self.users.in_transaction(&mut tx);
-        let deleted = users.delete_by_id(command.user_id).await?;
-        drop(users);
-
-        if !deleted {
-            return Err(DeleteUserError::UserNotFound);
-        }
+        let mut consent = self.consent.in_transaction(&mut tx);
+        let user = consent
+            .find_user_by_id(command.user_id)
+            .await?
+            .ok_or(DeleteUserError::UserNotFound)?;
+        // One stable source identity per User, independent of HTTP retries or actors.
+        // The adapter atomically deletes this versioned User, cancels stale grants,
+        // and retains the old-address revoke (including when consent was false).
+        let source_key = format!("user-deletion:{}", command.user_id);
+        consent
+            .record_user_deletion(&user, &source_key, OffsetDateTime::now_utc())
+            .await?;
+        drop(consent);
 
         tx.commit()
             .await
@@ -253,21 +260,21 @@ impl From<UserAdminReadError> for DeleteUserError {
     }
 }
 
-impl From<UserRepositoryError> for DeleteUserError {
-    fn from(error: UserRepositoryError) -> Self {
+impl From<MarketingConsentIntentError> for DeleteUserError {
+    fn from(error: MarketingConsentIntentError) -> Self {
         match error {
-            UserRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
-            UserRepositoryError::EmailConflict { source } => Self::EmailConflict { source },
-            UserRepositoryError::StripeCustomerConflict { source } => {
-                Self::StripeCustomerConflict { source }
-            }
-            UserRepositoryError::TemporarilyUnavailable { source } => {
+            MarketingConsentIntentError::ConcurrencyConflict
+            | MarketingConsentIntentError::SourceKeyConflict => Self::ConcurrencyConflict,
+            MarketingConsentIntentError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }
             }
-            UserRepositoryError::InvalidPersistedState { source } => {
-                Self::InvalidPersistedState { source }
-            }
-            UserRepositoryError::Internal { source } => Self::Internal { source },
+            MarketingConsentIntentError::InvalidPersistedState => Self::InvalidPersistedState {
+                source: application::error::static_error("invalid persisted consent state"),
+            },
+            MarketingConsentIntentError::InvalidInput
+            | MarketingConsentIntentError::RegisteredEmail => Self::Internal {
+                source: application::error::static_error("invalid user deletion consent input"),
+            },
         }
     }
 }
@@ -276,21 +283,21 @@ impl From<UserRepositoryError> for DeleteUserError {
 mod tests {
     use super::*;
     use crate::ports::{
-        UserAdminActorView, UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReader,
-        UserAdminReaderFactory, UserAdminRemovalDecision, UserDetailsView, UserStorageVersion,
-        VersionedUser,
+        ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, MarketingConsentIntents,
+        MarketingConsentIntentsFactory, UserAdminActorView, UserAdminMutationGuard,
+        UserAdminMutationGuardFactory, UserAdminReader, UserAdminReaderFactory,
+        UserAdminRemovalDecision, UserDetailsView, UserStorageVersion,
     };
-    use application::error::{BoxError, box_error};
+    use application::error::box_error;
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::{Transaction, TransactionError};
-    use domain_primitives::versioned::Versioned;
+
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
-    use user_core::stripe_customer_id::StripeCustomerId;
+
     use user_core::tier::UserTier;
-    use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 
     #[derive(Default)]
     struct TxState {
@@ -311,19 +318,21 @@ mod tests {
 
     #[derive(Default)]
     struct RepoState {
-        user: Option<User>,
-        delete_result: bool,
-        error: Option<UserRepositoryError>,
+        user: Option<ConsentUser>,
+        error: Option<MarketingConsentIntentError>,
+        record_error: Option<MarketingConsentIntentError>,
         find_by_id_calls: usize,
         delete_calls: usize,
+        source_keys: Vec<String>,
+        deleted_emails: Vec<Email>,
     }
 
     #[derive(Clone, Default)]
-    struct FakeUserRepositoryFactory {
+    struct FakeConsentFactory {
         state: Arc<Mutex<RepoState>>,
     }
 
-    struct FakeUserRepository {
+    struct FakeConsent {
         state: Arc<Mutex<RepoState>>,
     }
 
@@ -365,25 +374,16 @@ mod tests {
         }
     }
 
-    fn user_with(id: UserId, role: UserRole) -> User {
-        match User::create(NewUser {
-            id,
+    fn consent_user(id: UserId) -> ConsentUser {
+        ConsentUser {
+            user_id: id,
             email: email("actor@example.com"),
-            profile: UserProfile::default(),
-            preferences: UserPreferences::default(),
-            account: UserAccount {
-                tier: UserTier::Free,
-                role,
-                stripe_customer_id: None,
-            },
-        }) {
-            Ok(user) => user,
-            Err(error) => panic!("invalid test user: {error}"),
+            version: UserStorageVersion::INITIAL,
         }
     }
 
-    fn boxed() -> BoxError {
-        box_error(std::io::Error::other("boom"))
+    fn available_user(factory: &FakeConsentFactory, id: UserId) {
+        lock(&factory.state).user = Some(consent_user(id));
     }
 
     fn user_details(user_id: UserId, role: UserRole) -> UserDetailsView {
@@ -454,73 +454,100 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl UserRepository for FakeUserRepository {
-        async fn find_by_id(
+    impl MarketingConsentIntents for FakeConsent {
+        async fn find_by_source_key(
             &mut self,
-            _id: UserId,
-        ) -> Result<Option<VersionedUser>, UserRepositoryError> {
+            _: &str,
+        ) -> Result<Option<ConsentIntent>, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn find_user_by_id(
+            &mut self,
+            id: UserId,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
             let mut state = lock(&self.state);
             state.find_by_id_calls += 1;
             if let Some(error) = state.error.take() {
-                Err(error)
-            } else {
-                Ok(state
-                    .user
-                    .clone()
-                    .map(|value| Versioned::new(value, UserStorageVersion::INITIAL)))
+                return Err(error);
             }
+            Ok(state
+                .user
+                .as_ref()
+                .filter(|user| user.user_id == id)
+                .cloned())
         }
-
-        async fn find_by_email(
+        async fn find_user_by_email(
             &mut self,
-            _email: &Email,
-        ) -> Result<Option<VersionedUser>, UserRepositoryError> {
-            Ok(None)
+            _: &Email,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
+            unreachable!()
         }
-
-        async fn find_by_stripe_customer_id(
+        async fn record_user_transition(
             &mut self,
-            _stripe_customer_id: &StripeCustomerId,
-        ) -> Result<Option<VersionedUser>, UserRepositoryError> {
-            Ok(None)
+            _: &ConsentUser,
+            _: bool,
+            _: ConsentIntentSource,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            unreachable!()
         }
-
-        async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
-        }
-
-        async fn insert_if_absent(
+        async fn record_email_only_intent(
             &mut self,
-            user: &User,
-        ) -> Result<crate::ports::UserInsertOutcome, UserRepositoryError> {
-            Ok(crate::ports::UserInsertOutcome::Created(Versioned::new(
-                user.clone(),
-                UserStorageVersion::INITIAL,
-            )))
+            _: &Email,
+            _: bool,
+            _: ConsentIntentSource,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            unreachable!()
         }
-
-        async fn update(
+        async fn apply_provider_withdrawal(
             &mut self,
-            user: &User,
-            _expected_version: UserStorageVersion,
-        ) -> Result<VersionedUser, UserRepositoryError> {
-            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+            _: &ConsentUser,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn cancel_provider_backsync(
+            &mut self,
+            _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
         }
 
-        async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {
+        async fn record_user_deletion(
+            &mut self,
+            user: &ConsentUser,
+            source_key: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             let mut state = lock(&self.state);
             state.delete_calls += 1;
-            if let Some(error) = state.error.take() {
-                Err(error)
-            } else {
-                Ok(state.delete_result)
+            if let Some(error) = state.record_error.take() {
+                return Err(error);
             }
+            state.source_keys.push(source_key.to_owned());
+            state.deleted_emails.push(user.email.clone());
+            Ok(ConsentIntent {
+                intent_id:
+                    user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId::new(),
+                source_key: source_key.to_owned(),
+                subject: ConsentSubject::User(user.user_id),
+                source: ConsentIntentSource::UserDeletion,
+                email: user.email.clone(),
+
+                desired: false,
+            })
         }
     }
 
-    impl UserRepositoryFactory<FakeTx> for FakeUserRepositoryFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserRepository + 'tx {
-            FakeUserRepository {
+    impl MarketingConsentIntentsFactory<FakeTx> for FakeConsentFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl MarketingConsentIntents + 'tx {
+            FakeConsent {
                 state: Arc::clone(&self.state),
             }
         }
@@ -574,8 +601,8 @@ mod tests {
     async fn should_delete_own_user_without_admin_lookup() {
         let user_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
-        let users = FakeUserRepositoryFactory::default();
-        lock(&users.state).delete_result = true;
+        let users = FakeConsentFactory::default();
+        available_user(&users, user_id);
         let handler =
             DeleteUserHandler::new(unit_of_work.clone(), users.clone(), no_admin_reader());
 
@@ -590,9 +617,56 @@ mod tests {
             Ok(result) => assert_eq!(user_id, result.user_id),
             Err(error) => panic!("delete failed: {error:?}"),
         }
-        assert_eq!(0, lock(&users.state).find_by_id_calls);
-        assert_eq!(1, lock(&users.state).delete_calls);
+        let state = lock(&users.state);
+        assert_eq!(1, state.find_by_id_calls);
+        assert_eq!(1, state.delete_calls);
+        assert_eq!(state.source_keys, [format!("user-deletion:{user_id}")]);
+        assert_eq!(state.deleted_emails, [email("actor@example.com")]);
         assert_eq!(1, lock(&unit_of_work.state).commits);
+    }
+
+    #[tokio::test]
+    async fn should_use_same_source_key_for_system_and_authenticated_deletion() {
+        let user_id = UserId::new();
+        let system_consent = FakeConsentFactory::default();
+        let self_consent = FakeConsentFactory::default();
+        available_user(&system_consent, user_id);
+        available_user(&self_consent, user_id);
+        for (principal, consent) in [
+            (Principal::System, system_consent.clone()),
+            (Principal::User(user_id), self_consent.clone()),
+        ] {
+            DeleteUserHandler::new(FakeUnitOfWork::default(), consent, no_admin_reader())
+                .execute(&ctx(principal), DeleteUserCommand { user_id })
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            lock(&system_consent.state).source_keys,
+            lock(&self_consent.state).source_keys
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_consent_deletion_conflicts() {
+        let user_id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        let consent = FakeConsentFactory::default();
+        available_user(&consent, user_id);
+        lock(&consent.state).record_error = Some(MarketingConsentIntentError::ConcurrencyConflict);
+        let handler =
+            DeleteUserHandler::new(unit_of_work.clone(), consent.clone(), no_admin_reader());
+        assert_error(
+            handler
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    DeleteUserCommand { user_id },
+                )
+                .await,
+            |error| matches!(error, DeleteUserError::ConcurrencyConflict),
+        );
+        assert_eq!(1, lock(&consent.state).delete_calls);
+        assert_eq!(0, lock(&unit_of_work.state).commits);
     }
 
     #[tokio::test]
@@ -600,12 +674,8 @@ mod tests {
         let admin_id = UserId::new();
         let target_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
-        let users = FakeUserRepositoryFactory::default();
-        {
-            let mut state = lock(&users.state);
-            state.user = Some(user_with(admin_id, UserRole::Admin));
-            state.delete_result = true;
-        }
+        let users = FakeConsentFactory::default();
+        available_user(&users, target_id);
         let admin_reader = admin_reader(admin_id, UserRole::Admin);
         let handler =
             DeleteUserHandler::new_admin_only(unit_of_work, users.clone(), admin_reader.clone());
@@ -622,7 +692,7 @@ mod tests {
             Err(error) => panic!("delete failed: {error:?}"),
         }
         assert_eq!(1, lock(&admin_reader.state).calls);
-        assert_eq!(0, lock(&users.state).find_by_id_calls);
+        assert_eq!(1, lock(&users.state).find_by_id_calls);
         assert_eq!(1, lock(&users.state).delete_calls);
     }
 
@@ -630,8 +700,8 @@ mod tests {
     async fn should_reject_non_admin_self_delete_through_admin_handler() {
         let user_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
-        let users = FakeUserRepositoryFactory::default();
-        lock(&users.state).delete_result = true;
+        let users = FakeConsentFactory::default();
+        available_user(&users, user_id);
         let admin_reader = admin_reader(user_id, UserRole::User);
         let handler =
             DeleteUserHandler::new_admin_only(unit_of_work.clone(), users.clone(), admin_reader);
@@ -655,7 +725,7 @@ mod tests {
         let target_id = UserId::new();
         let handler = DeleteUserHandler::new(
             FakeUnitOfWork::default(),
-            FakeUserRepositoryFactory::default(),
+            FakeConsentFactory::default(),
             no_admin_reader(),
         );
 
@@ -681,12 +751,8 @@ mod tests {
             |error| matches!(error, DeleteUserError::Forbidden),
         );
 
-        let users = FakeUserRepositoryFactory::default();
-        {
-            let mut state = lock(&users.state);
-            state.user = Some(user_with(actor_id, UserRole::User));
-            state.delete_result = true;
-        }
+        let users = FakeConsentFactory::default();
+        available_user(&users, target_id);
         let handler = DeleteUserHandler::new(
             FakeUnitOfWork::default(),
             users,
@@ -707,11 +773,8 @@ mod tests {
     async fn should_protect_last_admin_deletion_without_delete_or_commit() {
         let user_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
-        let users = FakeUserRepositoryFactory::default();
-        {
-            let mut state = lock(&users.state);
-            state.delete_result = true;
-        }
+        let users = FakeConsentFactory::default();
+        available_user(&users, user_id);
         let admin_reader = admin_reader(user_id, UserRole::Admin);
         lock(&admin_reader.state).removal_decision = UserAdminRemovalDecision::LastAdmin;
 
@@ -729,7 +792,7 @@ mod tests {
     #[tokio::test]
     async fn should_map_not_found_repo_begin_and_commit_errors() {
         let user_id = UserId::new();
-        let users = FakeUserRepositoryFactory::default();
+        let users = FakeConsentFactory::default();
         let handler =
             DeleteUserHandler::new(FakeUnitOfWork::default(), users.clone(), no_admin_reader());
         assert_error(
@@ -742,8 +805,10 @@ mod tests {
             |error| matches!(error, DeleteUserError::UserNotFound),
         );
 
-        lock(&users.state).delete_result = true;
-        lock(&users.state).error = Some(UserRepositoryError::Internal { source: boxed() });
+        available_user(&users, user_id);
+        lock(&users.state).error = Some(MarketingConsentIntentError::TemporarilyUnavailable {
+            source: box_error(std::io::Error::other("unavailable")),
+        });
         assert_error(
             handler
                 .execute(
@@ -751,16 +816,13 @@ mod tests {
                     DeleteUserCommand { user_id },
                 )
                 .await,
-            |error| matches!(error, DeleteUserError::Internal { .. }),
+            |error| matches!(error, DeleteUserError::TemporarilyUnavailable { .. }),
         );
 
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
-        let handler = DeleteUserHandler::new(
-            begin_uow,
-            FakeUserRepositoryFactory::default(),
-            no_admin_reader(),
-        );
+        let handler =
+            DeleteUserHandler::new(begin_uow, FakeConsentFactory::default(), no_admin_reader());
         assert_error(
             handler
                 .execute(
@@ -773,8 +835,8 @@ mod tests {
 
         let commit_uow = FakeUnitOfWork::default();
         lock(&commit_uow.state).commit_error = true;
-        let users = FakeUserRepositoryFactory::default();
-        lock(&users.state).delete_result = true;
+        let users = FakeConsentFactory::default();
+        available_user(&users, user_id);
         let handler = DeleteUserHandler::new(commit_uow, users, no_admin_reader());
         assert_error(
             handler

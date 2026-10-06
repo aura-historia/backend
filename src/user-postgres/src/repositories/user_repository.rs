@@ -229,6 +229,7 @@ impl UserRepository for SqlxUserRepository<'_> {
                 version = version + 1,
                 updated = now()
             WHERE user_id = $1 AND version = $13
+              AND marketing_email_consent = $12
             RETURNING {}
             "#,
             user_columns(),
@@ -259,11 +260,12 @@ impl UserRepository for SqlxUserRepository<'_> {
     }
 
     async fn delete_by_id(&mut self, id: UserId) -> Result<bool, UserRepositoryError> {
-        let result = sqlx::query("DELETE FROM users WHERE user_id = $1")
-            .bind(id.into_uuid())
-            .execute(&mut *self.connection)
-            .await
-            .map_err(map_write_error)?;
+        let result =
+            sqlx::query("DELETE FROM users WHERE user_id = $1 AND marketing_email_consent = false")
+                .bind(id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(map_write_error)?;
 
         Ok(result.rows_affected() > 0)
     }

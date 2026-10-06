@@ -193,10 +193,10 @@ use user_loops::{LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter};
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
-    SqlxCognitoUserIdentityReader, SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory,
-    SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
-    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
-    SqlxUserTierEntitlementsFactory,
+    SqlxCognitoUserIdentityReader, SqlxMarketingConsentIntentRepository,
+    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
+    SqlxUserAuthenticationReader, SqlxUserCognitoIdentityRegistryFactory,
+    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -1230,12 +1230,12 @@ async fn app_state_from_config_and_pool(
     );
     let delete_user = DeleteUserHandler::new(
         unit_of_work.clone(),
-        SqlxUserRepositoryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
     );
     let admin_delete_user = DeleteUserHandler::new_admin_only(
         unit_of_work.clone(),
-        SqlxUserRepositoryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
     );
     let loops_client = reqwest::Client::builder()

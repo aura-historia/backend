@@ -2,6 +2,7 @@ pub mod apply_stripe_subscription;
 pub mod associate_user_stripe_customer_id;
 pub mod change_user_role;
 pub mod change_user_tier;
+pub mod coordinate_marketing_consent;
 pub mod create_access_token;
 pub mod create_user;
 pub mod delete_access_token;

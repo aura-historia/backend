@@ -10,6 +10,12 @@ PostgreSQL owns business state, `product_listing_events` (domain/enrichment jour
 
 Cognito issuer, `sub`, and email remain the registration identity inputs. The provider-agnostic post-confirmation adapter can also map optional standard Cognito `given_name`, `family_name`, and `locale` attributes into initial Aura Historia first name, last name, and a supported language derived from the locale. These bootstrap values are applied only when the PostgreSQL user is first created; sign-ins and registration replays do not synchronize provider refreshes over application profile data. PostgreSQL is authoritative after creation. Missing or unsupported optional values remain absent; no other provider attributes are persisted.
 
+## Marketing consent sync intent
+
+A verified local grant or local revoke commits the registered User decision/fence (where applicable) with an immutable-target PostgreSQL consent synchronization intent in one transaction. An accepted standalone email confirmation may create `EMAIL_ONLY` intent without a User; signup identity and accepted confirmation identity are distinct durable source keys, not request IDs. Provider-originated changes update local state and invalidate obsolete grants without an ordinary outbound echo. The service owns transaction/recipient-lock decisions and the intent repository; Loops owns actual membership/opt-out. Claims commit a short lease before external I/O, and finalization is lease- and result-receipt-fenced. An active lease defers; uncertain provider acceptance or lost finalize responses are not proof of completion. A raced revoke needs post-send recheck and repair by the later sender. See [storage](../storage.md#users-and-email-marketing-consent) for revision, expiry, deletion and state rules.
+
+`marketing_email_consent_sync_intents` is operational persistence, not a domain-event journal or a selected DMS/Kinesis route. Its PostgreSQL claim/read/finalize port exists, but no consent SQS publisher, provider HTTP sender or runtime worker is deployed; transport/activation belongs to subsequent work. Persisted intents alone provide no live delivery guarantee.
+
 ## DMS/Kinesis routing (target; live cutover unverified)
 
 DMS captures committed selected rows only; no outbox or custom CDC transport. Source removal does not decommission external Sequin subscriptions or drain native-worker in-flight work. See the [runbook](../durable-worker-runbook.md#activation-and-legacy-handoff).

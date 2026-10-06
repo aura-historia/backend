@@ -13,6 +13,7 @@ domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 serde-email = { workspace = true }
+sha2 = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }

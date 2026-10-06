@@ -20,6 +20,10 @@ pub use commands::change_user_tier::{
     ChangeUserTierCommand, ChangeUserTierError, ChangeUserTierHandler, ChangeUserTierResult,
     ChangeUserTierUseCase,
 };
+pub use commands::coordinate_marketing_consent::{
+    CoordinateMarketingConsentError, CoordinateMarketingConsentHandler,
+    CoordinateMarketingConsentUseCase, MarketingConsentDecision,
+};
 pub use commands::create_access_token::{
     CreateAccessTokenCommand, CreateAccessTokenError, CreateAccessTokenHandler,
     CreateAccessTokenResult, CreateAccessTokenUseCase,
