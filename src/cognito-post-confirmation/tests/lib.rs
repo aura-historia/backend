@@ -83,16 +83,16 @@ async fn should_commit_native_signup_consent_once_and_keep_withdrawal_on_replay(
     let subject = "native-consent-replay-subject";
     let email = "native-consent-replay@example.com";
     let event = || {
-        post_confirmation_event_with_signup_attributes(
-            "provider-username",
-            "eu-central-1",
-            "pool-a",
+        post_confirmation_event_with_signup_attributes(SignupEventFixture {
+            username: "provider-username",
+            region: "eu-central-1",
+            user_pool_id: "pool-a",
             subject,
             email,
-            "PostConfirmation_ConfirmSignUp",
-            Some("true"),
-            Some("true"),
-        )
+            trigger_source: "PostConfirmation_ConfirmSignUp",
+            email_verified: Some("true"),
+            marketing_consent: Some("true"),
+        })
     };
 
     handler(event(), &service)
@@ -196,16 +196,16 @@ async fn should_preserve_registration_without_grant_for_nonqualifying_consent_pr
         let subject = format!("consent-gate-{case}");
         let email = format!("consent-{case}@example.com");
         handler(
-            post_confirmation_event_with_signup_attributes(
-                "provider-username",
-                "eu-central-1",
-                "pool-a",
-                &subject,
-                &email,
+            post_confirmation_event_with_signup_attributes(SignupEventFixture {
+                username: "provider-username",
+                region: "eu-central-1",
+                user_pool_id: "pool-a",
+                subject: &subject,
+                email: &email,
                 trigger_source,
-                verified,
+                email_verified: verified,
                 marketing_consent,
-            ),
+            }),
             &service,
         )
         .await
@@ -642,6 +642,17 @@ struct ProfileAttributes<'a> {
     locale: Option<&'a str>,
 }
 
+struct SignupEventFixture<'a> {
+    username: &'a str,
+    region: &'a str,
+    user_pool_id: &'a str,
+    subject: &'a str,
+    email: &'a str,
+    trigger_source: &'a str,
+    email_verified: Option<&'a str>,
+    marketing_consent: Option<&'a str>,
+}
+
 fn post_confirmation_event_with_username(
     username: &str,
     region: &str,
@@ -721,19 +732,15 @@ fn post_confirmation_event_with_username_and_profile(
 }
 
 fn post_confirmation_event_with_signup_attributes(
-    username: &str,
-    region: &str,
-    user_pool_id: &str,
-    subject: &str,
-    email: &str,
-    trigger_source: &str,
-    email_verified: Option<&str>,
-    marketing_consent: Option<&str>,
+    fixture: SignupEventFixture<'_>,
 ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
-    let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+    let mut user_attributes = serde_json::json!({
+        "sub": fixture.subject,
+        "email": fixture.email
+    });
     for (attribute, value) in [
-        ("email_verified", email_verified),
-        ("custom:marketing_consent", marketing_consent),
+        ("email_verified", fixture.email_verified),
+        ("custom:marketing_consent", fixture.marketing_consent),
     ] {
         if let Some(value) = value {
             user_attributes[attribute] = serde_json::json!(value);
@@ -741,10 +748,10 @@ fn post_confirmation_event_with_signup_attributes(
     }
     let payload = serde_json::from_value(serde_json::json!({
         "version": "1",
-        "triggerSource": trigger_source,
-        "region": region,
-        "userPoolId": user_pool_id,
-        "userName": username,
+        "triggerSource": fixture.trigger_source,
+        "region": fixture.region,
+        "userPoolId": fixture.user_pool_id,
+        "userName": fixture.username,
         "callerContext": {},
         "request": {
             "userAttributes": user_attributes,

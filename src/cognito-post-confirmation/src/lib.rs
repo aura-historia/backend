@@ -225,37 +225,58 @@ mod tests {
         family_name: Option<&str>,
         locale: Option<&str>,
     ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
-        post_confirmation_event_with_signup_attributes(
-            username,
-            subject,
-            email,
-            given_name,
-            family_name,
-            locale,
-            None,
-            None,
-            "PostConfirmation_ConfirmSignUp",
-        )
+        post_confirmation_event_with_signup_attributes(SignupEventFixture {
+            profile: ProfileAttributes {
+                given_name,
+                family_name,
+                locale,
+            },
+            ..SignupEventFixture::new(username, subject, email)
+        })
+    }
+
+    #[derive(Default)]
+    struct ProfileAttributes<'a> {
+        given_name: Option<&'a str>,
+        family_name: Option<&'a str>,
+        locale: Option<&'a str>,
+    }
+
+    struct SignupEventFixture<'a> {
+        username: &'a str,
+        subject: &'a str,
+        email: &'a str,
+        profile: ProfileAttributes<'a>,
+        email_verified: Option<&'a str>,
+        marketing_consent: Option<&'a str>,
+        trigger_source: &'a str,
+    }
+
+    impl<'a> SignupEventFixture<'a> {
+        fn new(username: &'a str, subject: &'a str, email: &'a str) -> Self {
+            Self {
+                username,
+                subject,
+                email,
+                profile: ProfileAttributes::default(),
+                email_verified: None,
+                marketing_consent: None,
+                trigger_source: "PostConfirmation_ConfirmSignUp",
+            }
+        }
     }
 
     fn post_confirmation_event_with_signup_attributes(
-        username: &str,
-        subject: &str,
-        email: &str,
-        given_name: Option<&str>,
-        family_name: Option<&str>,
-        locale: Option<&str>,
-        email_verified: Option<&str>,
-        marketing_consent: Option<&str>,
-        trigger_source: &str,
+        fixture: SignupEventFixture<'_>,
     ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
-        let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+        let mut user_attributes =
+            serde_json::json!({ "sub": fixture.subject, "email": fixture.email });
         for (attribute, value) in [
-            ("given_name", given_name),
-            ("family_name", family_name),
-            ("locale", locale),
-            ("email_verified", email_verified),
-            ("custom:marketing_consent", marketing_consent),
+            ("given_name", fixture.profile.given_name),
+            ("family_name", fixture.profile.family_name),
+            ("locale", fixture.profile.locale),
+            ("email_verified", fixture.email_verified),
+            ("custom:marketing_consent", fixture.marketing_consent),
         ] {
             if let Some(value) = value {
                 user_attributes[attribute] = serde_json::json!(value);
@@ -264,10 +285,10 @@ mod tests {
 
         event(serde_json::json!({
             "version": "1",
-            "triggerSource": trigger_source,
+            "triggerSource": fixture.trigger_source,
             "region": "eu-central-1",
             "userPoolId": "pool-id",
-            "userName": username,
+            "userName": fixture.username,
             "callerContext": {},
             "request": {
                 "userAttributes": user_attributes,
@@ -387,17 +408,11 @@ mod tests {
 
     #[test]
     fn should_accept_only_explicit_consent_from_verified_native_signup_attributes() {
-        let accepted = post_confirmation_event_with_signup_attributes(
-            "provider-username",
-            "canonical-sub",
-            "ada@example.com",
-            None,
-            None,
-            None,
-            Some("true"),
-            Some("true"),
-            "PostConfirmation_ConfirmSignUp",
-        );
+        let accepted = post_confirmation_event_with_signup_attributes(SignupEventFixture {
+            email_verified: Some("true"),
+            marketing_consent: Some("true"),
+            ..SignupEventFixture::new("provider-username", "canonical-sub", "ada@example.com")
+        });
         assert_eq!(
             Some(CognitoSignupConsent::Accepted),
             parse_user(&accepted.payload)
@@ -430,17 +445,12 @@ mod tests {
                 Some("true"),
             ),
         ] {
-            let event = post_confirmation_event_with_signup_attributes(
-                "provider-username",
-                "canonical-sub",
-                "ada@example.com",
-                None,
-                None,
-                None,
+            let event = post_confirmation_event_with_signup_attributes(SignupEventFixture {
                 email_verified,
                 marketing_consent,
                 trigger_source,
-            );
+                ..SignupEventFixture::new("provider-username", "canonical-sub", "ada@example.com")
+            });
             assert_eq!(
                 None,
                 parse_user(&event.payload)
