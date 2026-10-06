@@ -5,6 +5,8 @@ use url::{Host, Url};
 pub struct LoopsNewsletterConfig {
     pub(crate) newsletter_list_id: String,
     pub(crate) update_url: Url,
+    pub(crate) find_url: Url,
+    pub(crate) suppression_url: Url,
     pub(crate) authorization: HeaderValue,
 }
 
@@ -61,6 +63,18 @@ impl LoopsNewsletterConfig {
         ))
         .map_err(|_| LoopsNewsletterConfigError::InvalidBaseUrl)?;
 
+        let find_url = Url::parse(&format!(
+            "{}/v1/contacts/find",
+            base.as_str().trim_end_matches('/')
+        ))
+        .map_err(|_| LoopsNewsletterConfigError::InvalidBaseUrl)?;
+
+        let suppression_url = Url::parse(&format!(
+            "{}/v1/contacts/suppression",
+            base.as_str().trim_end_matches('/')
+        ))
+        .map_err(|_| LoopsNewsletterConfigError::InvalidBaseUrl)?;
+
         let mut authorization = HeaderValue::from_str(&format!("Bearer {api_key}"))
             .map_err(|_| LoopsNewsletterConfigError::InvalidApiKey)?;
         authorization.set_sensitive(true);
@@ -68,6 +82,8 @@ impl LoopsNewsletterConfig {
         Ok(Self {
             newsletter_list_id,
             update_url,
+            find_url,
+            suppression_url,
             authorization,
         })
     }
@@ -123,6 +139,10 @@ mod tests {
         assert_eq!(
             "https://app.loops.so/api/v1/contacts/update",
             default.update_url.as_str()
+        );
+        assert_eq!(
+            "https://app.loops.so/api/v1/contacts/find",
+            default.find_url.as_str()
         );
     }
 
