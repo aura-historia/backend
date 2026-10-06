@@ -398,7 +398,10 @@ impl SqlxMarketingConsentIntentRepository {
     ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
         validate_input(source_key, changed_at, desired)?;
         if !source.accepts(ConsentSubject::User(user_id), desired)
-            || source == ConsentIntentSource::UserDeletion
+            || matches!(
+                source,
+                ConsentIntentSource::UserDeletion | ConsentIntentSource::ProviderRaceRepair
+            )
         {
             return Err(MarketingConsentPersistenceError::InvalidInput);
         }
@@ -445,7 +448,9 @@ impl SqlxMarketingConsentIntentRepository {
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
         validate_input(source_key, changed_at, desired)?;
-        if !source.accepts(ConsentSubject::EmailOnly, desired) {
+        if !source.accepts(ConsentSubject::EmailOnly, desired)
+            || source == ConsentIntentSource::ProviderRaceRepair
+        {
             return Err(MarketingConsentPersistenceError::InvalidInput);
         }
         let conn = tx.connection();
@@ -506,7 +511,8 @@ impl SqlxMarketingConsentIntentRepository {
     }
 
     /// Only a leased grant canceled by provider back-sync is a compensation candidate.
-    /// Lock the source and recipient before inspecting the latest durable decision.
+    /// Serialize on the recipient alone, so this is safe after a worker recheck
+    /// in the same transaction. The source-key uniqueness remains a final invariant.
     pub async fn repair_raced_grant_if_needed(
         &self,
         tx: &mut SqlxTransaction,
@@ -516,7 +522,6 @@ impl SqlxMarketingConsentIntentRepository {
     ) -> Result<GrantRaceRepairOutcome, MarketingConsentPersistenceError> {
         validate_input(source_key, changed_at, false)?;
         let conn = tx.connection();
-        lock_source(&mut *conn, source_key).await?;
         let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
         let Some(initial) = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
             .bind(original.as_uuid())
