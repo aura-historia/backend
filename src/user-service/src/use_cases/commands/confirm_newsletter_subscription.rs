@@ -153,7 +153,12 @@ where
         };
 
         let intent_id = MarketingConsentCoordinator::new(&mut tx, &self.intents)
-            .accepted_double_opt_in(confirmation_id_text, challenge.email.clone(), now)
+            .accepted_double_opt_in_with_profile(
+                confirmation_id_text,
+                challenge.email.clone(),
+                Some(challenge.profile.clone()),
+                now,
+            )
             .await
             .map_err(map_consent_error)?;
         self.challenges

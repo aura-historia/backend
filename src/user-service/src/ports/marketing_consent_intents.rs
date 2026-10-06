@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
-use super::UserStorageVersion;
+use super::{NewsletterProfile, UserStorageVersion};
 
 /// Opaque per-mailbox serialization key, not an email equivalence or ownership proof.
 /// Preserve plus tags and dots; the original exact email remains the provider identity.
@@ -52,6 +52,8 @@ pub struct ConsentIntent {
     pub subject: ConsentSubject,
     pub source: ConsentIntentSource,
     pub email: Email,
+    /// Confirmed DOI profile snapshot for asynchronous provider synchronization.
+    pub profile_snapshot: Option<Box<NewsletterProfile>>,
 
     pub desired: bool,
 }
@@ -113,6 +115,7 @@ pub trait MarketingConsentIntents: Send {
         desired: bool,
         source: ConsentIntentSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
     async fn record_email_only_intent(
@@ -121,6 +124,7 @@ pub trait MarketingConsentIntents: Send {
         desired: bool,
         source: ConsentIntentSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
     /// A provider-originated withdrawal updates User consent/revision without an outbound intent.

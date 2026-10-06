@@ -516,6 +516,7 @@ mod tests {
             _: bool,
             _: ConsentIntentSource,
             _: &str,
+            _: Option<crate::ports::NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             unreachable!()
@@ -526,6 +527,7 @@ mod tests {
             _: bool,
             _: ConsentIntentSource,
             _: &str,
+            _: Option<crate::ports::NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             unreachable!()
@@ -581,6 +583,7 @@ mod tests {
                 subject: ConsentSubject::User(user.user_id),
                 source: ConsentIntentSource::UserDeletion,
                 email: user.email.clone(),
+                profile_snapshot: None,
 
                 desired: false,
             };
@@ -739,6 +742,7 @@ mod tests {
             subject: ConsentSubject::User(user_id),
             source: ConsentIntentSource::UserDeletion,
             email: email("actor@example.com"),
+            profile_snapshot: None,
             desired: true,
         };
         lock(&consent.state).intent = Some(conflicting.clone());

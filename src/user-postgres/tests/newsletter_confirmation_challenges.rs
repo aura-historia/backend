@@ -3,12 +3,16 @@ use platform_postgres::SqlxUnitOfWork;
 use serde_email::Email;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
+use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 use user_core::newsletter_confirmation_id::NewsletterConfirmationId;
 use user_core::user_id::UserId;
+use user_core::{first_name::FirstName, last_name::LastName};
 use user_postgres::{
-    SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
+    SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker,
+    SqlxNewsletterConfirmationChallengesRepository,
 };
+use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
 use user_service::ports::{
     NewNewsletterConfirmationChallenge, NewsletterConfirmationChallenge,
     NewsletterConfirmationChallenges, NewsletterConfirmationChallengesFactory,
@@ -22,6 +26,179 @@ use user_service::use_cases::commands::confirm_newsletter_subscription::{
 use user_service::use_cases::commands::coordinate_marketing_consent::MarketingConsentCoordinator;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn email_only_confirmation_persists_profile_for_the_worker_claim() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let challenge_repo = SqlxNewsletterConfirmationChallengesRepository::new();
+    let consent_repo = SqlxMarketingConsentIntentRepository::new();
+    let target_email = email("doi-profile-snapshot@example.test");
+    let now = OffsetDateTime::now_utc();
+    let profile = user_service::ports::NewsletterProfile {
+        first_name: Some(FirstName::from("Ada")),
+        last_name: Some(LastName::from("Lovelace")),
+        language: Some(localization::Language::En),
+        currency: Some(money::Currency::Usd),
+    };
+    let (outcome, confirmation_id, token) = create_challenge_with_profile(
+        &uow,
+        &challenge_repo,
+        &target_email,
+        None,
+        now,
+        0x4f,
+        profile.clone(),
+    )
+    .await;
+    assert_eq!(NewsletterConfirmationIssueOutcome::Issued, outcome);
+    let handler = ConfirmNewsletterSubscriptionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        challenge_repo,
+        consent_repo,
+        FixedClock(now),
+    );
+    handler.execute(token.as_str()).await.unwrap();
+
+    let intent_uuid: uuid::Uuid = sqlx::query_scalar(
+        "SELECT resulting_intent_id FROM newsletter_subscription_confirmations WHERE confirmation_id = $1",
+    )
+    .bind(confirmation_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let intent_id = MarketingConsentSyncIntentId::try_from(intent_uuid).unwrap();
+    let stored_profile: serde_json::Value = sqlx::query_scalar(
+        "SELECT profile_snapshot FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
+    )
+    .bind(intent_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        serde_json::json!({
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "language": "en",
+            "currency": "USD"
+        }),
+        stored_profile
+    );
+
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let mut tx = uow.begin().await.unwrap();
+    let claim = match worker.claim_by_id(&mut tx, intent_id).await.unwrap() {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("new DOI intent should be claimable"),
+    };
+    assert_eq!(
+        user_service::ports::ConsentSubject::EmailOnly,
+        claim.intent.subject
+    );
+    assert_eq!(Some(Box::new(profile)), claim.intent.profile_snapshot);
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn failed_confirmation_commit_rolls_back_grant_intent_and_challenge_updates() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let challenge_repo = SqlxNewsletterConfirmationChallengesRepository::new();
+    let consent_repo = SqlxMarketingConsentIntentRepository::new();
+    let target_id = UserId::new();
+    let target_email = email("doi-rollback@example.test");
+    seed_user(&pool, target_id, &target_email).await;
+    let now = OffsetDateTime::now_utc();
+    let (first, target_challenge_id, target_token) = create_challenge(
+        &uow,
+        &challenge_repo,
+        &target_email,
+        None,
+        now - Duration::minutes(12),
+        0x35,
+    )
+    .await;
+    let (sibling, sibling_challenge_id, _) = create_challenge(
+        &uow,
+        &challenge_repo,
+        &target_email,
+        None,
+        now - Duration::minutes(6),
+        0x36,
+    )
+    .await;
+    assert_eq!(NewsletterConfirmationIssueOutcome::Issued, first);
+    assert_eq!(NewsletterConfirmationIssueOutcome::Issued, sibling);
+
+    sqlx::query(
+        "CREATE OR REPLACE FUNCTION reject_newsletter_confirmation_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.confirmed_at IS NOT NULL THEN RAISE EXCEPTION 'injected newsletter confirmation commit failure'; END IF; RETURN NEW; END $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "DROP TRIGGER IF EXISTS reject_newsletter_confirmation_commit ON newsletter_subscription_confirmations",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE CONSTRAINT TRIGGER reject_newsletter_confirmation_commit AFTER UPDATE ON newsletter_subscription_confirmations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_newsletter_confirmation_commit()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let handler = ConfirmNewsletterSubscriptionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        challenge_repo,
+        consent_repo,
+        FixedClock(now),
+    );
+    let result = handler.execute(target_token.as_str()).await;
+
+    sqlx::query(
+        "DROP TRIGGER IF EXISTS reject_newsletter_confirmation_commit ON newsletter_subscription_confirmations",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DROP FUNCTION IF EXISTS reject_newsletter_confirmation_commit()")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        Err(ConfirmNewsletterSubscriptionError::TemporarilyUnavailable),
+        result
+    );
+    let user_consent: (bool, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision FROM users WHERE user_id = $1",
+    )
+    .bind(target_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((false, 0), user_consent);
+    let intent_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email = $1",
+    )
+    .bind::<&str>(target_email.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(0, intent_count);
+    for challenge_id in [target_challenge_id, sibling_challenge_id] {
+        let state: (Option<OffsetDateTime>, Option<OffsetDateTime>) = sqlx::query_as(
+            "SELECT confirmed_at, invalidated_at FROM newsletter_subscription_confirmations WHERE confirmation_id = $1",
+        )
+        .bind(challenge_id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!((None, None), state);
+    }
+}
 
 fn email(value: &str) -> Email {
     Email::try_from(value).unwrap()
@@ -57,6 +234,31 @@ async fn create_challenge(
     NewsletterConfirmationId,
     RawNewsletterConfirmationToken,
 ) {
+    create_challenge_with_profile(
+        uow,
+        repo,
+        email,
+        requester,
+        at,
+        entropy_byte,
+        user_service::ports::NewsletterProfile::default(),
+    )
+    .await
+}
+
+async fn create_challenge_with_profile(
+    uow: &SqlxUnitOfWork,
+    repo: &SqlxNewsletterConfirmationChallengesRepository,
+    email: &Email,
+    requester: Option<UserId>,
+    at: OffsetDateTime,
+    entropy_byte: u8,
+    profile: user_service::ports::NewsletterProfile,
+) -> (
+    NewsletterConfirmationIssueOutcome,
+    NewsletterConfirmationId,
+    RawNewsletterConfirmationToken,
+) {
     let token = RawNewsletterConfirmationToken::from_entropy([entropy_byte; 32]);
     let id = NewsletterConfirmationId::new();
     let mut tx = uow.begin().await.unwrap();
@@ -67,7 +269,7 @@ async fn create_challenge(
             token_digest: token.digest(),
             email: email.clone(),
             requested_by_user_id: requester,
-            profile: user_service::ports::NewsletterProfile::default(),
+            profile,
             now: at,
         })
         .await
@@ -186,8 +388,8 @@ async fn confirmation_binds_exact_target_and_replay_after_withdrawal_is_a_noop()
 
     let handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        challenge_repo.clone(),
-        consent_repo.clone(),
+        challenge_repo,
+        consent_repo,
         FixedClock(now),
     );
     let (left, right) = tokio::join!(
@@ -262,8 +464,8 @@ async fn expiry_boundary_and_provider_withdrawal_reject_unconfirmed_proofs_witho
     assert_eq!(NewsletterConfirmationIssueOutcome::Issued, outcome);
     let handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        challenge_repo.clone(),
-        consent_repo.clone(),
+        challenge_repo,
+        consent_repo,
         FixedClock(created_at + Duration::hours(24)),
     );
     assert_eq!(
@@ -395,8 +597,8 @@ async fn email_only_proof_binds_exact_existing_user_but_deleted_binding_never_be
     seed_user(&pool, late_user_id, &late_user_email).await;
     let handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        challenge_repo.clone(),
-        consent_repo.clone(),
+        challenge_repo,
+        consent_repo,
         FixedClock(now),
     );
     handler.execute(token.as_str()).await.unwrap();
@@ -503,7 +705,7 @@ async fn provider_withdrawal_racing_confirmation_commits_one_coherent_mailbox_de
     let handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         challenge_repo,
-        consent_repo.clone(),
+        consent_repo,
         FixedClock(now),
     );
     let withdrawal = async {
@@ -556,7 +758,7 @@ async fn unknown_malformed_and_mismatched_user_proofs_fail_without_granting_cons
     let now = OffsetDateTime::now_utc();
     let handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        challenge_repo.clone(),
+        challenge_repo,
         consent_repo,
         FixedClock(now),
     );
@@ -624,7 +826,7 @@ async fn expired_cleanup_is_bounded_and_retains_confirmed_replay_rows() {
     .await;
     let confirmed_handler = ConfirmNewsletterSubscriptionHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        challenge_repo.clone(),
+        challenge_repo,
         consent_repo,
         FixedClock(created_at + Duration::hours(1)),
     );

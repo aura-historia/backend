@@ -457,6 +457,7 @@ async fn service_port_withdrawal_updates_registered_user_and_cancels_only_exact_
             true,
             PortSource::CognitoSignup,
             "signup:ada",
+            None,
             OffsetDateTime::now_utc(),
         )
         .await
@@ -482,6 +483,7 @@ async fn service_port_withdrawal_updates_registered_user_and_cancels_only_exact_
             true,
             PortSource::EmailOnlyWithdrawal,
             "bad-source",
+            None,
             OffsetDateTime::now_utc()
         )
         .await,
@@ -493,6 +495,7 @@ async fn service_port_withdrawal_updates_registered_user_and_cancels_only_exact_
             true,
             PortSource::AuraDoubleOptIn,
             "signup:ada",
+            None,
             OffsetDateTime::now_utc()
         )
         .await,
@@ -707,6 +710,7 @@ async fn provider_withdrawal_rolls_back_both_user_change_and_cancellation() {
         true,
         PortSource::CognitoSignup,
         "grant-for-rollback",
+        None,
         OffsetDateTime::now_utc(),
     )
     .await
