@@ -2122,6 +2122,74 @@ async fn provider_withdrawal_racing_user_grant_schedules_one_revoke_and_replays_
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn blocked_claim_retry_repairs_grant_after_worker_crash() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let id = UserId::new();
+    let address = email("crashed-provider-repair@example.test");
+    seed(&pool, id, &address).await;
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("crashed-provider-repair-proof".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, original)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Claimed(_)
+    ));
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // No post-send recheck or finalize: the original FIFO delivery is retried after a crash.
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, original)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+    ));
+    let repair = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        other => panic!("blocked retry must schedule a repair, got {other:?}"),
+    };
+    tx.commit().await.unwrap();
+
+    let persisted: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT intent_id FROM marketing_email_consent_sync_intents WHERE source = 'PROVIDER_RACE_REPAIR' AND email = $1",
+    )
+    .bind::<&str>(address.as_ref())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted, vec![*repair.as_uuid()]);
+    let state: (bool, i64, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version FROM users WHERE user_id = $1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(state, (false, 2, 3));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn concurrent_repairs_of_same_raced_grant_share_one_revoke() {
     let pool = get_postgres_client().await;
     let uow = SqlxUnitOfWork::new(pool.clone());
