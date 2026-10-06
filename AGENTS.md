@@ -10,7 +10,7 @@
 
 - Read the relevant code, tests, configuration, and canonical documentation before editing.
 - Keep changes focused. Do not change runtime behavior unless the task requires it.
-- Treat `docs/arch.md` as the architecture source of truth. Explain and document intentional general deviations.
+- Treat `docs/arch.md` as the architecture source of truth for design guardrails. Explain and document intentional general deviations.
 - Prefer existing types, patterns, and dependencies over introducing new abstractions or packages.
 - Keep persisted formats and public identifiers stable. Persist enum values in `SCREAMING_SNAKE_CASE`; retain canonical standardized identifiers such as ISO language codes.
 
@@ -29,13 +29,13 @@
 - Fail closed on invalid persisted state and untrusted external input.
 - Do not log credentials, tokens, raw provider payloads, or other sensitive content.
 - Update `docs/swagger.yaml` and `docs/CHANGELOG.md` when a public API contract changes.
-- Update the relevant event or storage documentation when a durable event, persistence, or operational contract changes.
+- Update the owning specialized document when a durable event, persistence, or operational contract changes; do not copy implementation details into `docs/arch.md` or `docs/storage.md`.
 
 ## Documentation
 
-- Document durable architectural, operational, security, and public-contract knowledge; leave code-level detail to code and tests.
-- Amend the existing canonical document when one covers the contract instead of creating overlapping documentation.
-- Keep documentation concise and identify stable ownership boundaries, failure behavior, and operator requirements.
+- **`docs/arch.md` and `docs/storage.md` are design harnesses, not implementation inventories.** Keep them to durable principles, ownership boundaries, invariants, failure behavior and third-party API guardrails. Concrete implementations are allowed only as explicitly illustrative examples, never as a running catalogue of current types, tables, columns, methods, limits, routes or deployment steps.
+- Put exact schema and code details in migrations, code and tests; put specific event, API and operational contracts in their owning specialized docs and runbooks. Link from the guides instead of duplicating those contracts.
+- Amend the existing canonical document when one covers the contract instead of creating overlapping documentation. Keep documentation concise and identify stable operator requirements.
 
 ## Validation
 
@@ -44,6 +44,7 @@ Start with focused checks and tests for changed crates. Run broader validation w
 ```sh
 cargo fmt --all -- --check
 cargo check --workspace
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 cargo depgraph-check check
 cargo test --workspace --lib --all-features
 npm --prefix infra test

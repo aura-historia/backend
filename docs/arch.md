@@ -1,8 +1,8 @@
 # Architecture Guide
 
-This document defines the default architecture and implementation conventions for this workspace. It is intended to be read before adding or changing domain logic, use cases, persistence, APIs, integrations, or projections.
+This document defines architecture, design boundaries, and guardrails for this workspace. It is intended to be read before adding or changing domain logic, use cases, persistence, APIs, integrations, or projections. Code blocks and `Record` names are illustrative, not a required implementation or inventory of current crates.
 
-Changes that intentionally deviate from this document MUST explain the reason in the pull request and SHOULD update this document when the deviation represents a new general rule.
+Specialized documents own public, storage, event, deployment, and operational contracts; code and configuration own concrete wiring, values, and mechanics. See the [documentation map](README.md). Changes that intentionally deviate from this guide MUST explain the reason in the pull request and SHOULD update it when the deviation represents a new general rule.
 
 ---
 
@@ -72,14 +72,14 @@ They MUST NOT silently become authoritative for domain invariants.
 11. Write handlers define transaction scope through an abstract `UnitOfWork` and transaction-bound repository factories.
 12. Several PostgreSQL repositories MAY participate in the same abstract transaction.
 13. Cross-datasource writes do not share a transaction.
-14. Projection and CDC behavior follows the dedicated CDC architecture documentation.
+14. CDC and projection invariants are summarized below; event routing and recovery belong to the dedicated event and worker documentation.
 15. REST DTOs belong to the REST layer and are mapped by controllers.
 16. Trusted caller identity is mapped into a service-owned `OperationContext`.
 17. Domain and service crates MUST NOT depend on infrastructure crates.
 
 ## 3. Canonical workspace layout
 
-Each entity is split into separate root-level workspace crates. Only adapters that the entity actually uses need to exist.
+Bounded contexts separate domain, service, and adapter responsibilities. The following `record` layout illustrates dependency direction, not required directory names or a current crate inventory. Only adapters actually needed should exist.
 
 ```text
 Cargo.toml
@@ -96,15 +96,6 @@ workspace-postgres/
 platform-postgres/      # shared concrete SQLx transaction primitives when required
 api/
 runtime/                # composition root and process startup
-```
-
-The neutral `record` example corresponds to concrete crate families such as:
-
-```text
-product-listing-core
-product-listing-service
-product-listing-postgres
-product-listing-opensearch
 ```
 
 ### 3.1 Core crate
@@ -196,42 +187,9 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 ### 3.5 Transport and composition root
 
-REST code lives in the API crate. The canonical REST runtime is `aura-historia-api`: the same axum router runs as a native process or behind a `lambda_http` HTTP API v2 envelope adapter. The adapter is not API Gateway front-door routing or an API Gateway-specific application context:
+Transport crates authenticate and map requests or jobs to inbound use cases; the composition root constructs concrete adapters and injects them into service-owned handlers. Composition roots MAY depend on every crate needed to assemble the process but MUST NOT contain business behavior or implement service-owned ports. Route and worker handlers MUST NOT construct repositories or clients or own transaction boundaries. Protected endpoint authorization belongs in use cases or service-owned policies, not controllers.
 
-```text
-aura-historia-api/
-└── src/
-    ├── main.rs              # logging, native/Lambda runtime selection
-    ├── lib.rs               # router, server, composition root
-    ├── lambda.rs            # HTTP API v2 envelope adapter
-    ├── state.rs             # axum application state
-    ├── error.rs             # problem+json API errors
-    ├── auth/                # transport authentication
-    └── <unit>/
-        ├── mod.rs           # unit module exports
-        ├── types.rs         # shared REST enum/value DTOs for this unit only
-        └── <endpoint>.rs    # one controller endpoint plus unit tests
-```
-
-Each durable route unit SHOULD have its own module, for example `listing_sources/`. Each endpoint SHOULD live in one file, for example `listing_sources/get_listing_source.rs`. Unit tests for that endpoint SHOULD live in that endpoint file. Shared public response payloads that are used by many endpoints MAY live in a focused file such as `listing_sources/listing_source_data.rs`; keep shared enum/value DTOs in `listing_sources/types.rs`.
-
-The runtime/composition-root crate constructs concrete adapters and injects them into service-owned handlers:
-
-```text
-runtime/
-└── src/
-    ├── main.rs
-    └── wiring/
-        └── record.rs
-```
-
-The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior. API and worker composition-root crates MUST NOT implement service-owned inbound or outbound ports, readers, repositories, writers, senders, or use cases. They map transport/runtime inputs and compose concrete adapter crates. Transport- or runtime-local traits are allowed.
-
-In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
-
-`search-filter-periodic-match` is a single-purpose run-to-completion executable. EventBridge Scheduler owns recurrence and launches one standalone ECS/Fargate task; the process accepts no arguments, invokes the service-owned periodic search-filter matching use case once, and exits. It owns cancellation and execution deadlines, while PostgreSQL owns the advisory lease, durable progress, and idempotent match facts. It has no internal scheduler, daemon, health listener, or process-local overlap registry.
-
-`database-migration-lambda` is an explicit operational exception, not an application runtime or service use case. Environment-gated manual `Migrate (CD)` (`.github/workflows/migrate.yml`) invokes it to bootstrap PostgreSQL roles and run embedded schema migrations over private verified-TLS access, after checking the deployed initialization stack's `CommitSHA`. It has no API route, schedule, event source, or CloudFormation custom-resource invocation. Deploy never invokes migrations; manual `Initialize (CD)` invokes only initial FX. Business application startup never runs migrations; crawler-local startup migrations remain outside AWS deployment. It may use direct operational SQL, but no domain/service crate may depend on it. The [deployment contract](../infra/README.md#deployment-inputs) separates foundation, manual operations and application admission. Auto stops at foundation for migration-source changes; this source-only guard does not inspect database readiness. Forward releases continue with manual Migrate then same-ref Deploy `scope=all`; compatibility remains operator-owned, and rollback never invokes an older migrator or down migrations.
+Scheduled executables SHOULD be run-to-completion callers of service use cases; durable coordination belongs in authoritative storage rather than process-local state. Operational migration tooling is separate from application runtimes and MAY use direct operational SQL, but domain/service crates MUST NOT depend on it. Application startup MUST NOT silently run business migrations. Deployment order, exception details, and migration admission are owned by the [infrastructure guide](../infra/README.md).
 
 ### 3.6 Dependency direction
 
@@ -275,15 +233,7 @@ Cross-entity use cases MUST have one clear owning service crate. If no existing 
 
 ### 3.7 Durable shared crates
 
-The workspace has narrow shared owners. They are not a replacement `common` hub:
-
-- `application` owns technology-neutral application contracts such as `OperationContext`, `UnitOfWork`, `PatchField`, pagination, personalization, and boxed application errors.
-- `domain-primitives` owns proven domain-neutral values, query/sort types, event IDs, version wrappers, and newtype machinery.
-- `credential-core` owns credential identifiers and scope vocabulary.
-- `money` and `localization` own pure currency/amount/price and language/localized values.
-- `platform-postgres`, `platform-opensearch`, and `platform-observability` own concrete SQLx transaction mechanics, generic OpenSearch protocol envelopes, and subscriber setup.
-
-Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. PostgreSQL adapters own SQLx rows and mappings; OpenSearch adapters own documents, queries, and mappings while `platform-opensearch` owns only proven generic protocol envelopes; provider crates own wire DTOs and provider vocabulary. `large-language-model` owns LLM operation/model/tier vocabulary and invocation metrics; `classifier-model` owns provider-neutral binary classification and provider protocol adapters; `platform-observability` owns subscriber setup only. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. The canonical runtime leaves use `platform-observability` for logging, `platform-postgres` for typed pool and transaction mechanics, `application` for operation context and transaction contracts, and bounded-context core crates for identifiers. No canonical production crate may retain a normal or development `common` edge; legacy APIs, entities, Lambdas, and explicitly dual test/composition roots may remain. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
+Shared crates MUST own narrow, proven cross-context concepts, not become a replacement `common` hub. For example, `application` owns technology-neutral application contracts; `domain-primitives` owns proven domain-neutral values; `money` and `localization` own pure semantic values; platform crates own reusable infrastructure mechanics, not bounded-context behavior. Core, service, adapter, and transport crates SHOULD import the actual owner directly. Provider crates own their protocol and vocabulary; bounded-context adapters own their storage rows, search documents, queries, and mapping. Legacy `common` MUST NOT gain new canonical consumers. Do not move a type to a shared crate solely because two call sites look similar.
 
 ## 4. Domain-Driven Design boundaries
 
@@ -494,7 +444,7 @@ struct SqlxRecordRepository<'tx> {
 }
 ```
 
-If the workspace MSRV prevents opaque return types and a public associated type is unavoidable, expose only the minimum required type, annotate it `#[doc(hidden)]`, keep all fields private, and provide no public constructor.
+If language or trait constraints require a public concrete type, expose only the minimum surface, keep its fields private, and avoid public construction outside the factory.
 
 ### 5.4 Rehydration boundary
 
@@ -528,7 +478,7 @@ Therefore:
 
 Reads and writes are both use cases.
 
-Each use case SHOULD have its own file in the corresponding service crate. The file owns:
+Each use case SHOULD be focused and owned by the corresponding service crate. The following `Record` code is illustrative, not a required file structure or API:
 
 - command or request;
 - result or final view;
@@ -603,11 +553,11 @@ UpdateRecord {
 }
 ```
 
-When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `application::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper belongs to the narrow `application` crate, but the command belongs in `service`, not in `core`.
+When a public PATCH endpoint is intentionally broad, the service owns a corresponding update command with explicit tri-state fields (`Unchanged`, `Set(value)`, `Clear`) so omitted, null, and set values remain distinct. Shared technology-neutral patch semantics belong in an application owner, not core.
 
 The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
 
-A broad update use case is one logical write. Domain methods return `ChangeOutcome` and MUST NOT know about storage versions. If nothing changed, the handler MUST NOT execute a persistence update. If anything changed, the handler calls repository `update(&aggregate, loaded.version)` once. The PostgreSQL repository writes complete authoritative state, enforces optimistic concurrency with `WHERE version = $expected_version`, and increments `version` exactly once with `version = version + 1`. The new version is internal PostgreSQL/CDC state and MUST NOT be returned from ordinary use cases.
+A broad update use case is one logical write. Domain methods SHOULD distinguish changes from no-ops without knowing storage versions. The handler MUST skip persistence when nothing changed and persist the complete authoritative state once when it did, enforcing optimistic concurrency. The storage version is internal persistence/CDC state and MUST NOT be returned from ordinary use cases.
 
 ### 6.2 Read use-case contract
 
@@ -782,7 +732,15 @@ Webhook verification MUST happen in a provider adapter behind a service-owned po
 - Subscription, opt-out, bounce, and complaint remain distinct facts. Events and account/profile lifecycle changes MUST NOT by themselves grant consent.
 - Errors and logs MUST NOT expose signing material, signatures, or sensitive webhook content.
 
-A neutral reusable capability crate MAY own a technology-neutral contract plus its provider implementation when it has no bounded-context types. For example, `embedding` may own embedding generation, `large-language-model` may own typed structured generation, `classifier-model` may own binary classification, and `image-fetcher` may own safe external-image retrieval. The consuming service owns semantic fields, application response types and schemas, result mapping, concurrency, business retry policy, and application-specific input limits. A capability with explicit semantic operations owns provider/model-specific prompt or request encoding; callers MUST NOT construct provider-recommended instruction strings. Provider/model selection belongs to composition and provider configuration, not a service request: a configured provider implementation may be injected separately for each use case. Provider implementations own provider authentication, protocol, configured model identifiers, media preparation, transport timeouts, provider error classification, and provider-specific prompt format. Such a crate MUST NOT import an entity core/service crate or contain entity-specific behavior.
+A reusable capability crate MAY own a technology-neutral contract and its provider implementation when it contains no bounded-context behavior (for example embedding, classification, structured generation, or safe image retrieval). The consuming service owns application semantics, result mapping, concurrency, business retry policy, and input limits. The provider adapter owns authentication, wire encoding/decoding, provider-specific prompts or request format, configured model selection, deadlines, and provider error classification. Callers MUST NOT construct provider-specific instruction strings or choose provider/model identifiers through business requests unless selection itself is a documented product requirement.
+
+### Third-party API guardrails
+
+- Access external APIs through narrow service-owned capability ports and adapter-owned clients. Keep provider wire DTOs, SDK types, credentials, and provider vocabulary out of domain, service results, and transport contracts; explicitly validate and map external responses, including unknown/unsupported values.
+- Construct credentials and clients at the composition boundary. Apply least-privilege scopes, secret redaction, approved egress destinations, TLS verification, and SSRF protections for externally supplied URLs. Never log raw provider payloads or secrets.
+- Bound requests with timeouts, concurrency limits, and provider rate-limit/backoff policies. Retry only failures whose semantics allow it, with bounded jitter/backoff and idempotency where supported; distinguish definite rejection, confirmed acceptance, and ambiguous outcomes. A timeout MUST NOT be treated as proof of non-delivery.
+- The service decides whether an external read is required, optional, or stale-tolerant and how failures affect the use case. For external writes, persist durable intent/receipts when needed and reconcile uncertain outcomes; never hold an authoritative database transaction across a provider call or assume an atomic cross-system commit.
+- Minimize data shared with providers, validate provider responses before they influence business state, and document any provider-specific consent, retention, quota, cost, or outage requirements in the owning integration contract.
 
 Ports MUST be named by capability, not by technology.
 
@@ -1104,916 +1062,83 @@ Do not represent source failure as genuine absence unless the product semantics 
 
 ## 10. Mapping and serialization
 
-Mapping code belongs at the boundary that owns the source representation.
+Mapping belongs to the boundary that owns the source representation: REST DTOs in the API, PostgreSQL rows in PostgreSQL adapters, search documents in search adapters, and provider payloads in provider adapters. Storage and transport mapping MUST NOT be placed in core. A core crate MAY own semantic fields of a composite key, but boundary-specific string encodings and compatibility rules belong to the owning boundary.
 
-```text
-REST DTO              -> controller/API mapping
-PostgreSQL row        -> PostgreSQL adapter mapping
-Search document       -> search adapter mapping
-Key-value item        -> key-value adapter mapping
-External response     -> corresponding adapter mapping
-```
+Stable machine-readable identities for fieldless domain enums MUST use an explicit exhaustive canonical mapping; boundary decoders reject unknown or noncanonical persisted values rather than silently defaulting. Persisted enum values use `SCREAMING_SNAKE_CASE` where applicable; retain standardized identifiers such as ISO language codes. Database constraints, migrations, and API codecs must evolve with the semantic values. Do not derive persisted identifiers from Rust variant names.
 
-Storage and transport mapping MUST NOT be placed in `core`. A core crate MAY own the semantic fields of a composite domain key, but labeled string encodings for storage or transport MUST live at the owning boundary and preserve their legacy format there when compatibility requires it.
+### 10.1 Transport mapping
 
-Fieldless domain enums with a stable machine-readable identity MUST own it through an explicit exhaustive `as_str()` mapping. Inverse lookup derives `EnumIter` and compares that canonical value at the owning boundary; it MUST NOT maintain a second string-to-variant mapping or infer stable identifiers from Rust variant names. Persisted reads match exactly and reject unknown or noncanonical values. A data-carrying enum uses a fieldless discriminator when inverse textual lookup is needed. Database constraints and migrations remain a separate contract and MUST evolve with canonical values.
+REST owns request/response structure, field names, null/omission rules, HTTP validation, and service-error mapping. Controllers map requests to service commands and service results to response DTOs; services MUST NOT depend on REST DTOs or status codes. Reuse canonical semantic leaf types when their meaning and value set coincide (Section 5); otherwise use a deliberate transport codec. Fallible parsing SHOULD return a typed error rather than accepting invalid input.
 
-### 10.1 REST mapping
+### 10.2 Persistence mapping
 
-REST request and response DTOs belong to the controller/API module.
+Adapter-owned row types MAY use `sqlx::FromRow`, but MUST remain private to the PostgreSQL adapter. Map rows into domain aggregates or application read models explicitly and fallibly. Aggregate rehydration MUST validate persisted invariants without emitting new domain events; malformed or incompatible persisted state is an operation error, not not-found or a default value. Joined presentation reads map to application read models, never to a hydrated cross-aggregate domain object.
 
-```rust
-#[derive(serde::Deserialize)]
-pub(crate) struct RenameRecordRequestDto {
-    pub title: String,
-}
-
-#[derive(serde::Serialize)]
-pub(crate) struct RenameRecordResponseDto {
-    pub id: RecordId,
-    pub title: String,
-}
-```
-
-The controller maps request DTOs into service-owned commands.
-
-Use `TryFrom` when parsing or validation can fail:
-
-```rust
-impl TryFrom<(RecordId, RenameRecordRequestDto)>
-    for RenameRecordCommand
-{
-    type Error = ApiInputError;
-
-    fn try_from(
-        value: (RecordId, RenameRecordRequestDto),
-    ) -> Result<Self, Self::Error> {
-        let (record_id, dto) = value;
-
-        Ok(Self {
-            record_id,
-            new_title: dto.title,
-        })
-    }
-}
-```
-
-Use `From` for infallible result-to-response conversion:
-
-```rust
-impl From<RenameRecordResult> for RenameRecordResponseDto {
-    fn from(result: RenameRecordResult) -> Self {
-        Self {
-            id: result.record_id,
-            title: result.title,
-        }
-    }
-}
-```
-
-The mapping implementation SHOULD live in:
-
-```text
-api/record/mapping.rs
-```
-
-Small mappings used by only one controller MAY live in the controller file.
-
-REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `listing_sources/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes. A unit-local `types.rs` MAY instead hold wire codecs for canonical semantic leaf types; REST keeps its wire contract without duplicating the semantic type.
-
-The service MUST NOT know REST DTOs or HTTP status codes.
-
-### 10.2 PostgreSQL deserialization with `FromRow`
-
-PostgreSQL rows SHOULD use `sqlx::FromRow` for deserialization.
-
-```rust
-// record-postgres/src/rows/record_row.rs
-
-#[derive(Debug, sqlx::FromRow)]
-pub(crate) struct RecordRow {
-    pub id: Uuid,
-    pub workspace_id: Uuid,
-    pub title: String,
-    pub status: String,
-    pub version: i64,
-}
-```
-
-`RecordRow` is a storage representation. It MUST remain private to the PostgreSQL adapter.
-
-Deserialization flow:
-
-```text
-PostgreSQL row
-    -> sqlx::FromRow
-RecordRow
-    -> TryFrom / adapter mapping
-Record
-```
-
-Mapping to the aggregate SHOULD use `TryFrom` because persisted state may be corrupt or incompatible:
-
-```rust
-// record-postgres/src/mapping.rs
-
-impl TryFrom<RecordRow> for Versioned<Record, RecordStorageVersion> {
-    type Error = RecordRowMappingError;
-
-    fn try_from(row: RecordRow) -> Result<Self, Self::Error> {
-        let version = RecordStorageVersion::try_from(row.version)?;
-        let record_id = RecordId::try_from(row.id)
-            .map_err(RecordRowMappingError::InvalidRecordId)?;
-        let workspace_id = WorkspaceId::try_from(row.workspace_id)
-            .map_err(RecordRowMappingError::InvalidWorkspaceId)?;
-        let record = Record::rehydrate(
-            record_id,
-            workspace_id,
-            RecordTitle::try_from(row.title)?,
-            RecordStatus::try_from(row.status.as_str())?,
-        )
-        .map_err(RecordRowMappingError::InvalidPersistedState)?;
-
-        Ok(Versioned::new(record, version))
-    }
-}
-```
-
-The domain MAY expose a crate-visible rehydration function:
-
-```rust
-impl Record {
-    #[doc(hidden)]
-    pub fn rehydrate(
-        id: RecordId,
-        workspace_id: WorkspaceId,
-        title: RecordTitle,
-        status: RecordStatus,
-    ) -> Result<Self, RehydrateRecordError> {
-        // Re-establish invariants without emitting new events.
-        todo!()
-    }
-}
-```
-
-`rehydrate` MUST:
-
-- establish all required invariants;
-- not emit new domain events;
-- not pretend persisted data is automatically valid.
-
-A joined query gets its own row type:
-
-```rust
-#[derive(Debug, sqlx::FromRow)]
-struct RecordDetailsRow {
-    record_id: Uuid,
-    record_title: String,
-    container_id: Uuid,
-    container_name: String,
-}
-```
-
-It maps directly to the application read model:
-
-```rust
-impl TryFrom<RecordDetailsRow> for RecordBaseDetails {
-    type Error = RecordDetailsRowMappingError;
-
-    fn try_from(row: RecordDetailsRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            record_id: RecordId::try_from(row.record_id)
-                .map_err(RecordDetailsRowMappingError::InvalidRecordId)?,
-            title: row.record_title,
-            container: ContainerSummary {
-                container_id: ContainerId::try_from(row.container_id)
-                    .map_err(RecordDetailsRowMappingError::InvalidContainerId)?,
-                name: row.container_name,
-            },
-        })
-    }
-}
-```
-
-Use `TryFrom` instead of `From` when mapping can fail.
-
-### 10.3 PostgreSQL serialization
-
-Serialization from a domain aggregate to PostgreSQL MUST occur inside the concrete repository/DAO implementation.
-
-Preferred:
-
-```rust
-impl SqlxRecordRepository<'_> {
-    async fn update(
-        &mut self,
-        record: &Record,
-        expected_version: RecordStorageVersion,
-    ) -> Result<(), RecordRepositoryError> {
-        let row = sqlx::query_as::<_, (i64,)>(
-            r#"
-            UPDATE records
-            SET
-                title = $1,
-                status = $2,
-                version = version + 1,
-                updated_at = now()
-            WHERE id = $3
-              AND version = $4
-            RETURNING version
-            "#,
-        )
-        .bind(record.title().as_str())
-        .bind(record.status().as_db_str())
-        .bind(record.id().as_uuid())
-        .bind(expected_version.into_inner())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(RecordRepositoryError::from)?;
-
-        let Some((version,)) = row else {
-            return Err(RecordRepositoryError::ConcurrencyConflict);
-        };
-
-        RecordStorageVersion::try_from(version)
-            .map_err(|_| RecordRepositoryError::InvalidPersistedState)?;
-
-        Ok(())
-    }
-}
-```
-
-The project SHOULD NOT define a public or cross-layer conversion such as:
-
-```rust
-impl From<&Record> for RecordRow
-```
-
-for write serialization.
-
-Reasons:
-
-- write parameters may differ from read rows;
-- inserts and updates need different fields;
-- database-specific encoding belongs to the DAO;
-- a generic row conversion can conceal optimistic concurrency and generated columns.
-
-When binding logic is repeated, use a private adapter-local helper:
-
-```rust
-struct RecordWriteParams<'a> {
-    title: &'a str,
-    status: &'a str,
-    version: i64,
-}
-```
-
-That helper MUST remain private to the PostgreSQL adapter.
-
-### 10.4 Search document mapping
-
-A search adapter owns its document:
-
-```rust
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct RecordDocument {
-    id: RecordId,
-    title: String,
-    container_name: String,
-    projection_version: u64,
-}
-```
-
-Read mapping:
-
-```text
-Search response JSON
-    -> RecordDocument
-    -> RecordSearchHit
-```
-
-Mapping used to build or update projections belongs in the source adapter and follows the CDC architecture documented in Section 12.
-
-The search document MUST NOT escape the adapter.
-
-### 10.5 External response mapping
-
-An adapter for an additional data source owns the external response type.
-
-```rust
-#[derive(serde::Deserialize)]
-struct ExternalMetadataResponse {
-    labels: Vec<String>,
-    relations: Vec<ExternalRelation>,
-}
-```
-
-It maps to an application-owned model:
-
-```rust
-pub struct RecordMetadataView {
-    pub labels: Vec<String>,
-    pub relations: Vec<MetadataRelation>,
-}
-```
-
-External-client types MUST NOT appear in service contracts.
-
----
+Aggregate-to-storage serialization belongs inside the repository/DAO write operation so insert/update fields, generated metadata, and optimistic concurrency remain explicit. Avoid public cross-layer aggregate-to-row conversions. Repeated binding details MAY use private adapter-local helpers. PostgreSQL rows and search documents MUST NOT escape adapters; external API responses similarly map to application-owned types, with unknown values handled explicitly.
 
 ## 11. Transactions
 
 ### 11.1 Ownership
 
-The service-owned use-case handler defines transaction scope without importing SQLx.
+The service use-case handler defines transaction scope without importing SQLx. It begins an abstract unit of work, binds the required repositories and invariant-critical readers to the same transaction, performs domain behavior and authoritative writes, and explicitly commits on success. The adapter implements the transaction using PostgreSQL. Transport, queue consumers, and composition roots MUST NOT begin or commit business transactions on behalf of a service use case. Public inbound use cases SHOULD remain transaction-free for callers: transactional mechanics are private to their implementation.
 
-The handler:
+A transaction abstraction exposes lifecycle, not entity-specific methods. Service-owned factories bind narrow repository or reader ports to it; concrete scoped implementations remain private to their adapters. Multiple entity-specific PostgreSQL ports MAY participate in one compatible transaction, but a pool-backed read on another connection MUST NOT substitute for a transaction-bound read that determines an invariant-critical write. Ordinary presentation reads MAY use standalone readers; several reads requiring one consistent snapshot need an explicit read transaction.
 
-1. begins an abstract transaction through `UnitOfWork`;
-2. binds transaction-scoped repositories/readers through factories;
-3. executes domain behavior;
-4. writes all authoritative state required by the use case;
-5. explicitly commits the abstract transaction.
-
-The concrete adapter implements that abstraction using SQLx. This includes the asynchronous ProductListing command consumer: its public execution use case owns the per-command PostgreSQL state/event-or-raw-capture and receipt transaction. The queue Lambda composes ports and maps records; it MUST NOT begin/commit that transaction or call private transaction-aware write mechanics directly. Public synchronous/inbound use-case APIs MUST remain transaction-free. FIFO admission and CDC fanout are separate from the authoritative write; see the [ProductListing contract](product-listing.md#downstream-command-execution-consumer-installed-shopify-producer-forwarding-gated-by-deployment).
+**Illustrative flow (not a prescribed handler implementation):**
 
 ```text
-record-service
-    RenameRecordHandler
-        -> UnitOfWork
-        -> RecordRepositoryFactory
-
-record-postgres
-    SqlxUnitOfWork
-    SqlxRecordRepositoryFactory
-    private SqlxRecordRepository
+service handler
+    -> begin UnitOfWork
+    -> load aggregate and authoritative policy state in the same transaction
+    -> authorize and apply domain behavior
+    -> persist only if changed, checking the loaded storage version
+    -> commit explicitly
+    -> return the committed result
 ```
 
-### 11.2 Transaction and unit-of-work ports
+Dropping an uncommitted transaction is rollback, not commit. A write use case SHOULD build its result from committed state or its storage-neutral persisted result, not perform a presentation read after the write just to populate the response. Keep transactions short; perform slow external reads before opening one when safe, and revalidate authoritative state inside before writing.
 
-The transaction lifecycle is a service-owned contract:
+### 11.2 Cross-system boundaries
 
-```rust
-#[async_trait::async_trait]
-pub trait Transaction: Send {
-    async fn commit(self) -> Result<(), TransactionError>;
-}
-
-#[async_trait::async_trait]
-pub trait UnitOfWork: Send + Sync {
-    type Tx: Transaction;
-
-    async fn begin(&self) -> Result<Self::Tx, TransactionError>;
-}
-```
-
-These abstractions expose transaction lifecycle only. They MUST NOT accumulate entity-specific repository methods.
-
-A shared application crate MAY own these traits when several entity-service crates use the same abstraction.
-
-### 11.3 Transaction-scoped repository factories
-
-Repositories expose clean methods without a transaction argument. A factory binds a repository implementation to the active transaction:
-
-```rust
-pub trait RecordRepositoryFactory<Tx>: Send + Sync {
-    fn in_transaction<'tx>(
-        &'tx self,
-        tx: &'tx mut Tx,
-    ) -> impl RecordRepository + 'tx;
-}
-```
-
-PostgreSQL implementation:
-
-```rust
-pub struct SqlxRecordRepositoryFactory;
-
-struct SqlxRecordRepository<'tx> {
-    tx: &'tx mut SqlxTransaction,
-}
-
-impl RecordRepositoryFactory<SqlxTransaction>
-    for SqlxRecordRepositoryFactory
-{
-    fn in_transaction<'tx>(
-        &'tx self,
-        tx: &'tx mut SqlxTransaction,
-    ) -> impl RecordRepository + 'tx {
-        SqlxRecordRepository { tx }
-    }
-}
-```
-
-The concrete scoped repository remains private because callers interact only through the opaque return type.
-
-### 11.4 Chained temporary repositories
-
-Handlers SHOULD bind and call one transaction-scoped repository in a single chain:
-
-```rust
-let Versioned {
-    value: record,
-    version,
-} = self
-    .records
-    .in_transaction(&mut tx)
-    .find_by_id(command.record_id)
-    .await?
-    .ok_or(RenameRecordError::NotFound)?;
-```
-
-The temporary repository is dropped at the semicolon, releasing its mutable borrow of the transaction.
-
-Another repository can then use the same transaction:
-
-```rust
-let workspace = self
-    .workspaces
-    .in_transaction(&mut tx)
-    .find_by_id(record.workspace_id())
-    .await?
-    .ok_or(RenameRecordError::WorkspaceNotFound)?;
-```
-
-Writes follow the same pattern:
-
-```rust
-self.records
-    .in_transaction(&mut tx)
-    .update(
-        &record,
-        version,
-    )
-    .await?;
-```
-
-### 11.5 Canonical service-owned write handler
-
-```rust
-pub struct RenameRecordHandler<U, R> {
-    unit_of_work: U,
-    records: R,
-}
-
-impl<U, R> RenameRecordHandler<U, R> {
-    pub fn new(unit_of_work: U, records: R) -> Self {
-        Self {
-            unit_of_work,
-            records,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl<U, R> RenameRecordUseCase for RenameRecordHandler<U, R>
-where
-    U: UnitOfWork,
-    R: RecordRepositoryFactory<U::Tx>,
-{
-    #[tracing::instrument(
-        name = "rename_record",
-        skip_all,
-        fields(
-            record_id = %command.record_id,
-            principal_type = context.principal.kind(),
-            actor_id = tracing::field::Empty,
-            request_id = %context.request_id,
-            correlation_id = %context.correlation_id,
-        )
-    )]
-    async fn execute(
-        &self,
-        context: &OperationContext,
-        command: RenameRecordCommand,
-    ) -> Result<RenameRecordResult, RenameRecordError> {
-        let actor = context
-            .actor_label()
-            .ok_or(RenameRecordError::AuthenticatedActorRequired)?;
-
-        let mut tx = self.unit_of_work.begin().await?;
-
-        let Versioned {
-            value: mut record,
-            version: loaded_version,
-        } = self
-            .records
-            .in_transaction(&mut tx)
-            .find_by_id(command.record_id)
-            .await?
-            .ok_or(RenameRecordError::NotFound)?;
-
-        authorize_rename(actor, &record)?;
-
-        let new_title = RecordTitle::try_from(command.new_title)
-            .map_err(|_| RenameRecordError::InvalidTitle)?;
-
-        let outcome = record.rename(new_title)?;
-
-        let persisted = if outcome.changed() {
-            self.records
-                .in_transaction(&mut tx)
-                .update(
-                    &record,
-                    loaded_version,
-                )
-                .await?
-        } else {
-            Versioned::new(record, loaded_version)
-        };
-
-        tx.commit().await?;
-
-        Ok(RenameRecordResult {
-            record_id: persisted.value.id(),
-            title: persisted.value.title().to_string(),
-        })
-    }
-}
-```
-
-The handler is datastore-independent and lives in `record-service`.
-
-A successful transaction MUST end in explicit `commit().await`.
-
-A write use case MUST NOT read after write just to build its response. The repository write result is the source for the returned command view/result. If the API needs a richer write response, make the repository return a storage-neutral persisted model with the needed metadata, or make the use-case result less rich.
-
-An uncommitted concrete transaction that leaves scope is expected to roll back. Dropping or “closing” a transaction MUST NOT be treated as commit.
-
-### 11.6 Multiple repositories in one transaction
-
-A handler may use any number of repository factories whose implementations accept the same transaction type:
-
-```rust
-pub struct GrantWorkspaceAccessHandler<U, R, W, A> {
-    unit_of_work: U,
-    records: R,
-    workspaces: W,
-    access: A,
-}
-```
-
-```rust
-let mut tx = self.unit_of_work.begin().await?;
-
-let record = self.records
-    .in_transaction(&mut tx)
-    .find_by_id(command.record_id)
-    .await?
-    .ok_or(Error::RecordNotFound)?;
-
-let workspace = self.workspaces
-    .in_transaction(&mut tx)
-    .find_by_id(record.value.workspace_id())
-    .await?
-    .ok_or(Error::WorkspaceNotFound)?;
-
-self.access
-    .in_transaction(&mut tx)
-    .grant(command.user_id, workspace.value.id(), &metadata)
-    .await?;
-
-tx.commit().await?;
-```
-
-All operations above participate in the same concrete PostgreSQL transaction when the runtime supplies compatible SQLx implementations.
-
-A shared `platform-postgres` crate MAY expose the public concrete `SqlxTransaction` used by several entity-specific PostgreSQL adapter crates. Its fields and SQLx internals MUST remain private.
-
-### 11.7 Transactional readers
-
-A read that influences an invariant-critical write MUST use the same transaction and therefore MUST have a transaction-bound reader factory:
-
-```rust
-pub trait WorkspacePolicyReaderFactory<Tx>: Send + Sync {
-    fn in_transaction<'tx>(
-        &'tx self,
-        tx: &'tx mut Tx,
-    ) -> impl WorkspacePolicyReader + 'tx;
-}
-```
-
-When a use case works on operational data through ports and must own the transaction, all operational ports participating in that use case MUST model the same unit of work:
-
-- the handler depends on `UnitOfWork`;
-- repository ports expose transaction-scoped factories;
-- PostgreSQL reader ports expose transaction-scoped factories;
-- the handler begins the transaction, obtains each port with `.in_transaction(&mut tx)`, and explicitly commits on success.
-
-Do not call a pool-backed reader on another connection when its result must be consistent with the active transaction.
-
-### 11.8 Ordinary readers
-
-Ordinary presentation readers are not transaction-bound only when the use case does not need an application-owned transaction or consistent operational snapshot. Their adapter implementations MAY own a pool/client internally:
-
-```rust
-pub struct PostgresRecordDetailsReader {
-    pool: sqlx::PgPool,
-}
-```
-
-The service handler depends only on the public `RecordDetailsReader` trait.
-
-A single SQL statement does not need an application-managed transaction. Use an explicit read transaction only when several SQL statements must observe one consistent snapshot; this is exceptional and MUST be documented.
-
-### 11.9 Cross-datasource boundaries
-
-A PostgreSQL transaction cannot atomically include:
-
-- a search engine;
-- a key-value store;
-- a graph or knowledge source;
-- an external API;
-- a message broker without a specific transaction protocol.
-
-A multi-source handler still lives in the service crate and composes abstract ports. It SHOULD avoid holding a PostgreSQL transaction open while waiting on a slow external source. Read external data first when safe, then open a short PostgreSQL transaction and revalidate authoritative state before writing.
-
-Authoritative PostgreSQL writes MUST commit according to the transaction rules above. Replication and projection propagation follow the CDC architecture documentation.
+A PostgreSQL transaction cannot atomically include a search engine, queue, key-value store, or third-party API. Services compose abstract ports across these boundaries without claiming distributed atomicity. For durable external effects, use an explicit intent/event and idempotent delivery/receipts as appropriate; failures and ambiguous results require a recovery policy. CDC and projection propagation follow Section 12 and the owning event documentation.
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed PostgreSQL changes to workers and rebuildable read projections. The target source, once explicitly activated, is `PostgreSQL commit -> DMS -> Kinesis -> immutable router Lambda version -> scoped Standard SQS source queues / DLQs -> worker Lambdas -> service handlers and projection adapters`. The router and workers are independently gated; code and infrastructure declarations do not prove any stage is delivering. The [infrastructure DMS declaration](../infra/README.md#dms-cdc-declaration-and-evidence-1781) describes checked-in resources; first-start and live evidence require a separately approved operator plan. The [durable-worker runbook](durable-worker-runbook.md) owns queue recovery and handoff.
+CDC propagates committed authoritative changes to workers and rebuildable read projections. The intended shape is PostgreSQL commit -> CDC transport/router -> durable scoped jobs -> workers -> service use cases and projection adapters. This is an architectural target, not proof that a given stage has activated or verified delivery. [Event flow](events/flow.md) owns routes, event/job schemas and consumer behavior; the [worker runbook](durable-worker-runbook.md) owns activation, custody, replay and recovery; [infrastructure](../infra/README.md) owns deployment declarations and gates. Subsection numbers for schema evolution and required tests retain their established link targets.
 
-Historically the native `aura-historia-worker` accepted Sequin CDC over HTTP, published scoped SQS jobs and polled the same source queues (including a local raw-backlog reconciliation loop). That source path is not part of the post-removal target. Its source removal does **not** stop external Sequin subscriptions, drain in-flight deliveries, retire credentials/slots, start DMS, or enable any Lambda mapping; these require separate approved live decommission/activation evidence.
+### 12.1 Storage ownership and write contract
 
-### 12.1 Storage ownership
+Every dataset MUST have one documented operational owner. PostgreSQL is authoritative business state unless a bounded context explicitly documents otherwise. Other stores MUST be classified as authoritative operational storage, rebuildable projection, external source, or cache; a hot read path does not make a projection authoritative. OpenSearch is rebuildable read state, not a write model. A transactional event journal MAY represent committed changes without being an event-sourced aggregate or a general outbox; its exact storage contract belongs in [storage](storage.md) and [event flow](events/flow.md).
 
-Every dataset MUST have one documented operational owner.
+Authoritative state and any required durable intent or event MUST commit in one local transaction. External projections and providers MUST NOT be updated inside that transaction. Domain invariants MUST NOT depend on projections being current or external writes being atomic with PostgreSQL.
 
-PostgreSQL owns business truth for:
+### 12.2 Routing, acknowledgment, and durable custody
 
-* users;
-* parties;
-* listing sources;
-* partnerships and partnership applications;
-* product listings;
-* product-listing events;
-* immutable canonical FX snapshots with generation and EUR-base `units_per_eur` quotes;
-* product-listing translations;
-* product-listing watchlists;
-* search filters;
-* search-filter matches;
-* notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender.
-* User access tokens;
-* OAuth clients;
-* OAuth authorization codes;
-* OAuth third-party exchange codes.
+A router MAY fan out one committed change to multiple jobs. It MUST validate the entire route (source, version, operation, domain identity, destinations, and bounded payloads) before publishing any job for that change. Acknowledgment or checkpoint MUST mean that every required publication is confirmed; partial or uncertain publication remains retryable and can duplicate earlier sends. Invalid or unsupported input MUST fail closed rather than silently disappear. Transport identifiers are correlation, not business identity.
 
-OpenSearch contains rebuildable search projections only. The independently operated single-node stage service, asset application, security boundary, and live acceptance gates are documented in [Stage OpenSearch](opensearch-stage.md); application releases must not administer or restart it.
+Delivery is **at least once within configured retention**, not exactly once or globally ordered. Workers acknowledge only confirmed complete outcomes; invalid jobs, nonterminal claims, failed effects, and uncertain commits remain retryable. A lost response or deletion can redeliver an already completed job. Failed router changes and worker jobs need distinguishable durable failure custody, and operator-controlled replay MUST preserve source identity and order where required. Queue names, batch sizes, retention windows, retry budgets, archive destinations, and live cutover evidence belong in the [event flow](events/flow.md), [runbook](durable-worker-runbook.md), and infrastructure configuration.
 
-`product_listing_events` is a transactional ProductListing domain/enrichment journal and selected DMS CDC source in the target path. It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
+### 12.3 Idempotency, ordering, and projections
 
-Additional stores MUST be classified as one of:
+Handlers MUST tolerate duplicates, concurrent delivery, replay, and older changes arriving after newer ones. Use stable domain identities and source revisions rather than queue message IDs for idempotency. Target writes SHOULD enforce idempotency through conditional writes, unique constraints, or version checks; an older or equal source version MUST NOT overwrite newer projection state. An external side effect may have occurred even when finalization is lost; use fenced leases/receipts and explicit recovery rules, not an assumption of exactly-once execution.
 
-* authoritative operational storage;
-* rebuildable projection;
-* external source;
-* cache.
+For current-state invalidation, reread authoritative state and compare its revision with the triggering revision; do not record a stale trigger as processed current state. Historical consumers instead use their exact immutable fact. If correctness depends on current state at the final write, recheck under the authoritative transaction. These are different consumer designs and MUST NOT be conflated.
 
-A store MUST NOT become authoritative merely because it is used on a hot read path.
+A partial CDC payload MAY be used as an invalidation signal to build a complete projection from committed authoritative state. Joined or hydrated projections SHOULD reread authoritative state instead of merging unrelated partial changes. Projection mapping and document types stay in the target adapter. Deletion/withdrawal fences MUST survive delayed writes: when physical-delete version memory is finite, use a lasting, versioned tombstone or a fenced fresh-generation rebuild. Readers must exclude tombstones. Deploy compatible readers before tombstone writers and fence older physical-delete writers; see the [projection runbook](durable-worker-runbook.md#projection-fences-and-rebuild).
 
-### 12.2 Write contract
+### 12.4 Replay and failure handling
 
-Authoritative PostgreSQL writes occur in one SQLx transaction.
+Each rebuildable projection MUST document its authoritative source, mapping, revision/fence strategy, rebuild/catch-up procedure, and activation checks. Rebuild into an isolated generation where practical, fence old writers, catch up committed changes, and verify identity, versions, and deletion visibility before switching readers. Missing authoritative history cannot be recreated from an expired queue or an existing projection.
 
-External projections MUST NOT be updated synchronously inside that transaction.
-
-Forbidden:
-
-```text
-BEGIN PostgreSQL
-update PostgreSQL
-update OpenSearch
-update key-value projection
-COMMIT PostgreSQL
-```
-
-Required (target transport after approved cutover):
-
-```text
-commit PostgreSQL
-    -> DMS observes selected committed product_listing_events INSERT
-    -> Kinesis -> router Lambda -> durable SQS job
-    -> worker Lambda updates projections asynchronously
-```
-
-Domain invariants MUST NOT depend on projections being current.
-
-### 12.3 Router and acknowledgment
-
-The CDC router converts source changes into domain-relevant jobs.
-
-One change MAY create several jobs:
-
-```text
-source change
-    -> search projection job
-    -> notification job
-    -> matching job
-```
-
-The Kinesis router MUST prevalidate each complete record route before publishing any of that record's jobs: source/schema/table/operation, typed payloads, stable domain keys, every destination, and serialized job bounds. An invalid record MUST NOT cause partial publication of its own route. An earlier record in the same Kinesis batch may already have published jobs; on failure, report the earliest unconfirmed sequence and leave later records unprocessed.
-
-Historical Sequin ingress returned `202` only after every required SQS publication was confirmed; incomplete/ambiguous publication left the delivery unacknowledged and redelivery could duplicate partial fanout. Do not treat removal of that HTTP endpoint as an acknowledgment, drain, or decommission of externally owned subscriptions. The target router instead uses Kinesis checkpoint and failure-archive custody below.
-
-#### DMS/Kinesis router transport
-
-The target `cdc-router-lambda` crate is a thin non-VPC Lambda with no PostgreSQL or provider credentials. Ten separate worker Lambda crates consume scoped SQS batches via `platform-lambda-sqs`, while `aura-historia-jobs` owns the schema-2 compact job contract and typed scope identity. `aura-historia-cdc-routing` owns transport-independent per-table job policy; DMS parsing, publication and checkpoints belong only to the router. `platform-worker-queue-contract` shares read-only destination identity/attribute validation; it does not publish or consume messages. Worker-specific dispatch and durable completion decisions stay beside each runtime and its existing service; the shared adapter owns only invocation budgets, setup and batch mechanics. The router accepts only native Kinesis records with an unmodified usable sequence number and strict DMS data (`{ data, metadata }`) or control (`{ control, metadata }`) payloads; operation and source table identity reside in `metadata`, while `control` holds table details. It never falls back to a Sequin/generic source shape. Lambda decodes the base64 data in memory, bounds a DMS record at 1 MiB, validates schema/table/operation and the complete per-record route/serialized fanout before the first SQS send, and records only safe identifiers, record/fanout counts, encoded bytes, latency, and outcome categories.
-
-The handler reserves response headroom from its actual Lambda deadline, processes records in stream order, and returns only the earliest unconfirmed Kinesis sequence number with `ReportBatchItemFailures`; it then stops. Records after that checkpoint are unprocessed, never successful. A missing sequence number fails the whole invocation because Lambda cannot receive a truthful partial failure. Expired budget, malformed/unsupported input, incompatible schema control, failed/lost SQS confirmation, and partial fanout are failures. Valid DMS non-trigger operations and selected informational controls are acknowledged no-ops. SQS IDs, DMS delivery metadata, and Kinesis sequence numbers are transport correlation only, never business identity.
-
-The `CdcRouterEnabled` mapping is independently disabled by default and uses `TRIM_HORIZON`, at most 100 records/one-second window, batch bisection, three retry attempts, and one-hour maximum record age. R6 selects `product_listing_events`, `product_listing_raw_revisions`, `search_filters`, `search_filter_matches`, and `notification_deliveries`; the router alone applies their explicit application-trigger operations and acknowledges valid non-trigger operations without jobs. Exhausted records go to a private retained S3 on-failure archive containing the native replayable invocation, not a metadata-only pointer or worker DLQ. Mapping-specific `EventCount` alarms notify operators on successful archive transfer and dropped records, separately from archive delivery failures; these are not evidence of live CloudWatch delivery until the approved AWS gate. Runtime has no archive read/replay/purge ability; a tested fail-closed decoder and controlled operator procedure preserve source ARN, sequence, DMS schema identity, and original bytes. This target declaration does not claim AWS checkpoint or destination proof; #1788 owns that gate. See the [infrastructure DMS declaration](../infra/README.md#dms-cdc-declaration-and-evidence-1781) for checked-in resources and the [event flow](events/flow.md#dmskinesis-routing-target-live-cutover-unverified) for routing; live activation requires separate operator approval and evidence.
-
-### 12.4 Durable delivery guarantee
-
-Production composition uses ten separate Standard SQS source/DLQ pairs, one per worker scope, with no user-tier scope or tier dimension. There is no worker inbox, processed-job table, or worker-owned PostgreSQL DLQ. No Lambda-local queue, cursor, or reconciliation FIFO holds acknowledged work; the raw normalizer's bounded PostgreSQL stream drain relies on persisted heads and SQS retries.
-
-Delivery is **durable at-least-once within retention**, not exactly-once or ordered processing:
-
-- Before the router confirms all required SQS sends, the Kinesis record remains uncheckpointed for bounded Lambda retry; exhausted invocations go to the retained S3 failure archive. A partial send can be duplicated on retry. This is not the worker DLQ.
-- After confirmed publication, SQS retains jobs across worker death until confirmed completion/delete, source-to-DLQ transfer, or expiry.
-- Source retention is 7 days; DLQ retention is 14 days. Standard source-to-DLQ transfer retains the original enqueue timestamp: DLQ arrival does not start a fresh 14-day window, and these are not additive 21-day guarantees.
-- Only complete outcomes permit SQS acknowledgment/deletion. Nonterminal claims, invalid jobs, handler failure/panic, timeout, and unconfirmed effects remain in `batchItemFailures` for retry/redrive. Lost deletion/response may redeliver; do not rerun a side effect merely to retry deletion.
-- Standard SQS can duplicate and reorder. Domain idempotency, authoritative state guards, and target-side version fences remain mandatory. External email acceptance cannot be atomic with PostgreSQL finalization; a crash can still duplicate an accepted email.
-
-Dedicated Lambda SQS mappings use `ReportBatchItemFailures` (batch one for all scopes except raw normalization's batch ten); non-complete outcomes remain failed for SQS retry/DLQ. Notification delivery uses a 45s invocation cap with a 35s service attempt budget and 330s source visibility (five-minute lease plus 30s recovery margin). No native polling or scheduled raw reconciliation exists in the target. Historical cutover MUST account for legacy in-memory work and DLQs before shutting down old processes; SQS cannot recover previously lost jobs. See the [runbook](durable-worker-runbook.md) for retention, rollout, and recovery limits.
-
-### 12.5 Idempotency and ordering
-
-Handlers MUST tolerate:
-
-* duplicate delivery;
-* concurrent delivery;
-* replay;
-* an older change arriving after a newer one.
-
-Use stable domain identifiers where possible:
-
-```text
-product-listing jobs:
-    product_listing_events.event_id
-
-
-search-filter jobs:
-    (user_search_filter_id, version, operation)
-
-match jobs:
-    (
-        user_search_filter_id,
-        product_listing_id,
-        origin_event_id
-    )
-```
-
-Projection records SHOULD store the latest applied source version.
-
-An older or equal version MUST NOT overwrite a newer projection state.
-
-Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks. SQS message IDs, receipt handles, receive counts, and redrive timestamps are transport metadata, never business identity.
-
-Deletion fences MUST outlive delayed remote writes. ProductListing withdrawal and search-filter deletion replace the full OpenSearch document with a content-free `projectionDeleted: true` tombstone using external source versioning. Physical DELETE version memory expires after `index.gc_deletes`; cancellation is not a remote fence. Tombstones MUST NOT expire or be physically deleted by routine cleanup. All readers exclude true before pagination/KNN/percolation; a missing marker remains live for additive compatibility. Deploy mappings and **all** readers before writers, and retire/fence old physical-DELETE writers, including in-flight requests.
-
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. Historical notification consumers instead use their exact persisted event or match as the immutable fact and are not invalidated by unrelated later ProductListing events. They require current `ACTIVE` lifecycle while holding a shared ProductListing row lock through notification and delivery-intent commit. ProductListing event decoders and CDC routers MUST reject malformed or unsupported type/group/version/payload contracts; invalid CDC input MUST remain unacknowledged for retry. For ProductListing events, `product_listings.current_event_id` is the current event revision and is separate from the numeric aggregate storage version used for optimistic concurrency. Processed, duplicate, stale, missing-source, withdrawn, and ignored-event outcomes are operationally distinct.
-
-ProductListing-event matching also locks final active search-filter candidates through match commit and compares the exact evaluated semantic search plus embedding, not a whole-row version. Changed matching inputs or inactive/deleted filters cannot claim match rows; unrelated name or notification-preference edits remain eligible.
-
-### 12.6 Building projections
-
-A CDC payload may not contain enough information to build a complete projection.
-
-In that case, treat the change as an invalidation signal:
-
-```text
-CDC change
-    -> extract affected identifier
-    -> read current committed PostgreSQL state
-    -> build complete projection
-    -> conditionally update target
-```
-
-Joined or hydrated projections SHOULD reread authoritative state rather than incrementally merging unrelated partial table changes.
-
-Projection mapping belongs to the target adapter.
-
-```text
-authoritative query result
-    -> adapter-local mapping
-    -> search document / key-value item
-```
-
-Projection storage types MUST NOT escape their adapter.
-
-### 12.7 Replay and rebuild
-
-Every rebuildable projection MUST document:
-
-* its authoritative source;
-* its mapping;
-* its source-version strategy;
-* how it is rebuilt;
-* how live changes are handled during rebuild;
-* how the rebuilt projection is verified and activated.
-
-Search indexes SHOULD use versioned indexes and an atomic alias or equivalent cutover.
-
-Existing projections MUST NOT be treated as the recovery source for authoritative data. Rebuilds MUST fence old writers from the new generation, catch up committed changes, and verify IDs, source versions, visibility, and deletion fences before activation. Index reset, unversioned writes, or ID/version reuse MUST NOT erase protection against delayed writes.
-
-Current PostgreSQL includes withdrawn ProductListings and their projection versions, so withdrawal fences can be backfilled. Hard-deleted search filters are absent from current rows; their deletion IDs/versions require retained delete facts or an externally fenced generation rebuild. Neither missing history nor expired jobs can be reconstructed by installing SQS. No automated general rebuild/backfill deployment is implied; the [runbook](durable-worker-runbook.md#projection-fences-and-rebuild) records the handoff.
+On failure, preserve custody, repair the cause, and use small approved replay/redrive with current authoritative-state checks; never purge merely to clear an alarm or log raw source records, credentials, provider payloads, or sensitive job content. Observe lag, backlog/oldest age, failure custody, handler outcomes, duplicates, and projection freshness. Declarations and local tests are not evidence of a live stage; activation and recovery require the owning runbook and approved operator evidence.
 
 ### 12.8 Schema evolution
 
-Database migrations affecting CDC consumers MUST use expand-and-contract changes where practical:
-
-1. add compatible storage fields/mappings;
-2. deploy compatible consumers/readers;
-3. enable producers/writers;
-4. rebuild or migrate projections with source-version fencing;
-5. remove old fields only after retained jobs, DLQs, replay sources, and rollback binaries no longer need them.
-
-Tables or columns consumed by CDC MUST NOT be renamed or removed without reviewing:
-
-* DMS task table mapping and approved external legacy subscription disposition;
-* router logic;
-* deserialization;
-* projection handlers;
-* replay and rebuild procedures.
-
-The current SQS envelope explicitly requires `schema_version = 2`, exact scope/job discriminators, canonical TypeID object fields, and validated TypeID-derived idempotency/ordering keys; jobs are at most 16 KiB and contain compact identifiers, never raw source rows. CDC still reads canonical PostgreSQL UUID text and converts it immediately into typed UUIDv7 IDs before job construction. Unknown additive envelope/payload fields are deliberately tolerated. Schema 1, missing required fields, unsupported versions/types, wrong prefixes/scopes, bare UUID object fields, and mismatched keys fail explicitly without deletion. This wire rule does not relax strict ProductListing CDC event-payload validation.
-
-The initial business schema defines `completed_lease_token` and `completed_at`. Exact finalization retries reuse the original token, result/receipt/error, and completion timestamp; an exact persisted completion receipt confirms a lost response without another send or write. Preserve these columns and fencing semantics across rollback.
-
-### 12.9 Failure handling
-
-The ten target Lambda mappings return failed SQS message IDs through `ReportBatchItemFailures`; source queues use native `maxReceiveCount = 5` redrive. Invalid SQS wire jobs also remain failed for the DLQ. Malformed upstream DMS CDC never reaches SQS: the router returns the earliest Kinesis failure and its configured retry/age policy sends the complete invocation to the retained S3 archive. This is not worker-DLQ redrive. The retired native worker's visibility backoff and Sequin retry behavior describe history only.
-
-Operators MUST repair the cause before small controlled SQS redrive under a separately approved operator role. For a Kinesis archive incident, preserve the object, use the fail-closed archive decoder against the documented unchanged outer `payload` JSON string, and replay the original stream/sequence ordering only in an approved isolated environment before any production replay. Runtime roles have no DLQ/archive read, message delete, purge, or redrive powers. Never purge to clear an alarm. Recovery/archive needs retained evidence and privacy approval, not raw-body logging or invented lost history.
-
-Notification active leases defer until the actual persisted expiry plus 5s; a reclaimable claim/status race defers 1s. Neither is completion. SES acceptance ambiguity retains the five-minute lease; the Lambda's 35-second attempt budget includes claim, send, finalization, and backoff. SES SDK sends use one attempt; retry only finalization after a captured provider result. Lambda timeout never cancels an SES request. See the runbook for unavoidable crash-after-provider-acceptance duplicates.
-
-Logs MUST contain safe identifiers and error categories, not complete source rows, credentials, tokens, provider receipts, or sensitive payloads.
-
-### 12.10 Observability
-
-Monitor at least:
-
-* PostgreSQL replication-slot lag;
-* retained WAL growth;
-* DMS task/source/target CDC lag and state;
-* unacknowledged change age;
-* router failures, throttles, Kinesis iterator age, and failure-destination delivery failures;
-* source queue depth/oldest age and DLQ depth;
-* handler failures and latency;
-* duplicate and stale-version rejections;
-* projection freshness;
-* projection rebuild status.
-
-CDK defines prod-only source oldest-age >= 900s and DLQ visible-count >= 1 alarms (Maximum, one 5-minute period, missing data not breaching). The DMS router additionally alarms on 15-minute Lambda `IteratorAge`, `Errors`, `Throttles`, and `DestinationDeliveryFailures`; every alarm publishes to the production alarm topic. Worker attempt, circuit, settlement, and normalization signals are structured logs, not automatically provisioned custom metrics or dashboards. Notification delivery additionally records safe delivery/attempt identifiers, claim deferral, send/finalization category, terminal outcome, and duration; queue backlog/DLQ and Lambda errors remain CloudWatch metrics/alarms. No recipients, rendered content, signed bodies, provider payloads, or credentials are logged. Deployment and broader monitoring coverage require operator verification.
-
-Structured logs SHOULD include, where available:
-
-```text
-source
-table or stream
-operation
-entity identifier
-source version
-job type
-idempotency key
-attempt
-outcome
-correlation identifier
-```
+Evolve CDC storage and job contracts with expand-and-contract changes: introduce compatible storage and consumers/readers before enabling new producers or writers; preserve compatibility with retained jobs, replay sources, and rollback binaries before removing old fields. Review routing and projection handlers whenever a CDC source changes. Decoders MUST reject unsupported versions, malformed required fields, or invalid domain identities rather than acknowledge poison input; additive fields MAY be accepted only when the owning wire contract allows it. Event and job formats, selected sources, and receipt schemas belong in [event flow](events/flow.md) and [storage](storage.md), not this guide.
 
 ### 12.11 Required tests
 
-CDC tests SHOULD cover:
-
-* insert, update, and delete mapping;
-* duplicate delivery;
-* concurrent delivery;
-* stale changes;
-* full prevalidation and partial publication followed by redelivery;
-* DMS ingress bounds, ambiguous publication, and deadline exhaustion;
-* complete-only SQS acknowledgment, batch failures, and native SQS DLQ handling;
-* projection version checks, including tombstones beyond physical-delete GC;
-* replay;
-* full projection rebuild.
-
-Test published jobs surviving worker Lambda failure, duplicates after completion/response loss, schema compatibility, and notification lease/finalization ambiguity. Real AWS smoke is opt-in, never credential-required CI; mutations require an explicitly isolated sandbox account/stage and unique resources. Do not claim acceptance or deployment verification without executing it.
-
-### 12.12 Non-negotiable rules
-
-1. Every dataset has one operational owner.
-2. Only committed PostgreSQL changes are propagated.
-3. Projection stores are never part of PostgreSQL transactions.
-4. Kinesis is checkpointed only after full route validation and confirmed publication of all required jobs; exhausted failures retain archive custody.
-5. Handlers tolerate duplicates; target writes enforce idempotency, and external sends retain their documented ambiguity.
-6. Older source versions cannot overwrite newer projections.
-7. Projections are rebuildable from authoritative truth.
-8. Poison changes are never silently discarded.
-9. CDC lag, queue pressure, failures, and freshness are observable.
-10. Durable at-least-once delivery is retention-bounded; only complete jobs are deleted, and deletion fences survive delayed writes.
-
+CDC and projection tests SHOULD cover valid and invalid source changes, route prevalidation, partial publication and ambiguous acknowledgments, duplicate/concurrent/out-of-order delivery, stale-version fences, and complete-only job acknowledgment. Exercise recovery after lost responses or uncertain external effects, deletion fences, schema compatibility, replay, and a full projection rebuild. Use isolated real infrastructure where needed, but do not mistake local tests or declarations for live activation evidence; real-environment smoke requires separate approval and the owning runbook.
 
 ## 13. Error boundaries
 
@@ -2063,7 +1188,7 @@ InvalidProductListingUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `application::error::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants or escape to controllers directly. Preserve the technical cause privately for diagnosis while translating it into a contextual, safe operation error; do not discard the original cause or expose credentials and raw payloads.
 
 ### HTTP mapping
 
@@ -2071,13 +1196,7 @@ Controllers map service errors to HTTP status and response DTOs.
 
 The service MUST NOT return HTTP status codes.
 
-In `aura-historia-api`, HTTP failures MUST use the crate-local `ApiError` in `error.rs`. It serializes `application/problem+json` with stable public fields such as `status`, `title`, `error`, optional `source`, and optional `detail`. Its fields SHOULD stay private; construct errors through focused constructors and builder methods.
-
-Mappings from transport/service errors to `ApiError` MUST be implemented as `From<ErrorType> for ApiError` in `error.rs` or a unit error-mapping module re-exported by `error.rs`. Do not keep endpoint-local `api_error_from_*` functions once the mapping is reusable for the route unit.
-
-Controllers MAY create `ApiError` directly only for transport-owned validation, such as malformed path parameters, missing headers, or invalid query syntax. Service/use-case errors MUST flow through `From` mappings.
-
-Problem JSON error codes are public API. They MUST be stable, documented by tests, and updated in `docs/swagger.yaml` / `docs/CHANGELOG.md` when behavior changes. In `aura-historia-api`, error codes MUST be declared as dedicated `ApiErrorCode` constants in `error.rs`; controllers and tests MUST use those constants instead of inline string literals such as `"INVALID_UUID"`.
+The HTTP boundary owns a consistent, safe problem response and reusable mappings from service errors; transport-owned validation may map directly to an HTTP input error. Public error codes and response fields MUST be stable and documented by tests. Changes to the public contract require updates to [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md). Exact error type, constants, and module placement belong in API code.
 
 ### Logging errors
 
@@ -2120,12 +1239,6 @@ if let Some(actor_id) = context.principal.actor_id() {
 }
 ```
 
-### Log-Levels
-
-Treat `error!` level as a burning fire and for bugs.
-Use info and warn accordingly.
-Use debug when sensible.
-Less is more as long as everything important is covered.
 
 ### Required context
 
@@ -2228,7 +1341,7 @@ REST authentication is performed by middleware or extractors.
 
 The transport layer validates JWTs or other access tokens and maps validated credentials into a transport principal. Service and core code MUST NOT parse tokens, inspect authorization headers, or depend on JWT/framework types.
 
-`aura-historia-api/auth/` owns this boundary for the axum runtime. It accepts Cognito JWTs and Aura Historia access tokens through one authenticator interface. Aura Historia access tokens identify delegated users and map persisted token scopes to `CredentialCapability` values. Cognito remains the only external authentication issuer trusted by the API; federated providers authenticate through Cognito and never send provider tokens to the API for validation. Federated identity-provider attributes may initialize application profile/preferences at first user creation, but PostgreSQL is authoritative thereafter; later provider attribute refreshes do not overwrite application-managed user data.
+The API accepts only explicitly trusted issuers and locally issued credentials; third-party identity-provider tokens are not automatically valid API credentials. A validated delegated credential carries only its granted capabilities. Federated profile attributes MAY initialize application state but MUST NOT overwrite authoritative PostgreSQL-managed state on later provider refreshes. Trusted issuer and front-door routing details belong in the [HTTP front-door contract](http-api-front-door.md).
 
 Protected endpoints SHOULD use an extractor that guarantees an authenticated principal:
 
@@ -2256,7 +1369,7 @@ Rules for public endpoints:
 
 The same principle applies to service credentials and system jobs.
 
-Public axum controllers SHOULD use optional authentication. Missing `Authorization` becomes `Principal::Anonymous`; invalid supplied `Authorization` becomes an HTTP authentication error. This rule is part of the transport contract and MUST be unit-tested for every public endpoint that accepts optional auth.
+Public controllers accepting optional authentication MUST distinguish absent credentials (anonymous) from supplied invalid credentials (authentication error); cover both paths in transport tests.
 
 ### 15.2 Service-owned principal model
 
@@ -2364,22 +1477,7 @@ Scopes belong to delegated Aura Historia access tokens, not Cognito JWTs. Cognit
 
 Aura Historia access tokens use a closed-world assumption: a delegated principal has only the scopes stored on the token. Use cases that protect a state change or private read MUST check the narrowest matching `CredentialCapability` before executing protected work.
 
-Scope names SHOULD use `resource:action` with plural resources and coarse, stable actions:
-
-```text
-product-listings:write
-listing-sources:read
-listing-sources:write
-partnership-applications:write
-users:read
-users:write
-access-tokens:read
-access-tokens:write
-search-filters:write
-watchlist:write
-```
-
-Do not use vague scopes such as `records:manage`. Prefer `read`, `write`, or an explicit non-role action. Roles are not scopes: admin-only use cases MUST check `UserRole::Admin` (or an equivalent service policy) after credential capability checks. Public queries SHOULD NOT require scopes unless authenticated state changes the returned private data or policy.
+Scope names SHOULD use `resource:action` with plural resources and stable actions; the exact registry is owned by the credential contract and public API. Prefer `read`, `write`, or an explicit non-role action over vague scopes such as `records:manage`. Roles are not scopes: admin-only use cases MUST check the relevant role or policy after credential capability checks. Public queries SHOULD NOT require scopes unless authenticated state changes the returned private data or policy.
 
 ### 15.7 Operational identity logging
 
@@ -2427,11 +1525,11 @@ pub(crate) struct SearchConfig {
 
 ### Outbound network destinations
 
-Adapters that fetch untrusted or externally supplied URLs MUST enforce an SSRF policy at the network boundary. The shared public-network policy classifies addresses only: callers remain responsible for URL syntax, DNS resolution, redirect validation, and pinning approved peer addresses immediately before use. Address resolution or classification failures MUST fail closed. IPv6 permits only global-unicast `2000::/3` after special-use exclusions; this is an address-safety policy, not a reachability guarantee.
+Adapters that fetch untrusted or externally supplied URLs MUST enforce an SSRF policy at the network boundary. Validate URL syntax and every redirect, resolve DNS safely, exclude unsafe/special-use addresses, and pin approved peer addresses for the actual connection. Address resolution or classification failures MUST fail closed; address classification alone does not prove a request will reach an approved destination.
 
 Secrets MUST NOT be embedded in domain/application types, logs, errors, or committed configuration files.
 
-External clients and pools SHOULD be constructed once and shared through cloneable handles such as `PgPool` or `Arc<Client>`.
+External clients and pools SHOULD be constructed at the composition boundary and reused rather than created per request.
 
 ---
 
@@ -2439,19 +1537,7 @@ External clients and pools SHOULD be constructed once and shared through cloneab
 
 ### Optimistic concurrency
 
-Aggregate tables SHOULD contain a monotonically increasing version.
-
-Updates MUST include the loaded version:
-
-```sql
-UPDATE records
-SET
-    title = $1,
-    version = version + 1
-WHERE id = $2
-  AND version = $3
-RETURNING version
-```
+Aggregate tables SHOULD contain a monotonically increasing version. Updates MUST compare the loaded version and advance it once for a changed write.
 
 No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC consumers; ordinary use cases SHOULD NOT return it.
 
@@ -2510,7 +1596,7 @@ HTTP request
     -> HTTP response or ApiError problem JSON
 ```
 
-`aura-historia-api/state.rs` owns axum state structs. State SHOULD contain inbound use-case trait objects and authenticator trait objects, not repositories. Route modules SHOULD take state through axum `State<T>` and remain thin.
+Transport state SHOULD expose inbound use cases and authenticators, not repositories or infrastructure clients. Route modules remain thin.
 
 For read endpoints with cache behavior, cache headers are REST contract and belong in the controller. If the cache policy depends on anonymous vs authenticated access, derive it from `OperationContext.principal`, not from raw headers.
 
@@ -2520,199 +1606,21 @@ Command use cases SHOULD return the public command result/view directly from the
 
 ---
 
-## 19. Async traits and dispatch
+## 19. Use-case dispatch
 
-Inbound use-case traits are commonly stored as trait objects in use-case bundles:
-
-```rust
-Arc<dyn SearchRecordsUseCase>
-```
-
-Async trait methods used through `dyn Trait` MUST use the workspace's object-safe async-trait convention, currently `async_trait`.
-
-```rust
-#[async_trait::async_trait]
-pub trait SearchRecordsUseCase: Send + Sync {
-    async fn execute(
-        &self,
-        context: &OperationContext,
-        request: SearchRecordsRequest,
-    ) -> Result<SearchRecordsResult, SearchRecordsError>;
-}
-```
-
-The attribute MUST also be applied to implementations.
-
-Outbound ports MAY use static dispatch when practical. Consistency is preferred over mixing several async trait styles inside one domain crate.
+Inbound use-case contracts MUST be usable through the runtime's chosen dispatch mechanism (often trait objects). Outbound ports MAY use static dispatch where practical. Async-trait syntax and object-safety mechanics belong to code and the workspace toolchain; do not let dispatch choices reverse dependency direction.
 
 ---
 
 ## 20. Testing strategy
 
-Test placement follows visibility and architectural intent.
+Test placement follows visibility and architectural intent. Private implementation tests belong beside the implementation; black-box tests under `tests/` exercise the deliberate public API. Do not widen production visibility merely for a test, even one using real infrastructure. Shared test fixtures and runners are code-level details, not architecture rules.
 
-### 20.1 Tests beside implementation
-
-Tests that need private or `pub(crate)` implementation details MUST live beside the implementation under `#[cfg(test)] mod tests`.
-
-This includes tests for:
-
-- domain internals;
-- service handler orchestration with private fakes;
-- PostgreSQL rows and mappings;
-- private transaction-scoped repositories;
-- SQL serialization details;
-- adapter-specific request/response mapping;
-- real-infrastructure repository and reader behavior.
-
-A test inside a source file MAY use test-only/dev dependencies and MAY start real infrastructure such as PostgreSQL, OpenSearch, or LocalStack.
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test_api::*;
-
-    const POSTGRES: Postgres = Postgres::new("migrations");
-
-    #[aura_integration_test(services = [POSTGRES])]
-    async fn should_persist_record() {
-        let pool = get_postgres_client().await;
-        // Test private adapter implementation directly.
-    }
-}
-```
-
-Running against real infrastructure does not require the test to live in `/tests`.
-
-### 20.2 Black-box tests in `/tests`
-
-A crate-level `tests/` directory is reserved for black-box tests of the crate's deliberate public API.
-
-These tests compile as separate crates and MUST NOT access private or `pub(crate)` items.
-
-They MAY use `dev-dependencies` to wire public service handlers and public adapter factories/readers against real infrastructure:
-
-```text
-record-postgres/tests/repository_contract.rs
-runtime/tests/record_workflow.rs
-api/tests/record_http.rs
-```
-
-Do not make an implementation detail public merely to satisfy a `/tests` test. Move that test beside the implementation instead.
-
-### 20.3 Core tests
-
-Core tests MUST verify domain behavior without infrastructure.
-
-Test:
-
-- valid transitions;
-- rejected transitions;
-- invariants;
-- event emission when the aggregate uses domain events;
-- idempotent no-op behavior.
-
-Core tests SHOULD normally live in the same file as the tested aggregate or value object.
-
-### 20.4 Service tests
-
-Service handlers MUST be tested with fakes or mocks for their ports.
-
-Test:
-
-- orchestration;
-- transaction begin/commit behavior;
-- use of the same transaction across several factories;
-- batching;
-- fallback behavior;
-- optional enrichment;
-- preservation of search order;
-- error translation;
-- authorization decisions;
-- skipping persistence when no domain state changed.
-
-These tests SHOULD normally live in the same use-case file under `#[cfg(test)]` so handler internals and private fakes do not need public visibility.
-
-### 20.5 PostgreSQL adapter tests
-
-PostgreSQL repositories and readers SHOULD have real PostgreSQL tests beside their implementation.
-
-Test:
-
-- `FromRow` mappings;
-- aggregate rehydration;
-- insert/update semantics;
-- optimistic concurrency;
-- rollback behavior;
-- cross-entity transactions;
-- joined readers;
-- migration compatibility.
-
-Rows, mapping helpers, and scoped repository types MUST remain non-public.
-
-### 20.6 Other adapter tests
-
-Each adapter SHOULD test:
-
-- request serialization;
-- response deserialization;
-- mapping to application types;
-- timeout/error mapping;
-- stale-version handling where applicable.
-
-Private adapter tests belong beside the implementation. Public contract tests MAY live in `/tests`.
-
-### 20.7 Controller tests
-
-Controller tests SHOULD verify:
-
-- DTO deserialization;
-- DTO/use-case mapping;
-- status-code mapping;
-- response serialization;
-- authentication/context mapping;
-- missing-token behavior on public routes;
-- invalid-token rejection on public and protected routes;
-- protected-route authentication enforcement.
-
-They SHOULD mock only the inbound use-case trait, not repositories.
-
-For axum API controllers, tests SHOULD exercise the `Router` with fake inbound use-case traits and fake authenticators. Cover success, request validation, auth rejection, service-error mapping, response DTO shape, and contract headers.
-
-### 20.8 Acceptance tests
-
-Acceptance tests SHOULD:
-
-- verify the most important behavior from outside the system;
-- work only against the exposed REST API;
-- be written as theses about system behavior;
-- live in the API/runtime black-box `tests/` suite.
-
-For `aura-historia-api`, black-box API tests SHOULD use `test-api::AuraHistoriaApi` as a process-lived test service. Declare the API once near the top of the test file and pass `&AURA_API` to `#[aura_integration_test]`; do not start and stop the HTTP server inside each test body.
-
-```rust
-const POSTGRES: test_api::Postgres = test_api::Postgres::new("migrations");
-static AURA_API: test_api::AuraHistoriaApi = test_api::AuraHistoriaApi::new(aura_api_app);
-
-#[test_api::aura_integration_test(services = [POSTGRES, &AURA_API])]
-async fn should_get_listing_source_by_id_with_aura_access_token() {
-    let response = match reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/admin/listing-sources/{listing_source_id}",
-            AURA_API.base_url(),
-        ))
-        .bearer_auth(token)
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(error) => panic!("failed to call API: {error}"),
-    };
-}
-```
-
-Acceptance tests for authenticated routes SHOULD use Aura Historia access tokens when the public contract supports them. Seed credentials through the same storage adapter used by the runtime, then call the real HTTP endpoint with a bearer token. Keep one source module per API unit, but compatible modules SHOULD be declared by a small number of explicit integration-suite binaries so process-lived real infrastructure is amortized. Mutable application and projection data MUST reset between tests.
+- Core tests verify invariants, transitions, and no-op/event behavior without infrastructure.
+- Service tests use fakes or mocks for ports to verify orchestration, authorization, transaction/commit behavior, batching, error mapping, and optional-data policy.
+- Adapter tests verify fallible mapping, persisted-state validation, SQL concurrency/rollback against real PostgreSQL where appropriate, provider wire/error behavior, and stale projection fences.
+- Transport tests invoke the public boundary with fake inbound use cases to cover authentication, validation, DTO/error mapping, and response contract. Black-box acceptance tests cover critical behavior through the exposed API with isolated real dependencies when needed.
+- Durable delivery tests cover duplicate, out-of-order, lost-response, partial-publish, and uncertain external-effect paths. An integration or local test is not evidence of deployment or live-service acceptance; use the owning runbook for operational verification.
 
 ## 21. Naming conventions
 
@@ -2849,97 +1757,8 @@ impl From<RecordRow> for Record {
 
 ---
 
-## 23. Implementation-agent checklist
+## 23. Design and review checklist
 
-Agents MUST read this document before implementing architecture-affecting work.
+Before an architecture-affecting change, identify the bounded context and operational source of truth; assign each type, use case, port, mapping, and transaction to its owner. Review whether authorization and required reads use trusted identity and an appropriately consistent snapshot; whether cross-system calls can fail or complete ambiguously; and whether retries, provider limits, privacy, and retention need a documented contract. Keep adapters and controllers thin, limit public visibility, and verify no N+1 reads or hidden distributed transactions were introduced.
 
-### Before coding
-
-- [ ] Identify the bounded context and aggregate.
-- [ ] Identify whether the change is a command, query, projection, or infrastructure concern.
-- [ ] Place the aggregate/value objects in the correct `<entity>-core` crate.
-- [ ] Place use-case contracts and handler implementation in one `<entity>-service/src/use_cases/...` file.
-- [ ] Place each infrastructure implementation in its `<entity>-<adapter>` crate.
-- [ ] Define or reuse the smallest capability-oriented outbound ports.
-- [ ] Confirm that no port is named after a database.
-- [ ] Decide whether the final read model belongs to the use case.
-- [ ] Decide whether the write requires one PostgreSQL transaction.
-- [ ] Identify invariant-critical reads that must use the same transaction.
-- [ ] Identify optional additional-source enrichment and its failure behavior.
-- [ ] Define error translation at each layer.
-- [ ] Define mapping location for every boundary type.
-
-### While coding
-
-- [ ] Keep domain fields private.
-- [ ] Keep adapter rows/documents/items private.
-- [ ] Use `FromRow` for PostgreSQL row deserialization.
-- [ ] Use `TryFrom` where mapping can fail.
-- [ ] Bind domain values to SQL inside the DAO/repository implementation.
-- [ ] Avoid public domain-to-row conversions for writes.
-- [ ] Batch hydration queries.
-- [ ] Preserve source ordering after hydration.
-- [ ] Keep handlers free of SQLx and concrete adapter imports.
-- [ ] Use an abstract `UnitOfWork` and transaction-scoped repository/operational reader factories.
-- [ ] Use chained temporary repositories for one-off transactional calls.
-- [ ] Explicitly commit successful SQLx transactions.
-- [ ] Add a use-case tracing span with safe structured fields.
-- [ ] Map transport authentication into service-owned `OperationContext`.
-- [ ] Ensure protected mutations reject anonymous principals.
-- [ ] Log relevant committed actions with actor, target, and outcome.
-- [ ] Do not leak adapter errors or types across boundaries.
-- [ ] Use the narrowest possible visibility.
-
-### Before completion
-
-- [ ] Add private/internal tests beside the implementation under `#[cfg(test)]`.
-- [ ] Keep `/tests` for black-box public-API tests only.
-- [ ] Do not widen visibility solely for tests.
-- [ ] Add domain unit tests.
-- [ ] Add use-case orchestration tests.
-- [ ] Add adapter mapping/integration tests.
-- [ ] Add transaction/concurrency tests where relevant.
-- [ ] Add controller DTO/error mapping tests.
-- [ ] Add acceptance tests
-- [ ] Verify no N+1 access pattern was introduced.
-- [ ] Verify Cargo dependencies enforce core <- service <- adapters <- runtime/transport.
-- [ ] Verify canonical crates use durable shared owners directly.
-- [ ] Verify no service/core import points toward an adapter.
-- [ ] Verify no controller accesses a repository or database client.
-- [ ] Verify logs contain no secrets or sensitive payloads.
-- [ ] Update this document when a new general architectural rule was introduced.
-
----
-
-## 24. Pull-request review checklist
-
-Reviewers SHOULD reject changes that cannot answer these questions clearly:
-
-1. Which layer owns each new type?
-2. Is each public type intentionally public?
-3. Does the use case express business intent?
-4. Does the handler depend only on required capabilities?
-5. Is aggregate persistence separated from read-model construction?
-6. Are storage mappings confined to adapters?
-7. Does the transaction contain exactly the invariant-critical PostgreSQL work?
-8. Are cross-source reads composed in a handler rather than a controller?
-9. Is trusted caller identity carried through `OperationContext` rather than request input?
-10. Do relevant mutations record actor, target, and committed outcome safely?
-11. Are errors and logs safe and appropriately translated?
-12. Are public items required by a real production crate boundary rather than only by tests?
-13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
-14. Are the important rules covered by tests?
-
----
-
-## 25. Informative references
-
-These references explain library behavior used by the conventions above:
-
-- SQLx `FromRow`: <https://docs.rs/sqlx/latest/sqlx/trait.FromRow.html>
-- SQLx `Transaction`: <https://docs.rs/sqlx/latest/sqlx/struct.Transaction.html>
-- SQLx `query_as`: <https://docs.rs/sqlx/latest/sqlx/fn.query_as.html>
-- `async-trait`: <https://docs.rs/async-trait/latest/async_trait/>
-- `tracing`: <https://docs.rs/tracing/latest/tracing/>
-
-The rules in this document remain authoritative even when a referenced implementation library changes. Library upgrades MUST be reviewed for effects on these conventions.
+Tests SHOULD demonstrate domain invariants, service orchestration, adapter mapping/concurrency, transport contracts, and relevant delivery/recovery behavior. Update the appropriate specialized contract when changing wire, storage, deployment, or operations; amend this guide only for durable general design rules. Explain intentional architectural deviations in the pull request.
