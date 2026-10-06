@@ -127,9 +127,17 @@ describe("change-scoped CI workflows", () => {
     for (const event of ["push", "pull_request"]) {
       const paths = block(block(triggers, event, 2), "paths", 4);
       expect(paths).toContain('"mjml/**"');
+      expect(paths).toContain('"infra/src/resources/cognito-verification-email.html"');
       expect(paths).toContain('".github/workflows/mjml-templates.yml"');
       expect(paths).not.toContain('"src/**"');
     }
+    expectInOrder(
+      mjmlWorkflow,
+      "git ls-files --error-unmatch -- infra/src/resources/cognito-verification-email.html",
+      "npm --prefix mjml run generate:cognito-verification",
+      "git diff --exit-code -- infra/src/resources/cognito-verification-email.html",
+      "Compile every MJML template",
+    );
     expect(jobNames(integrateWorkflow)).not.toContain("mjml-compile");
   });
 
@@ -138,11 +146,26 @@ describe("change-scoped CI workflows", () => {
     const triggers = block(cdkWorkflow, "on");
     for (const event of ["push", "pull_request"]) {
       const paths = block(block(triggers, event, 2), "paths", 4);
-      for (const path of ["infra/**", "ci/**", "docs/swagger.yaml", "src/**/Cargo.toml", "src/aura-historia-api/src/lib.rs", ".github/workflows/deploy.yml"]) {
+      for (const path of [
+        "infra/**",
+        "mjml/**",
+        "ci/**",
+        "docs/swagger.yaml",
+        "src/**/Cargo.toml",
+        "src/aura-historia-api/src/lib.rs",
+        ".github/workflows/deploy.yml",
+      ]) {
         expect(paths).toContain(`"${path}"`);
       }
       expect(paths).not.toContain('"src/**"');
     }
+    expectInOrder(
+      cdkWorkflow,
+      "git ls-files --error-unmatch -- infra/src/resources/cognito-verification-email.html",
+      "npm --prefix mjml run generate:cognito-verification",
+      "git diff --exit-code -- infra/src/resources/cognito-verification-email.html",
+      "npm --prefix infra ci",
+    );
     expect(jobNames(integrateWorkflow)).not.toContain("infra-test");
     for (const event of ["push", "pull_request"]) {
       const paths = block(block(integrateWorkflow, "on"), event, 2);

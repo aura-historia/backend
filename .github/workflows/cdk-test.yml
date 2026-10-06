@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - "infra/**"
+      - "mjml/**"
       - "ci/**"
       - "docs/swagger.yaml"
       - "Cargo.toml"
@@ -25,6 +26,7 @@ on:
   pull_request:
     paths:
       - "infra/**"
+      - "mjml/**"
       - "ci/**"
       - "docs/swagger.yaml"
       - "Cargo.toml"
@@ -56,6 +58,15 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26
+
+      - name: Install pinned MJML dependencies
+        run: npm --prefix mjml ci
+
+      - name: Generate and verify Cognito verification HTML
+        run: |
+          git ls-files --error-unmatch -- infra/src/resources/cognito-verification-email.html >/dev/null
+          npm --prefix mjml run generate:cognito-verification
+          git diff --exit-code -- infra/src/resources/cognito-verification-email.html
 
       - name: Install CDK dependencies
         run: npm --prefix infra ci

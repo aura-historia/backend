@@ -5,10 +5,12 @@ on:
     branches: [develop]
     paths:
       - "mjml/**"
+      - "infra/src/resources/cognito-verification-email.html"
       - ".github/workflows/mjml-templates.yml"
   pull_request:
     paths:
       - "mjml/**"
+      - "infra/src/resources/cognito-verification-email.html"
       - ".github/workflows/mjml-templates.yml"
 
 jobs:
@@ -27,6 +29,12 @@ jobs:
 
       - name: Install pinned MJML
         run: npm --prefix mjml ci
+
+      - name: Generate and verify Cognito verification HTML
+        run: |
+          git ls-files --error-unmatch -- infra/src/resources/cognito-verification-email.html >/dev/null
+          npm --prefix mjml run generate:cognito-verification
+          git diff --exit-code -- infra/src/resources/cognito-verification-email.html
 
       - name: Compile every MJML template
         shell: bash

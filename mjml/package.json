@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "generate:cognito-verification": "mjml cognito/verification/en.mjml --output ../infra/src/resources/cognito-verification-email.html"
+  },
   "dependencies": {
     "mjml": "5.4.1"
   }
