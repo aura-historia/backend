@@ -30,6 +30,7 @@ Prefixes are durable and collision-free.
 | `ListingSourceId` | `ls` | `listing-source-core` |
 | `UserId` | `usr` | `user-core` |
 | `MarketingConsentSyncIntentId` | `mci` | `user-core` |
+| `NewsletterConfirmationId` | `nsc` | `user-core` |
 | `PartnershipId` | `psh` | `partnership-core` |
 | `PartnershipApplicationId` | `pa` | `partnership-core` |
 | `UserSearchFilterId` | `sf` | `search-filter-core` |
@@ -94,7 +95,7 @@ These are not Aura object IDs:
 - OAuth authorization codes, exchange codes, client secrets, raw access tokens, and PKCE values;
 - webhook/provider delivery IDs and Stripe customer IDs;
 - notification and marketing-consent lease tokens, and crawler session cookies;
-- marketing-consent `source_key` (proof/action identity), `recipient_key` (email-marketing fingerprint), Loops contact IDs, and confirmation IDs;
+- marketing-consent `source_key` (proof/action identity), `recipient_key` (email-marketing fingerprint), Loops contact IDs, and newsletter confirmation tokens/digests;
 - request IDs, correlation IDs, idempotency keys, SQS receipt/message IDs, Sequin delivery IDs/LSNs, and OpenSearch PIT IDs;
 - URLs and secret/webhook credentials.
 

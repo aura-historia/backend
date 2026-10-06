@@ -87,6 +87,13 @@ pub enum MarketingConsentIntentError {
 /// No method here may perform provider I/O.
 #[async_trait::async_trait]
 pub trait MarketingConsentIntents: Send {
+    /// Acquire the shared per-recipient advisory lock before a provider decision reads
+    /// the current account row or invalidates any pending proof.
+    async fn lock_recipient(&mut self, email: &Email) -> Result<(), MarketingConsentIntentError>;
+
+    /// Acquire the same transaction-scoped source lock used by consent writes.
+    async fn lock_source_key(&mut self, key: &str) -> Result<(), MarketingConsentIntentError>;
+
     async fn find_by_source_key(
         &mut self,
         key: &str,
@@ -126,6 +133,13 @@ pub trait MarketingConsentIntents: Send {
     async fn cancel_provider_backsync(
         &mut self,
         email: &Email,
+    ) -> Result<(), MarketingConsentIntentError>;
+
+    /// Cancel unconfirmed DOI challenges in the provider-withdrawal transaction.
+    async fn invalidate_newsletter_confirmation_challenges(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
     ) -> Result<(), MarketingConsentIntentError>;
 
     /// Decide and persist a correction for an already leased grant invalidated by

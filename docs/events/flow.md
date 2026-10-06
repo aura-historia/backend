@@ -16,6 +16,8 @@ A verified local grant or local revoke commits the registered User decision/fenc
 
 `marketing_email_consent_sync_intents` is operational persistence, not a domain-event journal or a selected DMS/Kinesis route. Its PostgreSQL-backed service claim/recheck/finalize port exists; future FIFO jobs carry one specific `mci_` intent ID to `claim_by_id`, never a global database scan. No consent SQS publisher, provider HTTP sender or runtime worker is deployed; transport/activation belongs to subsequent work. Persisted intents alone provide no live delivery guarantee.
 
+`newsletter_subscription_confirmations` is likewise operational proof/idempotency state, not a selected DMS/Kinesis source, event journal or queue input. Its raw tokens never persist; rows are looked up by SHA-256 digest and changed by the user service's short PostgreSQL transactions. A bounded cleanup port removes expired unconfirmed rows; confirmation rows are never published to DMS, Kinesis or SQS.
+
 ## DMS/Kinesis routing (target; live cutover unverified)
 
 DMS captures committed selected rows only; no outbox or custom CDC transport. Source removal does not decommission external Sequin subscriptions or drain native-worker in-flight work. See the [runbook](../durable-worker-runbook.md#activation-and-legacy-handoff).

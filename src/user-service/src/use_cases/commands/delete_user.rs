@@ -471,6 +471,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MarketingConsentIntents for FakeConsent {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
         async fn find_by_source_key(
             &mut self,
             key: &str,
@@ -532,6 +540,14 @@ mod tests {
         async fn cancel_provider_backsync(
             &mut self,
             _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
         ) -> Result<(), MarketingConsentIntentError> {
             unreachable!()
         }

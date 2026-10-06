@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 credential-core = { workspace = true }
 domain-primitives = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
 
 localization = { workspace = true }
 money = { workspace = true }

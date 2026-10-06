@@ -301,6 +301,34 @@ where
         Ok(())
     }
 
+    /// C13 may use this inside its provider-withdrawal transaction. It shares the
+    /// recipient lock with confirmation, so an older link cannot restore consent.
+    pub async fn invalidate_pending_newsletter_confirmations(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
+    ) -> Result<(), CoordinateMarketingConsentError> {
+        self.intents
+            .in_transaction(self.tx)
+            .invalidate_newsletter_confirmation_challenges(email, invalidated_at)
+            .await?;
+        Ok(())
+    }
+
+    /// Reserve the DOI source key before locking its recipient challenge row. This
+    /// preserves the global source-key -> recipient lock order used by C02 writes.
+    pub async fn lock_accepted_double_opt_in_source(
+        &mut self,
+        confirmation_id: &str,
+    ) -> Result<(), CoordinateMarketingConsentError> {
+        let key = double_opt_in_source_key(confirmation_id)?;
+        self.intents
+            .in_transaction(self.tx)
+            .lock_source_key(&key)
+            .await?;
+        Ok(())
+    }
+
     /// Post-send repair for a grant that lost its decision fence while provider I/O
     /// was in flight. The caller owns the transaction and commits before delivery.
     pub async fn repair_raced_grant_if_needed(
@@ -481,11 +509,14 @@ where
         }
         MarketingConsentDecision::ProviderWithdrawal { email, accepted_at } => {
             let mut port = intents.in_transaction(tx);
+            port.lock_recipient(&email).await?;
             if let Some(user) = port.find_user_by_email(&email).await? {
                 exact_email(&user.email, &email)?;
                 port.apply_provider_withdrawal(&user, accepted_at).await?;
             }
             port.cancel_provider_backsync(&email).await?;
+            port.invalidate_newsletter_confirmation_challenges(&email, accepted_at)
+                .await?;
             None
         }
     };
@@ -536,7 +567,7 @@ fn decision_source_key(
         )?),
         MarketingConsentDecision::AcceptedDoubleOptIn {
             confirmation_id, ..
-        } => Some(source_key("doi", &[confirmation_id])?),
+        } => Some(double_opt_in_source_key(confirmation_id)?),
         MarketingConsentDecision::UserWithdrawal { action_id, .. } => {
             Some(source_key("withdrawal", &[action_id])?)
         }
@@ -549,6 +580,12 @@ fn decision_source_key(
         }
         MarketingConsentDecision::ProviderWithdrawal { .. } => None,
     })
+}
+
+fn double_opt_in_source_key(
+    confirmation_id: &str,
+) -> Result<String, CoordinateMarketingConsentError> {
+    source_key("doi", &[confirmation_id])
 }
 
 /// Stable across retries, actors and entry points.
@@ -760,6 +797,16 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl MarketingConsentIntents for Port {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("lock_recipient");
+            Ok(())
+        }
+
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("lock_source");
+            Ok(())
+        }
+
         async fn find_by_source_key(
             &mut self,
             key: &str,
@@ -848,6 +895,15 @@ mod tests {
             _: &Email,
         ) -> Result<(), MarketingConsentIntentError> {
             locked(&self.0).calls.push("cancel");
+            Ok(())
+        }
+
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("invalidate_challenges");
             Ok(())
         }
 
@@ -1091,7 +1147,15 @@ mod tests {
             .unwrap();
         assert_eq!(
             locked(&state).calls,
-            ["begin", "by_email", "backsync", "cancel", "commit"]
+            [
+                "begin",
+                "lock_recipient",
+                "by_email",
+                "backsync",
+                "cancel",
+                "invalidate_challenges",
+                "commit"
+            ]
         );
         assert_eq!(locked(&state).accepted_at, Some(accepted_at));
     }

@@ -20,6 +20,14 @@ pub use commands::change_user_tier::{
     ChangeUserTierCommand, ChangeUserTierError, ChangeUserTierHandler, ChangeUserTierResult,
     ChangeUserTierUseCase,
 };
+pub use commands::cleanup_newsletter_confirmation_challenges::{
+    CleanupNewsletterConfirmationChallengesError, CleanupNewsletterConfirmationChallengesHandler,
+    CleanupNewsletterConfirmationChallengesUseCase,
+};
+pub use commands::confirm_newsletter_subscription::{
+    ConfirmNewsletterSubscriptionError, ConfirmNewsletterSubscriptionHandler,
+    ConfirmNewsletterSubscriptionUseCase,
+};
 pub use commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, CoordinateMarketingConsentHandler,
     CoordinateMarketingConsentUseCase, MarketingConsentDecision,
@@ -45,6 +53,10 @@ pub use commands::delete_user::{
 pub use commands::register_cognito_user::{
     RegisterCognitoUserCommand, RegisterCognitoUserError, RegisterCognitoUserHandler,
     RegisterCognitoUserResult, RegisterCognitoUserUseCase,
+};
+pub use commands::request_newsletter_subscription::{
+    RequestNewsletterSubscriptionCommand, RequestNewsletterSubscriptionError,
+    RequestNewsletterSubscriptionHandler, RequestNewsletterSubscriptionUseCase,
 };
 pub use commands::revoke_user_sessions::{
     RevokeUserSessionsCommand, RevokeUserSessionsError, RevokeUserSessionsHandler,

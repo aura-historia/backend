@@ -1,3 +1,4 @@
+use crate::newsletter_confirmation_challenges::invalidate_pending_newsletter_confirmations;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use serde_email::Email;
@@ -14,8 +15,8 @@ use user_service::ports::marketing_consent_intents::{
 use user_service::ports::{
     ConsentIntent as PortConsentIntent, ConsentIntentSource as PortSource,
     ConsentSubject as PortSubject, ConsentUser, MarketingConsentIntentError,
-    MarketingConsentIntents, MarketingConsentIntentsFactory, UserStorageVersion,
-    marketing_consent_recipient_key,
+    MarketingConsentIntents, MarketingConsentIntentsFactory, NewsletterConfirmationChallengeError,
+    UserStorageVersion, marketing_consent_recipient_key,
 };
 use uuid::Uuid;
 
@@ -203,7 +204,7 @@ async fn lock_source(
         .map_err(db)?;
     Ok(())
 }
-async fn lock_recipient(
+pub(crate) async fn lock_recipient(
     connection: &mut PgConnection,
     key: &str,
 ) -> Result<(), MarketingConsentPersistenceError> {
@@ -781,6 +782,20 @@ impl TryFrom<ConsentUserRow> for ConsentUser {
 
 #[async_trait::async_trait]
 impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
+    async fn lock_recipient(&mut self, email: &Email) -> Result<(), MarketingConsentIntentError> {
+        lock_recipient(
+            self.tx.connection(),
+            &marketing_consent_recipient_key(email),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lock_source_key(&mut self, key: &str) -> Result<(), MarketingConsentIntentError> {
+        lock_source(self.tx.connection(), key).await?;
+        Ok(())
+    }
+
     async fn find_by_source_key(
         &mut self,
         key: &str,
@@ -901,6 +916,26 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
             .cancel_provider_backsync(self.tx, email)
             .await?;
         Ok(())
+    }
+
+    async fn invalidate_newsletter_confirmation_challenges(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
+    ) -> Result<(), MarketingConsentIntentError> {
+        invalidate_pending_newsletter_confirmations(self.tx, email, invalidated_at)
+            .await
+            .map_err(|error| match error {
+                NewsletterConfirmationChallengeError::InvalidPersistedState => {
+                    MarketingConsentIntentError::InvalidPersistedState
+                }
+                NewsletterConfirmationChallengeError::InvalidInput => {
+                    MarketingConsentIntentError::InvalidInput
+                }
+                NewsletterConfirmationChallengeError::TemporarilyUnavailable { source } => {
+                    MarketingConsentIntentError::TemporarilyUnavailable { source }
+                }
+            })
     }
 
     async fn repair_raced_grant_if_needed(
