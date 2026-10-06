@@ -4,5 +4,7 @@ pub mod scope;
 pub mod wire;
 
 pub use jobs::*;
-pub use scope::WorkerScope;
-pub use wire::{MAX_JOB_BYTES, WireError, decode, encode};
+pub use scope::{WorkerQueueType, WorkerScope};
+pub use wire::{
+    FifoMessageAttributes, MAX_JOB_BYTES, PreparedJob, WireError, decode, encode, prepare,
+};

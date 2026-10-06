@@ -1,10 +1,11 @@
 //! Versioned SQS boundary. Additive unknown envelope/payload fields are deliberately ignored.
 //! Required fields, discriminators, IDs and keys remain strict; CDC event payloads are separate.
 use crate::{
-    WorkerScope,
+    WorkerQueueType, WorkerScope,
     jobs::{
-        DomainJob, DomainJobPayload, IdempotencyKey, InvalidJob, NotificationDeliveryCreatedJob,
-        OrderingKey, ProductListingEventJob, ProductListingRawRevisionJob, SearchFilterChangedJob,
+        DomainJob, DomainJobPayload, IdempotencyKey, InvalidJob,
+        MarketingConsentSyncIntentCreatedJob, NotificationDeliveryCreatedJob, OrderingKey,
+        ProductListingEventJob, ProductListingRawRevisionJob, SearchFilterChangedJob,
         SearchFilterMatchCreatedJob, SearchFilterOperation,
     },
 };
@@ -18,6 +19,7 @@ use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use strum::IntoEnumIterator;
+use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
 pub const MAX_JOB_BYTES: usize = 16 * 1024;
@@ -70,6 +72,49 @@ enum PayloadV2 {
     NotificationDeliveryCreated {
         notification_delivery_id: NotificationDeliveryId,
     },
+    #[serde(rename = "MARKETING_CONSENT_SYNC_INTENT_CREATED")]
+    MarketingConsentSyncIntentCreated {
+        marketing_consent_sync_intent_id: MarketingConsentSyncIntentId,
+    },
+}
+
+/// FIFO attributes are derived only from an already validated schema-2 domain job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FifoMessageAttributes {
+    message_group_id: String,
+    message_deduplication_id: String,
+}
+
+impl FifoMessageAttributes {
+    pub fn message_group_id(&self) -> &str {
+        &self.message_group_id
+    }
+
+    pub fn message_deduplication_id(&self) -> &str {
+        &self.message_deduplication_id
+    }
+}
+
+/// A validated schema-2 body and the trusted destination metadata for the publisher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedJob {
+    scope: WorkerScope,
+    body: String,
+    fifo: Option<FifoMessageAttributes>,
+}
+
+impl PreparedJob {
+    pub fn scope(&self) -> WorkerScope {
+        self.scope
+    }
+
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+
+    pub fn fifo_message_attributes(&self) -> Option<&FifoMessageAttributes> {
+        self.fifo.as_ref()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -145,6 +190,11 @@ where
                 notification_delivery_id: delivery.notification_delivery_id,
             }
         }
+        DomainJobPayload::MarketingConsentSyncIntentCreated(job) => {
+            PayloadV2::MarketingConsentSyncIntentCreated {
+                marketing_consent_sync_intent_id: job.marketing_consent_sync_intent_id,
+            }
+        }
         DomainJobPayload::UserTierChanged(_) => return Err(WireError::Scope),
     };
     let encoded = serde_json::to_string(&EnvelopeV2 {
@@ -159,6 +209,33 @@ where
         return Err(WireError::TooLarge);
     }
     Ok(encoded)
+}
+
+/// Validate and encode a job before publication, preserving FIFO semantics outside its body.
+pub fn prepare<O>(job: &DomainJob<O>) -> Result<PreparedJob, WireError>
+where
+    O: Copy + Display + Into<SearchFilterOperation>,
+{
+    let scope = job.validate()?;
+    let body = encode(job)?;
+    let fifo = match &job.payload {
+        DomainJobPayload::MarketingConsentSyncIntentCreated(_) => {
+            if scope.queue_type() != WorkerQueueType::Fifo {
+                return Err(WireError::Scope);
+            }
+            Some(FifoMessageAttributes {
+                message_group_id: job.ordering_key.as_str().to_owned(),
+                message_deduplication_id: job.idempotency_key.as_str().to_owned(),
+            })
+        }
+        _ => {
+            if scope.queue_type() != WorkerQueueType::Standard {
+                return Err(WireError::Scope);
+            }
+            None
+        }
+    };
+    Ok(PreparedJob { scope, body, fifo })
 }
 
 pub fn decode<O>(body: &str, expected_scope: WorkerScope) -> Result<DomainJob<O>, WireError>
@@ -228,6 +305,13 @@ where
         } => DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
             notification_delivery_id,
         }),
+        PayloadV2::MarketingConsentSyncIntentCreated {
+            marketing_consent_sync_intent_id,
+        } => DomainJobPayload::MarketingConsentSyncIntentCreated(
+            MarketingConsentSyncIntentCreatedJob {
+                marketing_consent_sync_intent_id,
+            },
+        ),
     };
     let job = DomainJob {
         target_queue: scope.consumer_queue(),
@@ -254,6 +338,8 @@ mod tests {
     const USER_ID: &str = "usr_01h455vb4pex5vy7enb1p677vn";
     const SEARCH_FILTER_ID: &str = "sf_01h455vb4pex5vy7enb1p677vn";
     const NOTIFICATION_DELIVERY_ID: &str = "nd_01h455vb4pex5vy7enb1p677vn";
+    const MARKETING_CONSENT_INTENT_ID: &str = "mci_01h455vb4pex5vy7enb1p677vn";
+    const RECIPIENT_KEY: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const BARE_UUID_V7: &str = "01890a5d-ac96-774b-bf1d-d5586c639f75";
 
     fn snapshots() -> Vec<(WorkerScope, Value)> {
@@ -285,6 +371,12 @@ mod tests {
                     json!({"notification_delivery_id": NOTIFICATION_DELIVERY_ID}),
                     format!("notification-delivery:{NOTIFICATION_DELIVERY_ID}"),
                     format!("notification-delivery:{NOTIFICATION_DELIVERY_ID}"),
+                ),
+                WorkerScope::MarketingConsentSync => (
+                    "MARKETING_CONSENT_SYNC_INTENT_CREATED",
+                    json!({"marketing_consent_sync_intent_id": MARKETING_CONSENT_INTENT_ID}),
+                    format!("marketing-consent:{MARKETING_CONSENT_INTENT_ID}"),
+                    format!("marketing-email:{RECIPIENT_KEY}"),
                 ),
                 _ => (
                     "PRODUCT_LISTING_EVENT",
@@ -357,6 +449,12 @@ mod tests {
                     "NOTIFICATION_DELIVERY_CREATED",
                     format!("{{\"notification_delivery_id\":\"{NOTIFICATION_DELIVERY_ID}\"}}"),
                 ),
+                WorkerScope::MarketingConsentSync => (
+                    "MARKETING_CONSENT_SYNC_INTENT_CREATED",
+                    format!(
+                        "{{\"marketing_consent_sync_intent_id\":\"{MARKETING_CONSENT_INTENT_ID}\"}}"
+                    ),
+                ),
                 _ => (
                     "PRODUCT_LISTING_EVENT",
                     format!(
@@ -427,6 +525,77 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn consent_preparation_derives_fifo_fields_from_validated_schema_two_metadata() {
+        let (_, snapshot) = snapshots()
+            .into_iter()
+            .find(|(scope, _)| *scope == WorkerScope::MarketingConsentSync)
+            .unwrap();
+        let job: crate::jobs::DomainJob =
+            decode(&snapshot.to_string(), WorkerScope::MarketingConsentSync).unwrap();
+        let prepared = super::prepare(&job).unwrap();
+        assert_eq!(WorkerScope::MarketingConsentSync, prepared.scope());
+        assert_eq!(
+            snapshot,
+            serde_json::from_str::<Value>(prepared.body()).unwrap()
+        );
+        let fifo = prepared.fifo_message_attributes().unwrap();
+        assert_eq!(
+            format!("marketing-email:{RECIPIENT_KEY}"),
+            fifo.message_group_id()
+        );
+        assert_eq!(
+            format!("marketing-consent:{MARKETING_CONSENT_INTENT_ID}"),
+            fifo.message_deduplication_id()
+        );
+        for forbidden in [
+            "private@example.test",
+            "profile_snapshot",
+            "raw_token",
+            "consent_proof",
+            "source_key",
+            "lease_token",
+            "provider_payload",
+        ] {
+            assert!(!prepared.body().contains(forbidden));
+        }
+
+        let standard = snapshots()
+            .into_iter()
+            .find(|(scope, _)| *scope == WorkerScope::NotificationDelivery)
+            .unwrap();
+        let job: crate::jobs::DomainJob =
+            decode(&standard.1.to_string(), WorkerScope::NotificationDelivery).unwrap();
+        assert!(
+            super::prepare(&job)
+                .unwrap()
+                .fifo_message_attributes()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn consent_wire_metadata_rejects_invalid_recipient_group_keys() {
+        let (_, mut snapshot) = snapshots()
+            .into_iter()
+            .find(|(scope, _)| *scope == WorkerScope::MarketingConsentSync)
+            .unwrap();
+        for invalid in [
+            "marketing-email:short",
+            "marketing-email:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "other:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            snapshot["ordering_key"] = json!(invalid);
+            assert!(
+                decode::<crate::jobs::SearchFilterOperation>(
+                    &snapshot.to_string(),
+                    WorkerScope::MarketingConsentSync
+                )
+                .is_err()
+            );
+        }
     }
 
     fn invalid_payload_values(field: &str, value: &Value) -> Vec<Value> {

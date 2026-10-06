@@ -53,8 +53,8 @@ async fn main() -> Result<(), Error> {
     .await
 }
 
-/// Initializes all ten validated destinations before Lambda begins checkpointing the stream.
-/// The router intentionally has no PostgreSQL, VPC, or Secrets Manager composition.
+/// Initializes the ten existing destinations and the optional C06 consent destination before
+/// Lambda begins checkpointing the stream. The router has no PostgreSQL, VPC, or Secrets Manager.
 async fn compose_fanout(config: CdcRouterQueueConfig) -> Result<CdcFanout, Error> {
     let region = Region::new(config.region().to_owned());
     let sdk = tokio::time::timeout(
