@@ -1,12 +1,17 @@
 use crate::ports::{
-    CognitoIdentity, UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
-    UserCognitoIdentityRegistryFactory, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    CognitoIdentity, MarketingConsentIntentsFactory, UserCognitoIdentityRegistry,
+    UserCognitoIdentityRegistryError, UserCognitoIdentityRegistryFactory, UserRepository,
+    UserRepositoryError, UserRepositoryFactory,
+};
+use crate::use_cases::commands::coordinate_marketing_consent::{
+    CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
 use application::error::{BoxError, static_error};
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
 use localization::Language;
 use serde_email::Email;
+use time::OffsetDateTime;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
 use user_core::{first_name::FirstName, last_name::LastName};
@@ -18,6 +23,14 @@ pub struct RegisterCognitoUserCommand {
     pub initial_first_name: Option<FirstName>,
     pub initial_last_name: Option<LastName>,
     pub initial_language: Option<Language>,
+    pub signup_consent: Option<CognitoSignupConsent>,
+}
+
+/// Cognito supplied an explicit initial newsletter choice for this native signup.
+/// This records signup proof only; current consent remains in PostgreSQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CognitoSignupConsent {
+    Accepted,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +74,8 @@ pub enum RegisterCognitoUserError {
     BeginTransactionFailed,
     #[error("failed to commit Cognito user registration transaction")]
     CommitTransactionFailed,
+    #[error("failed to persist Cognito signup consent")]
+    SignupConsentFailed(#[source] CoordinateMarketingConsentError),
 }
 
 #[async_trait::async_trait]
@@ -72,28 +87,31 @@ pub trait RegisterCognitoUserUseCase: Send + Sync {
     ) -> Result<RegisterCognitoUserResult, RegisterCognitoUserError>;
 }
 
-pub struct RegisterCognitoUserHandler<U, R, I> {
+pub struct RegisterCognitoUserHandler<U, R, I, C> {
     unit_of_work: U,
     users: R,
     identities: I,
+    consent: C,
 }
 
-impl<U, R, I> RegisterCognitoUserHandler<U, R, I> {
-    pub fn new(unit_of_work: U, users: R, identities: I) -> Self {
+impl<U, R, I, C> RegisterCognitoUserHandler<U, R, I, C> {
+    pub fn new(unit_of_work: U, users: R, identities: I, consent: C) -> Self {
         Self {
             unit_of_work,
             users,
             identities,
+            consent,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, I> RegisterCognitoUserUseCase for RegisterCognitoUserHandler<U, R, I>
+impl<U, R, I, C> RegisterCognitoUserUseCase for RegisterCognitoUserHandler<U, R, I, C>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
     I: UserCognitoIdentityRegistryFactory<U::Tx>,
+    C: MarketingConsentIntentsFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "register_cognito_user",
@@ -125,7 +143,7 @@ where
             .lock_and_find_user_id(&command.identity)
             .await?;
 
-        let user = if let Some(user_id) = existing_user_id {
+        let (user, created) = if let Some(user_id) = existing_user_id {
             let user = self
                 .users
                 .in_transaction(&mut tx)
@@ -138,7 +156,7 @@ where
             if user.email() != &command.email {
                 return Err(RegisterCognitoUserError::IdentityConflict);
             }
-            user
+            (user, false)
         } else {
             let user = create_user(
                 command.email.clone(),
@@ -156,8 +174,23 @@ where
                 .in_transaction(&mut tx)
                 .bind(&command.identity, user.id())
                 .await?;
-            user
+            (user, true)
         };
+
+        // The immutable Cognito attribute is proof only on the first new native
+        // registration. Replayed confirmations must never restore a withdrawn grant.
+        if created && command.signup_consent == Some(CognitoSignupConsent::Accepted) {
+            MarketingConsentCoordinator::new(&mut tx, &self.consent)
+                .cognito_signup(
+                    &self.identities,
+                    command.identity.clone(),
+                    user.id(),
+                    command.email.clone(),
+                    OffsetDateTime::now_utc(),
+                )
+                .await
+                .map_err(RegisterCognitoUserError::SignupConsentFailed)?;
+        }
 
         tx.commit()
             .await
@@ -241,7 +274,9 @@ impl From<UserCognitoIdentityRegistryError> for RegisterCognitoUserError {
 mod tests {
     use super::*;
     use crate::ports::{
-        CognitoIssuer, CognitoSubject, UserInsertOutcome, UserStorageVersion, VersionedUser,
+        CognitoIssuer, CognitoSubject, ConsentIntent, ConsentIntentSource, ConsentSubject,
+        ConsentUser, MarketingConsentIntentError, MarketingConsentIntents, UserInsertOutcome,
+        UserStorageVersion, VersionedUser,
     };
     use application::error::box_error;
     use application::operation_context::{CorrelationId, RequestId};
@@ -264,6 +299,7 @@ mod tests {
         inserted_user_ids: Vec<UserId>,
         inserted_users: Vec<User>,
         bindings: Vec<(CognitoIdentity, UserId)>,
+        consent_intent_count: usize,
     }
 
     #[derive(Clone, Default)]
@@ -307,6 +343,18 @@ mod tests {
         state: SharedState,
         existing_user_id: Option<UserId>,
         bind_conflict: bool,
+        tx_id: usize,
+    }
+
+    #[derive(Clone)]
+    struct FakeConsent {
+        state: SharedState,
+        fail_record: bool,
+    }
+
+    struct FakeConsentPort {
+        state: SharedState,
+        fail_record: bool,
         tx_id: usize,
     }
 
@@ -401,6 +449,14 @@ mod tests {
             initial_first_name: first_name,
             initial_last_name: last_name,
             initial_language: language,
+            signup_consent: None,
+        }
+    }
+
+    fn command_with_signup_consent(email_value: &str) -> RegisterCognitoUserCommand {
+        RegisterCognitoUserCommand {
+            signup_consent: Some(CognitoSignupConsent::Accepted),
+            ..command(email_value)
         }
     }
 
@@ -410,7 +466,25 @@ mod tests {
         existing_user_id: Option<UserId>,
         insert_failure: Option<UserFailure>,
         bind_conflict: bool,
-    ) -> RegisterCognitoUserHandler<FakeUnitOfWork, FakeUsers, FakeIdentities> {
+    ) -> RegisterCognitoUserHandler<FakeUnitOfWork, FakeUsers, FakeIdentities, FakeConsent> {
+        handler_with_consent_failure(
+            state,
+            existing,
+            existing_user_id,
+            insert_failure,
+            bind_conflict,
+            false,
+        )
+    }
+
+    fn handler_with_consent_failure(
+        state: &SharedState,
+        existing: Option<User>,
+        existing_user_id: Option<UserId>,
+        insert_failure: Option<UserFailure>,
+        bind_conflict: bool,
+        consent_failure: bool,
+    ) -> RegisterCognitoUserHandler<FakeUnitOfWork, FakeUsers, FakeIdentities, FakeConsent> {
         RegisterCognitoUserHandler::new(
             FakeUnitOfWork {
                 state: state.clone(),
@@ -426,6 +500,10 @@ mod tests {
                 state: state.clone(),
                 existing_user_id,
                 bind_conflict,
+            },
+            FakeConsent {
+                state: state.clone(),
+                fail_record: consent_failure,
             },
         )
     }
@@ -549,10 +627,15 @@ mod tests {
     impl UserCognitoIdentityRegistry for FakeIdentityRegistry {
         async fn lock_and_find_user_id(
             &mut self,
-            _: &CognitoIdentity,
+            identity: &CognitoIdentity,
         ) -> Result<Option<UserId>, UserCognitoIdentityRegistryError> {
             record(&self.state, "lock_identity", self.tx_id);
-            Ok(self.existing_user_id)
+            let binding = lock(&self.state)
+                .bindings
+                .iter()
+                .find(|(bound_identity, _)| bound_identity == identity)
+                .map(|(_, user_id)| *user_id);
+            Ok(self.existing_user_id.or(binding))
         }
 
         async fn find_by_user_id(
@@ -575,6 +658,124 @@ mod tests {
             }
             lock(&self.state).bindings.push((identity.clone(), user_id));
             Ok(())
+        }
+    }
+
+    impl MarketingConsentIntentsFactory<FakeTx> for FakeConsent {
+        fn in_transaction<'tx>(
+            &'tx self,
+            tx: &'tx mut FakeTx,
+        ) -> impl MarketingConsentIntents + 'tx {
+            FakeConsentPort {
+                state: self.state.clone(),
+                fail_record: self.fail_record,
+                tx_id: tx.id,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MarketingConsentIntents for FakeConsentPort {
+        async fn find_by_source_key(
+            &mut self,
+            _: &str,
+        ) -> Result<Option<ConsentIntent>, MarketingConsentIntentError> {
+            record(&self.state, "find_consent_source", self.tx_id);
+            Ok(None)
+        }
+
+        async fn find_user_by_id(
+            &mut self,
+            id: UserId,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
+            record(&self.state, "find_consent_user", self.tx_id);
+            Ok(lock(&self.state)
+                .inserted_users
+                .iter()
+                .find(|user| user.id() == id)
+                .map(|user| ConsentUser {
+                    user_id: user.id(),
+                    email: user.email().clone(),
+                    version: UserStorageVersion::INITIAL,
+                }))
+        }
+
+        async fn find_user_by_email(
+            &mut self,
+            _: &Email,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
+            Ok(None)
+        }
+
+        async fn record_user_transition(
+            &mut self,
+            user: &ConsentUser,
+            desired: bool,
+            source: ConsentIntentSource,
+            source_key: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            record(&self.state, "record_consent_intent", self.tx_id);
+            if self.fail_record {
+                return Err(MarketingConsentIntentError::TemporarilyUnavailable {
+                    source: box_error(std::io::Error::other("intent unavailable")),
+                });
+            }
+            let mut state = lock(&self.state);
+            state.consent_intent_count += 1;
+            Ok(ConsentIntent {
+                intent_id:
+                    user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId::new(),
+                source_key: source_key.to_owned(),
+                subject: ConsentSubject::User(user.user_id),
+                source,
+                email: user.email.clone(),
+                desired,
+            })
+        }
+
+        async fn record_email_only_intent(
+            &mut self,
+            _: &Email,
+            _: bool,
+            _: ConsentIntentSource,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            Err(MarketingConsentIntentError::InvalidInput)
+        }
+
+        async fn apply_provider_withdrawal(
+            &mut self,
+            _: &ConsentUser,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Err(MarketingConsentIntentError::InvalidInput)
+        }
+
+        async fn cancel_provider_backsync(
+            &mut self,
+            _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Err(MarketingConsentIntentError::InvalidInput)
+        }
+
+        async fn repair_raced_grant_if_needed(
+            &mut self,
+            _: user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<crate::ports::GrantRaceRepairOutcome, MarketingConsentIntentError> {
+            Ok(crate::ports::GrantRaceRepairOutcome::NoRepairNeeded)
+        }
+
+        async fn record_user_deletion(
+            &mut self,
+            _: &ConsentUser,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            Err(MarketingConsentIntentError::InvalidInput)
         }
     }
 
@@ -615,6 +816,101 @@ mod tests {
                 },
             ],
             state.operations
+        );
+    }
+
+    #[tokio::test]
+    async fn should_persist_first_signup_consent_with_user_and_identity_in_one_transaction() {
+        let state = SharedState::default();
+        let result = handler(&state, None, None, None, false)
+            .execute(
+                &context(Principal::System),
+                command_with_signup_consent("ada@example.com"),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("registration failed: {error}"));
+        let state = lock(&state);
+
+        assert_eq!(1, state.consent_intent_count);
+        assert_eq!(vec![result.user_id], state.inserted_user_ids);
+        assert_eq!(vec![(identity(), result.user_id)], state.bindings);
+        assert_eq!(
+            vec![
+                "begin",
+                "lock_identity",
+                "insert_user",
+                "bind_identity",
+                "lock_identity",
+                "find_consent_source",
+                "find_consent_user",
+                "record_consent_intent",
+                "commit",
+            ],
+            state
+                .operations
+                .iter()
+                .map(|operation| operation.name)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            state
+                .operations
+                .iter()
+                .all(|operation| operation.tx_id == TX_ID)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_regrant_consent_when_confirmation_replays_existing_identity() {
+        let state = SharedState::default();
+        let user_id = UserId::new();
+        let result = handler(
+            &state,
+            Some(user(user_id, "ada@example.com")),
+            Some(user_id),
+            None,
+            false,
+        )
+        .execute(
+            &context(Principal::System),
+            command_with_signup_consent("ada@example.com"),
+        )
+        .await;
+        let state = lock(&state);
+
+        assert!(matches!(result, Ok(result) if result.user_id == user_id));
+        assert_eq!(0, state.consent_intent_count);
+        assert!(
+            !state
+                .operations
+                .iter()
+                .any(|operation| operation.name == "record_consent_intent")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_user_or_binding_when_signup_intent_fails() {
+        let state = SharedState::default();
+        let result = handler_with_consent_failure(&state, None, None, None, false, true)
+            .execute(
+                &context(Principal::System),
+                command_with_signup_consent("ada@example.com"),
+            )
+            .await;
+        let state = lock(&state);
+
+        assert!(matches!(
+            result,
+            Err(RegisterCognitoUserError::SignupConsentFailed(
+                CoordinateMarketingConsentError::TemporarilyUnavailable
+            ))
+        ));
+        assert_eq!(0, state.consent_intent_count);
+        assert!(
+            !state
+                .operations
+                .iter()
+                .any(|operation| operation.name == "commit")
         );
     }
 
@@ -815,6 +1111,10 @@ mod tests {
                 existing_user_id: None,
                 bind_conflict: false,
             },
+            FakeConsent {
+                state: state.clone(),
+                fail_record: false,
+            },
         )
         .execute(&context(Principal::System), command("ada@example.com"))
         .await;
@@ -835,9 +1135,13 @@ mod tests {
                 insert_failure: None,
             },
             FakeIdentities {
-                state,
+                state: state.clone(),
                 existing_user_id: None,
                 bind_conflict: false,
+            },
+            FakeConsent {
+                state,
+                fail_record: false,
             },
         )
         .execute(&context(Principal::System), command("grace@example.com"))

@@ -9,6 +9,7 @@ use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{sync::Arc, time::Instant};
+use user_postgres::SqlxMarketingConsentIntentRepository;
 use user_postgres::{SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory};
 use user_service::use_cases::RegisterCognitoUserHandler;
 
@@ -48,6 +49,7 @@ async fn main() -> Result<(), Error> {
                             SqlxUnitOfWork::new(pool),
                             SqlxUserRepositoryFactory::new(),
                             SqlxUserCognitoIdentityRegistryFactory::new(),
+                            SqlxMarketingConsentIntentRepository::new(),
                         ))
                     })
                     .await?;

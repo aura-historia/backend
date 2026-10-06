@@ -43,8 +43,8 @@ pub use commands::delete_user::{
     DeleteUserCommand, DeleteUserError, DeleteUserHandler, DeleteUserResult, DeleteUserUseCase,
 };
 pub use commands::register_cognito_user::{
-    RegisterCognitoUserCommand, RegisterCognitoUserError, RegisterCognitoUserHandler,
-    RegisterCognitoUserResult, RegisterCognitoUserUseCase,
+    CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserError,
+    RegisterCognitoUserHandler, RegisterCognitoUserResult, RegisterCognitoUserUseCase,
 };
 pub use commands::revoke_user_sessions::{
     RevokeUserSessionsCommand, RevokeUserSessionsError, RevokeUserSessionsHandler,

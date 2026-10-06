@@ -1,10 +1,14 @@
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
+use aws_lambda_events::cognito::{
+    CognitoEventUserPoolsPostConfirmation, CognitoEventUserPoolsPostConfirmationTriggerSource,
+};
 use lambda_runtime::LambdaEvent;
 use localization::Language;
 use user_core::{first_name::FirstName, last_name::LastName};
 use user_service::ports::{CognitoIdentity, CognitoIssuer, CognitoSubject};
-use user_service::use_cases::{RegisterCognitoUserCommand, RegisterCognitoUserUseCase};
+use user_service::use_cases::{
+    CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserUseCase,
+};
 
 #[derive(Debug, thiserror::Error)]
 enum PostConfirmationInputError {
@@ -76,13 +80,47 @@ fn parse_user(
         .map_err(|_| PostConfirmationInputError::InvalidEmail)?;
 
     let attributes = &event.request.user_attributes;
+    let requested_signup_consent = parse_signup_consent(
+        attributes
+            .get("custom:marketing_consent")
+            .map(String::as_str),
+    );
+    let is_native_signup = matches!(
+        header.trigger_source.as_ref(),
+        Some(CognitoEventUserPoolsPostConfirmationTriggerSource::ConfirmSignUp)
+    );
+    let email_is_verified = attributes
+        .get("email_verified")
+        .is_some_and(|verified| verified == "true");
+
     Ok(RegisterCognitoUserCommand {
         identity: CognitoIdentity { issuer, subject },
         email,
         initial_first_name: parse_first_name(attributes.get("given_name").map(String::as_str)),
         initial_last_name: parse_last_name(attributes.get("family_name").map(String::as_str)),
         initial_language: parse_language(attributes.get("locale").map(String::as_str)),
+        signup_consent: if is_native_signup && email_is_verified {
+            requested_signup_consent
+        } else {
+            None
+        },
     })
+}
+
+fn parse_signup_consent(value: Option<&str>) -> Option<CognitoSignupConsent> {
+    match value {
+        Some("true") => Some(CognitoSignupConsent::Accepted),
+        None | Some("false") => None,
+        Some(_) => {
+            // Do not include the event, email, or malformed attribute value in diagnostics.
+            tracing::warn!(
+                event = "cognito.signup_consent_attribute_invalid",
+                attribute = "custom:marketing_consent",
+                outcome = "ignored",
+            );
+            None
+        }
+    }
 }
 
 fn parse_first_name(value: Option<&str>) -> Option<FirstName> {
@@ -121,8 +159,8 @@ mod tests {
     use user_core::user_id::UserId;
     use user_core::{first_name::FirstName, last_name::LastName};
     use user_service::use_cases::{
-        RegisterCognitoUserCommand, RegisterCognitoUserError, RegisterCognitoUserResult,
-        RegisterCognitoUserUseCase,
+        CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserError,
+        RegisterCognitoUserResult, RegisterCognitoUserUseCase,
     };
 
     #[derive(Default)]
@@ -187,11 +225,58 @@ mod tests {
         family_name: Option<&str>,
         locale: Option<&str>,
     ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
-        let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+        post_confirmation_event_with_signup_attributes(SignupEventFixture {
+            profile: ProfileAttributes {
+                given_name,
+                family_name,
+                locale,
+            },
+            ..SignupEventFixture::new(username, subject, email)
+        })
+    }
+
+    #[derive(Default)]
+    struct ProfileAttributes<'a> {
+        given_name: Option<&'a str>,
+        family_name: Option<&'a str>,
+        locale: Option<&'a str>,
+    }
+
+    struct SignupEventFixture<'a> {
+        username: &'a str,
+        subject: &'a str,
+        email: &'a str,
+        profile: ProfileAttributes<'a>,
+        email_verified: Option<&'a str>,
+        marketing_consent: Option<&'a str>,
+        trigger_source: &'a str,
+    }
+
+    impl<'a> SignupEventFixture<'a> {
+        fn new(username: &'a str, subject: &'a str, email: &'a str) -> Self {
+            Self {
+                username,
+                subject,
+                email,
+                profile: ProfileAttributes::default(),
+                email_verified: None,
+                marketing_consent: None,
+                trigger_source: "PostConfirmation_ConfirmSignUp",
+            }
+        }
+    }
+
+    fn post_confirmation_event_with_signup_attributes(
+        fixture: SignupEventFixture<'_>,
+    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+        let mut user_attributes =
+            serde_json::json!({ "sub": fixture.subject, "email": fixture.email });
         for (attribute, value) in [
-            ("given_name", given_name),
-            ("family_name", family_name),
-            ("locale", locale),
+            ("given_name", fixture.profile.given_name),
+            ("family_name", fixture.profile.family_name),
+            ("locale", fixture.profile.locale),
+            ("email_verified", fixture.email_verified),
+            ("custom:marketing_consent", fixture.marketing_consent),
         ] {
             if let Some(value) = value {
                 user_attributes[attribute] = serde_json::json!(value);
@@ -200,10 +285,10 @@ mod tests {
 
         event(serde_json::json!({
             "version": "1",
-            "triggerSource": "PostConfirmation_ConfirmSignUp",
+            "triggerSource": fixture.trigger_source,
             "region": "eu-central-1",
             "userPoolId": "pool-id",
-            "userName": username,
+            "userName": fixture.username,
             "callerContext": {},
             "request": {
                 "userAttributes": user_attributes,
@@ -319,6 +404,91 @@ mod tests {
         assert_eq!(None, calls[0].1.initial_first_name);
         assert_eq!(None, calls[0].1.initial_last_name);
         assert_eq!(None, calls[0].1.initial_language);
+    }
+
+    #[test]
+    fn should_accept_only_explicit_consent_from_verified_native_signup_attributes() {
+        let accepted = post_confirmation_event_with_signup_attributes(SignupEventFixture {
+            email_verified: Some("true"),
+            marketing_consent: Some("true"),
+            ..SignupEventFixture::new("provider-username", "canonical-sub", "ada@example.com")
+        });
+        assert_eq!(
+            Some(CognitoSignupConsent::Accepted),
+            parse_user(&accepted.payload)
+                .unwrap_or_else(|error| panic!("failed to parse signup: {error}"))
+                .signup_consent
+        );
+
+        for (trigger_source, email_verified, marketing_consent) in [
+            ("PostConfirmation_ConfirmSignUp", Some("true"), None),
+            (
+                "PostConfirmation_ConfirmSignUp",
+                Some("true"),
+                Some("false"),
+            ),
+            ("PostConfirmation_ConfirmSignUp", Some("true"), Some("TRUE")),
+            (
+                "PostConfirmation_ConfirmSignUp",
+                Some("true"),
+                Some(" true"),
+            ),
+            (
+                "PostConfirmation_ConfirmSignUp",
+                Some("false"),
+                Some("true"),
+            ),
+            ("PostConfirmation_ConfirmSignUp", None, Some("true")),
+            (
+                "PostConfirmation_ConfirmForgotPassword",
+                Some("true"),
+                Some("true"),
+            ),
+        ] {
+            let event = post_confirmation_event_with_signup_attributes(SignupEventFixture {
+                email_verified,
+                marketing_consent,
+                trigger_source,
+                ..SignupEventFixture::new("provider-username", "canonical-sub", "ada@example.com")
+            });
+            assert_eq!(
+                None,
+                parse_user(&event.payload)
+                    .unwrap_or_else(|error| panic!("failed to parse signup: {error}"))
+                    .signup_consent,
+                "trigger={trigger_source}, verified={email_verified:?}, consent={marketing_consent:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_ignore_consent_metadata_and_preserve_confirmation_registration() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let event = event(serde_json::json!({
+            "version": "1",
+            "triggerSource": "PostConfirmation_ConfirmSignUp",
+            "region": "eu-central-1",
+            "userPoolId": "pool-id",
+            "userName": "provider-username",
+            "callerContext": {},
+            "request": {
+                "userAttributes": {
+                    "sub": "canonical-sub",
+                    "email": "ada@example.com",
+                    "email_verified": "true"
+                },
+                "clientMetadata": { "marketing_consent": "true" }
+            },
+            "response": {}
+        }));
+
+        assert!(handler(event, &service).await.is_ok());
+        let calls = service
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(1, calls.len());
+        assert_eq!(None, calls[0].1.signup_consent);
     }
 
     #[test]

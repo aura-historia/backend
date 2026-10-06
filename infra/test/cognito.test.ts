@@ -52,6 +52,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
         expect.objectContaining({ Name: "given_name", Required: false, Mutable: true }),
         expect.objectContaining({ Name: "family_name", Required: false, Mutable: true }),
         expect.objectContaining({ Name: "locale", Required: false, Mutable: true }),
+        expect.objectContaining({ Name: "marketing_consent", AttributeDataType: "String", Mutable: false }),
       ]),
     );
     expect(pool.Properties.AutoVerifiedAttributes).toEqual(["email"]);
@@ -92,6 +93,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
         locale: "locale",
       },
     });
+    expect(provider.Properties.AttributeMapping).not.toHaveProperty("custom:marketing_consent");
 
   });
 
@@ -117,7 +119,16 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       RefreshTokenValidity: 43200,
       TokenValidityUnits: { AccessToken: "minutes", IdToken: "minutes", RefreshToken: "minutes" },
       ReadAttributes: expect.arrayContaining(["email", "email_verified", "given_name", "family_name", "locale"]),
+      WriteAttributes: expect.arrayContaining([
+        "email",
+        "given_name",
+        "family_name",
+        "locale",
+        "custom:marketing_consent",
+      ]),
     });
+    expect(client.Properties.WriteAttributes).not.toContain("email_verified");
+    expect(client.Properties.ReadAttributes).not.toContain("custom:marketing_consent");
     expect(client.DependsOn ?? []).toEqual(expect.arrayContaining([providerId]));
   });
 
@@ -143,6 +154,21 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(JSON.stringify(linkingStatement!.Resource)).toContain(":cognito-idp:");
     expect(JSON.stringify(linkingStatement!.Resource)).toContain(":userpool/*");
     expect(JSON.stringify(linkingStatement)).not.toContain("cognito-idp:*");
+  });
+
+  test("keeps post-confirmation local to PostgreSQL without provider or delivery permissions", () => {
+    const template = computeTemplate(stage);
+    const postConfirmation = resourceByFunctionName(template, `cognito-post-confirmation-${stage}`);
+    const environment = postConfirmation.Properties.Environment.Variables as Record<string, string>;
+
+    expect(JSON.stringify(environment)).not.toMatch(/loops|ses|sqs|step.?functions|consent.?queue/i);
+    const roleId = (postConfirmation.Properties.Role as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0];
+    const policies = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
+    const rolePolicies = policies.filter((policy) =>
+      (policy.Properties.Roles as Array<{ Ref: string }> | undefined)?.some((role) => role.Ref === roleId),
+    );
+
+    expect(JSON.stringify(rolePolicies)).not.toMatch(/ses:|sqs:|states:/i);
   });
 });
 
