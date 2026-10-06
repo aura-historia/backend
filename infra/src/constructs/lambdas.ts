@@ -18,6 +18,8 @@ import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly commitSha: string;
+  readonly searchFilterClassifierModel: string;
+  readonly searchFilterMatchShouldShowThresholdBps: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
@@ -218,18 +220,17 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({
       STAGE: context.config.stage,
       OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
+      CLASSIFIER_MODEL_PROVIDER: context.config.searchFilterClassifier.provider,
+      CLASSIFIER_MODEL: context.searchFilterClassifierModel,
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: context.searchFilterMatchShouldShowThresholdBps,
+      CLOUDFLARE_ACCOUNT_ID: context.config.isEphemeral
         ? "aura-historia-ephemeral-test"
-        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: context.config.isEphemeral
-        ? "eu"
-        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      VERTEX_AI_MODEL: context.config.isEphemeral
-        ? "gemini-3.1-flash-lite"
-        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
-        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
-        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+        : ssmValue(`/cloudflare/${context.config.stage}/account-id`),
+      ...(context.config.isEphemeral
+        ? { CLOUDFLARE_API_TOKEN: "ephemeral-cloudflare-test-token" }
+        : {
+            CLOUDFLARE_API_TOKEN_SSM_PARAMETER: `/secrets/${context.config.stage}/cloudflare-workers-ai-api-token`,
+          }),
       ...(context.config.isEphemeral
         ? {}
         : {
@@ -310,6 +311,9 @@ export class Lambdas extends Construct {
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       commitSha: props.parameters.commitSha,
+      searchFilterClassifierModel: props.parameters.searchFilterClassifierModel,
+      searchFilterMatchShouldShowThresholdBps:
+        props.parameters.searchFilterMatchShouldShowThresholdBps,
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,
@@ -586,6 +590,17 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
   props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
+  if (!props.config.isEphemeral) {
+    functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [cdk.Stack.of(functions.searchFilterPercolator).formatArn({
+        service: "ssm",
+        resource: "parameter",
+        resourceName: `secrets/${props.config.stage}/cloudflare-workers-ai-api-token`,
+        arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+      })],
+    }));
+  }
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],

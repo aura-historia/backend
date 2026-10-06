@@ -13477,7 +13477,7 @@ components:
 
         When `matched` is `true`, at least one of the user's saved search filters matched this product.
 
-        `userSearchFilterId`, `userSearchFilterName`, `matchReason`, and `matchFeedback` are only
+        `userSearchFilterId`, `userSearchFilterName`, and `matchFeedback` are only
 
         present when `matched` is `true`.
 
@@ -13535,17 +13535,6 @@ components:
 
             "
           example: Vintage Art Deco
-        matchReason:
-          type: string
-          description:
-            "A human-readable explanation of why the saved search filter matched this product.
-
-            Only set for AI-enhanced filters (i.e. those with `search.enhancedSearchDescription`).
-
-            Present only when `matched` is `true` and an enhanced match reason exists; omitted otherwise.
-
-            "
-          example: Product matches the vintage Art Deco style described in your search filter.
         matchFeedback:
           type: boolean
           description:
@@ -14604,10 +14593,6 @@ components:
           type: string
           description: Product event that produced this match.
           example: evt_08nrsmex2je2dvsyh01v2kh78a
-        enhancedMatchReason:
-          type: string
-          description: Enhanced-match explanation, when matching supplied one.
-          example: The product matches the saved enhanced description.
         feedback:
           type: boolean
           description: Optional feedback recorded by the user for this saved-search match.

@@ -252,7 +252,6 @@ function tableMappings(): Record<string, unknown> {
         "price_valuation_basis",
         "price_fx_rate_id",
         "user_search_filter_name",
-        "enhanced_match_reason",
         "feedback",
         "created",
         "updated",

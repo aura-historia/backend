@@ -14,13 +14,13 @@ use crate::product_match_evaluator::{
 use application::error::{BoxError, box_error};
 use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
+use classifier_model::{ClassifierModel, Probability};
 
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use large_language_model::LargeLanguageModel;
 use product_listing_core::{
     listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
     product_listing::ProductListingPriceValuationBasis,
@@ -46,7 +46,8 @@ pub struct PeriodicSearchFilterMatchingPolicy {
     pub filter_page_size: NonZeroUsize,
     pub hybrid_scan_limit: NonZeroUsize,
     pub evaluation_limit: NonZeroUsize,
-    pub llm_concurrency: NonZeroUsize,
+    pub classification_concurrency: NonZeroUsize,
+    pub should_show_threshold: Probability,
     pub max_attempts: NonZeroUsize,
     pub projection_lag: Duration,
     pub replay_overlap: Duration,
@@ -304,7 +305,7 @@ where
     P: ProductListingSearchReader,
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
-    E: LargeLanguageModel,
+    E: ClassifierModel,
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
@@ -343,7 +344,7 @@ where
     P: ProductListingSearchReader,
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
-    E: LargeLanguageModel,
+    E: ClassifierModel,
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
@@ -619,14 +620,18 @@ where
                 }),
             }
         }
-        let evaluations =
-            evaluate_product_matches(&self.evaluator, evaluations, self.policy.llm_concurrency)
-                .await;
+        let evaluations = evaluate_product_matches(
+            &self.evaluator,
+            evaluations,
+            self.policy.classification_concurrency,
+            self.policy.should_show_threshold,
+        )
+        .await;
         let mut retryable = false;
         let mut accepted = Vec::new();
         for evaluation in evaluations {
             match evaluation.outcome {
-                ProductListingMatchEvaluationOutcome::Matched(reason) => {
+                ProductListingMatchEvaluationOutcome::Matched => {
                     let source = sources.get(&evaluation.key).ok_or(
                         RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
                     )?;
@@ -656,7 +661,6 @@ where
                         product_listing_id: source.product_listing_id,
                         origin_event_id: source.event_id,
                         price_match_valuation: valuation,
-                        enhanced_match_reason: Some(reason),
                         feedback: None,
                     });
                 }
@@ -1069,13 +1073,15 @@ mod tests {
         PeriodicSearchFilterProgressLockOutcome, SearchFilterMatchPersistOutcome,
     };
     use application::transaction::TransactionError;
+    use classifier_model::{
+        ClassificationError, ClassificationRequest, ClassificationResponse, Probability,
+    };
     use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use fxrate_service::ports::FxRateSnapshotInsertOutcome;
     use indexmap::IndexSet;
-    use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
     use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
@@ -1291,23 +1297,16 @@ mod tests {
     struct NoopEvaluator(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl LargeLanguageModel for NoopEvaluator {
-        async fn generate<Output>(
+    impl ClassifierModel for NoopEvaluator {
+        async fn classify(
             &self,
-            _request: StructuredGenerationRequest,
-        ) -> Result<Output, LargeLanguageModelError>
-        where
-            Output: serde::de::DeserializeOwned + Send,
-        {
+            _request: ClassificationRequest,
+        ) -> Result<ClassificationResponse, ClassificationError> {
             self.0
                 .lock()
-                .map_err(|_| LargeLanguageModelError::Permanent {
-                    source: box_error(std::io::Error::other("test mutex poisoned")),
-                })?
+                .map_err(|_| ClassificationError::PermanentCandidateFailure)?
                 .evaluator_calls += 1;
-            Err(LargeLanguageModelError::Permanent {
-                source: box_error(std::io::Error::other("unused test evaluator")),
-            })
+            Err(ClassificationError::PermanentCandidateFailure)
         }
     }
 
@@ -1470,7 +1469,9 @@ mod tests {
                 filter_page_size: NonZeroUsize::MIN,
                 hybrid_scan_limit: NonZeroUsize::MIN,
                 evaluation_limit: NonZeroUsize::MIN,
-                llm_concurrency: NonZeroUsize::MIN,
+                classification_concurrency: NonZeroUsize::MIN,
+                should_show_threshold: Probability::new(0.5)
+                    .unwrap_or_else(|_| unreachable!("test threshold is valid")),
                 max_attempts: NonZeroUsize::MIN,
                 projection_lag: Duration::ZERO,
                 replay_overlap: Duration::ZERO,
@@ -1632,7 +1633,6 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
-            enhanced_match_reason: None,
             feedback: None,
         }
     }

@@ -37,9 +37,7 @@ use product_listing_service::user_state::{
     ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
     SearchFilterUserState, WatchlistUserState,
 };
-use search_filter_core::{
-    enhanced_match_reason::EnhancedMatchReason, user_search_filter_name::UserSearchFilterName,
-};
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use serde::Deserialize;
 use sqlx::PgConnection;
 
@@ -110,7 +108,6 @@ struct ProductListingDetailsRow {
     watchlist_notifications: Option<bool>,
     selected_match_user_search_filter_id: Option<uuid::Uuid>,
     selected_match_user_search_filter_name: Option<String>,
-    selected_match_reason: Option<String>,
     selected_match_feedback: Option<bool>,
     selected_match_month_position: Option<i64>,
     unseen_notification_ids: Option<Vec<uuid::Uuid>>,
@@ -253,7 +250,6 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
             matched.product_listing_id,
             matched.user_search_filter_id,
             matched.user_search_filter_name,
-            matched.enhanced_match_reason,
             matched.feedback,
             ROW_NUMBER() OVER (
                 PARTITION BY matched.user_id, matched.product_listing_id
@@ -307,7 +303,6 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         watchlist.notifications AS watchlist_notifications,
         selected_match.user_search_filter_id AS selected_match_user_search_filter_id,
         selected_match.user_search_filter_name AS selected_match_user_search_filter_name,
-        selected_match.enhanced_match_reason AS selected_match_reason,
         selected_match.feedback AS selected_match_feedback,
         CASE
             WHEN authenticated_user.tier = 'FREE' THEN selected_match.month_position
@@ -624,7 +619,6 @@ fn search_filter_user_state(
 ) -> Result<SearchFilterUserState, ProductListingWatchlistDetailsRowMappingError> {
     let Some(user_search_filter_id) = row.selected_match_user_search_filter_id else {
         if row.selected_match_user_search_filter_name.is_some()
-            || row.selected_match_reason.is_some()
             || row.selected_match_feedback.is_some()
             || row.selected_match_month_position.is_some()
         {
@@ -655,10 +649,6 @@ fn search_filter_user_state(
             .selected_match_user_search_filter_name
             .clone()
             .map(UserSearchFilterName::from),
-        match_reason: row
-            .selected_match_reason
-            .clone()
-            .map(EnhancedMatchReason::from),
         match_feedback: row.selected_match_feedback,
     })
 }

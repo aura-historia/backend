@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
+import { stageConfig } from "../src/config";
 import { ScheduledEcsJob, ecsCpuArchitectureForPlatform } from "../src/constructs/scheduled-ecs-job";
 import { ecsTaskEventPattern, ecsTaskL2EventPattern } from "../src/constructs/ecs-task-event-patterns";
 import { matcherTaskEventPattern, periodicMatcherNames, PERIODIC_MATCHER_IMAGE } from "../src/periodic-matcher-config";
@@ -113,6 +114,16 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(template.toJSON().Parameters.PeriodicMatcherImageDigest).toMatchObject({ Type: "String", AllowedPattern: "^sha256:[0-9a-f]{64}$" });
     expect(template.toJSON().Parameters.PeriodicMatcherImageDigest.Default).toBeUndefined();
     expect(template.toJSON().Parameters.PeriodicMatcherEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
+    const classifierConfig = stageConfig(stage).searchFilterClassifier;
+    expect(template.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
+      Default: classifierConfig.model,
+      AllowedValues: ["clef-flash", "clef"],
+    });
+    expect(template.toJSON().Parameters.SearchFilterMatchShouldShowThresholdBps).toMatchObject({
+      Default: classifierConfig.shouldShowThresholdBps,
+      MinValue: 0,
+      MaxValue: 10_000,
+    });
     template.hasResourceProperties("AWS::ECS::TaskDefinition", {
       Cpu: "1024", Memory: "2048", NetworkMode: "awsvpc", RequiresCompatibilities: ["FARGATE"],
       RuntimePlatform: { CpuArchitecture: "X86_64", OperatingSystemFamily: "LINUX" },
@@ -127,6 +138,16 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     const taskDefinitions = Object.entries(template.findResources("AWS::ECS::TaskDefinition"));
     const [taskDefinitionId, taskDefinition] = taskDefinitions[0];
     const task = taskDefinition.Properties;
+    const matcherEnvironment = Object.fromEntries(
+      task.ContainerDefinitions[0].Environment.map((entry: { Name: string; Value: string }) => [entry.Name, entry.Value]),
+    );
+    expect(matcherEnvironment).toMatchObject({
+      CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
+      CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: {
+        Ref: "SearchFilterMatchShouldShowThresholdBps",
+      },
+    });
     expect(taskDefinitions).toHaveLength(1);
     expect(PERIODIC_MATCHER_IMAGE.digestParameter).toBe("PeriodicMatcherImageDigest");
     expect(PERIODIC_MATCHER_IMAGE.taskDefinitionOutput).toBe("PeriodicMatcherTaskDefinitionArn");
@@ -136,11 +157,11 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(JSON.stringify(task.ContainerDefinitions[0].Image)).toContain("aura-historia-periodic-matcher");
     expect(task.ContainerDefinitions[0].Secrets).toHaveLength(5);
     const environmentNames = task.ContainerDefinitions[0].Environment.map((entry: { Name: string }) => entry.Name);
-    for (const forbiddenName of ["POSTGRES_PASSWORD", "OPENSEARCH_PASSWORD", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON"]) {
+    for (const forbiddenName of ["POSTGRES_PASSWORD", "OPENSEARCH_PASSWORD", "CLOUDFLARE_API_TOKEN"]) {
       expect(environmentNames).not.toContain(forbiddenName);
     }
     expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/opensearch/${stage}/reader/password`);
-    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/secrets/${stage}/google-application-credentials`);
+    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/secrets/${stage}/cloudflare-workers-ai-api-token`);
     expect(Object.keys(template.toJSON().Parameters).filter((name: string) => name.startsWith("PeriodicMatcher"))).toEqual(["PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]);
     const roles = Object.entries(template.findResources("AWS::IAM::Role"));
     const taskRole = roles.find(([id]) => id.includes("PeriodicMatcherTaskRole"));

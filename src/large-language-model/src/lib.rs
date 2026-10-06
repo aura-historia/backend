@@ -1428,7 +1428,7 @@ mod tests {
     #[test]
     fn should_preserve_caller_generation_options() {
         let request = StructuredGenerationRequest {
-            operation: LlmOperation::ProductEnhancedSearchDescriptionMatching,
+            operation: LlmOperation::ProductTitleTranslation,
             system_instruction: "system".to_owned(),
             prompt: "prompt".to_owned(),
             image_urls: Vec::new(),
@@ -1491,7 +1491,7 @@ mod tests {
 
     fn test_request(prompt: &str) -> StructuredGenerationRequest {
         StructuredGenerationRequest {
-            operation: LlmOperation::ProductEnhancedSearchDescriptionMatching,
+            operation: LlmOperation::ProductTitleTranslation,
             system_instruction: "system".to_owned(),
             prompt: prompt.to_owned(),
             image_urls: Vec::new(),

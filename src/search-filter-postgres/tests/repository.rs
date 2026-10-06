@@ -213,7 +213,6 @@ async fn should_insert_find_and_update_search_filter_match() {
             basis: ProductListingPriceValuationBasis::Event,
             fx_rate_id,
         }),
-        enhanced_match_reason: None,
         feedback: None,
     };
 
@@ -387,8 +386,7 @@ async fn should_persist_one_match_when_single_and_batch_completions_overlap() {
         );
         let duplicate = async {
             let mut tx = unit.begin().await?;
-            let mut different_result = matched.clone();
-            different_result.enhanced_match_reason = Some("later evaluation".into());
+            let different_result = matched.clone();
             let outcome = SqlxSearchFilterMatchWriterFactory
                 .in_transaction(&mut tx)
                 .insert_all_if_absent(&[different_result])
@@ -475,7 +473,6 @@ fn match_candidate(filter: &SearchFilter) -> SearchFilterMatchCandidate {
         expected_search: filter.search().clone(),
         expected_embedding: filter.embedding().cloned(),
         price_match_valuation: None,
-        enhanced_match_reason: None,
     }
 }
 
@@ -491,7 +488,6 @@ fn product_match(
         product_listing_id,
         origin_event_id,
         price_match_valuation: None,
-        enhanced_match_reason: None,
         feedback: None,
     }
 }
@@ -519,7 +515,6 @@ async fn persist_candidate(
                     product_listing_id,
                     origin_event_id,
                     price_match_valuation: candidate.price_match_valuation,
-                    enhanced_match_reason: candidate.enhanced_match_reason,
                     feedback: None,
                 })
                 .await?,

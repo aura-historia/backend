@@ -1,13 +1,12 @@
 use crate::{
-    enhanced_match_reason::EnhancedMatchReason, search_filter_state::SearchFilterState,
-    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+    search_filter_state::SearchFilterState, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
 };
 use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
 use fxrate_core::FxRateId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::user_id::UserId;
-pub mod enhanced_match_reason;
 pub mod search_filter_state;
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;
@@ -142,7 +141,6 @@ pub struct SearchFilterProductListingMatch {
     pub origin_event_id: EventId,
     /// Immutable valuation used only when this filter had a price condition.
     pub price_match_valuation: Option<PriceMatchValuation>,
-    pub enhanced_match_reason: Option<EnhancedMatchReason>,
     pub feedback: Option<bool>,
 }
 
@@ -231,7 +229,6 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
-            enhanced_match_reason: None,
             feedback: Some(true),
         };
 

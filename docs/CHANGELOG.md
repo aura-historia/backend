@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-05 — Remove saved-search match explanations (#1847)
+
+- Removed `matchReason` from ProductListing user-state responses and `enhancedMatchReason` from saved-search match records. Match feedback is unchanged; classifier scores and generated explanations are not persisted or returned.
+
 ## 2026-10-05 — Read-only current email marketing consent (#1935)
 
 - Added `marketingEmailConsent` to authenticated own-account and admin user detail reads. The field reports the current email-marketing grant and cannot be changed through account PATCH.

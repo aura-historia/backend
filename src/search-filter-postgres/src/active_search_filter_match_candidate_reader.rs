@@ -125,7 +125,6 @@ impl ActiveSearchFilterMatchCandidateReader for SqlxActiveSearchFilterMatchCandi
                     }
                 })?,
                 price_match_valuation: candidate.price_match_valuation,
-                enhanced_match_reason: candidate.enhanced_match_reason.clone(),
             });
         }
         Ok(active)

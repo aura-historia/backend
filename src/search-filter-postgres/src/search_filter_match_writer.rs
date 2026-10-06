@@ -39,9 +39,8 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 price_valuation_basis,
                 price_fx_rate_id,
                 user_search_filter_name,
-                enhanced_match_reason,
                 feedback
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
             "#,
@@ -63,12 +62,6 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(
             product_match
                 .user_search_filter_name
-                .as_ref()
-                .map(AsRef::as_ref),
-        )
-        .bind(
-            product_match
-                .enhanced_match_reason
                 .as_ref()
                 .map(AsRef::as_ref),
         )
@@ -134,15 +127,6 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                     .map(ToString::to_string)
             })
             .collect::<Vec<_>>();
-        let reasons = product_matches
-            .iter()
-            .map(|value| {
-                value
-                    .enhanced_match_reason
-                    .as_ref()
-                    .map(ToString::to_string)
-            })
-            .collect::<Vec<_>>();
         let feedback = product_matches
             .iter()
             .map(|value| value.feedback)
@@ -152,12 +136,11 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             r#"
             INSERT INTO search_filter_matches (
                 user_id, user_search_filter_id, product_listing_id, origin_event_id,
-                price_valuation_basis, price_fx_rate_id, user_search_filter_name,
-                enhanced_match_reason, feedback
+                price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback
             )
             SELECT * FROM unnest(
                 $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
-                $6::uuid[], $7::text[], $8::text[], $9::bool[]
+                $6::uuid[], $7::text[], $8::bool[]
             )
             ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
@@ -170,7 +153,6 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(bases)
         .bind(fx_rate_ids)
         .bind(names)
-        .bind(reasons)
         .bind(feedback)
         .fetch_all(self.tx.connection())
         .await

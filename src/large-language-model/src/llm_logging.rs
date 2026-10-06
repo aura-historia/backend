@@ -5,7 +5,6 @@ pub enum LlmOperation {
     ProductTitleTranslation,
     ProductEmbedding,
     ProductQueryEmbedding,
-    ProductEnhancedSearchDescriptionMatching,
     SellerShopDisambiguation,
     CrawlerUrlClassification,
     CrawlerProductSchemaGeneration,
@@ -21,9 +20,6 @@ impl LlmOperation {
             Self::ProductTitleTranslation => "PRODUCT_TITLE_TRANSLATION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
-            Self::ProductEnhancedSearchDescriptionMatching => {
-                "PRODUCT_ENHANCED_SEARCH_DESCRIPTION_MATCHING"
-            }
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
             Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
             Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",

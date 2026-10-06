@@ -120,8 +120,6 @@ struct SearchFilterUserStateData {
     #[serde(skip_serializing_if = "Option::is_none")]
     user_search_filter_name: Option<UserSearchFilterName>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    match_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     match_feedback: Option<bool>,
 }
 
@@ -508,7 +506,6 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
             hidden: state.hidden,
             user_search_filter_id: state.user_search_filter_id,
             user_search_filter_name: state.user_search_filter_name,
-            match_reason: state.match_reason.map(|reason| reason.to_string()),
             match_feedback: state.match_feedback,
         }
     }

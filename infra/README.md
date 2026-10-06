@@ -21,7 +21,7 @@ bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, RDS shape, SSM dynamic refs
 src/worker-queue-config.ts # typed worker queue scopes, timing, retention, alarms
-src/parameters.ts          # deployment artifact version input
+src/parameters.ts          # artifact version and shared runtime configuration inputs
 src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
 src/constructs/            # focused infrastructure modules
   api.ts                   # HTTP API Gateway routes, domain, CloudFront, WAF, CORS, JWT authorizer
@@ -510,7 +510,7 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-listing-normalization` | `ProductListingNormalization` | 270s |
 | `notification-delivery` | `NotificationDelivery` | 330s |
 
-`product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings are active at compute creation; an operator-approved pause must preserve each resource, function version, queue pair and IAM role. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
+`product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. The percolator classifies enhanced saved-search candidates with Cloudflare Workers AI Clef Flash by default, using the user's original description, localized listing title and description, and at most one image. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings are active at compute creation; an operator-approved pause must preserve each resource, function version, queue pair and IAM role. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
 For native-to-Lambda handoff, retain the same source queue and schema-2 job contract;
 do not create, rename, or purge a replacement queue. Deploy compatible Lambda code
@@ -635,6 +635,14 @@ the ten worker mappings, partner integrations and FX/cleanup schedules together;
 there is no separate release flag for them and **no built-in readiness marker**
 proving migrations, FX, OpenSearch or handoff are complete. Neither stack existence
 nor a successful foundation summary proves application readiness.
+
+The per-stage compute stack also exposes `SearchFilterClassifierModel` and
+`SearchFilterMatchShouldShowThresholdBps`. Their defaults come from the stage
+configuration (`clef-flash` and `5000`, respectively); the model accepts `clef`
+as an alternative and the threshold is an inclusive basis-point value from 0 to
+10000. Both the percolator Lambda and periodic matcher use these same stack
+parameters, so a stage can tune model selection and acceptance without editing
+either runtime construct.
 
 ### First-time stage
 
@@ -883,13 +891,15 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /vertex-ai/{stage}/location
 /vertex-ai/{stage}/model
 /secrets/{stage}/google-application-credentials
+/cloudflare/{stage}/account-id
+/secrets/{stage}/cloudflare-workers-ai-api-token
 /loops/{stage}/api-key
 /loops/{stage}/newsletter-list-id
 ```
 
 The Google Cognito identity provider resolves both its client ID and client secret from SSM `String` parameters. CloudFormation does not support `ssm-secure` in Cognito `ProviderDetails.client_secret`, so the client secret must be a plain `String`, not `SecureString`. Restrict SSM reads and CloudFormation/Cognito configuration access; never put the value in source, logs, or CLI arguments. Changing the SSM value alone does not update the deployed provider: deploy an identity-provider configuration change to re-resolve it before revoking an old Google client secret.
 
-The API Lambda, `search-filter-percolator-lambda`, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator additionally resolves only its model and OpenSearch endpoint, username, and password. `product-listing-opensearch-lambda` receives none of the Vertex or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
+The API Lambda, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator receives Cloudflare account ID, model (`clef-flash` by default or `clef`), the service acceptance threshold, and its OpenSearch endpoint, username, and password. Its environment contains the API token's `SecureString` parameter name; at startup it reads the decrypted value with `ssm:GetParameter` under permission scoped to that parameter. The token value is never placed in the Lambda environment or logs. Rotating the token does not replace the copy held by an already warm Lambda process; recycle the percolator Lambda after rotation. Use the AWS-managed SSM key for the token parameter, or grant the exact KMS decrypt permission to both runtime roles if a customer-managed key is selected. The periodic matcher receives the same Cloudflare model/account configuration and injects the token as an ECS task secret. `product-listing-opensearch-lambda` receives none of the Vertex, Cloudflare, or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 The initialization-stack `fxrate-lambda-<stage>` resolves `/fxratesapi/<stage>/api-token`.
 Compute's recurring Scheduler target and invoke permission use its stable unqualified
 function ARN, with no release-dependent FX version export/import. Initial FX is

@@ -262,7 +262,6 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
         product.id(),
         event_id_for_product(&pool, product.id()).await,
         "Vintage furniture",
-        Some("Matches the requested vintage furniture."),
         Some(true),
         match_created,
     )
@@ -314,14 +313,6 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
             .as_ref()
             .map(AsRef::as_ref)
     );
-    assert_eq!(
-        Some("Matches the requested vintage furniture."),
-        user_state
-            .search_filter
-            .match_reason
-            .as_ref()
-            .map(AsRef::as_ref)
-    );
     assert_eq!(Some(true), user_state.search_filter.match_feedback);
 }
 
@@ -345,7 +336,6 @@ async fn should_return_default_postgres_user_state_when_no_watchlist_or_match_ex
     assert!(!user_state.search_filter.hidden);
     assert_eq!(None, user_state.search_filter.user_search_filter_id);
     assert_eq!(None, user_state.search_filter.user_search_filter_name);
-    assert_eq!(None, user_state.search_filter.match_reason);
     assert_eq!(None, user_state.search_filter.match_feedback);
 }
 
@@ -384,7 +374,6 @@ async fn should_hide_the_eleventh_free_tier_match_in_its_month() {
             event_id_for_product(&pool, product.id()).await,
             "Free quota",
             None,
-            None,
             month_start + Duration::hours(i64::from(index)),
         )
         .await;
@@ -398,7 +387,6 @@ async fn should_hide_the_eleventh_free_tier_match_in_its_month() {
         product.id(),
         event_id_for_product(&pool, product.id()).await,
         "Free quota",
-        None,
         None,
         month_start + Duration::hours(10),
     )
@@ -427,7 +415,6 @@ async fn should_keep_first_tied_free_tier_match_visible() {
         event_id_for_product(&pool, target.id()).await,
         "First tied filter",
         None,
-        None,
         timestamp,
     )
     .await;
@@ -444,7 +431,6 @@ async fn should_keep_first_tied_free_tier_match_visible() {
             product.id(),
             event_id_for_product(&pool, product.id()).await,
             &format!("Tied filter {index}"),
-            None,
             None,
             timestamp,
         )
@@ -474,7 +460,6 @@ async fn should_not_hide_matched_product_for_unlimited_tier() {
         event_id_for_product(&pool, product.id()).await,
         "Pro quota",
         None,
-        None,
         OffsetDateTime::UNIX_EPOCH,
     )
     .await;
@@ -499,7 +484,6 @@ async fn should_not_hide_matched_product_for_unlimited_tier() {
         product.id(),
         event_id_for_product(&pool, product.id()).await,
         "Ultimate quota",
-        None,
         None,
         OffsetDateTime::UNIX_EPOCH,
     )
@@ -536,7 +520,6 @@ async fn should_select_earliest_search_filter_match_deterministically() {
         event_id,
         "Later filter",
         None,
-        None,
         OffsetDateTime::UNIX_EPOCH,
     )
     .await;
@@ -547,7 +530,6 @@ async fn should_select_earliest_search_filter_match_deterministically() {
         product.id(),
         event_id,
         "Earlier filter",
-        None,
         None,
         OffsetDateTime::UNIX_EPOCH,
     )
@@ -796,7 +778,6 @@ async fn insert_search_filter_match(
     product_listing_id: ProductListingId,
     origin_event_id: EventId,
     name: &str,
-    reason: Option<&str>,
     feedback: Option<bool>,
     created: OffsetDateTime,
 ) {
@@ -804,8 +785,8 @@ async fn insert_search_filter_match(
         r#"
         INSERT INTO search_filter_matches (
             user_id, user_search_filter_id, product_listing_id, origin_event_id,
-            user_search_filter_name, enhanced_match_reason, feedback, created
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            user_search_filter_name, feedback, created
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(user_id.into_uuid())
@@ -813,7 +794,6 @@ async fn insert_search_filter_match(
     .bind(product_listing_id.into_uuid())
     .bind(origin_event_id.into_uuid())
     .bind(name)
-    .bind(reason)
     .bind(feedback)
     .bind(created)
     .execute(pool)

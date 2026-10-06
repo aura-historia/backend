@@ -110,7 +110,6 @@ mod tests {
         ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
         SearchFilterUserState, WatchlistUserState,
     };
-    use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use serde_json::{Value, json};
@@ -438,7 +437,6 @@ mod tests {
                 hidden: false,
                 user_search_filter_id: Some(search_filter_id),
                 user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
-                match_reason: Some(EnhancedMatchReason::from("Matched the material.")),
                 match_feedback: Some(false),
             },
         });
@@ -476,10 +474,6 @@ mod tests {
         assert_eq!(
             "Vintage furniture",
             body["userState"]["searchFilter"]["userSearchFilterName"]
-        );
-        assert_eq!(
-            "Matched the material.",
-            body["userState"]["searchFilter"]["matchReason"]
         );
         assert_eq!(false, body["userState"]["searchFilter"]["matchFeedback"]);
         assert!(matches!(

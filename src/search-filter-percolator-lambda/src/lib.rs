@@ -1,8 +1,8 @@
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
+use classifier_model::{CloudflareClassifierModel, Probability};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
-use large_language_model::VertexAiGemini;
 use opensearch::OpenSearch;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
@@ -31,18 +31,22 @@ const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);
 pub fn compose_percolator_use_case(
     pool: sqlx::PgPool,
     open_search: OpenSearch,
-    evaluator: VertexAiGemini,
+    evaluator: CloudflareClassifierModel,
+    should_show_threshold: Probability,
 ) -> Arc<dyn MatchProductListingEventUseCase> {
-    Arc::new(MatchProductListingEventHandler::new(
-        SqlxUnitOfWork::new(pool),
-        SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-        SqlxProductListingCurrentEventGuardFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchSearchFilterIndex::new(open_search),
-        evaluator,
-        SqlxActiveSearchFilterMatchCandidateReaderFactory,
-        SqlxSearchFilterMatchWriterFactory,
-    ))
+    Arc::new(
+        MatchProductListingEventHandler::new(
+            SqlxUnitOfWork::new(pool),
+            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+            SqlxProductListingCurrentEventGuardFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+            OpenSearchSearchFilterIndex::new(open_search),
+            evaluator,
+            SqlxActiveSearchFilterMatchCandidateReaderFactory,
+            SqlxSearchFilterMatchWriterFactory,
+        )
+        .with_should_show_threshold(should_show_threshold),
+    )
 }
 
 /// Computes the usable Lambda deadline, reserving time for a truthful SQS response.

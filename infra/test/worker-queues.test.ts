@@ -720,10 +720,27 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
+    const classifierConfig = stageConfig(stage).searchFilterClassifier;
+    expect(compute.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
+      Default: classifierConfig.model,
+      AllowedValues: ["clef-flash", "clef"],
+    });
+    expect(compute.toJSON().Parameters.SearchFilterMatchShouldShowThresholdBps).toMatchObject({
+      Default: classifierConfig.shouldShowThresholdBps,
+      MinValue: 0,
+      MaxValue: 10_000,
+    });
+    expect(functions[0].Properties.Environment.Variables).toMatchObject({
+      CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
+      CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: {
+        Ref: "SearchFilterMatchShouldShowThresholdBps",
+      },
+    });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       stage === "ephemeral"
-        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"]
-        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+        ? ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"]
+        : ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN_SSM_PARAMETER", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("S3_BUCKET_NAME_TEMPLATES");
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("NOTIFICATION_EMAIL");
@@ -736,6 +753,24 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(percolatorSearchStatements[0].Action).toEqual([
       "es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
     ]);
+    if (stage !== "ephemeral") {
+      const percolatorSsmStatements = policies
+        .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+        .filter((statement) => {
+          const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+          return actions.includes("ssm:GetParameter");
+        });
+      expect(percolatorSsmStatements).toHaveLength(1);
+      expect(JSON.stringify(percolatorSsmStatements[0])).toContain(
+        `parameter/secrets/${stage}/cloudflare-workers-ai-api-token`,
+      );
+      expect(JSON.stringify(functions[0].Properties.Environment.Variables)).toContain(
+        `/secrets/${stage}/cloudflare-workers-ai-api-token`,
+      );
+      expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain(
+        "resolve:ssm-secure",
+      );
+    }
   });
 
   test("deploys separate PostgreSQL-only notification generators with active mappings", () => {

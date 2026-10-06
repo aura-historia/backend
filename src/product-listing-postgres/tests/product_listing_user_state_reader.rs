@@ -43,7 +43,6 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
             product,
             "Early filter",
             None,
-            None,
             month_start + Duration::hours(hour),
         )
         .await;
@@ -56,7 +55,6 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
         first_filter_id,
         unsafe_product,
         "Early filter",
-        Some("Matches the early filter."),
         Some(true),
         month_start + Duration::hours(10),
     )
@@ -67,7 +65,6 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
         later_filter_id,
         unsafe_product,
         "Later filter",
-        Some("Must not be selected."),
         Some(false),
         month_start + Duration::hours(10),
     )
@@ -104,14 +101,6 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
             .as_ref()
             .map(AsRef::as_ref),
         Some("Early filter")
-    );
-    assert_eq!(
-        unsafe_state
-            .search_filter
-            .match_reason
-            .as_ref()
-            .map(AsRef::as_ref),
-        Some("Matches the early filter.")
     );
     assert_eq!(unsafe_state.search_filter.match_feedback, Some(true));
 
@@ -595,7 +584,6 @@ async fn insert_search_filter_match(
     filter_id: UserSearchFilterId,
     product_listing_id: ProductListingId,
     name: &str,
-    reason: Option<&str>,
     feedback: Option<bool>,
     created: OffsetDateTime,
 ) {
@@ -604,8 +592,8 @@ async fn insert_search_filter_match(
         r#"
         INSERT INTO search_filter_matches (
             user_id, user_search_filter_id, product_listing_id, origin_event_id,
-            user_search_filter_name, enhanced_match_reason, feedback, created
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            user_search_filter_name, feedback, created
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(user_id.into_uuid())
@@ -613,7 +601,6 @@ async fn insert_search_filter_match(
     .bind(product_listing_id.into_uuid())
     .bind(origin_event_id.into_uuid())
     .bind(name)
-    .bind(reason)
     .bind(feedback)
     .bind(created)
     .execute(pool)
