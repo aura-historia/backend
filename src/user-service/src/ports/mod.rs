@@ -5,6 +5,8 @@ pub mod access_token_repository;
 pub mod admin_access_token_list_reader;
 pub mod cognito_identity;
 pub mod marketing_consent_intents;
+pub mod newsletter_confirmation_challenges;
+pub mod newsletter_confirmation_email_sender;
 pub mod newsletter_profile_reader;
 pub mod newsletter_subscription_writer;
 pub mod newsletter_webhook_verifier;
@@ -41,6 +43,18 @@ pub use marketing_consent_intents::{
     ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, GrantRaceRepairOutcome,
     MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
     marketing_consent_recipient_key,
+};
+pub use newsletter_confirmation_challenges::{
+    NewNewsletterConfirmationChallenge, NewsletterConfirmationChallenge,
+    NewsletterConfirmationChallengeError, NewsletterConfirmationChallenges,
+    NewsletterConfirmationChallengesFactory, NewsletterConfirmationClock,
+    NewsletterConfirmationIssueOutcome, NewsletterConfirmationSendStatus,
+    NewsletterConfirmationTokenGenerationError, NewsletterConfirmationTokenGenerator,
+    OsNewsletterConfirmationTokenGenerator, SystemNewsletterConfirmationClock,
+};
+pub use newsletter_confirmation_email_sender::{
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
+    NewsletterConfirmationEmailSender,
 };
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,

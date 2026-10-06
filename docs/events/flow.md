@@ -24,6 +24,8 @@ C06 resource handoff: source `aura-worker-marketing-consent-sync-{stage}.fifo`, 
 
 FIFO deduplication lasts five minutes, Lambda may invoke a consumer again, and Loops is outside the queue transaction. C02/C04 durable receipts, claim/finalize leases, authoritative decision/revision checks and raced-grant repair remain mandatory. FIFO cannot prove exactly-once external API execution, reconstruct upstream order after archive replay, or prevent stale grants without application checks. See AWS on [FIFO deduplication](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-exactly-once-processing.html) and [Lambda with SQS](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html), plus [storage](../storage.md#users-and-email-marketing-consent) for the durable consent rules.
 
+`newsletter_subscription_confirmations` is likewise operational proof/idempotency state, not a selected DMS/Kinesis source, event journal or queue input. Its raw tokens never persist; rows are looked up by SHA-256 digest and changed by the user service's short PostgreSQL transactions. A bounded cleanup port removes expired unconfirmed rows; confirmation rows are never published to DMS, Kinesis or SQS.
+
 ## DMS/Kinesis routing (target; live cutover unverified)
 
 DMS captures committed selected rows only; no outbox or custom CDC transport. Source removal does not decommission external Sequin subscriptions or drain native-worker in-flight work. See the [runbook](../durable-worker-runbook.md#activation-and-legacy-handoff).

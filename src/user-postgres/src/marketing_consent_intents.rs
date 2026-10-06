@@ -1,3 +1,4 @@
+use crate::newsletter_confirmation_challenges::invalidate_pending_newsletter_confirmations;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use serde_email::Email;
@@ -14,13 +15,13 @@ use user_service::ports::marketing_consent_intents::{
 use user_service::ports::{
     ConsentIntent as PortConsentIntent, ConsentIntentSource as PortSource,
     ConsentSubject as PortSubject, ConsentUser, MarketingConsentIntentError,
-    MarketingConsentIntents, MarketingConsentIntentsFactory, UserStorageVersion,
-    marketing_consent_recipient_key,
+    MarketingConsentIntents, MarketingConsentIntentsFactory, NewsletterConfirmationChallengeError,
+    NewsletterProfile, UserStorageVersion, marketing_consent_recipient_key,
 };
 use uuid::Uuid;
 
 const TABLE: &str = "marketing_email_consent_sync_intents";
-const COLUMNS: &str = "intent_id, intent_sequence, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, status, not_after, lease_token, lease_expires_at, attempt_count, completed_lease_token, completed_at, completion_status";
+const COLUMNS: &str = "intent_id, intent_sequence, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, profile_snapshot, status, not_after, lease_token, lease_expires_at, attempt_count, completed_lease_token, completed_at, completion_status";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConsentIntentSource {
@@ -125,6 +126,7 @@ pub struct MarketingConsentIntent {
     pub subject: ConsentSubject,
     pub source: ConsentIntentSource,
     pub email: Email,
+    pub profile_snapshot: Option<NewsletterProfile>,
     pub recipient_key: String,
     pub desired: bool,
     pub consent_revision: Option<i64>,
@@ -203,7 +205,7 @@ async fn lock_source(
         .map_err(db)?;
     Ok(())
 }
-async fn lock_recipient(
+pub(crate) async fn lock_recipient(
     connection: &mut PgConnection,
     key: &str,
 ) -> Result<(), MarketingConsentPersistenceError> {
@@ -213,6 +215,93 @@ async fn lock_recipient(
         .await
         .map_err(db)?;
     Ok(())
+}
+
+fn encode_profile_snapshot(profile: Option<&NewsletterProfile>) -> Option<serde_json::Value> {
+    let profile = profile?;
+    let mut snapshot = serde_json::Map::new();
+    if let Some(first_name) = &profile.first_name {
+        snapshot.insert(
+            "first_name".to_owned(),
+            serde_json::Value::String(first_name.as_ref().to_owned()),
+        );
+    }
+    if let Some(last_name) = &profile.last_name {
+        snapshot.insert(
+            "last_name".to_owned(),
+            serde_json::Value::String(last_name.as_ref().to_owned()),
+        );
+    }
+    if let Some(language) = profile.language {
+        snapshot.insert(
+            "language".to_owned(),
+            serde_json::Value::String(language.as_str().to_owned()),
+        );
+    }
+    if let Some(currency) = profile.currency {
+        snapshot.insert(
+            "currency".to_owned(),
+            serde_json::Value::String(currency.as_str().to_owned()),
+        );
+    }
+    Some(serde_json::Value::Object(snapshot))
+}
+
+fn decode_profile_snapshot(
+    snapshot: Option<serde_json::Value>,
+) -> Result<Option<NewsletterProfile>, MarketingConsentPersistenceError> {
+    let Some(snapshot) = snapshot else {
+        return Ok(None);
+    };
+    let serde_json::Value::Object(mut fields) = snapshot else {
+        return Err(MarketingConsentPersistenceError::InvalidPersistedState);
+    };
+    let mut take_string = |name: &str| -> Result<Option<String>, MarketingConsentPersistenceError> {
+        fields
+            .remove(name)
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)
+            })
+            .transpose()
+    };
+    let first_name = take_string("first_name")?
+        .map(|value| {
+            (value.chars().count() <= 64)
+                .then(|| user_core::first_name::FirstName::from(value))
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)
+        })
+        .transpose()?;
+    let last_name = take_string("last_name")?
+        .map(|value| {
+            (value.chars().count() <= 64)
+                .then(|| user_core::last_name::LastName::from(value))
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)
+        })
+        .transpose()?;
+    let language = take_string("language")?
+        .map(|value| {
+            localization::Language::from_code(&value)
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)
+        })
+        .transpose()?;
+    let currency = take_string("currency")?
+        .map(|value| {
+            money::Currency::from_code(&value)
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)
+        })
+        .transpose()?;
+    if !fields.is_empty() {
+        return Err(MarketingConsentPersistenceError::InvalidPersistedState);
+    }
+    Ok(Some(NewsletterProfile {
+        first_name,
+        last_name,
+        language,
+        currency,
+    }))
 }
 
 #[derive(FromRow)]
@@ -228,6 +317,7 @@ struct IntentRow {
     desired: bool,
     consent_revision: Option<i64>,
     changed_at: OffsetDateTime,
+    profile_snapshot: Option<serde_json::Value>,
     status: String,
     not_after: Option<OffsetDateTime>,
     lease_token: Option<Uuid>,
@@ -289,6 +379,7 @@ impl IntentRow {
             source,
             email,
             recipient_key: self.recipient_key,
+            profile_snapshot: decode_profile_snapshot(self.profile_snapshot)?,
             desired: self.desired,
             consent_revision: self.consent_revision,
             changed_at: self.changed_at,
@@ -325,6 +416,7 @@ async fn append(
     revision: Option<i64>,
     source_key: &str,
     changed_at: OffsetDateTime,
+    profile_snapshot: Option<&NewsletterProfile>,
 ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
     let key = marketing_consent_recipient_key(email);
     let (kind, id) = match subject {
@@ -332,7 +424,7 @@ async fn append(
         ConsentSubject::EmailOnly => ("EMAIL_ONLY", None),
     };
     let sql = format!(
-        "INSERT INTO {TABLE} (intent_id, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, not_after) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $8 THEN $10::timestamptz + interval '7 days' END) RETURNING {COLUMNS}"
+        "INSERT INTO {TABLE} (intent_id, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, profile_snapshot, not_after) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $8 THEN $10::timestamptz + interval '7 days' END) RETURNING {COLUMNS}"
     );
     let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
         .bind(MarketingConsentSyncIntentId::new().into_uuid())
@@ -345,6 +437,7 @@ async fn append(
         .bind(desired)
         .bind(revision)
         .bind(changed_at)
+        .bind(encode_profile_snapshot(profile_snapshot))
         .fetch_one(&mut *connection)
         .await
         .map_err(db)?;
@@ -396,6 +489,36 @@ impl SqlxMarketingConsentIntentRepository {
         source_key: &str,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
+        self.record_user_transition_with_profile(
+            tx,
+            user_id,
+            expected_version,
+            verified_email,
+            desired,
+            source,
+            source_key,
+            None,
+            changed_at,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the transaction-bound write requires the exact proof and user fence"
+    )]
+    pub async fn record_user_transition_with_profile(
+        &self,
+        tx: &mut SqlxTransaction,
+        user_id: UserId,
+        expected_version: UserStorageVersion,
+        verified_email: &Email,
+        desired: bool,
+        source: ConsentIntentSource,
+        source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
         validate_input(source_key, changed_at, desired)?;
         if !source.accepts(ConsentSubject::User(user_id), desired)
             || matches!(
@@ -412,6 +535,7 @@ impl SqlxMarketingConsentIntentRepository {
                 && existing.email == *verified_email
                 && existing.desired == desired
                 && existing.source == source
+                && existing.profile_snapshot == profile_snapshot
             {
                 Ok(existing)
             } else {
@@ -434,6 +558,7 @@ impl SqlxMarketingConsentIntentRepository {
             Some(revision),
             source_key,
             changed_at,
+            profile_snapshot.as_ref(),
         )
         .await
     }
@@ -445,6 +570,26 @@ impl SqlxMarketingConsentIntentRepository {
         desired: bool,
         source: ConsentIntentSource,
         source_key: &str,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
+        self.record_email_only_intent_with_profile(
+            tx, email, desired, source, source_key, None, changed_at,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the transaction-bound write records the exact email-only decision"
+    )]
+    pub async fn record_email_only_intent_with_profile(
+        &self,
+        tx: &mut SqlxTransaction,
+        email: &Email,
+        desired: bool,
+        source: ConsentIntentSource,
+        source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentIntent, MarketingConsentPersistenceError> {
         validate_input(source_key, changed_at, desired)?;
@@ -460,6 +605,7 @@ impl SqlxMarketingConsentIntentRepository {
                 && existing.email == *email
                 && existing.desired == desired
                 && existing.source == source
+                && existing.profile_snapshot == profile_snapshot
             {
                 Ok(existing)
             } else {
@@ -485,6 +631,7 @@ impl SqlxMarketingConsentIntentRepository {
             None,
             source_key,
             changed_at,
+            profile_snapshot.as_ref(),
         )
         .await
     }
@@ -646,6 +793,7 @@ impl SqlxMarketingConsentIntentRepository {
             revision,
             source_key,
             changed_at,
+            None,
         )
         .await?;
         Ok(GrantRaceRepairOutcome::RepairScheduled(repair.intent_id))
@@ -689,6 +837,7 @@ impl SqlxMarketingConsentIntentRepository {
             Some(revision),
             source_key,
             changed_at,
+            None,
         )
         .await
     }
@@ -755,6 +904,7 @@ impl From<MarketingConsentIntent> for PortConsentIntent {
                 ConsentIntentSource::ProviderRaceRepair => PortSource::ProviderRaceRepair,
             },
             email: intent.email,
+            profile_snapshot: intent.profile_snapshot.map(Box::new),
             desired: intent.desired,
         }
     }
@@ -781,6 +931,20 @@ impl TryFrom<ConsentUserRow> for ConsentUser {
 
 #[async_trait::async_trait]
 impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
+    async fn lock_recipient(&mut self, email: &Email) -> Result<(), MarketingConsentIntentError> {
+        lock_recipient(
+            self.tx.connection(),
+            &marketing_consent_recipient_key(email),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn lock_source_key(&mut self, key: &str) -> Result<(), MarketingConsentIntentError> {
+        lock_source(self.tx.connection(), key).await?;
+        Ok(())
+    }
+
     async fn find_by_source_key(
         &mut self,
         key: &str,
@@ -828,10 +992,11 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         desired: bool,
         source: PortSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<PortConsentIntent, MarketingConsentIntentError> {
         Ok(SqlxMarketingConsentIntentRepository::new()
-            .record_user_transition(
+            .record_user_transition_with_profile(
                 self.tx,
                 user.user_id,
                 user.version,
@@ -839,6 +1004,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
                 desired,
                 source.into(),
                 source_key,
+                profile_snapshot,
                 changed_at,
             )
             .await?
@@ -851,15 +1017,17 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         desired: bool,
         source: PortSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<PortConsentIntent, MarketingConsentIntentError> {
         Ok(SqlxMarketingConsentIntentRepository::new()
-            .record_email_only_intent(
+            .record_email_only_intent_with_profile(
                 self.tx,
                 email,
                 desired,
                 source.into(),
                 source_key,
+                profile_snapshot,
                 changed_at,
             )
             .await?
@@ -901,6 +1069,26 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
             .cancel_provider_backsync(self.tx, email)
             .await?;
         Ok(())
+    }
+
+    async fn invalidate_newsletter_confirmation_challenges(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
+    ) -> Result<(), MarketingConsentIntentError> {
+        invalidate_pending_newsletter_confirmations(self.tx, email, invalidated_at)
+            .await
+            .map_err(|error| match error {
+                NewsletterConfirmationChallengeError::InvalidPersistedState => {
+                    MarketingConsentIntentError::InvalidPersistedState
+                }
+                NewsletterConfirmationChallengeError::InvalidInput => {
+                    MarketingConsentIntentError::InvalidInput
+                }
+                NewsletterConfirmationChallengeError::TemporarilyUnavailable { source } => {
+                    MarketingConsentIntentError::TemporarilyUnavailable { source }
+                }
+            })
     }
 
     async fn repair_raced_grant_if_needed(
@@ -1299,6 +1487,7 @@ fn worker_claim_from_port(
             },
             source: intent.source.into(),
             email: intent.email.clone(),
+            profile_snapshot: intent.profile_snapshot.as_deref().cloned(),
             recipient_key: claim.recipient_key.clone(),
             desired: intent.desired,
             consent_revision: claim.consent_revision,

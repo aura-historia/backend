@@ -471,6 +471,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MarketingConsentIntents for FakeConsent {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
         async fn find_by_source_key(
             &mut self,
             key: &str,
@@ -508,6 +516,7 @@ mod tests {
             _: bool,
             _: ConsentIntentSource,
             _: &str,
+            _: Option<crate::ports::NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             unreachable!()
@@ -518,6 +527,7 @@ mod tests {
             _: bool,
             _: ConsentIntentSource,
             _: &str,
+            _: Option<crate::ports::NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             unreachable!()
@@ -532,6 +542,14 @@ mod tests {
         async fn cancel_provider_backsync(
             &mut self,
             _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
         ) -> Result<(), MarketingConsentIntentError> {
             unreachable!()
         }
@@ -565,6 +583,7 @@ mod tests {
                 subject: ConsentSubject::User(user.user_id),
                 source: ConsentIntentSource::UserDeletion,
                 email: user.email.clone(),
+                profile_snapshot: None,
 
                 desired: false,
             };
@@ -723,6 +742,7 @@ mod tests {
             subject: ConsentSubject::User(user_id),
             source: ConsentIntentSource::UserDeletion,
             email: email("actor@example.com"),
+            profile_snapshot: None,
             desired: true,
         };
         lock(&consent.state).intent = Some(conflicting.clone());

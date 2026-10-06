@@ -2,6 +2,7 @@ mod access_token_mapping;
 mod cognito_identity;
 mod mapping;
 mod marketing_consent_intents;
+mod newsletter_confirmation_challenges;
 mod readers;
 mod repositories;
 
@@ -11,6 +12,7 @@ pub use marketing_consent_intents::{
     MarketingConsentIntent, MarketingConsentIntentClaim, MarketingConsentPersistenceError,
     SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker,
 };
+pub use newsletter_confirmation_challenges::SqlxNewsletterConfirmationChallengesRepository;
 pub use readers::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAdminAccessTokenListReaderFactory, SqlxNewsletterProfileReader,

@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
-use super::UserStorageVersion;
+use super::{NewsletterProfile, UserStorageVersion};
 
 /// Opaque per-mailbox serialization key, not an email equivalence or ownership proof.
 /// Preserve plus tags and dots; the original exact email remains the provider identity.
@@ -52,6 +52,8 @@ pub struct ConsentIntent {
     pub subject: ConsentSubject,
     pub source: ConsentIntentSource,
     pub email: Email,
+    /// Confirmed DOI profile snapshot for asynchronous provider synchronization.
+    pub profile_snapshot: Option<Box<NewsletterProfile>>,
 
     pub desired: bool,
 }
@@ -87,6 +89,13 @@ pub enum MarketingConsentIntentError {
 /// No method here may perform provider I/O.
 #[async_trait::async_trait]
 pub trait MarketingConsentIntents: Send {
+    /// Acquire the shared per-recipient advisory lock before a provider decision reads
+    /// the current account row or invalidates any pending proof.
+    async fn lock_recipient(&mut self, email: &Email) -> Result<(), MarketingConsentIntentError>;
+
+    /// Acquire the same transaction-scoped source lock used by consent writes.
+    async fn lock_source_key(&mut self, key: &str) -> Result<(), MarketingConsentIntentError>;
+
     async fn find_by_source_key(
         &mut self,
         key: &str,
@@ -106,6 +115,7 @@ pub trait MarketingConsentIntents: Send {
         desired: bool,
         source: ConsentIntentSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
     async fn record_email_only_intent(
@@ -114,6 +124,7 @@ pub trait MarketingConsentIntents: Send {
         desired: bool,
         source: ConsentIntentSource,
         source_key: &str,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
     /// A provider-originated withdrawal updates User consent/revision without an outbound intent.
@@ -126,6 +137,13 @@ pub trait MarketingConsentIntents: Send {
     async fn cancel_provider_backsync(
         &mut self,
         email: &Email,
+    ) -> Result<(), MarketingConsentIntentError>;
+
+    /// Cancel unconfirmed DOI challenges in the provider-withdrawal transaction.
+    async fn invalidate_newsletter_confirmation_challenges(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
     ) -> Result<(), MarketingConsentIntentError>;
 
     /// Decide and persist a correction for an already leased grant invalidated by

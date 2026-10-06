@@ -1,7 +1,7 @@
 use crate::ports::{
     CognitoIdentity, ConsentIntent, ConsentIntentSource, ConsentSubject,
     MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
-    UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
+    NewsletterProfile, UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
     UserCognitoIdentityRegistryFactory,
 };
 use application::operation_context::{OperationContext, Principal};
@@ -221,6 +221,7 @@ where
                 user_id,
                 email,
             },
+            None,
             changed_at,
         )
         .await
@@ -233,11 +234,25 @@ where
         email: Email,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
+        self.accepted_double_opt_in_with_profile(confirmation_id, email, None, changed_at)
+            .await
+    }
+
+    /// Only invoke after a trusted DOI workflow has accepted this proof. The profile
+    /// snapshot is persisted with the grant for the asynchronous provider worker.
+    pub async fn accepted_double_opt_in_with_profile(
+        &mut self,
+        confirmation_id: String,
+        email: Email,
+        profile_snapshot: Option<NewsletterProfile>,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
         self.apply_intent(
             MarketingConsentDecision::AcceptedDoubleOptIn {
                 confirmation_id,
                 email,
             },
+            profile_snapshot,
             changed_at,
         )
         .await
@@ -256,6 +271,7 @@ where
                 email,
                 action_id,
             },
+            None,
             changed_at,
         )
         .await
@@ -269,6 +285,7 @@ where
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
         self.apply_intent(
             MarketingConsentDecision::EmailOnlyWithdrawal { email, action_id },
+            None,
             changed_at,
         )
         .await
@@ -281,6 +298,7 @@ where
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
         self.apply_intent(
             MarketingConsentDecision::UserDeletion { user_id },
+            None,
             changed_at,
         )
         .await
@@ -295,9 +313,38 @@ where
             self.tx,
             self.intents,
             MarketingConsentDecision::ProviderWithdrawal { email, accepted_at },
+            None,
             accepted_at,
         )
         .await?;
+        Ok(())
+    }
+
+    /// C13 may use this inside its provider-withdrawal transaction. It shares the
+    /// recipient lock with confirmation, so an older link cannot restore consent.
+    pub async fn invalidate_pending_newsletter_confirmations(
+        &mut self,
+        email: &Email,
+        invalidated_at: OffsetDateTime,
+    ) -> Result<(), CoordinateMarketingConsentError> {
+        self.intents
+            .in_transaction(self.tx)
+            .invalidate_newsletter_confirmation_challenges(email, invalidated_at)
+            .await?;
+        Ok(())
+    }
+
+    /// Reserve the DOI source key before locking its recipient challenge row. This
+    /// preserves the global source-key -> recipient lock order used by C02 writes.
+    pub async fn lock_accepted_double_opt_in_source(
+        &mut self,
+        confirmation_id: &str,
+    ) -> Result<(), CoordinateMarketingConsentError> {
+        let key = double_opt_in_source_key(confirmation_id)?;
+        self.intents
+            .in_transaction(self.tx)
+            .lock_source_key(&key)
+            .await?;
         Ok(())
     }
 
@@ -319,18 +366,18 @@ where
     async fn apply_intent(
         &mut self,
         decision: MarketingConsentDecision,
+        profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        Ok(
-            coordinate_marketing_consent_in_transaction(
-                self.tx,
-                self.intents,
-                decision,
-                changed_at,
-            )
-            .await?
-            .expect("intent-producing consent decision"),
+        Ok(coordinate_marketing_consent_in_transaction(
+            self.tx,
+            self.intents,
+            decision,
+            profile_snapshot,
+            changed_at,
         )
+        .await?
+        .expect("intent-producing consent decision"))
     }
 }
 
@@ -339,6 +386,7 @@ async fn coordinate_marketing_consent_in_transaction<Tx, C>(
     tx: &mut Tx,
     intents: &C,
     decision: MarketingConsentDecision,
+    profile_snapshot: Option<NewsletterProfile>,
     now: OffsetDateTime,
 ) -> Result<Option<MarketingConsentSyncIntentId>, CoordinateMarketingConsentError>
 where
@@ -370,6 +418,7 @@ where
                         true,
                         ConsentIntentSource::CognitoSignup,
                         key,
+                        None,
                         now,
                     )
                     .await?
@@ -383,6 +432,7 @@ where
                 intents,
                 &email,
                 key.as_deref().expect("confirmation has a key"),
+                profile_snapshot,
                 now,
             )
             .await?,
@@ -410,6 +460,7 @@ where
                         false,
                         ConsentIntentSource::UserWithdrawal,
                         key,
+                        None,
                         now,
                     )
                     .await?
@@ -440,6 +491,7 @@ where
                         false,
                         ConsentIntentSource::UserWithdrawal,
                         key,
+                        None,
                         now,
                     )
                     .await?
@@ -452,6 +504,7 @@ where
                         false,
                         ConsentIntentSource::EmailOnlyWithdrawal,
                         key,
+                        None,
                         now,
                     )
                     .await?
@@ -481,11 +534,14 @@ where
         }
         MarketingConsentDecision::ProviderWithdrawal { email, accepted_at } => {
             let mut port = intents.in_transaction(tx);
+            port.lock_recipient(&email).await?;
             if let Some(user) = port.find_user_by_email(&email).await? {
                 exact_email(&user.email, &email)?;
                 port.apply_provider_withdrawal(&user, accepted_at).await?;
             }
             port.cancel_provider_backsync(&email).await?;
+            port.invalidate_newsletter_confirmation_challenges(&email, accepted_at)
+                .await?;
             None
         }
     };
@@ -497,6 +553,7 @@ async fn accepted_double_opt_in_in_transaction<Tx, C>(
     intents: &C,
     email: &Email,
     key: &str,
+    profile_snapshot: Option<NewsletterProfile>,
     now: OffsetDateTime,
 ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError>
 where
@@ -508,6 +565,7 @@ where
         if exact_email(&existing.email, email).is_err()
             || !existing.desired
             || existing.source != ConsentIntentSource::AuraDoubleOptIn
+            || existing.profile_snapshot.as_deref() != profile_snapshot.as_ref()
         {
             return Err(CoordinateMarketingConsentError::SourceKeyConflict);
         }
@@ -515,12 +573,26 @@ where
     } else if let Some(user) = port.find_user_by_email(email).await? {
         exact_email(&user.email, email)?;
         Ok(port
-            .record_user_transition(&user, true, ConsentIntentSource::AuraDoubleOptIn, key, now)
+            .record_user_transition(
+                &user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                key,
+                profile_snapshot,
+                now,
+            )
             .await?
             .intent_id)
     } else {
         Ok(port
-            .record_email_only_intent(email, true, ConsentIntentSource::AuraDoubleOptIn, key, now)
+            .record_email_only_intent(
+                email,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                key,
+                profile_snapshot,
+                now,
+            )
             .await?
             .intent_id)
     }
@@ -536,7 +608,7 @@ fn decision_source_key(
         )?),
         MarketingConsentDecision::AcceptedDoubleOptIn {
             confirmation_id, ..
-        } => Some(source_key("doi", &[confirmation_id])?),
+        } => Some(double_opt_in_source_key(confirmation_id)?),
         MarketingConsentDecision::UserWithdrawal { action_id, .. } => {
             Some(source_key("withdrawal", &[action_id])?)
         }
@@ -549,6 +621,12 @@ fn decision_source_key(
         }
         MarketingConsentDecision::ProviderWithdrawal { .. } => None,
     })
+}
+
+fn double_opt_in_source_key(
+    confirmation_id: &str,
+) -> Result<String, CoordinateMarketingConsentError> {
+    source_key("doi", &[confirmation_id])
 }
 
 /// Stable across retries, actors and entry points.
@@ -760,6 +838,16 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl MarketingConsentIntents for Port {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("lock_recipient");
+            Ok(())
+        }
+
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("lock_source");
+            Ok(())
+        }
+
         async fn find_by_source_key(
             &mut self,
             key: &str,
@@ -802,6 +890,7 @@ mod tests {
             desired: bool,
             source: ConsentIntentSource,
             key: &str,
+            profile_snapshot: Option<NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             let mut state = locked(&self.0);
@@ -816,6 +905,8 @@ mod tests {
                 desired,
                 source,
             );
+            let mut intent = intent;
+            intent.profile_snapshot = profile_snapshot.map(Box::new);
             state.intent = Some(intent.clone());
             Ok(intent)
         }
@@ -825,11 +916,13 @@ mod tests {
             desired: bool,
             source: ConsentIntentSource,
             key: &str,
+            profile_snapshot: Option<NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             let mut state = locked(&self.0);
             state.calls.push("email_only");
-            let intent = intent(key, ConsentSubject::EmailOnly, email, desired, source);
+            let mut intent = intent(key, ConsentSubject::EmailOnly, email, desired, source);
+            intent.profile_snapshot = profile_snapshot.map(Box::new);
             state.intent = Some(intent.clone());
             Ok(intent)
         }
@@ -848,6 +941,15 @@ mod tests {
             _: &Email,
         ) -> Result<(), MarketingConsentIntentError> {
             locked(&self.0).calls.push("cancel");
+            Ok(())
+        }
+
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            locked(&self.0).calls.push("invalidate_challenges");
             Ok(())
         }
 
@@ -891,6 +993,7 @@ mod tests {
             source_key: key.to_owned(),
             subject,
             email: email.clone(),
+            profile_snapshot: None,
 
             desired,
             source,
@@ -1091,7 +1194,15 @@ mod tests {
             .unwrap();
         assert_eq!(
             locked(&state).calls,
-            ["begin", "by_email", "backsync", "cancel", "commit"]
+            [
+                "begin",
+                "lock_recipient",
+                "by_email",
+                "backsync",
+                "cancel",
+                "invalidate_challenges",
+                "commit"
+            ]
         );
         assert_eq!(locked(&state).accepted_at, Some(accepted_at));
     }

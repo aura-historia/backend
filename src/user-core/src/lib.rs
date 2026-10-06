@@ -4,6 +4,8 @@ pub mod last_name;
 pub mod marketing_consent_sync_intent_id;
 pub mod measurement_unit;
 pub mod name;
+pub mod newsletter_confirmation;
+pub mod newsletter_confirmation_id;
 pub mod newsletter_subscription;
 pub mod role;
 pub mod sort_user_field;
