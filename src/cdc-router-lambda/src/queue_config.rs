@@ -1,4 +1,4 @@
-//! Router-only entry point to the shared read-only Standard SQS destination contract.
+//! Router-only entry point to the shared read-only Standard/FIFO SQS destination contract.
 #[cfg(test)]
 #[path = "queue_config_tests.rs"]
 mod tests;

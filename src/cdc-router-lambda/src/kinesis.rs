@@ -245,15 +245,20 @@ mod tests {
         attempts: AtomicUsize,
         fail_at: AtomicUsize,
         bodies: Mutex<Vec<String>>,
+        fifo_attributes: Mutex<Vec<Option<aura_historia_jobs::FifoMessageAttributes>>>,
     }
     #[async_trait::async_trait]
     impl Publisher for Recorder {
-        async fn publish(&self, body: &str) -> Result<(), ()> {
+        async fn publish(&self, job: &aura_historia_jobs::PreparedJob) -> Result<(), ()> {
             let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
             if attempt == self.fail_at.load(Ordering::SeqCst) {
                 return Err(());
             }
-            self.bodies.lock().unwrap().push(body.to_owned());
+            self.bodies.lock().unwrap().push(job.body().to_owned());
+            self.fifo_attributes
+                .lock()
+                .unwrap()
+                .push(job.fifo_message_attributes().cloned());
             Ok(())
         }
     }

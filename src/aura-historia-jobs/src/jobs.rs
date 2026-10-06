@@ -9,6 +9,7 @@ use product_listing_core::product_listing_raw_id::{
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
+use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,10 +34,11 @@ pub enum WorkerQueue {
     /// Legacy in-memory API only. No production scope or wire representation.
     UserTierEnforcement,
     NotificationDelivery,
+    MarketingConsentSync,
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::WatchlistNotification,
@@ -47,6 +49,7 @@ impl WorkerQueue {
         Self::ProductListingTranslate,
         Self::SearchFilterOpenSearch,
         Self::NotificationDelivery,
+        Self::MarketingConsentSync,
     ];
 
     pub fn scope(self) -> Option<WorkerScope> {
@@ -84,6 +87,7 @@ pub enum DomainJobPayload<O = SearchFilterOperation> {
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
     NotificationDeliveryCreated(NotificationDeliveryCreatedJob),
+    MarketingConsentSyncIntentCreated(MarketingConsentSyncIntentCreatedJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +131,11 @@ pub struct NotificationDeliveryCreatedJob {
     pub notification_delivery_id: NotificationDeliveryId,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarketingConsentSyncIntentCreatedJob {
+    pub marketing_consent_sync_intent_id: MarketingConsentSyncIntentId,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterOperation {
     Insert,
@@ -152,7 +161,6 @@ pub struct InvalidJob;
 impl<O: Display> DomainJob<O> {
     pub fn validate(&self) -> Result<WorkerScope, InvalidJob> {
         let scope = self.target_queue.scope().ok_or(InvalidJob)?;
-        let (idempotency, ordering) = self.payload.logical_keys()?;
         let permitted = match &self.payload {
             DomainJobPayload::ProductListingEvent(_) => matches!(
                 scope,
@@ -175,12 +183,24 @@ impl<O: Display> DomainJob<O> {
             DomainJobPayload::NotificationDeliveryCreated(_) => {
                 scope == WorkerScope::NotificationDelivery
             }
+            DomainJobPayload::MarketingConsentSyncIntentCreated(_) => {
+                scope == WorkerScope::MarketingConsentSync
+            }
             DomainJobPayload::UserTierChanged(_) => false,
         };
-        if !permitted
-            || self.idempotency_key.as_str() != idempotency
-            || self.ordering_key.as_str() != ordering
-        {
+        let keys_match = match &self.payload {
+            DomainJobPayload::MarketingConsentSyncIntentCreated(job) => {
+                self.idempotency_key.as_str()
+                    == format!("marketing-consent:{}", job.marketing_consent_sync_intent_id)
+                    && valid_marketing_recipient_group(self.ordering_key.as_str())
+            }
+            _ => {
+                let (idempotency, ordering) = self.payload.logical_keys()?;
+                self.idempotency_key.as_str() == idempotency
+                    && self.ordering_key.as_str() == ordering
+            }
+        };
+        if !permitted || !keys_match {
             return Err(InvalidJob);
         }
         Ok(scope)
@@ -238,7 +258,18 @@ impl<O: Display> DomainJobPayload<O> {
                 );
                 (key.clone(), key)
             }
+            Self::MarketingConsentSyncIntentCreated(_) => return Err(InvalidJob),
             Self::UserTierChanged(_) => return Err(InvalidJob),
         })
     }
+}
+
+fn valid_marketing_recipient_group(value: &str) -> bool {
+    let Some(recipient_key) = value.strip_prefix("marketing-email:") else {
+        return false;
+    };
+    recipient_key.len() == 64
+        && recipient_key
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }

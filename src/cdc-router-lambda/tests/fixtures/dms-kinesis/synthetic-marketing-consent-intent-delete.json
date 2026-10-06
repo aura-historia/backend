@@ -1,0 +1,15 @@
+{
+  "data": {
+    "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+    "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "metadata": {
+    "record-type": "data",
+    "operation": "delete",
+    "schema-name": "public",
+    "table-name": "marketing_email_consent_sync_intents",
+    "timestamp": "2026-10-06T12:00:08Z",
+    "transaction-id": "2003",
+    "transaction-record-id": "1"
+  }
+}

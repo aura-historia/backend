@@ -3,9 +3,10 @@ use std::collections::BTreeMap;
 use std::fmt::Display;
 
 use aura_historia_jobs::jobs::{
-    DomainJob, DomainJobPayload, IdempotencyKey, NotificationDeliveryCreatedJob, OrderingKey,
-    ProductListingEventJob, ProductListingRawRevisionJob, SearchFilterChangedJob,
-    SearchFilterMatchCreatedJob, SearchFilterOperation, WorkerQueue,
+    DomainJob, DomainJobPayload, IdempotencyKey, MarketingConsentSyncIntentCreatedJob,
+    NotificationDeliveryCreatedJob, OrderingKey, ProductListingEventJob,
+    ProductListingRawRevisionJob, SearchFilterChangedJob, SearchFilterMatchCreatedJob,
+    SearchFilterOperation, WorkerQueue,
 };
 use domain_primitives::event_id::EventId;
 use localization::Language;
@@ -27,6 +28,7 @@ use serde_json::{Map, Value};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::warn;
 use url::Url;
+use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 use uuid::Uuid;
 
@@ -119,6 +121,10 @@ pub fn route_change<O: RouteOperation>(
             notification_delivery_created_job(change)
         }
         (CdcTable::NotificationDeliveries, _) => Ok(Vec::new()),
+        (CdcTable::MarketingEmailConsentSyncIntents, Operation::Insert) => {
+            marketing_consent_sync_intent_created_job(change)
+        }
+        (CdcTable::MarketingEmailConsentSyncIntents, _) => Ok(Vec::new()),
         (CdcTable::Unknown(_), _) => {
             warn!(operation = %change.operation, "ignoring unregistered CDC table");
             Ok(Vec::new())
@@ -137,6 +143,7 @@ pub enum CdcTable {
     Users,
     ProductListingWatchlist,
     NotificationDeliveries,
+    MarketingEmailConsentSyncIntents,
     Unknown(String),
 }
 
@@ -151,6 +158,7 @@ impl From<&str> for CdcTable {
             "users" => Self::Users,
             "product_listing_watchlist" => Self::ProductListingWatchlist,
             "notification_deliveries" => Self::NotificationDeliveries,
+            "marketing_email_consent_sync_intents" => Self::MarketingEmailConsentSyncIntents,
             other => Self::Unknown(other.to_owned()),
         }
     }
@@ -1117,6 +1125,40 @@ pub fn notification_delivery_created_job<O: RouteOperation>(
     )])
 }
 
+pub fn marketing_consent_sync_intent_created_job<O: RouteOperation>(
+    change: &CdcChange<O>,
+) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+    let row = required_row(change)?;
+    let uuid_text = required_string(row, "intent_id")?;
+    let uuid = parse_canonical_storage_uuid(
+        &uuid_text,
+        || CdcRouteError::InvalidMarketingConsentSyncIntentId,
+        || CdcRouteError::NonCanonicalMarketingConsentSyncIntentId,
+    )?;
+    let marketing_consent_sync_intent_id = MarketingConsentSyncIntentId::try_from(uuid)
+        .map_err(|_| CdcRouteError::InvalidMarketingConsentSyncIntentId)?;
+    let recipient_key = required_string(row, "recipient_key")?;
+    if !valid_marketing_consent_recipient_key(&recipient_key) {
+        return Err(CdcRouteError::InvalidMarketingConsentRecipientKey);
+    }
+    let intent_id = marketing_consent_sync_intent_id.to_string();
+    Ok(vec![domain_job(
+        WorkerQueue::MarketingConsentSync,
+        IdempotencyKey::new(format!("marketing-consent:{intent_id}")),
+        OrderingKey::new(format!("marketing-email:{recipient_key}")),
+        DomainJobPayload::MarketingConsentSyncIntentCreated(MarketingConsentSyncIntentCreatedJob {
+            marketing_consent_sync_intent_id,
+        }),
+    )])
+}
+
+pub fn valid_marketing_consent_recipient_key(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn domain_job<O: RouteOperation>(
     target_queue: WorkerQueue,
     idempotency_key: IdempotencyKey,
@@ -1206,6 +1248,12 @@ pub enum CdcRouteError {
     InvalidProductListingRawRevision,
     #[error("CDC change has an invalid object ID in column {0}")]
     InvalidObjectId(&'static str),
+    #[error("CDC change has an invalid marketing consent sync intent UUID")]
+    InvalidMarketingConsentSyncIntentId,
+    #[error("CDC change has a noncanonical marketing consent sync intent UUID")]
+    NonCanonicalMarketingConsentSyncIntentId,
+    #[error("CDC change has an invalid marketing consent recipient key")]
+    InvalidMarketingConsentRecipientKey,
     #[error("CDC change has an invalid positive search filter version")]
     InvalidSearchFilterVersion,
     #[error("CDC change has a missing ProductListing event field {field}")]
@@ -1333,6 +1381,144 @@ mod tests {
             route_change(&change).unwrap_err(),
             CdcRouteError::MissingRow
         );
+    }
+
+    #[test]
+    fn consent_insert_creates_one_compact_schema_two_fifo_job() {
+        let jobs = route_change(&change(
+            "marketing_email_consent_sync_intents",
+            "insert",
+            json!({
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+                "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }),
+        ))
+        .unwrap();
+        assert_eq!(1, jobs.len());
+        let job = &jobs[0];
+        assert_eq!(WorkerQueue::MarketingConsentSync, job.target_queue);
+        assert_eq!(
+            "marketing-consent:mci_01h455vb4pex5vy7enb1p677vn",
+            job.idempotency_key.as_str()
+        );
+        assert_eq!(
+            "marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            job.ordering_key.as_str()
+        );
+        assert!(matches!(
+            &job.payload,
+            DomainJobPayload::MarketingConsentSyncIntentCreated(intent)
+                if intent.marketing_consent_sync_intent_id.to_string() == "mci_01h455vb4pex5vy7enb1p677vn"
+        ));
+        let prepared = aura_historia_jobs::prepare(job).unwrap();
+        let body: Value = serde_json::from_str(prepared.body()).unwrap();
+        assert_eq!(2, body["schema_version"]);
+        assert_eq!("marketing-consent-sync", body["scope"]);
+        assert_eq!("MARKETING_CONSENT_SYNC_INTENT_CREATED", body["job_type"]);
+        assert_eq!(
+            "mci_01h455vb4pex5vy7enb1p677vn",
+            body["payload"]["marketing_consent_sync_intent_id"]
+        );
+        assert_eq!(1, body["payload"].as_object().unwrap().len());
+        let fifo = prepared.fifo_message_attributes().unwrap();
+        assert_eq!(job.ordering_key.as_str(), fifo.message_group_id());
+        assert_eq!(
+            job.idempotency_key.as_str(),
+            fifo.message_deduplication_id()
+        );
+        for forbidden in [
+            "private@example.test",
+            "profile_snapshot",
+            "raw_token",
+            "consent_proof",
+            "source_key",
+            "lease_token",
+            "provider_payload",
+        ] {
+            assert!(!prepared.body().contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn consent_jobs_group_by_recipient_and_replay_deterministically() {
+        let first = change(
+            "marketing_email_consent_sync_intents",
+            "insert",
+            json!({
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+                "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }),
+        );
+        let second = change(
+            "marketing_email_consent_sync_intents",
+            "insert",
+            json!({
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f76",
+                "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }),
+        );
+        let different_recipient = change(
+            "marketing_email_consent_sync_intents",
+            "insert",
+            json!({
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f77",
+                "recipient_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            }),
+        );
+        let first_jobs = route_change(&first).unwrap();
+        let second_jobs = route_change(&second).unwrap();
+        let different_jobs = route_change(&different_recipient).unwrap();
+        let first_job = &first_jobs[0];
+        let second_job = &second_jobs[0];
+        let different_job = &different_jobs[0];
+        assert_eq!(first_job.ordering_key, second_job.ordering_key);
+        assert_ne!(first_job.idempotency_key, second_job.idempotency_key);
+        assert_ne!(first_job.ordering_key, different_job.ordering_key);
+
+        let first_replay = aura_historia_jobs::prepare(&route_change(&first).unwrap()[0]).unwrap();
+        // Prepared bytes and FIFO metadata contain no clock, Lambda request, or SQS message ID.
+        let replay_after_dedup_window =
+            aura_historia_jobs::prepare(&route_change(&first).unwrap()[0]).unwrap();
+        assert_eq!(first_replay, replay_after_dedup_window);
+    }
+
+    #[test]
+    fn consent_routes_only_inserts_and_rejects_invalid_ids_or_recipient_keys() {
+        for operation in ["update", "delete"] {
+            assert!(
+                route_change(&change(
+                    "marketing_email_consent_sync_intents",
+                    operation,
+                    json!({}),
+                ))
+                .unwrap()
+                .is_empty()
+            );
+        }
+        for operation in ["insert", "update", "delete"] {
+            assert!(
+                route_change(&change("users", operation, json!({})))
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        for record in [
+            json!({"recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            json!({"intent_id": "usr_01h455vb4pex5vy7enb1p677vn", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            json!({"intent_id": "01890a5d-ac96-474b-bf1d-d5586c639f75", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "short"}),
+            json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
+        ] {
+            assert!(
+                route_change(&change(
+                    "marketing_email_consent_sync_intents",
+                    "insert",
+                    record,
+                ))
+                .is_err()
+            );
+        }
     }
 
     #[test]

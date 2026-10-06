@@ -1,6 +1,7 @@
-//! Router-only Standard SQS publisher. Consumers and receipt handling stay outside this crate.
+//! Router-only SQS publisher. Consumers and receipt handling stay outside this crate.
 use std::time::{Duration, Instant};
 
+use aura_historia_jobs::{PreparedJob, WorkerQueueType};
 use aws_sdk_sqs::{Client, config::Region, types::QueueAttributeName};
 use aws_smithy_types::{retry::RetryConfig, timeout::TimeoutConfig};
 
@@ -68,7 +69,29 @@ impl SqsQueue {
         validate_attributes(&self.config, &attributes, dlq)
     }
 
-    pub async fn publish(&self, body: &str) -> Result<(), QueueError> {
+    fn send_message_request(
+        &self,
+        job: &PreparedJob,
+    ) -> Result<aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder, QueueError>
+    {
+        if job.scope() != self.config.scope() {
+            return Err(QueueError::PreparedJob);
+        }
+        let request = self
+            .client
+            .send_message()
+            .queue_url(self.config.queue_url().as_str())
+            .message_body(job.body());
+        match (self.config.queue_type(), job.fifo_message_attributes()) {
+            (WorkerQueueType::Standard, None) => Ok(request),
+            (WorkerQueueType::Fifo, Some(attributes)) => Ok(request
+                .message_group_id(attributes.message_group_id())
+                .message_deduplication_id(attributes.message_deduplication_id())),
+            _ => Err(QueueError::PreparedJob),
+        }
+    }
+
+    pub async fn publish(&self, job: &PreparedJob) -> Result<(), QueueError> {
         struct Observation<'a> {
             scope: &'a str,
             bytes: usize,
@@ -88,25 +111,23 @@ impl SqsQueue {
         }
         let mut observation = Observation {
             scope: self.config.scope().as_str(),
-            bytes: body.len(),
+            bytes: job.body().len(),
             started: Instant::now(),
             outcome: "cancelled_acceptance_unknown",
         };
-        if body.len() > aura_historia_jobs::wire::MAX_JOB_BYTES {
+        if job.body().len() > aura_historia_jobs::wire::MAX_JOB_BYTES {
             observation.outcome = "rejected_size";
             return Err(QueueError::MessageTooLarge);
         }
+        let request = match self.send_message_request(job) {
+            Ok(request) => request,
+            Err(error) => {
+                observation.outcome = "rejected_job_contract";
+                return Err(error);
+            }
+        };
         // A timed-out or missing SQS confirmation is never an acknowledgment.
-        let result = match tokio::time::timeout(
-            API_TIMEOUT,
-            self.client
-                .send_message()
-                .queue_url(self.config.queue_url().as_str())
-                .message_body(body)
-                .send(),
-        )
-        .await
-        {
+        let result = match tokio::time::timeout(API_TIMEOUT, request.send()).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
                 observation.outcome = "failed_acceptance_unknown";
@@ -123,5 +144,79 @@ impl SqsQueue {
         }
         observation.outcome = "published";
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aura_historia_jobs::{WorkerScope, jobs::SearchFilterOperation, wire};
+
+    fn queue(scope: WorkerScope) -> SqsQueue {
+        let fifo = if scope.queue_type() == WorkerQueueType::Fifo {
+            ".fifo"
+        } else {
+            ""
+        };
+        let config = SqsQueueConfig::new(
+            scope,
+            format!(
+                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod{fifo}",
+                scope.as_str()
+            )
+            .parse()
+            .unwrap(),
+            "eu-central-1".into(),
+            "prod".into(),
+            None,
+        )
+        .unwrap();
+        let client = Client::from_conf(
+            aws_sdk_sqs::Config::builder()
+                .behavior_version(aws_sdk_sqs::config::BehaviorVersion::v2026_01_12())
+                .region(Region::new("eu-central-1"))
+                .build(),
+        );
+        SqsQueue { config, client }
+    }
+
+    fn prepared_job(scope: WorkerScope) -> PreparedJob {
+        let body = match scope {
+            WorkerScope::MarketingConsentSync => {
+                r#"{"schema_version":2,"scope":"marketing-consent-sync","idempotency_key":"marketing-consent:mci_01h455vb4pex5vy7enb1p677vn","ordering_key":"marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","job_type":"MARKETING_CONSENT_SYNC_INTENT_CREATED","payload":{"marketing_consent_sync_intent_id":"mci_01h455vb4pex5vy7enb1p677vn"}}"#
+            }
+            WorkerScope::NotificationDelivery => {
+                r#"{"schema_version":2,"scope":"notification-delivery","idempotency_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","ordering_key":"notification-delivery:nd_01h455vb4pex5vy7enb1p677vn","job_type":"NOTIFICATION_DELIVERY_CREATED","payload":{"notification_delivery_id":"nd_01h455vb4pex5vy7enb1p677vn"}}"#
+            }
+            _ => panic!("test scope is not configured"),
+        };
+        let job = wire::decode::<SearchFilterOperation>(body, scope).unwrap();
+        wire::prepare(&job).unwrap()
+    }
+
+    #[test]
+    fn publisher_sets_both_fifo_fields_and_leaves_standard_fields_unset() {
+        let consent_request = queue(WorkerScope::MarketingConsentSync)
+            .send_message_request(&prepared_job(WorkerScope::MarketingConsentSync))
+            .unwrap();
+        assert_eq!(
+            Some(
+                "marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            consent_request.get_message_group_id().as_deref()
+        );
+        assert_eq!(
+            Some("marketing-consent:mci_01h455vb4pex5vy7enb1p677vn"),
+            consent_request.get_message_deduplication_id().as_deref()
+        );
+
+        let standard_request = queue(WorkerScope::NotificationDelivery)
+            .send_message_request(&prepared_job(WorkerScope::NotificationDelivery))
+            .unwrap();
+        assert_eq!(None, standard_request.get_message_group_id().as_deref());
+        assert_eq!(
+            None,
+            standard_request.get_message_deduplication_id().as_deref()
+        );
     }
 }

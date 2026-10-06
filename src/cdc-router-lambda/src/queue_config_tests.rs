@@ -1,5 +1,6 @@
 use super::{Attributes, CdcRouterQueueConfig, QueueError, SqsQueueConfig, validate_attributes};
 use crate::WorkerScope;
+use aura_historia_jobs::WorkerQueueType;
 use aws_sdk_sqs::types::QueueAttributeName as A;
 use serde_json::json;
 use std::collections::HashMap;
@@ -8,8 +9,13 @@ fn config(scope: WorkerScope) -> SqsQueueConfig {
     SqsQueueConfig::new(
         scope,
         format!(
-            "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
-            scope.as_str()
+            "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod{}",
+            scope.as_str(),
+            if scope.queue_type() == WorkerQueueType::Fifo {
+                ".fifo"
+            } else {
+                ""
+            }
         )
         .parse()
         .unwrap(),
@@ -55,11 +61,15 @@ fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
             json!({"deadLetterTargetArn":config.arn(true), "maxReceiveCount":5}).to_string(),
         );
     }
+    if config.queue_type() == WorkerQueueType::Fifo {
+        attrs.insert(A::FifoQueue, "true".into());
+        attrs.insert(A::ContentBasedDeduplication, "false".into());
+    }
     attrs
 }
 
 #[test]
-fn exact_ten_scope_configuration_keeps_router_environment_identity() {
+fn exact_eleven_scope_configuration_keeps_router_environment_identity() {
     let mut values = HashMap::from([
         ("AWS_REGION", "eu-central-1".to_owned()),
         ("STAGE", "prod".to_owned()),
@@ -73,7 +83,7 @@ fn exact_ten_scope_configuration_keeps_router_environment_identity() {
     let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(10, queues.len());
+    assert_eq!(11, queues.len());
     assert_eq!(
         WorkerScope::ALL.to_vec(),
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>()
@@ -84,6 +94,32 @@ fn exact_ten_scope_configuration_keeps_router_environment_identity() {
             "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY"
         )),
         CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned()).map(|_| ())
+    );
+}
+
+#[test]
+fn consent_queue_url_remains_optional_until_c06_activation() {
+    let mut values = HashMap::from([
+        ("AWS_REGION", "eu-central-1".to_owned()),
+        ("STAGE", "prod".to_owned()),
+    ]);
+    for scope in WorkerScope::ALL
+        .into_iter()
+        .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
+    {
+        values.insert(
+            scope.router_queue_url_env(),
+            config(scope).queue_url().to_string(),
+        );
+    }
+    let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
+        .unwrap()
+        .into_queues();
+    assert_eq!(10, queues.len());
+    assert!(
+        queues
+            .iter()
+            .all(|queue| queue.scope() != WorkerScope::MarketingConsentSync)
     );
 }
 
@@ -99,11 +135,26 @@ fn validates_all_source_and_dlq_custody_attributes() {
                 (A::MessageRetentionPeriod, "1"),
                 (A::SqsManagedSseEnabled, "false"),
                 (A::Policy, "{}"),
-                (A::FifoQueue, "true"),
+                (
+                    A::FifoQueue,
+                    if queue.queue_type() == WorkerQueueType::Fifo {
+                        "false"
+                    } else {
+                        "true"
+                    },
+                ),
                 (A::RedriveAllowPolicy, "{}"),
             ] {
                 let mut broken = good.clone();
                 broken.insert(name, bad.into());
+                assert!(validate_attributes(&queue, &broken, dlq).is_err());
+            }
+            if queue.queue_type() == WorkerQueueType::Fifo {
+                let mut broken = good.clone();
+                broken.insert(A::ContentBasedDeduplication, "true".into());
+                assert!(validate_attributes(&queue, &broken, dlq).is_err());
+                let mut broken = good.clone();
+                broken.remove(&A::ContentBasedDeduplication);
                 assert!(validate_attributes(&queue, &broken, dlq).is_err());
             }
             if !dlq {
