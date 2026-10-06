@@ -39,6 +39,9 @@ export class Identity extends Construct {
         familyName: { required: false, mutable: true },
         locale: { required: false, mutable: true },
       },
+      customAttributes: {
+        marketing_consent: new cognito.StringAttribute({ mutable: false }),
+      },
       passwordPolicy: {
         minLength: 8,
         requireLowercase: true,
@@ -96,6 +99,14 @@ export class Identity extends Construct {
         familyName: true,
         locale: true,
       }),
+      writeAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({
+          email: true,
+          givenName: true,
+          familyName: true,
+          locale: true,
+        })
+        .withCustomAttributes("marketing_consent"),
     });
     for (const provider of identityProviders) {
       this.publicClient.node.addDependency(provider.resource);

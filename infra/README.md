@@ -101,6 +101,47 @@ optional newsletter choice during registration; the message itself does not
 create consent. Existing five-language application templates are separate and
 unchanged.
 
+### Native signup consent attribute
+
+The pool declares one optional immutable Cognito custom string attribute named
+`marketing_consent`. Its event and Amplify name is exactly
+`custom:marketing_consent`; the only accepted values are the strings `"true"`
+and `"false"`, and absence means no request. The public client can write it
+with its initial `SignUp` call, alongside the existing `email`, `given_name`,
+`family_name`, and `locale` write permissions. It is not client-readable, so it
+does not become a token claim, and Google/other IdP mappings do not include it.
+The signup attribute is an immutable record of the initial choice, not current
+consent. ConfirmSignUp requires no consent ClientMetadata, so resend, reload,
+and another-device confirmation use the persisted Cognito attribute.
+
+The post-confirmation Lambda grants only for
+`PostConfirmation_ConfirmSignUp` with Cognito-supplied `email_verified` exactly
+`"true"`, a valid exact email and canonical issuer/subject, and
+`custom:marketing_consent == "true"`. Only a new registered User uses that
+proof: its current consent and one C02 PostgreSQL intent commit with the User
+and Cognito binding. Missing, false, malformed, unverified, forgot-password,
+federated-without-proof, and registration replay cases create no grant. A
+malformed optional value produces a safe diagnostic. This Lambda uses no Loops,
+SES newsletter, SQS, or Step Functions integration. Cognito confirmation and
+PostgreSQL do not share a transaction; a database failure is returned and does
+not undo Cognito confirmation. If trigger retry does not finish registration,
+the existing identity-registration recovery remains an operator concern; this
+change adds no migration system.
+
+CDK 2.272.0 emits this attribute in the user-pool `Schema` and explicitly
+grants only the existing signup/profile standard attributes plus the custom
+write permission. Cognito permits adding custom attributes to an existing pool,
+but custom attributes cannot be removed or changed; CloudFormation declares a
+`Schema` update as no interruption. See [Cognito custom attributes and app
+client permissions](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html).
+If a separately approved schema correction requires a fresh User Pool or app
+client, the new pool and client IDs require matching backend issuer/pool and
+webapp pool/client configuration. Recheck callback/logout URL lists and any
+Google/provider callback registrations affected by those IDs. Development
+identity mappings must be reset and registered against the new issuer/subjects;
+preserve Google linking and ordinary auth configuration. Do not infer consent
+for old users or silently replace/delete a production pool.
+
 PR/develop CI runs CDK build, tests, deployment-helper tests, and synthesis in
 `.github/workflows/cdk-test.yml` only when infrastructure, deployment helpers,
 workflow inputs, or files consumed by those checks change. MJML compilation runs

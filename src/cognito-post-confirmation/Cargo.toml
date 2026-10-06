@@ -26,3 +26,4 @@ serde_json = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
+time = { workspace = true }

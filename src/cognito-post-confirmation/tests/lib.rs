@@ -4,7 +4,9 @@ use cognito_post_confirmation::handler;
 use lambda_runtime::{Context, LambdaEvent};
 use localization::Language;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use serde_email::Email;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::OffsetDateTime;
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
 use user_core::role::UserRole;
@@ -12,12 +14,13 @@ use user_core::tier::UserTier;
 use user_core::user::UserProfile;
 use user_core::user_id::UserId;
 use user_postgres::{
-    SqlxCognitoUserIdentityReader, SqlxUserCognitoIdentityRegistryFactory,
-    SqlxUserRepositoryFactory,
+    SqlxCognitoUserIdentityReader, SqlxMarketingConsentIntentRepository,
+    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory,
 };
 use user_service::ports::{
     CognitoIdentity, CognitoIssuer, CognitoSubject, UserRepository, UserRepositoryFactory,
 };
+use user_service::use_cases::commands::coordinate_marketing_consent::MarketingConsentCoordinator;
 use user_service::use_cases::{
     RegisterCognitoUserHandler, ResolveCognitoUserError, ResolveCognitoUserHandler,
     ResolveCognitoUserRequest, ResolveCognitoUserUseCase,
@@ -32,6 +35,7 @@ async fn should_register_opaque_cognito_subject_as_independent_default_user() {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let subject = "provider|tenant:user/42";
 
@@ -66,12 +70,166 @@ async fn should_register_opaque_cognito_subject_as_independent_default_user() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_commit_native_signup_consent_once_and_keep_withdrawal_on_replay() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let consent_intents = SqlxMarketingConsentIntentRepository::new();
+    let service = RegisterCognitoUserHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+        consent_intents,
+    );
+    let subject = "native-consent-replay-subject";
+    let email = "native-consent-replay@example.com";
+    let event = || {
+        post_confirmation_event_with_signup_attributes(
+            "provider-username",
+            "eu-central-1",
+            "pool-a",
+            subject,
+            email,
+            "PostConfirmation_ConfirmSignUp",
+            Some("true"),
+            Some("true"),
+        )
+    };
+
+    handler(event(), &service)
+        .await
+        .unwrap_or_else(|error| panic!("native consent registration failed: {error}"));
+    let user_id = resolve(identity("eu-central-1", "pool-a", subject))
+        .await
+        .unwrap_or_else(|error| panic!("registered identity did not resolve: {error}"));
+
+    let grant: (bool, i64, i64, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version, (SELECT count(*) FROM marketing_email_consent_sync_intents WHERE user_id = users.user_id AND source = 'COGNITO_SIGNUP' AND desired) FROM users WHERE user_id = $1",
+    )
+    .bind(user_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read signup consent: {error}"));
+    assert_eq!((true, 1, 2, 1), grant);
+
+    handler(event(), &service)
+        .await
+        .unwrap_or_else(|error| panic!("registration replay failed: {error}"));
+    let mut tx = begin(&unit_of_work).await;
+    MarketingConsentCoordinator::new(&mut tx, &SqlxMarketingConsentIntentRepository::new())
+        .provider_withdrawal(
+            Email::try_from(email).unwrap_or_else(|error| panic!("invalid test email: {error}")),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("provider withdrawal failed: {error}"));
+    commit(tx).await;
+    handler(event(), &service)
+        .await
+        .unwrap_or_else(|error| panic!("post-withdrawal replay failed: {error}"));
+
+    let final_state: (bool, i64, i64, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version, (SELECT count(*) FROM marketing_email_consent_sync_intents WHERE user_id = users.user_id AND source = 'COGNITO_SIGNUP' AND desired) FROM users WHERE user_id = $1",
+    )
+    .bind(user_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read withdrawn consent: {error}"));
+    assert_eq!((false, 2, 3, 1), final_state);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_registration_without_grant_for_nonqualifying_consent_proofs() {
+    let pool = get_postgres_client().await;
+    let service = RegisterCognitoUserHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
+    );
+    let cases = [
+        (
+            "missing",
+            "PostConfirmation_ConfirmSignUp",
+            Some("true"),
+            None,
+        ),
+        (
+            "false",
+            "PostConfirmation_ConfirmSignUp",
+            Some("true"),
+            Some("false"),
+        ),
+        (
+            "malformed",
+            "PostConfirmation_ConfirmSignUp",
+            Some("true"),
+            Some("yes"),
+        ),
+        (
+            "unverified",
+            "PostConfirmation_ConfirmSignUp",
+            Some("false"),
+            Some("true"),
+        ),
+        (
+            "verification-missing",
+            "PostConfirmation_ConfirmSignUp",
+            None,
+            Some("true"),
+        ),
+        (
+            "forgot-password",
+            "PostConfirmation_ConfirmForgotPassword",
+            Some("true"),
+            Some("true"),
+        ),
+        // IdP creation has no native SignUp attribute mapping or explicit proof.
+        (
+            "federated",
+            "PostConfirmation_ConfirmSignUp",
+            Some("true"),
+            None,
+        ),
+    ];
+
+    for (case, trigger_source, verified, marketing_consent) in cases {
+        let subject = format!("consent-gate-{case}");
+        let email = format!("consent-{case}@example.com");
+        handler(
+            post_confirmation_event_with_signup_attributes(
+                "provider-username",
+                "eu-central-1",
+                "pool-a",
+                &subject,
+                &email,
+                trigger_source,
+                verified,
+                marketing_consent,
+            ),
+            &service,
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{case} registration failed: {error}"));
+
+        let state: (bool, i64, i64, i64) = sqlx::query_as(
+            "SELECT marketing_email_consent, marketing_email_consent_revision, version, (SELECT count(*) FROM marketing_email_consent_sync_intents WHERE user_id = users.user_id) FROM users WHERE email = $1",
+        )
+        .bind(&email)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read {case} registration: {error}"));
+        assert_eq!((false, 0, 1, 0), state, "case={case}");
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_persist_federated_bootstrap_profile_and_language_on_first_creation() {
     let pool = get_postgres_client().await;
     let service = RegisterCognitoUserHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let subject = "canonical-cognito-subject";
 
@@ -131,6 +289,7 @@ async fn should_register_once_when_same_confirmation_runs_concurrently() {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let first = handler(
         post_confirmation_event(
@@ -181,6 +340,7 @@ async fn should_keep_external_login_idempotent_for_the_canonical_cognito_subject
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let canonical_subject = "canonical-cognito-subject";
 
@@ -233,6 +393,7 @@ async fn should_not_overwrite_application_profile_on_registration_replay() {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let subject = "provider|bootstrap-replay-subject";
 
@@ -321,6 +482,7 @@ async fn should_isolate_same_subject_by_cognito_issuer() {
         SqlxUnitOfWork::new(pool),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let subject = "provider|shared-subject";
 
@@ -354,6 +516,7 @@ async fn should_reject_changed_email_for_registered_identity_without_mutation() 
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
     let cognito_identity = identity("eu-central-1", "pool-a", "provider|replayed-subject");
 
@@ -403,6 +566,7 @@ async fn should_reject_new_identity_for_existing_email_without_orphan_binding() 
         SqlxUnitOfWork::new(pool.clone()),
         SqlxUserRepositoryFactory::new(),
         SqlxUserCognitoIdentityRegistryFactory::new(),
+        SqlxMarketingConsentIntentRepository::new(),
     );
 
     handler(
@@ -539,6 +703,45 @@ fn post_confirmation_event_with_username_and_profile(
     let payload = serde_json::from_value(serde_json::json!({
         "version": "1",
         "triggerSource": "PostConfirmation_ConfirmSignUp",
+        "region": region,
+        "userPoolId": user_pool_id,
+        "userName": username,
+        "callerContext": {},
+        "request": {
+            "userAttributes": user_attributes,
+            "clientMetadata": {}
+        },
+        "response": {}
+    }))
+    .unwrap_or_else(|error| panic!("invalid test Cognito event: {error}"));
+    let mut context = Context::default();
+    context.request_id = "lambda-request-id".to_owned();
+
+    LambdaEvent { payload, context }
+}
+
+fn post_confirmation_event_with_signup_attributes(
+    username: &str,
+    region: &str,
+    user_pool_id: &str,
+    subject: &str,
+    email: &str,
+    trigger_source: &str,
+    email_verified: Option<&str>,
+    marketing_consent: Option<&str>,
+) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
+    for (attribute, value) in [
+        ("email_verified", email_verified),
+        ("custom:marketing_consent", marketing_consent),
+    ] {
+        if let Some(value) = value {
+            user_attributes[attribute] = serde_json::json!(value);
+        }
+    }
+    let payload = serde_json::from_value(serde_json::json!({
+        "version": "1",
+        "triggerSource": trigger_source,
         "region": region,
         "userPoolId": user_pool_id,
         "userName": username,
