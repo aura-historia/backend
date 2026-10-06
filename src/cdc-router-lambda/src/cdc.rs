@@ -19,6 +19,7 @@ pub const MAX_CDC_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_CDC_JOBS: usize = 500;
 pub const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(8);
 const DMS_KINESIS_SOURCE: &str = "aws-dms-kinesis";
+const MARKETING_CONSENT_DMS_COLUMNS: [&str; 2] = ["intent_id", "recipient_key"];
 
 #[async_trait::async_trait]
 pub trait Publisher: Send + Sync {
@@ -224,6 +225,38 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                     }
                     DmsKinesisRecordClassification::InformationalControl => {
                         return Err(dms_record_error("data classification"));
+                    }
+                    DmsKinesisRecordClassification::Noop
+                        if metadata.table_name.as_deref()
+                            == Some("marketing_email_consent_sync_intents") =>
+                    {
+                        let operation = metadata
+                            .operation
+                            .as_deref()
+                            .and_then(dms_operation)
+                            .ok_or_else(|| dms_record_error("operation"))?;
+                        let table = metadata
+                            .table_name
+                            .ok_or_else(|| dms_record_error("table"))?;
+                        let (record, old_record) = match operation {
+                            CdcOperation::Insert | CdcOperation::Update => (Some(data), None),
+                            CdcOperation::Delete => (None, Some(data)),
+                        };
+                        return Ok(Self {
+                            delivery_id,
+                            source: Some(DMS_KINESIS_SOURCE.to_owned()),
+                            changes: vec![CdcChange {
+                                schema: Some("public".to_owned()),
+                                table,
+                                operation,
+                                primary_key: BTreeMap::new(),
+                                record,
+                                old_record,
+                                changed_columns: Vec::new(),
+                                commit_lsn: None,
+                                commit_timestamp,
+                            }],
+                        });
                     }
                     DmsKinesisRecordClassification::Noop => {
                         return Ok(Self {
@@ -435,6 +468,13 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         match classify_dms_change(change) {
             DmsKinesisRecordClassification::Trigger => {}
             DmsKinesisRecordClassification::Noop
+                if change.table == "marketing_email_consent_sync_intents" =>
+            {
+                let row = row_for_operation(change)?;
+                require_exact_dms_columns(row, &MARKETING_CONSENT_DMS_COLUMNS)?;
+                continue;
+            }
+            DmsKinesisRecordClassification::Noop
             | DmsKinesisRecordClassification::InformationalControl => continue,
             DmsKinesisRecordClassification::IncompatibleSchemaControl => {
                 return Err(CdcRouteError::InvalidSourceContract("schema control"));
@@ -475,7 +515,7 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
                 ["notification_delivery_id"].as_slice()
             }
             ("marketing_email_consent_sync_intents", CdcOperation::Insert) => {
-                ["intent_id", "recipient_key"].as_slice()
+                MARKETING_CONSENT_DMS_COLUMNS.as_slice()
             }
             _ => return Err(CdcRouteError::InvalidSourceContract("table or operation")),
         };
@@ -809,6 +849,29 @@ mod tests {
                     .is_err()
             );
         }
+        assert!(publisher.bodies.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn consent_update_and_delete_reject_extra_columns_before_publication() {
+        let (router, publisher) = fanout();
+        for fixture in [
+            include_str!(
+                "../tests/fixtures/dms-kinesis/synthetic-marketing-consent-intent-update.json"
+            ),
+            include_str!(
+                "../tests/fixtures/dms-kinesis/synthetic-marketing-consent-intent-delete.json"
+            ),
+        ] {
+            let mut record: Value = serde_json::from_str(fixture).unwrap();
+            record["data"]["email"] = json!("private@example.test");
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
         assert!(publisher.bodies.lock().unwrap().is_empty());
     }
 

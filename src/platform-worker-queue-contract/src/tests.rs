@@ -20,7 +20,7 @@ fn deployed_names_and_visibility_stay_stable() {
         ("product-listing-opensearch", 300),
         ("product-listing-normalization", 270),
         ("notification-delivery", 330),
-        ("marketing-consent-sync", 300),
+        ("marketing-consent-sync", 330),
     ];
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
