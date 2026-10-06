@@ -80,6 +80,27 @@ npm run cdk -- synth aura-historia-container-artifacts \
 
 These commands build, test, and synthesize only; they do not deploy.
 
+### Cognito verification email
+
+The Cognito verification body is the static English template at
+`mjml/cognito/verification/en.mjml`. Its checked-in generated HTML is
+`infra/src/resources/cognito-verification-email.html`; do not edit that output
+by hand. With the pinned MJML dependency installed, regenerate it using the one
+generator command:
+
+```bash
+npm --prefix mjml run generate:cognito-verification
+```
+
+Install the pinned compiler first with `npm --prefix mjml ci`. MJML CI
+regenerates the asset and fails if it differs from the committed HTML; CDK CI
+also checks freshness before building or synthesizing. Cognito currently sends
+this one static English body; language is not selected dynamically. The
+newsletter sentence describes verification only when a person selected the
+optional newsletter choice during registration; the message itself does not
+create consent. Existing five-language application templates are separate and
+unchanged.
+
 PR/develop CI runs CDK build, tests, deployment-helper tests, and synthesis in
 `.github/workflows/cdk-test.yml` only when infrastructure, deployment helpers,
 workflow inputs, or files consumed by those checks change. MJML compilation runs

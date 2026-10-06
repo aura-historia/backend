@@ -25,6 +25,22 @@ function resourceByType(template: Template, type: string): [string, Resource][] 
 }
 
 describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
+  test("uses the generated static English verification email with Cognito's code placeholder", () => {
+    const template = computeTemplate(stage);
+    const [[, pool]] = resourceByType(template, "AWS::Cognito::UserPool");
+    const verification = pool.Properties.VerificationMessageTemplate;
+
+    expect(verification.EmailSubject).toBe("Verify your email");
+    expect(verification.EmailMessage).toContain("GENERATED FILE: Source mjml/cognito/verification/en.mjml");
+    expect(verification.EmailMessage).toContain(
+      "Confirm your email address to complete your Aura Historia registration. If you selected the newsletter option during registration, this confirmation also verifies the email address for that subscription.",
+    );
+    expect(verification.EmailMessage).toContain("{####}");
+    expect(verification.EmailMessage).toContain("complete your signup or reset your password");
+    expect(verification.EmailMessage).not.toContain("Go to Login");
+    expect(verification.EmailMessage).not.toContain("upgrade");
+  });
+
   test("keeps the native pool contract and configures both Cognito triggers", () => {
     const template = computeTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPool", 1);

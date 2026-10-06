@@ -173,5 +173,15 @@ function createIdentityProvider(
 }
 
 function verificationEmailBody(): string {
-  return fs.readFileSync(path.join(__dirname, "..", "resources", "cognito-verification-email.html"), "utf8");
+  const fileName = "cognito-verification-email.html";
+  const resourcePaths = [
+    path.join(__dirname, "..", "resources", fileName),
+    // TypeScript's emitted dist tree does not copy src/resources, so fall back to the checked-in asset.
+    path.join(__dirname, "..", "..", "..", "src", "resources", fileName),
+  ];
+  const resourcePath = resourcePaths.find((candidate) => fs.existsSync(candidate));
+  if (!resourcePath) {
+    throw new Error(`Unable to load Cognito verification email from: ${resourcePaths.join(", ")}`);
+  }
+  return fs.readFileSync(resourcePath, "utf8");
 }
