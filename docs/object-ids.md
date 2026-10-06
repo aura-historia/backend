@@ -29,6 +29,7 @@ Prefixes are durable and collision-free.
 | `PartyId` | `pty` | `party-core` |
 | `ListingSourceId` | `ls` | `listing-source-core` |
 | `UserId` | `usr` | `user-core` |
+| `MarketingConsentSyncIntentId` | `mci` | `user-core` |
 | `PartnershipId` | `psh` | `partnership-core` |
 | `PartnershipApplicationId` | `pa` | `partnership-core` |
 | `UserSearchFilterId` | `sf` | `search-filter-core` |
@@ -92,11 +93,12 @@ These are not Aura object IDs:
 - `SourceListingId` and other provider-controlled IDs;
 - OAuth authorization codes, exchange codes, client secrets, raw access tokens, and PKCE values;
 - webhook/provider delivery IDs and Stripe customer IDs;
-- notification lease tokens and crawler session cookies;
+- notification and marketing-consent lease tokens, and crawler session cookies;
+- marketing-consent `source_key` (proof/action identity), `recipient_key` (email-marketing fingerprint), Loops contact IDs, and confirmation IDs;
 - request IDs, correlation IDs, idempotency keys, SQS receipt/message IDs, Sequin delivery IDs/LSNs, and OpenSearch PIT IDs;
 - URLs and secret/webhook credentials.
 
-`OAuthClientId` and `AccessTokenId` identify durable records and are object IDs. Their associated secret or bearer values are not.
+`MarketingConsentSyncIntentId` identifies a durable operational intent, with native UUID storage and `mci_` application identity; it is not a Loops identity or an event ID. It is stored in `marketing_email_consent_sync_intents.intent_id`; `intent_sequence` orders operational work but is not an Aura object ID. `OAuthClientId` and `AccessTokenId` identify durable records and are object IDs. Their associated secret or bearer values are not.
 
 The legacy `partner_shop_application_id` notification column has no current object type. It is stale schema, not a new object-ID contract.
 

@@ -14,7 +14,9 @@ use user_core::tier::UserTier;
 use user_core::user::{
     NewUser, RehydratedUserState, User, UserAccount, UserPreferences, UserProfile,
 };
-use user_postgres::SqlxUserRepositoryFactory;
+use user_postgres::{
+    ConsentIntentSource, SqlxMarketingConsentIntentRepository, SqlxUserRepositoryFactory,
+};
 use user_service::ports::{
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
 };
@@ -64,14 +66,25 @@ async fn should_insert_find_update_user_in_postgres() {
     let account_email = user.email().clone();
     user.grant_marketing_email_consent(&account_email)
         .expect("matching user email should be accepted");
-    let consented = match users
-        .in_transaction(&mut tx)
-        .update(&user, loaded_by_id.version)
+    SqlxMarketingConsentIntentRepository::new()
+        .record_user_transition(
+            &mut tx,
+            user.id(),
+            loaded_by_id.version,
+            &account_email,
+            true,
+            ConsentIntentSource::AuraDoubleOptIn,
+            "user-repository-test-consent",
+            time::OffsetDateTime::now_utc(),
+        )
         .await
-    {
-        Ok(updated) => updated,
-        Err(error) => panic!("failed to grant test consent: {error:?}"),
-    };
+        .expect("consent transition should persist");
+    let consented = users
+        .in_transaction(&mut tx)
+        .find_by_id(user.id())
+        .await
+        .expect("consented user should load")
+        .expect("consented user should exist");
     assert!(consented.value.has_marketing_email_consent());
 
     user.change_role(UserRole::User);
@@ -198,11 +211,32 @@ async fn ordinary_user_updates_preserve_consent() {
     let account_email = user.email().clone();
     user.grant_marketing_email_consent(&account_email)
         .expect("matching user email should be accepted");
+    assert!(matches!(
+        users
+            .in_transaction(&mut tx)
+            .update(&user, inserted.version)
+            .await,
+        Err(UserRepositoryError::ConcurrencyConflict)
+    ));
+    SqlxMarketingConsentIntentRepository::new()
+        .record_user_transition(
+            &mut tx,
+            user.id(),
+            inserted.version,
+            &account_email,
+            true,
+            ConsentIntentSource::AuraDoubleOptIn,
+            "preserve-consent",
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .expect("consent transition should persist");
     let consented = users
         .in_transaction(&mut tx)
-        .update(&user, inserted.version)
+        .find_by_id(user.id())
         .await
-        .unwrap_or_else(|error| panic!("failed to update consent: {error:?}"));
+        .expect("consented user should load")
+        .expect("consented user should exist");
     commit(tx).await;
 
     user.replace_profile(UserProfile {
@@ -271,11 +305,19 @@ async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
     consented
         .grant_marketing_email_consent(&consented_email)
         .expect("matching account email should be accepted");
-    users
-        .in_transaction(&mut consent_tx)
-        .update(&consented, current.version)
+    SqlxMarketingConsentIntentRepository::new()
+        .record_user_transition(
+            &mut consent_tx,
+            consented.id(),
+            current.version,
+            &consented_email,
+            true,
+            ConsentIntentSource::AuraDoubleOptIn,
+            "consent-race",
+            time::OffsetDateTime::now_utc(),
+        )
         .await
-        .unwrap_or_else(|error| panic!("failed to write consent state: {error:?}"));
+        .expect("consent transition should persist");
     commit(consent_tx).await;
 
     let stale_result = users
