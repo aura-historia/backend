@@ -8,7 +8,8 @@ use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 use user_service::ports::marketing_consent_intents::{
     ConsentWorkerClaim, ConsentWorkerClaimOutcome, ConsentWorkerFinalization,
-    ConsentWorkerRecheckOutcome, ConsentWorkerTerminalStatus, MarketingConsentIntentWorker,
+    ConsentWorkerRecheckOutcome, ConsentWorkerTerminalStatus, GrantRaceRepairOutcome,
+    MarketingConsentIntentWorker,
 };
 use user_service::ports::{
     ConsentIntent as PortConsentIntent, ConsentIntentSource as PortSource,
@@ -28,6 +29,7 @@ pub enum ConsentIntentSource {
     UserWithdrawal,
     UserDeletion,
     EmailOnlyWithdrawal,
+    ProviderRaceRepair,
 }
 
 impl ConsentIntentSource {
@@ -38,6 +40,7 @@ impl ConsentIntentSource {
             Self::UserWithdrawal => "USER_WITHDRAWAL",
             Self::UserDeletion => "USER_DELETION",
             Self::EmailOnlyWithdrawal => "EMAIL_ONLY_WITHDRAWAL",
+            Self::ProviderRaceRepair => "PROVIDER_RACE_REPAIR",
         }
     }
 
@@ -48,6 +51,7 @@ impl ConsentIntentSource {
             "USER_WITHDRAWAL" => Ok(Self::UserWithdrawal),
             "USER_DELETION" => Ok(Self::UserDeletion),
             "EMAIL_ONLY_WITHDRAWAL" => Ok(Self::EmailOnlyWithdrawal),
+            "PROVIDER_RACE_REPAIR" => Ok(Self::ProviderRaceRepair),
             _ => Err(MarketingConsentPersistenceError::InvalidPersistedState),
         }
     }
@@ -62,9 +66,13 @@ impl ConsentIntentSource {
             ) | (
                 ConsentSubject::User(_),
                 false,
-                Self::UserWithdrawal | Self::UserDeletion
+                Self::UserWithdrawal | Self::UserDeletion | Self::ProviderRaceRepair
             ) | (ConsentSubject::EmailOnly, true, Self::AuraDoubleOptIn)
-                | (ConsentSubject::EmailOnly, false, Self::EmailOnlyWithdrawal)
+                | (
+                    ConsentSubject::EmailOnly,
+                    false,
+                    Self::EmailOnlyWithdrawal | Self::ProviderRaceRepair
+                )
         )
     }
 }
@@ -486,7 +494,7 @@ impl SqlxMarketingConsentIntentRepository {
         let key = marketing_consent_recipient_key(email);
         lock_recipient(&mut *conn, &key).await?;
         let sql = format!(
-            "UPDATE {TABLE} SET status = 'BLOCKED', lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
+            "UPDATE {TABLE} SET status = 'BLOCKED', last_error_code = CASE WHEN status = 'IN_PROGRESS' THEN 'PROVIDER_WITHDRAWAL_RACE_CANDIDATE' ELSE 'PROVIDER_WITHDRAWAL_UNSENT' END, lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
         );
         Ok(sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(key)
@@ -495,6 +503,147 @@ impl SqlxMarketingConsentIntentRepository {
             .await
             .map_err(db)?
             .rows_affected())
+    }
+
+    /// Only a leased grant canceled by provider back-sync is a compensation candidate.
+    /// Lock the source and recipient before inspecting the latest durable decision.
+    pub async fn repair_raced_grant_if_needed(
+        &self,
+        tx: &mut SqlxTransaction,
+        original: MarketingConsentSyncIntentId,
+        source_key: &str,
+        changed_at: OffsetDateTime,
+    ) -> Result<GrantRaceRepairOutcome, MarketingConsentPersistenceError> {
+        validate_input(source_key, changed_at, false)?;
+        let conn = tx.connection();
+        lock_source(&mut *conn, source_key).await?;
+        let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
+        let Some(initial) = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+            .bind(original.as_uuid())
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+        else {
+            return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+        };
+        let key = initial.recipient_key.clone();
+        initial.into_intent()?;
+        lock_recipient(&mut *conn, &key).await?;
+
+        // Fetch the reason separately so the standard intent decoder remains the
+        // single validation path for all immutable target fields.
+        let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1 FOR UPDATE"
+        )))
+        .bind(original.as_uuid())
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if row.recipient_key != key {
+            return Err(MarketingConsentPersistenceError::InvalidPersistedState);
+        }
+        let sequence = row.intent_sequence;
+        let attempts = row.attempt_count;
+        let finalized = row.completed_lease_token.is_some();
+        let intent = row.into_intent()?;
+        if !intent.desired || attempts == 0 || finalized {
+            return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+        }
+        let reason: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT last_error_code FROM {TABLE} WHERE intent_id = $1"
+        )))
+        .bind(original.as_uuid())
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        let provider_race = intent.status == ConsentIntentStatus::Blocked
+            && reason.as_deref() == Some("PROVIDER_WITHDRAWAL_RACE_CANDIDATE");
+        if !provider_race && intent.status != ConsentIntentStatus::Superseded {
+            return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+        }
+        // A later account assignment makes even an old local revoke unsafe to
+        // advertise as corrective work for this immutable target.
+        let current_owner: Option<Uuid> =
+            sqlx::query_scalar("SELECT user_id FROM users WHERE email = $1")
+                .bind::<&str>(intent.email.as_ref())
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db)?;
+        match intent.subject {
+            ConsentSubject::User(id)
+                if current_owner.is_some_and(|owner| owner != *id.as_uuid()) =>
+            {
+                return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+            }
+            ConsentSubject::EmailOnly if current_owner.is_some() => {
+                return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+            }
+            _ => {}
+        }
+        let newer = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLUMNS} FROM {TABLE} WHERE recipient_key = $1 AND email = $2 AND intent_sequence > $3 ORDER BY intent_sequence DESC LIMIT 1"
+        )))
+        .bind(&key)
+        .bind::<&str>(intent.email.as_ref())
+        .bind(sequence)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        if let Some(newer) = newer {
+            let newer = newer.into_intent()?;
+            return Ok(if !newer.desired {
+                GrantRaceRepairOutcome::ExistingRepair(newer.intent_id)
+            } else {
+                GrantRaceRepairOutcome::NoRepairNeeded
+            });
+        }
+        if !provider_race {
+            return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+        }
+        let revision = match intent.subject {
+            ConsentSubject::User(id) => {
+                let state: Option<(String, bool, i64)> = sqlx::query_as(
+                    "SELECT email, marketing_email_consent, marketing_email_consent_revision FROM users WHERE user_id = $1",
+                )
+                .bind(id.as_uuid())
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db)?;
+                match state {
+                    Some((email, false, revision))
+                        if email == <Email as AsRef<str>>::as_ref(&intent.email)
+                            && Some(revision) > intent.consent_revision =>
+                    {
+                        Some(revision)
+                    }
+                    _ => return Ok(GrantRaceRepairOutcome::NoRepairNeeded),
+                }
+            }
+            ConsentSubject::EmailOnly => {
+                let registered: bool =
+                    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)")
+                        .bind::<&str>(intent.email.as_ref())
+                        .fetch_one(&mut *conn)
+                        .await
+                        .map_err(db)?;
+                if registered {
+                    return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
+                }
+                None
+            }
+        };
+        let repair = append(
+            conn,
+            intent.subject,
+            ConsentIntentSource::ProviderRaceRepair,
+            &intent.email,
+            false,
+            revision,
+            source_key,
+            changed_at,
+        )
+        .await?;
+        Ok(GrantRaceRepairOutcome::RepairScheduled(repair.intent_id))
     }
 
     /// Delete the account but retain a USER revoke addressed to the old email.
@@ -578,6 +727,7 @@ impl From<PortSource> for ConsentIntentSource {
             PortSource::UserWithdrawal => Self::UserWithdrawal,
             PortSource::UserDeletion => Self::UserDeletion,
             PortSource::EmailOnlyWithdrawal => Self::EmailOnlyWithdrawal,
+            PortSource::ProviderRaceRepair => Self::ProviderRaceRepair,
         }
     }
 }
@@ -597,6 +747,7 @@ impl From<MarketingConsentIntent> for PortConsentIntent {
                 ConsentIntentSource::UserWithdrawal => PortSource::UserWithdrawal,
                 ConsentIntentSource::UserDeletion => PortSource::UserDeletion,
                 ConsentIntentSource::EmailOnlyWithdrawal => PortSource::EmailOnlyWithdrawal,
+                ConsentIntentSource::ProviderRaceRepair => PortSource::ProviderRaceRepair,
             },
             email: intent.email,
             desired: intent.desired,
@@ -745,6 +896,17 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
             .cancel_provider_backsync(self.tx, email)
             .await?;
         Ok(())
+    }
+
+    async fn repair_raced_grant_if_needed(
+        &mut self,
+        original: MarketingConsentSyncIntentId,
+        source_key: &str,
+        changed_at: OffsetDateTime,
+    ) -> Result<GrantRaceRepairOutcome, MarketingConsentIntentError> {
+        Ok(SqlxMarketingConsentIntentRepository::new()
+            .repair_raced_grant_if_needed(self.tx, original, source_key, changed_at)
+            .await?)
     }
 
     async fn record_user_deletion(
@@ -1013,7 +1175,7 @@ impl SqlxMarketingConsentIntentWorker {
         };
         if let Some(status) = status {
             let sql = format!(
-                "UPDATE {TABLE} SET status = $2, lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE intent_id = $1"
+                "UPDATE {TABLE} SET status = $2, last_error_code = CASE WHEN $2 = 'BLOCKED' AND not_after <= clock_timestamp() THEN 'GRANT_EXPIRED' WHEN $2 = 'BLOCKED' AND subject_type = 'EMAIL_ONLY' THEN 'REGISTERED_ADDRESS' WHEN $2 = 'BLOCKED' AND source = 'USER_DELETION' THEN 'ADDRESS_REASSIGNED' ELSE last_error_code END, lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE intent_id = $1"
             );
             sqlx::query(sqlx::AssertSqlSafe(sql))
                 .bind(intent.intent_id.as_uuid())

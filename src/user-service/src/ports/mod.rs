@@ -38,8 +38,9 @@ pub use cognito_identity::{
 };
 
 pub use marketing_consent_intents::{
-    ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, MarketingConsentIntentError,
-    MarketingConsentIntents, MarketingConsentIntentsFactory, marketing_consent_recipient_key,
+    ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, GrantRaceRepairOutcome,
+    MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
+    marketing_consent_recipient_key,
 };
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,

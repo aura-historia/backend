@@ -18,7 +18,9 @@ use user_service::ports::{
     ConsentIntentSource as PortSource, MarketingConsentIntentError, MarketingConsentIntents,
     MarketingConsentIntentsFactory, UserRepository, UserRepositoryFactory, UserStorageVersion,
 };
-use user_service::use_cases::commands::coordinate_marketing_consent::MarketingConsentCoordinator;
+use user_service::use_cases::commands::coordinate_marketing_consent::{
+    GrantRaceRepairOutcome, MarketingConsentCoordinator,
+};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 fn email(value: &str) -> Email {
@@ -1920,4 +1922,658 @@ async fn failed_terminal_replays_without_reclaiming_or_rewriting_receipt() {
     assert_eq!(receipt, sqlx::query_as::<_, PersistedCompletion>(
         "SELECT status, lease_token, lease_expires_at, completed_lease_token, completed_at, provider_contact_id, last_error_code, attempt_count, updated FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
     ).bind(intent.intent_id.as_uuid()).fetch_one(&pool).await.unwrap());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn provider_withdrawal_racing_user_grant_schedules_one_revoke_and_replays_it() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let id = UserId::new();
+    let address = email("race-provider-user@example.test");
+    seed(&pool, id, &address).await;
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-provider-user-proof".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let in_flight = claim(&worker, &mut tx, original).await;
+    assert_eq!(ConsentSubject::User(id), in_flight.intent.subject);
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, original)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+    ));
+    assert!(
+        !worker
+            .finalize(
+                &mut tx,
+                &in_flight,
+                ConsentIntentFinalization::Applied {
+                    provider_contact_id: None,
+                },
+                OffsetDateTime::now_utc()
+            )
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+
+    // A provider grant sent under the old lease cannot be undone by the failed finalize.
+    let mut tx = uow.begin().await.unwrap();
+    let repair = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        _ => panic!("raced provider withdrawal must schedule a revoke"),
+    };
+    assert_ne!(original, repair);
+    #[derive(sqlx::FromRow)]
+    struct RepairRow {
+        source: String,
+        subject_type: String,
+        user_id: Option<uuid::Uuid>,
+        email: String,
+        desired: bool,
+        consent_revision: Option<i64>,
+        status: String,
+        not_after: Option<OffsetDateTime>,
+    }
+    let row: RepairRow = sqlx::query_as(
+        "SELECT source, subject_type, user_id, email, desired, consent_revision, status, not_after FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+    ).bind(repair.as_uuid()).fetch_one(tx.connection()).await.unwrap();
+    assert_eq!(row.source, "PROVIDER_RACE_REPAIR");
+    assert_eq!(row.subject_type, "USER");
+    assert_eq!(row.user_id, Some(*id.as_uuid()));
+    assert_eq!(row.email, <Email as AsRef<str>>::as_ref(&address));
+    assert!(!row.desired);
+    assert_eq!(row.consent_revision, Some(2));
+    assert_eq!(row.status, "PENDING");
+    assert_eq!(row.not_after, None);
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::ExistingRepair(id) if id == repair
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(
+        2,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email = $1"
+        )
+        .bind::<&str>(address.as_ref())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    let state: (bool, i64, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version FROM users WHERE user_id = $1"
+    ).bind(id.as_uuid()).fetch_one(&pool).await.unwrap();
+    assert_eq!(state, (false, 2, 3));
+    let mut tx = uow.begin().await.unwrap();
+    let repair_claim = claim(&worker, &mut tx, repair).await;
+    assert!(!repair_claim.intent.desired);
+    assert_eq!(
+        repair_claim.intent.source,
+        ConsentIntentSource::ProviderRaceRepair
+    );
+    let port_intent = repo
+        .in_transaction(&mut tx)
+        .find_by_source_key(&repair_claim.intent.source_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(port_intent.intent_id, repair);
+    assert_eq!(port_intent.source, PortSource::ProviderRaceRepair);
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn fresh_verified_grant_after_provider_withdrawal_needs_no_race_repair() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let user_id = UserId::new();
+    let address = email("race-provider-fresh-grant@example.test");
+    seed(&pool, user_id, &address).await;
+    let now = OffsetDateTime::now_utc();
+
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-provider-fresh-first".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    assert_eq!(
+        ConsentSubject::User(user_id),
+        claim(&worker, &mut tx, original).await.intent.subject
+    );
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let fresh = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in(
+            "race-provider-fresh-second".into(),
+            address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(0, sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE source = 'PROVIDER_RACE_REPAIR' AND email = $1"
+    ).bind::<&str>(address.as_ref()).fetch_one(&pool).await.unwrap());
+    assert_eq!(
+        "PENDING",
+        sqlx::query_scalar::<_, String>(
+            "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(fresh.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn newer_verified_grant_supersedes_leased_user_race_repair_on_recheck() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let user_id = UserId::new();
+    let address = email("race-repair-stale-revoke@example.test");
+    seed(&pool, user_id, &address).await;
+    let now = OffsetDateTime::now_utc();
+
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-repair-stale-first".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let repair = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        _ => panic!("expected a compensating USER revoke"),
+    };
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let repair_claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, repair)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("repair revoke was not claimed"),
+    };
+    assert!(!repair_claim.intent.desired);
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let fresh = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in(
+            "race-repair-stale-second".into(),
+            address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        worker.recheck(&mut tx, &repair_claim).await.unwrap(),
+        ConsentWorkerRecheckOutcome::Terminal(ConsentWorkerTerminalStatus::Superseded)
+    ));
+    assert!(
+        !worker
+            .finalize_claim(
+                &mut tx,
+                &repair_claim,
+                ConsentWorkerFinalization::Applied {
+                    provider_contact_id: None
+                },
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    assert_eq!(
+        "SUPERSEDED",
+        sqlx::query_scalar::<_, String>(
+            "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(repair.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        "PENDING",
+        sqlx::query_scalar::<_, String>(
+            "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(fresh.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn raced_user_grant_reuses_local_revoke_but_not_after_a_fresh_grant() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let id = UserId::new();
+    let address = email("race-local-revoke@example.test");
+    seed(&pool, id, &address).await;
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-local-first".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let revoke = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .user_withdrawal(id, address.clone(), "race-local-withdraw".into(), now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, now)
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::ExistingRepair(found) if found == revoke
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(
+        2,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email = $1"
+        )
+        .bind::<&str>(address.as_ref())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+
+    let mut tx = uow.begin().await.unwrap();
+    let fresh = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-local-new-proof".into(), address.clone(), now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, now)
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(
+        "PENDING",
+        sqlx::query_scalar::<_, String>(
+            "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(fresh.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        3,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email = $1"
+        )
+        .bind::<&str>(address.as_ref())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn anonymous_grant_race_reuses_email_only_revoke_and_provider_race_repair_stays_anonymous() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let address = email("race-email-only@example.test");
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-email-only-proof".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let revoke = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .email_only_withdrawal(address.clone(), "race-email-only-withdraw".into(), now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, now)
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::ExistingRepair(found) if found == revoke
+    ));
+    tx.commit().await.unwrap();
+
+    let provider_address = email("race-email-only-provider@example.test");
+    let mut tx = uow.begin().await.unwrap();
+    let provider_original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in(
+            "race-email-only-provider-proof".into(),
+            provider_address.clone(),
+            now,
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, provider_original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(provider_address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let repair = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(provider_original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        _ => panic!("anonymous provider withdrawal needs an anonymous revoke"),
+    };
+    let row: (String, String, Option<uuid::Uuid>, Option<i64>, bool, String) = sqlx::query_as(
+        "SELECT subject_type, source, user_id, consent_revision, desired, email FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+    ).bind(repair.as_uuid()).fetch_one(tx.connection()).await.unwrap();
+    assert_eq!(row.0, "EMAIL_ONLY");
+    assert_eq!(row.1, "PROVIDER_RACE_REPAIR");
+    assert_eq!(row.2, None);
+    assert_eq!(row.3, None);
+    assert!(!row.4);
+    assert_eq!(row.5, <Email as AsRef<str>>::as_ref(&provider_address));
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn expired_or_identity_blocked_grants_do_not_schedule_race_repair() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let address = email("race-expired@example.test");
+    let mut tx = uow.begin().await.unwrap();
+    let expired = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in(
+            "race-expired-proof".into(),
+            address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE marketing_email_consent_sync_intents SET changed_at = changed_at - interval '8 days', not_after = not_after - interval '8 days' WHERE intent_id = $1")
+        .bind(expired.as_uuid()).execute(&pool).await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, expired)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+    ));
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(expired, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+
+    let anonymous_address = email("race-registered-later@example.test");
+    let mut tx = uow.begin().await.unwrap();
+    let anonymous = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in(
+            "race-registered-later-proof".into(),
+            anonymous_address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let new_owner = UserId::new();
+    seed(&pool, new_owner, &anonymous_address).await;
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, anonymous)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+    ));
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(anonymous, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(0, sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE source = 'PROVIDER_RACE_REPAIR'"
+    ).fetch_one(&pool).await.unwrap());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn raced_grant_does_not_revoke_a_reassigned_address() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let previous = UserId::new();
+    let address = email("race-reassigned@example.test");
+    seed(&pool, previous, &address).await;
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-reassigned-old".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .user_deletion(previous, now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let new_owner = UserId::new();
+    seed(&pool, new_owner, &address).await;
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let new_grant = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-reassigned-new".into(), address.clone(), now)
+        .await
+        .unwrap();
+    assert!(matches!(
+        MarketingConsentCoordinator::new(&mut tx, &repo)
+            .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+            .await
+            .unwrap(),
+        GrantRaceRepairOutcome::NoRepairNeeded
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(
+        "PENDING",
+        sqlx::query_scalar::<_, String>(
+            "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(new_grant.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT marketing_email_consent FROM users WHERE user_id = $1"
+        )
+        .bind(new_owner.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert_eq!(0, sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE source = 'PROVIDER_RACE_REPAIR'"
+    ).fetch_one(&pool).await.unwrap());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn race_repair_rolls_back_with_callers_transaction() {
+    let pool = get_postgres_client().await;
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repo = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let id = UserId::new();
+    let address = email("race-repair-rollback@example.test");
+    seed(&pool, id, &address).await;
+    let now = OffsetDateTime::now_utc();
+    let mut tx = uow.begin().await.unwrap();
+    let original = MarketingConsentCoordinator::new(&mut tx, &repo)
+        .accepted_double_opt_in("race-repair-rollback-proof".into(), address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    claim(&worker, &mut tx, original).await;
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    MarketingConsentCoordinator::new(&mut tx, &repo)
+        .provider_withdrawal(address.clone(), now)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let before: (bool, i64, i64) = sqlx::query_as(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version FROM users WHERE user_id = $1"
+    ).bind(id.as_uuid()).fetch_one(&pool).await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let rolled_back = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        _ => panic!("expected an in-transaction repair"),
+    };
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(rolled_back.as_uuid())
+        .fetch_one(tx.connection())
+        .await
+        .unwrap()
+    );
+    drop(tx);
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE intent_id = $1"
+        )
+        .bind(rolled_back.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    assert_eq!(before, sqlx::query_as::<_, (bool, i64, i64)>(
+        "SELECT marketing_email_consent, marketing_email_consent_revision, version FROM users WHERE user_id = $1"
+    ).bind(id.as_uuid()).fetch_one(&pool).await.unwrap());
+    let mut tx = uow.begin().await.unwrap();
+    let scheduled = match MarketingConsentCoordinator::new(&mut tx, &repo)
+        .repair_raced_grant_if_needed(original, OffsetDateTime::now_utc())
+        .await
+        .unwrap()
+    {
+        GrantRaceRepairOutcome::RepairScheduled(id) => id,
+        _ => panic!("rollback must leave the repair schedulable"),
+    };
+    assert_ne!(rolled_back, scheduled);
+    tx.commit().await.unwrap();
 }

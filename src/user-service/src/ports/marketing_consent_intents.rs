@@ -35,6 +35,7 @@ pub enum ConsentIntentSource {
 
     UserDeletion,
     EmailOnlyWithdrawal,
+    ProviderRaceRepair,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,12 +128,29 @@ pub trait MarketingConsentIntents: Send {
         email: &Email,
     ) -> Result<(), MarketingConsentIntentError>;
 
+    /// Decide and persist a correction for an already leased grant invalidated by
+    /// provider back-sync. The implementation locks the original recipient and
+    /// rechecks authoritative state; it never performs provider I/O.
+    async fn repair_raced_grant_if_needed(
+        &mut self,
+        original: MarketingConsentSyncIntentId,
+        source_key: &str,
+        changed_at: OffsetDateTime,
+    ) -> Result<GrantRaceRepairOutcome, MarketingConsentIntentError>;
+
     async fn record_user_deletion(
         &mut self,
         user: &ConsentUser,
         source_key: &str,
         changed_at: OffsetDateTime,
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GrantRaceRepairOutcome {
+    NoRepairNeeded,
+    ExistingRepair(MarketingConsentSyncIntentId),
+    RepairScheduled(MarketingConsentSyncIntentId),
 }
 
 /// A committed lease over an immutable target. Never log this value: the target

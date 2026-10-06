@@ -12,6 +12,8 @@ use time::OffsetDateTime;
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
+pub use crate::ports::GrantRaceRepairOutcome;
+
 /// Only a trusted PostConfirmation registration path may submit this identity.
 /// The binding is rechecked against the target User inside the transaction.
 pub enum MarketingConsentDecision {
@@ -299,6 +301,21 @@ where
         Ok(())
     }
 
+    /// Post-send repair for a grant that lost its decision fence while provider I/O
+    /// was in flight. The caller owns the transaction and commits before delivery.
+    pub async fn repair_raced_grant_if_needed(
+        &mut self,
+        original: MarketingConsentSyncIntentId,
+        changed_at: OffsetDateTime,
+    ) -> Result<GrantRaceRepairOutcome, CoordinateMarketingConsentError> {
+        let key = source_key("provider-race-repair", &[&original.to_string()])?;
+        Ok(self
+            .intents
+            .in_transaction(self.tx)
+            .repair_raced_grant_if_needed(original, &key, changed_at)
+            .await?)
+    }
+
     async fn apply_intent(
         &mut self,
         decision: MarketingConsentDecision,
@@ -360,44 +377,16 @@ where
                 )
             }
         }
-        MarketingConsentDecision::AcceptedDoubleOptIn { email, .. } => {
-            let mut port = intents.in_transaction(tx);
-            let key = key.as_deref().expect("confirmation has a key");
-            if let Some(existing) = port.find_by_source_key(key).await? {
-                if exact_email(&existing.email, &email).is_err()
-                    || !existing.desired
-                    || existing.source != ConsentIntentSource::AuraDoubleOptIn
-                {
-                    return Err(CoordinateMarketingConsentError::SourceKeyConflict);
-                }
-                Some(existing.intent_id)
-            } else if let Some(user) = port.find_user_by_email(&email).await? {
-                exact_email(&user.email, &email)?;
-                Some(
-                    port.record_user_transition(
-                        &user,
-                        true,
-                        ConsentIntentSource::AuraDoubleOptIn,
-                        key,
-                        now,
-                    )
-                    .await?
-                    .intent_id,
-                )
-            } else {
-                Some(
-                    port.record_email_only_intent(
-                        &email,
-                        true,
-                        ConsentIntentSource::AuraDoubleOptIn,
-                        key,
-                        now,
-                    )
-                    .await?
-                    .intent_id,
-                )
-            }
-        }
+        MarketingConsentDecision::AcceptedDoubleOptIn { email, .. } => Some(
+            accepted_double_opt_in_in_transaction(
+                tx,
+                intents,
+                &email,
+                key.as_deref().expect("confirmation has a key"),
+                now,
+            )
+            .await?,
+        ),
         MarketingConsentDecision::UserWithdrawal { user_id, email, .. } => {
             let mut port = intents.in_transaction(tx);
             let key = key.as_deref().expect("withdrawal has a key");
@@ -501,6 +490,40 @@ where
         }
     };
     Ok(result)
+}
+
+async fn accepted_double_opt_in_in_transaction<Tx, C>(
+    tx: &mut Tx,
+    intents: &C,
+    email: &Email,
+    key: &str,
+    now: OffsetDateTime,
+) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError>
+where
+    Tx: Transaction,
+    C: MarketingConsentIntentsFactory<Tx>,
+{
+    let mut port = intents.in_transaction(tx);
+    if let Some(existing) = port.find_by_source_key(key).await? {
+        if exact_email(&existing.email, email).is_err()
+            || !existing.desired
+            || existing.source != ConsentIntentSource::AuraDoubleOptIn
+        {
+            return Err(CoordinateMarketingConsentError::SourceKeyConflict);
+        }
+        Ok(existing.intent_id)
+    } else if let Some(user) = port.find_user_by_email(email).await? {
+        exact_email(&user.email, email)?;
+        Ok(port
+            .record_user_transition(&user, true, ConsentIntentSource::AuraDoubleOptIn, key, now)
+            .await?
+            .intent_id)
+    } else {
+        Ok(port
+            .record_email_only_intent(email, true, ConsentIntentSource::AuraDoubleOptIn, key, now)
+            .await?
+            .intent_id)
+    }
 }
 
 fn decision_source_key(
@@ -826,6 +849,15 @@ mod tests {
         ) -> Result<(), MarketingConsentIntentError> {
             locked(&self.0).calls.push("cancel");
             Ok(())
+        }
+
+        async fn repair_raced_grant_if_needed(
+            &mut self,
+            _: MarketingConsentSyncIntentId,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<GrantRaceRepairOutcome, MarketingConsentIntentError> {
+            Ok(GrantRaceRepairOutcome::NoRepairNeeded)
         }
 
         async fn record_user_deletion(

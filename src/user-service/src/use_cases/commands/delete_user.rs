@@ -164,8 +164,7 @@ where
         // The coordinator owns the stable key and the atomic deletion/revoke decision.
         MarketingConsentCoordinator::new(&mut tx, &self.consent)
             .user_deletion(command.user_id, OffsetDateTime::now_utc())
-            .await
-            .map_err(DeleteUserError::from)?;
+            .await?;
 
         tx.commit()
             .await
@@ -534,6 +533,15 @@ mod tests {
             &mut self,
             _: &Email,
         ) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+
+        async fn repair_raced_grant_if_needed(
+            &mut self,
+            _: user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<crate::ports::GrantRaceRepairOutcome, MarketingConsentIntentError> {
             unreachable!()
         }
 
