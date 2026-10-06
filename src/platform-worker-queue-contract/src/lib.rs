@@ -1,7 +1,7 @@
-//! Shared Standard SQS destination identity and read-only source/DLQ contract.
+//! Shared SQS destination identity and read-only source/DLQ contract.
 #[cfg(test)]
 mod tests;
-use aura_historia_jobs::WorkerScope;
+use aura_historia_jobs::{WorkerQueueType, WorkerScope};
 use aws_sdk_sqs::types::QueueAttributeName;
 use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
@@ -10,7 +10,7 @@ use url::Url;
 pub const AWS_REGION_ENV: &str = "AWS_REGION";
 pub const SQS_ENDPOINT_ENV: &str = "AWS_ENDPOINT_URL_SQS";
 
-/// One Standard queue per deployed scope. Construction performs no AWS mutations.
+/// One trusted source/DLQ pair per deployed scope. Construction performs no AWS mutations.
 #[derive(Clone, Debug)]
 pub struct SqsQueueConfig {
     scope: WorkerScope,
@@ -37,9 +37,11 @@ pub enum QueueError {
     InvalidResponse,
     #[error("worker SQS message exceeds encoded size limit")]
     MessageTooLarge,
+    #[error("prepared worker job does not match the configured queue scope or type")]
+    PreparedJob,
 }
 
-/// The router has one configured source queue per scope.
+/// The router has one configured source queue per deployed scope; consent is optional until C06.
 #[derive(Clone, Debug)]
 pub struct CdcRouterQueueConfig {
     queues: Vec<SqsQueueConfig>,
@@ -69,27 +71,34 @@ impl CdcRouterQueueConfig {
                     .map_err(|_| QueueError::InvalidConfig(SQS_ENDPOINT_ENV))
             })
             .transpose()?;
-        let queues = WorkerScope::ALL
-            .into_iter()
-            .map(|scope| {
-                let env = scope.router_queue_url_env();
-                let queue_url = required_config(&mut get, env)?
-                    .parse()
-                    .map_err(|_| QueueError::InvalidConfig(env))?;
-                SqsQueueConfig::new(
-                    scope,
-                    queue_url,
-                    region.clone(),
-                    stage.clone(),
-                    endpoint.clone(),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut queues = Vec::with_capacity(WorkerScope::ALL.len());
+        for scope in WorkerScope::ALL {
+            let env = scope.router_queue_url_env();
+            let configured_url = match get(env) {
+                Some(value) if !value.is_empty() => value,
+                Some(_) => return Err(QueueError::MissingConfig(env)),
+                None if scope == WorkerScope::MarketingConsentSync => {
+                    // C05 defines the target contract; C06 supplies and activates this destination.
+                    continue;
+                }
+                None => return Err(QueueError::MissingConfig(env)),
+            };
+            let queue_url = configured_url
+                .parse()
+                .map_err(|_| QueueError::InvalidConfig(env))?;
+            queues.push(SqsQueueConfig::new(
+                scope,
+                queue_url,
+                region.clone(),
+                stage.clone(),
+                endpoint.clone(),
+            )?);
+        }
         Ok(Self { queues })
     }
 
     pub fn region(&self) -> &str {
-        // Every item was constructed from one region value and the constructor always creates ten.
+        // Ten existing destinations are required, so the configured queue list is never empty.
         self.queues[0].region()
     }
 
@@ -105,7 +114,13 @@ impl SqsQueueConfig {
         stage: String,
         local_endpoint: Option<Url>,
     ) -> Result<Self, QueueError> {
-        if !valid_label(&stage) || format!("aura-worker-{}-dlq-{stage}", scope.as_str()).len() > 80
+        let queue_suffix = if scope.queue_type() == WorkerQueueType::Fifo {
+            ".fifo"
+        } else {
+            ""
+        };
+        if !valid_label(&stage)
+            || format!("aura-worker-{}-dlq-{stage}{queue_suffix}", scope.as_str()).len() > 80
         {
             return Err(QueueError::InvalidConfig("STAGE"));
         }
@@ -118,8 +133,9 @@ impl SqsQueueConfig {
         }
         clean_url(&queue_url)?;
         let segments: Vec<_> = queue_url.path().split('/').collect();
+        let source_name = format!("aura-worker-{}-{stage}{queue_suffix}", scope.as_str());
         if segments.len() != 3
-            || segments[2] != format!("aura-worker-{}-{stage}", scope.as_str())
+            || segments[2] != source_name
             || segments[1].len() != 12
             || !segments[1].bytes().all(|b| b.is_ascii_digit())
         {
@@ -154,6 +170,9 @@ impl SqsQueueConfig {
     pub const fn scope(&self) -> WorkerScope {
         self.scope
     }
+    pub const fn queue_type(&self) -> WorkerQueueType {
+        self.scope.queue_type()
+    }
     pub fn queue_url(&self) -> &Url {
         &self.queue_url
     }
@@ -176,8 +195,13 @@ impl SqsQueueConfig {
         )
     }
     fn name(&self, dlq: bool) -> String {
+        let fifo_suffix = if self.queue_type() == WorkerQueueType::Fifo {
+            ".fifo"
+        } else {
+            ""
+        };
         format!(
-            "aura-worker-{}{}-{}",
+            "aura-worker-{}{}-{}{fifo_suffix}",
             self.scope.as_str(),
             if dlq { "-dlq" } else { "" },
             self.stage
@@ -205,6 +229,7 @@ pub fn visibility(scope: WorkerScope) -> Duration {
         | WorkerScope::SearchFilterMatchNotification
         | WorkerScope::WatchlistNotification
         | WorkerScope::ProductListingTranslation => 300,
+        WorkerScope::MarketingConsentSync => 300,
         WorkerScope::ProductListingContentAssessment
         | WorkerScope::ProductListingRawNormalization => 270,
         WorkerScope::ProductListingEmbedding => 360,
@@ -265,9 +290,22 @@ pub fn validate_attributes(
     use QueueAttributeName as A;
     let arn = config.arn(dlq);
     require(attributes, A::QueueArn, &arn, "QueueArn")?;
-    // AWS omits FifoQueue on Standard queues. Only absent or literal false means Standard.
-    if !matches!(attr(attributes, A::FifoQueue), None | Some("false")) {
-        return Err(QueueError::Attribute("FifoQueue"));
+    // AWS may omit FifoQueue on Standard queues; FIFO must be explicit on both queues.
+    match config.queue_type() {
+        WorkerQueueType::Standard => {
+            if !matches!(attr(attributes, A::FifoQueue), None | Some("false")) {
+                return Err(QueueError::Attribute("FifoQueue"));
+            }
+        }
+        WorkerQueueType::Fifo => {
+            require(attributes, A::FifoQueue, "true", "FifoQueue")?;
+            require(
+                attributes,
+                A::ContentBasedDeduplication,
+                "false",
+                "ContentBasedDeduplication",
+            )?;
+        }
     }
     require(
         attributes,

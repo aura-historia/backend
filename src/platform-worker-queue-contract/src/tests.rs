@@ -2,7 +2,7 @@ use super::{
     Attributes, CdcRouterQueueConfig, QueueError, SqsQueueConfig, private_policy, tls_denied,
     validate_attributes,
 };
-use aura_historia_jobs::WorkerScope;
+use aura_historia_jobs::{WorkerQueueType, WorkerScope};
 use aws_sdk_sqs::types::QueueAttributeName as A;
 use serde_json::json;
 use std::collections::HashMap;
@@ -20,12 +20,19 @@ fn deployed_names_and_visibility_stay_stable() {
         ("product-listing-opensearch", 300),
         ("product-listing-normalization", 270),
         ("notification-delivery", 330),
+        ("marketing-consent-sync", 300),
     ];
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
         assert_eq!(scope.as_str(), name);
-        let url =
-            format!("https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{name}-prod");
+        let suffix = if scope.queue_type() == WorkerQueueType::Fifo {
+            ".fifo"
+        } else {
+            ""
+        };
+        let url = format!(
+            "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{name}-prod{suffix}"
+        );
         let config = SqsQueueConfig::new(
             scope,
             url.parse().unwrap(),
@@ -38,30 +45,94 @@ fn deployed_names_and_visibility_stay_stable() {
         assert_eq!(config.visibility_timeout().as_secs(), seconds);
         assert_eq!(
             config.dlq_url().path(),
-            format!("/123456789012/aura-worker-{name}-dlq-prod")
+            format!("/123456789012/aura-worker-{name}-dlq-prod{suffix}")
         );
     }
 }
 
 #[test]
-fn router_requires_all_ten_scoped_urls() {
+fn fifo_destination_identity_fails_closed_on_stage_region_account_or_type_mismatch() {
+    let scope = WorkerScope::MarketingConsentSync;
+    for (url, region, stage) in [
+        (
+            "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-marketing-consent-sync-dev.fifo",
+            "eu-central-1",
+            "prod",
+        ),
+        (
+            "https://sqs.us-east-1.amazonaws.com/123456789012/aura-worker-marketing-consent-sync-prod.fifo",
+            "eu-central-1",
+            "prod",
+        ),
+        (
+            "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-marketing-consent-sync-prod",
+            "eu-central-1",
+            "prod",
+        ),
+        (
+            "https://sqs.eu-central-1.amazonaws.com/not-an-account/aura-worker-marketing-consent-sync-prod.fifo",
+            "eu-central-1",
+            "prod",
+        ),
+    ] {
+        assert!(
+            SqsQueueConfig::new(
+                scope,
+                url.parse().unwrap(),
+                region.into(),
+                stage.into(),
+                None
+            )
+            .is_err()
+        );
+    }
+
+    let config = SqsQueueConfig::new(
+        scope,
+        "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-marketing-consent-sync-prod.fifo"
+            .parse()
+            .unwrap(),
+        "eu-central-1".into(),
+        "prod".into(),
+        None,
+    )
+    .unwrap();
+    let mut source = attributes(&config, false);
+    source.insert(
+        A::RedrivePolicy,
+        json!({
+            "deadLetterTargetArn": "arn:aws:sqs:eu-central-1:999999999999:aura-worker-marketing-consent-sync-dlq-prod.fifo",
+            "maxReceiveCount": 5
+        })
+        .to_string(),
+    );
+    assert!(validate_attributes(&config, &source, false).is_err());
+}
+
+#[test]
+fn router_requires_all_eleven_scoped_urls() {
     let mut values = HashMap::from([
         ("AWS_REGION", "eu-central-1".to_owned()),
         ("STAGE", "prod".to_owned()),
     ]);
     for scope in WorkerScope::ALL {
+        let suffix = if scope.queue_type() == WorkerQueueType::Fifo {
+            ".fifo"
+        } else {
+            ""
+        };
         values.insert(
             scope.router_queue_url_env(),
             format!(
-                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
-                scope.as_str()
+                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod{suffix}",
+                scope.as_str(),
             ),
         );
     }
     let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(queues.len(), 10);
+    assert_eq!(queues.len(), 11);
     assert_eq!(
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>(),
         WorkerScope::ALL
@@ -73,6 +144,30 @@ fn router_requires_all_ten_scoped_urls() {
             "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY"
         ))
     );
+}
+
+#[test]
+fn marketing_consent_router_url_is_optional_before_c06_activation() {
+    let mut values = HashMap::from([
+        ("AWS_REGION", "eu-central-1".to_owned()),
+        ("STAGE", "prod".to_owned()),
+    ]);
+    for scope in WorkerScope::ALL
+        .into_iter()
+        .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
+    {
+        values.insert(
+            scope.router_queue_url_env(),
+            format!(
+                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
+                scope.as_str()
+            ),
+        );
+    }
+    let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
+        .unwrap()
+        .into_queues();
+    assert_eq!(10, queues.len());
 }
 
 fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
@@ -110,6 +205,10 @@ fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
             json!({"deadLetterTargetArn":config.arn(true), "maxReceiveCount":5}).to_string(),
         );
     }
+    if config.queue_type() == WorkerQueueType::Fifo {
+        attrs.insert(A::FifoQueue, "true".into());
+        attrs.insert(A::ContentBasedDeduplication, "false".into());
+    }
     attrs
 }
 
@@ -119,8 +218,13 @@ fn source_and_dlq_checks_fail_closed() {
         let config = SqsQueueConfig::new(
             scope,
             format!(
-                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
-                scope.as_str()
+                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod{}",
+                scope.as_str(),
+                if scope.queue_type() == WorkerQueueType::Fifo {
+                    ".fifo"
+                } else {
+                    ""
+                }
             )
             .parse()
             .unwrap(),
@@ -142,14 +246,27 @@ fn source_and_dlq_checks_fail_closed() {
                 broken.remove(&key);
                 assert!(validate_attributes(&config, &broken, dlq).is_err());
             }
+            let wrong_fifo = if config.queue_type() == WorkerQueueType::Fifo {
+                (A::FifoQueue, "false")
+            } else {
+                (A::FifoQueue, "true")
+            };
             for (key, value) in [
-                (A::FifoQueue, "true"),
+                wrong_fifo,
                 (A::SqsManagedSseEnabled, "false"),
                 (A::Policy, "{}"),
                 (A::RedriveAllowPolicy, "{}"),
             ] {
                 let mut broken = good.clone();
                 broken.insert(key, value.into());
+                assert!(validate_attributes(&config, &broken, dlq).is_err());
+            }
+            if config.queue_type() == WorkerQueueType::Fifo {
+                let mut broken = good.clone();
+                broken.insert(A::ContentBasedDeduplication, "true".into());
+                assert!(validate_attributes(&config, &broken, dlq).is_err());
+                let mut broken = good.clone();
+                broken.remove(&A::ContentBasedDeduplication);
                 assert!(validate_attributes(&config, &broken, dlq).is_err());
             }
             let mut broken = good;

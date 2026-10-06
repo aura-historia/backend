@@ -4,7 +4,7 @@ pub use aura_historia_cdc_routing::{CdcRouteError, route_change};
 use aura_historia_cdc_routing::{CdcTable, canonical_decimal_i64, row_for_operation};
 use aura_historia_jobs::{
     jobs::{SearchFilterOperation as CdcOperation, WorkerQueue},
-    wire,
+    wire::{self, PreparedJob},
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -22,13 +22,13 @@ const DMS_KINESIS_SOURCE: &str = "aws-dms-kinesis";
 
 #[async_trait::async_trait]
 pub trait Publisher: Send + Sync {
-    async fn publish(&self, body: &str) -> Result<(), ()>;
+    async fn publish(&self, job: &PreparedJob) -> Result<(), ()>;
 }
 
 #[async_trait::async_trait]
 impl Publisher for SqsQueue {
-    async fn publish(&self, body: &str) -> Result<(), ()> {
-        SqsQueue::publish(self, body).await.map_err(|_| ())
+    async fn publish(&self, job: &PreparedJob) -> Result<(), ()> {
+        SqsQueue::publish(self, job).await.map_err(|_| ())
     }
 }
 
@@ -57,7 +57,8 @@ impl WorkerQueueRegistry {
             }
         }
         for target in WorkerQueue::ALL {
-            if !registry.queues.contains_key(&target) {
+            if target != WorkerQueue::MarketingConsentSync && !registry.queues.contains_key(&target)
+            {
                 return Err(WorkerQueueRegistryError::Missing(target));
             }
         }
@@ -80,7 +81,7 @@ pub struct CdcFanout {
 }
 
 pub struct PreparedCdcBatch<'a> {
-    publications: Vec<(&'a dyn Publisher, String)>,
+    publications: Vec<(&'a dyn Publisher, PreparedJob)>,
 }
 
 impl CdcFanout {
@@ -112,8 +113,8 @@ impl CdcFanout {
                     .queues
                     .get(&job.target_queue)
                     .ok_or(CdcFanoutError::MissingQueue(job.target_queue))?;
-                let body = wire::encode(&job).map_err(|_| CdcIngestError::InvalidJob)?;
-                publications.push((publisher.as_ref(), body));
+                let prepared_job = wire::prepare(&job).map_err(|_| CdcIngestError::InvalidJob)?;
+                publications.push((publisher.as_ref(), prepared_job));
             }
         }
         Ok(PreparedCdcBatch { publications })
@@ -126,9 +127,9 @@ impl CdcFanout {
     ) -> Result<usize, CdcIngestError> {
         let count = prepared.publications.len();
         tokio::time::timeout(publication_timeout, async {
-            for (publisher, body) in prepared.publications {
+            for (publisher, job) in prepared.publications {
                 publisher
-                    .publish(&body)
+                    .publish(&job)
                     .await
                     .map_err(|_| CdcFanoutError::PublicationFailed)?;
             }
@@ -382,13 +383,15 @@ fn classify_dms_table_operation(
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
         | (CdcTable::SearchFilters, _)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
-        | (CdcTable::NotificationDeliveries, CdcOperation::Insert) => {
+        | (CdcTable::NotificationDeliveries, CdcOperation::Insert)
+        | (CdcTable::MarketingEmailConsentSyncIntents, CdcOperation::Insert) => {
             DmsKinesisRecordClassification::Trigger
         }
         (CdcTable::ProductListingEvents, _)
         | (CdcTable::ProductListingRawRevisions, _)
         | (CdcTable::SearchFilterMatches, _)
-        | (CdcTable::NotificationDeliveries, _) => DmsKinesisRecordClassification::Noop,
+        | (CdcTable::NotificationDeliveries, _)
+        | (CdcTable::MarketingEmailConsentSyncIntents, _) => DmsKinesisRecordClassification::Noop,
         _ => DmsKinesisRecordClassification::Invalid("table or operation"),
     }
 }
@@ -401,6 +404,7 @@ fn dms_table_is_selected(table: &str) -> bool {
             | CdcTable::SearchFilters
             | CdcTable::SearchFilterMatches
             | CdcTable::NotificationDeliveries
+            | CdcTable::MarketingEmailConsentSyncIntents
     )
 }
 
@@ -470,11 +474,17 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
             ("notification_deliveries", CdcOperation::Insert) => {
                 ["notification_delivery_id"].as_slice()
             }
+            ("marketing_email_consent_sync_intents", CdcOperation::Insert) => {
+                ["intent_id", "recipient_key"].as_slice()
+            }
             _ => return Err(CdcRouteError::InvalidSourceContract("table or operation")),
         };
 
         let row = row_for_operation(change)?;
         require_dms_columns(row, required_columns)?;
+        if change.table == "marketing_email_consent_sync_intents" {
+            require_exact_dms_columns(row, required_columns)?;
+        }
         match change.table.as_str() {
             "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
             "search_filters" => validate_dms_positive_decimal(row, "version")?,
@@ -492,6 +502,18 @@ fn require_dms_columns(row: &Value, fields: &[&'static str]) -> Result<(), CdcRo
         if !row.contains_key(field) {
             return Err(CdcRouteError::MissingColumn(field));
         }
+    }
+    Ok(())
+}
+
+fn require_exact_dms_columns(row: &Value, fields: &[&'static str]) -> Result<(), CdcRouteError> {
+    let row = row
+        .as_object()
+        .ok_or(CdcRouteError::InvalidSourceContract("data object"))?;
+    if row.len() != fields.len() || fields.iter().any(|field| !row.contains_key(*field)) {
+        return Err(CdcRouteError::InvalidSourceContract(
+            "unexpected marketing consent CDC columns",
+        ));
     }
     Ok(())
 }
@@ -537,6 +559,7 @@ pub enum CdcFanoutError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::sync::{
         Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -545,18 +568,23 @@ mod tests {
     #[derive(Default)]
     struct RecordingPublisher {
         bodies: Mutex<Vec<String>>,
+        fifo_attributes: Mutex<Vec<Option<aura_historia_jobs::FifoMessageAttributes>>>,
         attempts: AtomicUsize,
         fail_at: AtomicUsize,
     }
 
     #[async_trait::async_trait]
     impl Publisher for RecordingPublisher {
-        async fn publish(&self, body: &str) -> Result<(), ()> {
+        async fn publish(&self, job: &PreparedJob) -> Result<(), ()> {
             let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
             if attempt == self.fail_at.load(Ordering::SeqCst) {
                 return Err(());
             }
-            self.bodies.lock().unwrap().push(body.to_owned());
+            self.bodies.lock().unwrap().push(job.body().to_owned());
+            self.fifo_attributes
+                .lock()
+                .unwrap()
+                .push(job.fifo_message_attributes().cloned());
             Ok(())
         }
     }
@@ -568,6 +596,28 @@ mod tests {
             registry = registry.with_publisher(queue, publisher.clone());
         }
         (CdcFanout::new(registry), publisher)
+    }
+
+    #[test]
+    fn consent_record_fails_closed_when_c06_destination_is_not_configured() {
+        let publisher = Arc::new(RecordingPublisher::default());
+        let mut registry = WorkerQueueRegistry::default();
+        for queue in WorkerQueue::ALL
+            .into_iter()
+            .filter(|queue| *queue != WorkerQueue::MarketingConsentSync)
+        {
+            registry = registry.with_publisher(queue, publisher.clone());
+        }
+        let router = CdcFanout::new(registry);
+        let fixture =
+            include_str!("../tests/fixtures/dms-kinesis/marketing-consent-intent-insert.json");
+        assert!(matches!(
+            router.prepare_dms_kinesis_record(fixture.as_bytes()),
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::MarketingConsentSync
+            )))
+        ));
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -602,6 +652,10 @@ mod tests {
                 include_str!("../tests/fixtures/dms-kinesis/notification-delivery-insert.json"),
                 1,
             ),
+            (
+                include_str!("../tests/fixtures/dms-kinesis/marketing-consent-intent-insert.json"),
+                1,
+            ),
         ];
         for &(fixture, expected) in fixtures {
             let prepared = router
@@ -616,7 +670,7 @@ mod tests {
             );
         }
         let bodies = publisher.bodies.lock().unwrap();
-        assert_eq!(11, bodies.len());
+        assert_eq!(12, bodies.len());
         for body in bodies.iter() {
             let job: Value = serde_json::from_str(body).unwrap();
             assert_eq!(2, job["schema_version"]);
@@ -636,6 +690,12 @@ mod tests {
                 "../tests/fixtures/dms-kinesis/synthetic-notification-delivery-delete.json"
             ),
             include_str!(
+                "../tests/fixtures/dms-kinesis/synthetic-marketing-consent-intent-update.json"
+            ),
+            include_str!(
+                "../tests/fixtures/dms-kinesis/synthetic-marketing-consent-intent-delete.json"
+            ),
+            include_str!(
                 "../tests/fixtures/dms-kinesis/synthetic-search-filter-match-feedback-update.json"
             ),
         ] {
@@ -648,6 +708,105 @@ mod tests {
                     .publish_prepared(prepared, PUBLICATION_TIMEOUT)
                     .await
                     .unwrap()
+            );
+        }
+        assert!(publisher.bodies.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn consent_insert_publishes_only_the_typed_intent_and_fifo_attributes() {
+        let (router, publisher) = fanout();
+        let fixture =
+            include_str!("../tests/fixtures/dms-kinesis/marketing-consent-intent-insert.json");
+        let prepared = router
+            .prepare_dms_kinesis_record(fixture.as_bytes())
+            .unwrap();
+        assert_eq!(
+            1,
+            router
+                .publish_prepared(prepared, PUBLICATION_TIMEOUT)
+                .await
+                .unwrap()
+        );
+        let bodies = publisher.bodies.lock().unwrap();
+        assert_eq!(1, bodies.len());
+        let job: Value = serde_json::from_str(&bodies[0]).unwrap();
+        assert_eq!("marketing-consent-sync", job["scope"]);
+        assert_eq!("MARKETING_CONSENT_SYNC_INTENT_CREATED", job["job_type"]);
+        assert_eq!(
+            "mci_01h455vb4pex5vy7enb1p677vn",
+            job["payload"]["marketing_consent_sync_intent_id"]
+        );
+        assert_eq!(1, job["payload"].as_object().unwrap().len());
+        for forbidden in [
+            "private@example.test",
+            "profile_snapshot",
+            "raw_token",
+            "consent_proof",
+            "source_key",
+            "lease_token",
+            "provider_payload",
+        ] {
+            assert!(!bodies[0].contains(forbidden));
+        }
+        let fifo = publisher.fifo_attributes.lock().unwrap();
+        assert_eq!(1, fifo.len());
+        let fifo = fifo[0].as_ref().unwrap();
+        assert_eq!(
+            "marketing-email:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            fifo.message_group_id()
+        );
+        assert_eq!(
+            "marketing-consent:mci_01h455vb4pex5vy7enb1p677vn",
+            fifo.message_deduplication_id()
+        );
+    }
+
+    #[test]
+    fn consent_dms_rows_reject_extra_columns_and_invalid_ids_or_keys_before_publication() {
+        let (router, publisher) = fanout();
+        let base: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/marketing-consent-intent-insert.json"
+        ))
+        .unwrap();
+        let mut missing_id = base.clone();
+        missing_id["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("intent_id");
+        assert!(
+            router
+                .prepare_dms_kinesis_record(missing_id.to_string().as_bytes())
+                .is_err()
+        );
+        for (field, value) in [
+            ("email", "private@example.test"),
+            ("profile_snapshot", "{}"),
+            ("source_key", "opaque-source-key"),
+        ] {
+            let mut record = base.clone();
+            record["data"][field] = json!(value);
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        for (field, value) in [
+            ("intent_id", "usr_01h455vb4pex5vy7enb1p677vn"),
+            ("intent_id", "01890a5d-ac96-474b-bf1d-d5586c639f75"),
+            ("recipient_key", "short"),
+            (
+                "recipient_key",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            ),
+        ] {
+            let mut record = base.clone();
+            record["data"][field] = json!(value);
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err()
             );
         }
         assert!(publisher.bodies.lock().unwrap().is_empty());

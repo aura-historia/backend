@@ -12,10 +12,11 @@ pub enum WorkerScope {
     ProductListingOpenSearch,
     ProductListingRawNormalization,
     NotificationDelivery,
+    MarketingConsentSync,
 }
 
 impl WorkerScope {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::SearchFilterProjection,
         Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
@@ -26,6 +27,7 @@ impl WorkerScope {
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::NotificationDelivery,
+        Self::MarketingConsentSync,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -40,6 +42,7 @@ impl WorkerScope {
             Self::ProductListingOpenSearch => "product-listing-opensearch",
             Self::ProductListingRawNormalization => "product-listing-normalization",
             Self::NotificationDelivery => "notification-delivery",
+            Self::MarketingConsentSync => "marketing-consent-sync",
         }
     }
 
@@ -71,6 +74,7 @@ impl WorkerScope {
                 "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_RAW_NORMALIZATION"
             }
             Self::NotificationDelivery => "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY",
+            Self::MarketingConsentSync => "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
         }
     }
 
@@ -86,8 +90,22 @@ impl WorkerScope {
             Self::ProductListingOpenSearch => WorkerQueue::ProductListingOpenSearch,
             Self::ProductListingRawNormalization => WorkerQueue::ProductListingRawNormalization,
             Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
+            Self::MarketingConsentSync => WorkerQueue::MarketingConsentSync,
         }
     }
+
+    pub const fn queue_type(self) -> WorkerQueueType {
+        match self {
+            Self::MarketingConsentSync => WorkerQueueType::Fifo,
+            _ => WorkerQueueType::Standard,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerQueueType {
+    Standard,
+    Fifo,
 }
 
 #[cfg(test)]
@@ -126,6 +144,7 @@ mod tests {
                 WorkerQueue::ProductListingRawNormalization,
             ),
             ("notification-delivery", WorkerQueue::NotificationDelivery),
+            ("marketing-consent-sync", WorkerQueue::MarketingConsentSync),
         ];
         assert_eq!(
             WorkerScope::ALL,
@@ -137,5 +156,19 @@ mod tests {
             assert_eq!(Some(scope), queue.scope());
         }
         assert_eq!(None, WorkerQueue::UserTierEnforcement.scope());
+        assert_eq!(
+            WorkerQueueType::Fifo,
+            WorkerScope::MarketingConsentSync.queue_type()
+        );
+        assert_eq!(
+            "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
+            WorkerScope::MarketingConsentSync.router_queue_url_env()
+        );
+        for scope in WorkerScope::ALL
+            .into_iter()
+            .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
+        {
+            assert_eq!(WorkerQueueType::Standard, scope.queue_type());
+        }
     }
 }
