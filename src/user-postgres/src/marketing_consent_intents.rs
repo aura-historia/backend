@@ -6,6 +6,10 @@ use sqlx::{FromRow, PgConnection};
 use time::{Duration, OffsetDateTime};
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
+use user_service::ports::marketing_consent_intents::{
+    ConsentWorkerClaim, ConsentWorkerClaimOutcome, ConsentWorkerFinalization,
+    ConsentWorkerRecheckOutcome, ConsentWorkerTerminalStatus, MarketingConsentIntentWorker,
+};
 use user_service::ports::{
     ConsentIntent as PortConsentIntent, ConsentIntentSource as PortSource,
     ConsentSubject as PortSubject, ConsentUser, MarketingConsentIntentError,
@@ -135,6 +139,9 @@ pub enum ConsentIntentFinalization<'a> {
         provider_contact_id: Option<&'a str>,
     },
     Failed {
+        error_code: &'a str,
+    },
+    Blocked {
         error_code: &'a str,
     },
 }
@@ -767,61 +774,135 @@ impl SqlxMarketingConsentIntentWorker {
         Self
     }
 
-    pub async fn claim_next(
+    /// Claim only the requested durable ID; a busy or terminal row never makes
+    /// the worker claim some unrelated recipient's intent.
+    pub async fn claim_by_id(
         &self,
         tx: &mut SqlxTransaction,
-    ) -> Result<Option<MarketingConsentIntentClaim>, MarketingConsentPersistenceError> {
-        for _ in 0..32 {
-            let conn = tx.connection();
-            let sql = format!(
-                "SELECT intent_id, recipient_key FROM {TABLE} WHERE status = 'PENDING' OR (status = 'IN_PROGRESS' AND lease_expires_at <= clock_timestamp()) ORDER BY intent_sequence LIMIT 1"
-            );
-            let candidate: Option<(Uuid, String)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?;
-            let Some((id, key)) = candidate else {
-                return Ok(None);
-            };
-            let locked: bool =
-                sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 1937))")
-                    .bind(&key)
-                    .fetch_one(&mut *conn)
-                    .await
-                    .map_err(db)?;
-            if !locked {
-                return Ok(None);
-            }
-            let sql = format!(
-                "UPDATE {TABLE} SET status = 'IN_PROGRESS', lease_token = $2, lease_expires_at = clock_timestamp() + interval '5 minutes', completed_lease_token = NULL, completed_at = NULL, completion_status = NULL, last_error_code = NULL, provider_contact_id = NULL, attempt_count = attempt_count + 1, updated = clock_timestamp() WHERE intent_id = $1 AND (status = 'PENDING' OR (status = 'IN_PROGRESS' AND lease_expires_at <= clock_timestamp())) RETURNING {COLUMNS}"
-            );
-            let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
-                .bind(id)
-                .bind(Uuid::now_v7())
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?;
-            let Some(row) = row else {
-                continue;
-            };
-            let token = row
-                .lease_token
-                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?;
-            let expires = row
-                .lease_expires_at
-                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?;
-            let attempt_count = row.attempt_count;
-            let claim = MarketingConsentIntentClaim {
-                intent: row.into_intent()?,
-                lease_token: token,
-                lease_expires_at: expires,
-                attempt_count,
-            };
-            if self.read_claim(tx, &claim).await?.is_some() {
-                return Ok(Some(claim));
-            }
+        id: MarketingConsentSyncIntentId,
+    ) -> Result<ConsentWorkerClaimOutcome, MarketingConsentPersistenceError> {
+        let conn = tx.connection();
+        let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
+        let Some(candidate) = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+            .bind(id.as_uuid())
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+        else {
+            return Ok(ConsentWorkerClaimOutcome::Missing);
+        };
+        let key = candidate.recipient_key.clone();
+        candidate.into_intent()?;
+        lock_recipient(conn, &key).await?;
+        let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1 FOR UPDATE");
+        let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+            .bind(id.as_uuid())
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(db)?;
+        let Some(row) = row else {
+            return Ok(ConsentWorkerClaimOutcome::Missing);
+        };
+        if row.recipient_key != key {
+            return Err(MarketingConsentPersistenceError::InvalidPersistedState);
         }
-        Ok(None)
+        let status = ConsentIntentStatus::parse(&row.status)?;
+        let expires = row.lease_expires_at;
+        row.into_intent()?;
+        match status {
+            ConsentIntentStatus::Applied => {
+                return Ok(ConsentWorkerClaimOutcome::Terminal(
+                    ConsentWorkerTerminalStatus::Applied,
+                ));
+            }
+            ConsentIntentStatus::Superseded => {
+                return Ok(ConsentWorkerClaimOutcome::Terminal(
+                    ConsentWorkerTerminalStatus::Superseded,
+                ));
+            }
+            ConsentIntentStatus::Blocked => {
+                return Ok(ConsentWorkerClaimOutcome::Terminal(
+                    ConsentWorkerTerminalStatus::Blocked,
+                ));
+            }
+            ConsentIntentStatus::Failed => {
+                return Ok(ConsentWorkerClaimOutcome::Terminal(
+                    ConsentWorkerTerminalStatus::Failed,
+                ));
+            }
+            ConsentIntentStatus::InProgress
+                if expires.is_some_and(|at| at > OffsetDateTime::now_utc()) =>
+            {
+                return Ok(ConsentWorkerClaimOutcome::Deferred {
+                    lease_expires_at: expires.expect("checked above"),
+                });
+            }
+            _ => {}
+        }
+        let sql = format!(
+            "UPDATE {TABLE} SET status = 'IN_PROGRESS', lease_token = $2, lease_expires_at = clock_timestamp() + interval '5 minutes', completed_lease_token = NULL, completed_at = NULL, completion_status = NULL, last_error_code = NULL, provider_contact_id = NULL, attempt_count = attempt_count + 1, updated = clock_timestamp() WHERE intent_id = $1 AND (status = 'PENDING' OR (status = 'IN_PROGRESS' AND lease_expires_at <= clock_timestamp())) RETURNING {COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+            .bind(id.as_uuid())
+            .bind(Uuid::now_v7())
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(db)?;
+        let Some(row) = row else {
+            // The server clock may disagree with the caller near expiry. Report
+            // the persisted lease rather than inventing custody of this row.
+            let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
+            let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+                .bind(id.as_uuid())
+                .fetch_one(tx.connection())
+                .await
+                .map_err(db)?;
+            let status = ConsentIntentStatus::parse(&row.status)?;
+            let expires = row.lease_expires_at;
+            row.into_intent()?;
+            return match status {
+                ConsentIntentStatus::InProgress => Ok(ConsentWorkerClaimOutcome::Deferred {
+                    lease_expires_at: expires
+                        .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?,
+                }),
+                _ => Err(MarketingConsentPersistenceError::InvalidPersistedState),
+            };
+        };
+        let claim = MarketingConsentIntentClaim {
+            lease_token: row
+                .lease_token
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?,
+            lease_expires_at: row
+                .lease_expires_at
+                .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?,
+            attempt_count: row.attempt_count,
+            intent: row.into_intent()?,
+        };
+        if self.read_claim(tx, &claim).await?.is_none() {
+            let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
+            let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+                .bind(id.as_uuid())
+                .fetch_one(tx.connection())
+                .await
+                .map_err(db)?;
+            let status = ConsentIntentStatus::parse(&row.status)?;
+            let expires = row.lease_expires_at;
+            row.into_intent()?;
+            return Ok(match status {
+                ConsentIntentStatus::Superseded => {
+                    ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Superseded)
+                }
+                ConsentIntentStatus::Blocked => {
+                    ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+                }
+                ConsentIntentStatus::InProgress => ConsentWorkerClaimOutcome::Deferred {
+                    lease_expires_at: expires
+                        .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?,
+                },
+                _ => return Err(MarketingConsentPersistenceError::InvalidPersistedState),
+            });
+        }
+        Ok(ConsentWorkerClaimOutcome::Claimed(claim.into()))
     }
 
     /// Recheck the authoritative decision immediately before provider I/O.
@@ -859,6 +940,9 @@ impl SqlxMarketingConsentIntentWorker {
         if intent.subject != claim.intent.subject
             || intent.source != claim.intent.source
             || intent.consent_revision != claim.intent.consent_revision
+            || intent.source_key != claim.intent.source_key
+            || intent.changed_at != claim.intent.changed_at
+            || intent.not_after != claim.intent.not_after
         {
             return Ok(None);
         }
@@ -956,6 +1040,9 @@ impl SqlxMarketingConsentIntentWorker {
             ConsentIntentFinalization::Failed { error_code } => {
                 (ConsentIntentStatus::Failed, None, Some(error_code))
             }
+            ConsentIntentFinalization::Blocked { error_code } => {
+                (ConsentIntentStatus::Blocked, None, Some(error_code))
+            }
         };
         if error_code.is_some_and(|code| code.is_empty() || code.len() > 128)
             || contact_id.is_some_and(|id| id.is_empty() || id.len() > 512)
@@ -965,7 +1052,7 @@ impl SqlxMarketingConsentIntentWorker {
         let conn = tx.connection();
         lock_recipient(&mut *conn, &claim.intent.recipient_key).await?;
         let sql = format!(
-            "SELECT EXISTS (SELECT 1 FROM {TABLE} WHERE intent_id = $1 AND completed_lease_token = $2 AND status = $3 AND completed_at = $4 AND provider_contact_id IS NOT DISTINCT FROM $5 AND last_error_code IS NOT DISTINCT FROM $6 AND email = $7 AND recipient_key = $8 AND desired = $9 AND source = $10 AND user_id IS NOT DISTINCT FROM $11)"
+            "SELECT EXISTS (SELECT 1 FROM {TABLE} WHERE intent_id = $1 AND completed_lease_token = $2 AND status = $3 AND completed_at = $4 AND provider_contact_id IS NOT DISTINCT FROM $5 AND last_error_code IS NOT DISTINCT FROM $6 AND email = $7 AND recipient_key = $8 AND desired = $9 AND source = $10 AND user_id IS NOT DISTINCT FROM $11 AND source_key = $12 AND consent_revision IS NOT DISTINCT FROM $13 AND changed_at = $14 AND not_after IS NOT DISTINCT FROM $15)"
         );
         let replay: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .bind(claim.intent.intent_id.as_uuid())
@@ -982,6 +1069,10 @@ impl SqlxMarketingConsentIntentWorker {
                 ConsentSubject::User(id) => Some(*id.as_uuid()),
                 ConsentSubject::EmailOnly => None,
             })
+            .bind(&claim.intent.source_key)
+            .bind(claim.intent.consent_revision)
+            .bind(claim.intent.changed_at)
+            .bind(claim.intent.not_after)
             .fetch_one(&mut *conn)
             .await
             .map_err(db)?;
@@ -1005,6 +1096,127 @@ impl SqlxMarketingConsentIntentWorker {
             .await
             .map_err(db)?;
         Ok(updated.rows_affected() == 1)
+    }
+}
+
+impl From<MarketingConsentIntentClaim> for ConsentWorkerClaim {
+    fn from(claim: MarketingConsentIntentClaim) -> Self {
+        let intent = claim.intent;
+        Self {
+            recipient_key: intent.recipient_key.clone(),
+            consent_revision: intent.consent_revision,
+            not_after: intent.not_after,
+            changed_at: intent.changed_at,
+            intent: intent.into(),
+            lease_token: claim.lease_token.to_string(),
+            lease_expires_at: claim.lease_expires_at,
+            attempt_count: u32::try_from(claim.attempt_count)
+                .expect("validated persisted attempt count"),
+        }
+    }
+}
+
+fn worker_claim_from_port(
+    claim: &ConsentWorkerClaim,
+) -> Result<MarketingConsentIntentClaim, MarketingConsentPersistenceError> {
+    let token = Uuid::parse_str(&claim.lease_token)
+        .map_err(|_| MarketingConsentPersistenceError::InvalidInput)?;
+    let intent = &claim.intent;
+    Ok(MarketingConsentIntentClaim {
+        intent: MarketingConsentIntent {
+            intent_id: intent.intent_id,
+            source_key: intent.source_key.clone(),
+            subject: match intent.subject {
+                PortSubject::User(id) => ConsentSubject::User(id),
+                PortSubject::EmailOnly => ConsentSubject::EmailOnly,
+            },
+            source: intent.source.into(),
+            email: intent.email.clone(),
+            recipient_key: claim.recipient_key.clone(),
+            desired: intent.desired,
+            consent_revision: claim.consent_revision,
+            changed_at: claim.changed_at,
+            status: ConsentIntentStatus::InProgress,
+            not_after: claim.not_after,
+        },
+        lease_token: token,
+        lease_expires_at: claim.lease_expires_at,
+        attempt_count: i32::try_from(claim.attempt_count)
+            .map_err(|_| MarketingConsentPersistenceError::InvalidInput)?,
+    })
+}
+
+#[async_trait::async_trait]
+impl MarketingConsentIntentWorker<SqlxTransaction> for SqlxMarketingConsentIntentWorker {
+    async fn claim_by_id(
+        &self,
+        tx: &mut SqlxTransaction,
+        id: MarketingConsentSyncIntentId,
+    ) -> Result<ConsentWorkerClaimOutcome, MarketingConsentIntentError> {
+        Ok(SqlxMarketingConsentIntentWorker::claim_by_id(self, tx, id).await?)
+    }
+
+    async fn recheck(
+        &self,
+        tx: &mut SqlxTransaction,
+        claim: &ConsentWorkerClaim,
+    ) -> Result<ConsentWorkerRecheckOutcome, MarketingConsentIntentError> {
+        let local = worker_claim_from_port(claim)?;
+        if let Some(intent) = self.read_claim(tx, &local).await? {
+            return Ok(ConsentWorkerRecheckOutcome::Ready(intent.into()));
+        }
+        let sql = format!("SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1");
+        let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(sql))
+            .bind(claim.intent.intent_id.as_uuid())
+            .fetch_optional(tx.connection())
+            .await
+            .map_err(db)?;
+        let Some(row) = row else {
+            return Ok(ConsentWorkerRecheckOutcome::Missing);
+        };
+        let status = ConsentIntentStatus::parse(&row.status)?;
+        row.into_intent()?;
+        Ok(match status {
+            ConsentIntentStatus::Applied => {
+                ConsentWorkerRecheckOutcome::Terminal(ConsentWorkerTerminalStatus::Applied)
+            }
+            ConsentIntentStatus::Superseded => {
+                ConsentWorkerRecheckOutcome::Terminal(ConsentWorkerTerminalStatus::Superseded)
+            }
+            ConsentIntentStatus::Blocked => {
+                ConsentWorkerRecheckOutcome::Terminal(ConsentWorkerTerminalStatus::Blocked)
+            }
+            ConsentIntentStatus::Failed => {
+                ConsentWorkerRecheckOutcome::Terminal(ConsentWorkerTerminalStatus::Failed)
+            }
+            ConsentIntentStatus::Pending | ConsentIntentStatus::InProgress => {
+                ConsentWorkerRecheckOutcome::LeaseLost
+            }
+        })
+    }
+
+    async fn finalize_claim(
+        &self,
+        tx: &mut SqlxTransaction,
+        claim: &ConsentWorkerClaim,
+        result: ConsentWorkerFinalization<'_>,
+        completed_at: OffsetDateTime,
+    ) -> Result<bool, MarketingConsentIntentError> {
+        let local = worker_claim_from_port(claim)?;
+        let result = match result {
+            ConsentWorkerFinalization::Applied {
+                provider_contact_id,
+            } => ConsentIntentFinalization::Applied {
+                provider_contact_id,
+            },
+            ConsentWorkerFinalization::Failed { error_code } => {
+                ConsentIntentFinalization::Failed { error_code }
+            }
+            ConsentWorkerFinalization::Blocked { error_code } => {
+                ConsentIntentFinalization::Blocked { error_code }
+            }
+        };
+        Ok(self.finalize(tx, &local, result, completed_at).await?)
     }
 }
 

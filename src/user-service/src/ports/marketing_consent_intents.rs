@@ -135,6 +135,84 @@ pub trait MarketingConsentIntents: Send {
     ) -> Result<ConsentIntent, MarketingConsentIntentError>;
 }
 
+/// A committed lease over an immutable target. Never log this value: the target
+/// contains the exact provider email and the source proof key.
+#[derive(Clone)]
+pub struct ConsentWorkerClaim {
+    pub intent: ConsentIntent,
+    pub recipient_key: String,
+    pub consent_revision: Option<i64>,
+    pub not_after: Option<OffsetDateTime>,
+    pub changed_at: OffsetDateTime,
+    pub lease_token: String,
+    pub lease_expires_at: OffsetDateTime,
+    pub attempt_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsentWorkerTerminalStatus {
+    Applied,
+    Superseded,
+    Blocked,
+    Failed,
+}
+
+pub enum ConsentWorkerClaimOutcome {
+    Claimed(ConsentWorkerClaim),
+    Missing,
+    Terminal(ConsentWorkerTerminalStatus),
+    /// An active lease has custody; do not acknowledge or send.
+    Deferred {
+        lease_expires_at: OffsetDateTime,
+    },
+}
+
+pub enum ConsentWorkerRecheckOutcome {
+    Ready(ConsentIntent),
+    Missing,
+    Terminal(ConsentWorkerTerminalStatus),
+    /// The lease is expired, replaced, or otherwise no longer owned.
+    LeaseLost,
+}
+
+#[derive(Clone, Copy)]
+pub enum ConsentWorkerFinalization<'a> {
+    Applied {
+        provider_contact_id: Option<&'a str>,
+    },
+    Failed {
+        error_code: &'a str,
+    },
+    Blocked {
+        error_code: &'a str,
+    },
+}
+
+/// Transaction-bound worker operations. Commit the claim before provider I/O;
+/// recheck before and after it in separate short transactions. Never hold a
+/// transaction over network I/O. A false finalize means no matching receipt or
+/// live lease; only an exact committed token/result/timestamp retry returns true.
+#[async_trait::async_trait]
+pub trait MarketingConsentIntentWorker<Tx>: Send + Sync {
+    async fn claim_by_id(
+        &self,
+        tx: &mut Tx,
+        id: MarketingConsentSyncIntentId,
+    ) -> Result<ConsentWorkerClaimOutcome, MarketingConsentIntentError>;
+    async fn recheck(
+        &self,
+        tx: &mut Tx,
+        claim: &ConsentWorkerClaim,
+    ) -> Result<ConsentWorkerRecheckOutcome, MarketingConsentIntentError>;
+    async fn finalize_claim(
+        &self,
+        tx: &mut Tx,
+        claim: &ConsentWorkerClaim,
+        result: ConsentWorkerFinalization<'_>,
+        completed_at: OffsetDateTime,
+    ) -> Result<bool, MarketingConsentIntentError>;
+}
+
 pub trait MarketingConsentIntentsFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl MarketingConsentIntents + 'tx;
 }

@@ -1,9 +1,12 @@
 use crate::ports::{
-    MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
-    UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
-    UserAdminReaderFactory, UserAdminRemovalDecision,
+    MarketingConsentIntentError, MarketingConsentIntentsFactory, UserAdminMutationGuard,
+    UserAdminMutationGuardFactory, UserAdminReadError, UserAdminReaderFactory,
+    UserAdminRemovalDecision,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use crate::use_cases::commands::coordinate_marketing_consent::{
+    CoordinateMarketingConsentError, MarketingConsentCoordinator,
+};
 use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
@@ -158,19 +161,11 @@ where
             }
             UserAdminRemovalDecision::TargetNotAdmin | UserAdminRemovalDecision::Allowed => {}
         }
-        let mut consent = self.consent.in_transaction(&mut tx);
-        let user = consent
-            .find_user_by_id(command.user_id)
-            .await?
-            .ok_or(DeleteUserError::UserNotFound)?;
-        // One stable source identity per User, independent of HTTP retries or actors.
-        // The adapter atomically deletes this versioned User, cancels stale grants,
-        // and retains the old-address revoke (including when consent was false).
-        let source_key = format!("user-deletion:{}", command.user_id);
-        consent
-            .record_user_deletion(&user, &source_key, OffsetDateTime::now_utc())
-            .await?;
-        drop(consent);
+        // The coordinator owns the stable key and the atomic deletion/revoke decision.
+        MarketingConsentCoordinator::new(&mut tx, &self.consent)
+            .user_deletion(command.user_id, OffsetDateTime::now_utc())
+            .await
+            .map_err(DeleteUserError::from)?;
 
         tx.commit()
             .await
@@ -260,6 +255,27 @@ impl From<UserAdminReadError> for DeleteUserError {
     }
 }
 
+impl From<CoordinateMarketingConsentError> for DeleteUserError {
+    fn from(error: CoordinateMarketingConsentError) -> Self {
+        match error {
+            CoordinateMarketingConsentError::UserNotFound => Self::UserNotFound,
+            CoordinateMarketingConsentError::ConcurrencyConflict
+            | CoordinateMarketingConsentError::SourceKeyConflict => Self::ConcurrencyConflict,
+            CoordinateMarketingConsentError::TemporarilyUnavailable => {
+                Self::TemporarilyUnavailable {
+                    source: application::error::static_error("consent persistence unavailable"),
+                }
+            }
+            CoordinateMarketingConsentError::InvalidPersistedState => Self::InvalidPersistedState {
+                source: application::error::static_error("invalid persisted consent state"),
+            },
+            _ => Self::Internal {
+                source: application::error::static_error("invalid user deletion consent decision"),
+            },
+        }
+    }
+}
+
 impl From<MarketingConsentIntentError> for DeleteUserError {
     fn from(error: MarketingConsentIntentError) -> Self {
         match error {
@@ -325,6 +341,7 @@ mod tests {
         delete_calls: usize,
         source_keys: Vec<String>,
         deleted_emails: Vec<Email>,
+        intent: Option<ConsentIntent>,
     }
 
     #[derive(Clone, Default)]
@@ -457,9 +474,13 @@ mod tests {
     impl MarketingConsentIntents for FakeConsent {
         async fn find_by_source_key(
             &mut self,
-            _: &str,
+            key: &str,
         ) -> Result<Option<ConsentIntent>, MarketingConsentIntentError> {
-            unreachable!()
+            Ok(lock(&self.state)
+                .intent
+                .as_ref()
+                .filter(|intent| intent.source_key == key)
+                .cloned())
         }
         async fn find_user_by_id(
             &mut self,
@@ -529,7 +550,7 @@ mod tests {
             }
             state.source_keys.push(source_key.to_owned());
             state.deleted_emails.push(user.email.clone());
-            Ok(ConsentIntent {
+            let intent = ConsentIntent {
                 intent_id:
                     user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId::new(),
                 source_key: source_key.to_owned(),
@@ -538,7 +559,9 @@ mod tests {
                 email: user.email.clone(),
 
                 desired: false,
-            })
+            };
+            state.intent = Some(intent.clone());
+            Ok(intent)
         }
     }
 
@@ -620,7 +643,14 @@ mod tests {
         let state = lock(&users.state);
         assert_eq!(1, state.find_by_id_calls);
         assert_eq!(1, state.delete_calls);
-        assert_eq!(state.source_keys, [format!("user-deletion:{user_id}")]);
+        assert_eq!(
+            state.source_keys,
+            [
+                crate::use_cases::commands::coordinate_marketing_consent::user_deletion_source_key(
+                    user_id
+                )
+            ]
+        );
         assert_eq!(state.deleted_emails, [email("actor@example.com")]);
         assert_eq!(1, lock(&unit_of_work.state).commits);
     }
@@ -667,6 +697,53 @@ mod tests {
         );
         assert_eq!(1, lock(&consent.state).delete_calls);
         assert_eq!(0, lock(&unit_of_work.state).commits);
+    }
+
+    #[tokio::test]
+    async fn should_reject_conflicting_deletion_replay_without_commit() {
+        let user_id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        let consent = FakeConsentFactory::default();
+        available_user(&consent, user_id);
+        let mut conflicting = ConsentIntent {
+            intent_id:
+                user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId::new(),
+            source_key:
+                crate::use_cases::commands::coordinate_marketing_consent::user_deletion_source_key(
+                    user_id,
+                ),
+            subject: ConsentSubject::User(user_id),
+            source: ConsentIntentSource::UserDeletion,
+            email: email("actor@example.com"),
+            desired: true,
+        };
+        lock(&consent.state).intent = Some(conflicting.clone());
+        let handler =
+            DeleteUserHandler::new(unit_of_work.clone(), consent.clone(), no_admin_reader());
+        assert_error(
+            handler
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    DeleteUserCommand { user_id },
+                )
+                .await,
+            |error| matches!(error, DeleteUserError::ConcurrencyConflict),
+        );
+        assert_eq!(lock(&unit_of_work.state).commits, 0);
+        assert_eq!(lock(&consent.state).delete_calls, 0);
+        conflicting.desired = false;
+        conflicting.subject = ConsentSubject::EmailOnly;
+        lock(&consent.state).intent = Some(conflicting);
+        assert_error(
+            handler
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    DeleteUserCommand { user_id },
+                )
+                .await,
+            |error| matches!(error, DeleteUserError::ConcurrencyConflict),
+        );
+        assert_eq!(lock(&unit_of_work.state).commits, 0);
     }
 
     #[tokio::test]
