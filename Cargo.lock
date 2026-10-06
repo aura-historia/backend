@@ -525,9 +525,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-account"
-version = "1.120.0"
+version = "1.121.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0af5f0f6ef5ad125d4fafeb0b6ec5597d8707ff6f36131d8fcce26809f9c8a28"
+checksum = "bd92c01a438aeb44bc9badfd1258391061963fb7fe707494113316af9774e48a"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -550,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudformation"
-version = "1.129.0"
+version = "1.130.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683262b92cdc471829b0d3d8f981b5e4ed4f5f02d1f81de220740277a735df0f"
+checksum = "86dd8a729789adaf79bfd7c8929329c02f2047474e0b20147db49c33cd4dd916"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -627,9 +627,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-eventbridge"
-version = "1.121.0"
+version = "1.122.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80aeef3f1f2dfa06244d11b70c27400474b53efb532c0b87018b6ea21d0b3b98"
+checksum = "5b665bae2c80672a198b5abb9ab34d62eebb933f95281e878369a20b1d1f73f0"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -652,9 +652,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.148.0"
+version = "1.149.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1aa927e68692a10e7cac3057610fed64d4e0885bad40af27c9226ea49abc499"
+checksum = "5c2bffa87c02c94200887df8bb3df506ed7ed021376c7c898938ac6c264b702e"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
