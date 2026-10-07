@@ -547,7 +547,7 @@ where
                         intent.intent_id.to_string(),
                         revision,
                         now,
-                        "en",
+                        "und",
                     )),
                 })
             }
@@ -609,7 +609,7 @@ where
                         intent.intent_id.to_string(),
                         revision,
                         now,
-                        "en",
+                        "und",
                     )),
                 })
             }
@@ -660,7 +660,7 @@ where
                         intent.intent_id.to_string(),
                         revision,
                         now,
-                        "en",
+                        "und",
                     )),
                 })
             } else {
@@ -682,7 +682,7 @@ where
                         &email,
                         intent.intent_id.to_string(),
                         now,
-                        "en",
+                        "und",
                     )),
                 })
             }
@@ -801,7 +801,7 @@ where
                 intent.intent_id.to_string(),
                 revision,
                 now,
-                "en",
+                "und",
             )),
         })
     } else {
@@ -823,7 +823,7 @@ where
                 email,
                 intent.intent_id.to_string(),
                 now,
-                "en",
+                "und",
             )),
         })
     }
@@ -1369,12 +1369,11 @@ mod tests {
                 .unwrap()
                 .ends_with('Z')
         );
-        assert_eq!(
-            fields["consent_wording_reference"],
-            "webapp:marketing-email-consent:v1"
-        );
-        assert_eq!(fields["consent_wording_locale"], "en");
-        assert!(fields["backend_release_sha"].as_str().is_some());
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(fields["consent_wording_locale"], "und");
+        let sha = fields["backend_release_sha"].as_str().unwrap();
+        assert_eq!(sha.len(), 40);
+        assert!(sha.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_eq!(fields["request_id"], "request");
         assert_eq!(fields["correlation_id"], "correlation");
         for prohibited in [
@@ -1439,6 +1438,8 @@ mod tests {
         assert_eq!(revoke_fields["consent_action"], "REVOKE");
         assert_eq!(revoke_fields["previous_consent"], true);
         assert_eq!(revoke_fields["current_consent"], false);
+        assert_eq!(revoke_fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(revoke_fields["consent_wording_locale"], "und");
         assert!(locked(&state).calls.ends_with(&["transition", "commit"]));
 
         let (failed_state, failed_id) = with_user();
@@ -1503,6 +1504,55 @@ mod tests {
                 .calls
                 .ends_with(&["transition", "commit"])
         );
+    }
+
+    #[test]
+    fn both_email_withdrawal_paths_do_not_claim_signup_wording() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        for registered in [true, false] {
+            let (state, _) = with_user();
+            if registered {
+                locked(&state)
+                    .user
+                    .as_mut()
+                    .unwrap()
+                    .marketing_email_consent = true;
+            } else {
+                locked(&state).user = None;
+            }
+            let output = Arc::new(Mutex::new(Vec::new()));
+            let subscriber = tracing_subscriber::fmt()
+                .json()
+                .with_ansi(false)
+                .with_writer(CommitAwareMakeWriter {
+                    state: state.clone(),
+                    output: output.clone(),
+                })
+                .finish();
+            tracing::subscriber::with_default(subscriber, || {
+                runtime.block_on(handler(&state).execute(
+                    &context(Principal::System),
+                    MarketingConsentDecision::EmailOnlyWithdrawal {
+                        email: email("person@example.test"),
+                        action_id: format!("withdrawal-{registered}"),
+                    },
+                ))
+            })
+            .unwrap();
+            let line = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+            let record: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let fields = &record["fields"];
+            assert_eq!(fields["consent_source"], "USER_WITHDRAWAL");
+            assert_eq!(fields["consent_action"], "REVOKE");
+            assert_eq!(fields["consent_wording_reference"], "not-recorded");
+            assert_eq!(fields["consent_wording_locale"], "und");
+            assert_eq!(
+                fields["subject_kind"],
+                if registered { "USER" } else { "EMAIL_ONLY" }
+            );
+        }
     }
 
     #[test]

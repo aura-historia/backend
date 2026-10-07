@@ -7,8 +7,10 @@ use user_core::user_id::UserId;
 
 const PURPOSE: &str = "EMAIL_MARKETING";
 const EVENT_NAME: &str = "marketing_consent.evidence.v1";
-// Stable reference key; the reviewed fixed signup/DOI copy must stay bound to it in frontend source.
-const WORDING_REFERENCE: &str = "webapp:marketing-email-consent:v1";
+// Frozen English purpose wording is retained in docs/events/flow.md. This is not
+// a claim about which frontend release or translation the user actually saw.
+const WORDING_REFERENCE: &str = "backend:email-marketing-purpose:v1";
+const WORDING_NOT_RECORDED: &str = "not-recorded";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ConsentEvidenceSource {
@@ -109,7 +111,11 @@ impl MarketingConsentEvidence {
             decision_id,
             consent_revision: Some(consent_revision),
             effective_at,
-            wording_reference: WORDING_REFERENCE,
+            wording_reference: if wording_locale == "en" {
+                WORDING_REFERENCE
+            } else {
+                WORDING_NOT_RECORDED
+            },
             wording_locale,
         }
     }
@@ -133,13 +139,22 @@ impl MarketingConsentEvidence {
             decision_id,
             consent_revision: None,
             effective_at,
-            wording_reference: WORDING_REFERENCE,
+            wording_reference: if wording_locale == "en" {
+                WORDING_REFERENCE
+            } else {
+                WORDING_NOT_RECORDED
+            },
             wording_locale,
         }
     }
 
     pub(crate) fn with_wording_locale(mut self, locale: &'static str) -> Self {
         self.wording_locale = locale;
+        self.wording_reference = if locale == "en" {
+            WORDING_REFERENCE
+        } else {
+            WORDING_NOT_RECORDED
+        };
         self
     }
 
@@ -210,14 +225,26 @@ impl MarketingConsentEvidence {
 }
 
 pub(crate) fn wording_locale(language: Option<Language>) -> &'static str {
-    language.map(Language::as_str).unwrap_or("en")
+    // Only the frozen English purpose text has a source mapping today. Do not
+    // ascribe a translation or a default language to an unobserved frontend.
+    match language {
+        Some(Language::En) => "en",
+        _ => "und",
+    }
 }
 
 fn backend_release_sha() -> String {
-    std::env::var("BACKEND_RELEASE_SHA")
-        .ok()
-        .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .unwrap_or_else(|| "unknown".to_owned())
+    #[cfg(test)]
+    let value = std::env::var("BACKEND_RELEASE_SHA")
+        .unwrap_or_else(|_| "0123456789abcdef0123456789abcdef01234567".to_owned());
+    #[cfg(not(test))]
+    let value = std::env::var("BACKEND_RELEASE_SHA")
+        .expect("BACKEND_RELEASE_SHA must be configured before emitting consent evidence");
+    assert!(
+        value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "BACKEND_RELEASE_SHA must be a 40-character hexadecimal SHA"
+    );
+    value
 }
 
 fn safe_log_identifier(value: &str) -> bool {
@@ -272,8 +299,26 @@ mod tests {
     }
 
     #[test]
-    fn validated_locale_codes_are_used_and_missing_locale_is_english() {
-        assert_eq!(wording_locale(Some(Language::De)), "de");
-        assert_eq!(wording_locale(None), "en");
+    fn only_mapped_english_wording_gets_a_locale() {
+        assert_eq!(wording_locale(Some(Language::En)), "en");
+        assert_eq!(wording_locale(Some(Language::De)), "und");
+        assert_eq!(wording_locale(None), "und");
+        let evidence = MarketingConsentEvidence::email_only(
+            ConsentEvidenceSource::AuraDoubleOptIn,
+            ConsentEvidenceAction::Grant,
+            &Email::try_from("person@example.test").unwrap(),
+            "decision".to_owned(),
+            OffsetDateTime::UNIX_EPOCH,
+            "und",
+        );
+        assert_eq!(evidence.wording_reference, "not-recorded");
+        let english = evidence.with_wording_locale("en");
+        assert_eq!(
+            english.wording_reference,
+            "backend:email-marketing-purpose:v1"
+        );
+        assert_eq!(english.wording_locale, "en");
+        let unknown = english.with_wording_locale("und");
+        assert_eq!(unknown.wording_reference, "not-recorded");
     }
 }
