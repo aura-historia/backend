@@ -1,5 +1,5 @@
 use crate::auth::RequestMetadata;
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::{ApiError, BAD_BODY_VALUE, LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE};
 pub(crate) mod cache;
 use axum::Router;
 use axum::extract::Request;
@@ -19,9 +19,13 @@ pub(crate) const CORRELATION_ID_HEADER: HeaderName = HeaderName::from_static("x-
 
 const WOOCOMMERCE_DELIVERY_ID_HEADER: HeaderName =
     HeaderName::from_static("x-wc-webhook-delivery-id");
+const LOOPS_WEBHOOK_ID_HEADER: HeaderName = HeaderName::from_static("webhook-id");
+const LOOPS_WEBHOOK_TIMESTAMP_HEADER: HeaderName = HeaderName::from_static("webhook-timestamp");
+const LOOPS_WEBHOOK_SIGNATURE_HEADER: HeaderName = HeaderName::from_static("webhook-signature");
 const IDEMPOTENCY_KEY_HEADER: HeaderName = HeaderName::from_static("idempotency-key");
 const MAX_CORRELATION_ID_LENGTH: usize = 128;
 const MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
+pub(crate) const MAX_LOOPS_WEBHOOK_BODY_BYTES: usize = 64 * 1024;
 /// Leave time to map and serialize a bounded publisher outcome before the HTTP timeout.
 pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(300);
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,6 +49,9 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
             header::COOKIE,
             HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-wc-webhook-signature"),
+            LOOPS_WEBHOOK_ID_HEADER,
+            LOOPS_WEBHOOK_TIMESTAMP_HEADER,
+            LOOPS_WEBHOOK_SIGNATURE_HEADER,
             IDEMPOTENCY_KEY_HEADER,
         ]))
         .layer(TimeoutLayer::with_status_code(
@@ -69,6 +76,9 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                     header::CONTENT_TYPE,
                     HeaderName::from_static("x-wc-webhook-topic"),
                     HeaderName::from_static("x-wc-webhook-signature"),
+                    LOOPS_WEBHOOK_ID_HEADER,
+                    LOOPS_WEBHOOK_TIMESTAMP_HEADER,
+                    LOOPS_WEBHOOK_SIGNATURE_HEADER,
                     WOOCOMMERCE_DELIVERY_ID_HEADER,
                     CORRELATION_ID_HEADER,
                     IDEMPOTENCY_KEY_HEADER,
@@ -107,20 +117,31 @@ async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Respo
         && path
             .strip_prefix("/api/v1/webhooks/woocommerce/")
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
+    let loops_webhook = request.method() == Method::POST && path == "/api/v1/webhooks/loops";
     let response = next.run(request).await;
-    if (async_ingestion || woocommerce_webhook)
+    if (async_ingestion || woocommerce_webhook || loops_webhook)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
             .headers()
             .get(header::CONTENT_TYPE)
             .is_some_and(|value| value == "text/plain; charset=utf-8")
     {
-        ApiError::new(
-            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
-            "Payload Too Large",
-            BAD_BODY_VALUE,
-        )
-        .into_response()
+        if loops_webhook {
+            ApiError::new(
+                axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                "Payload Too Large",
+                LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE,
+            )
+            .with_detail("The webhook body exceeds the supported limit.")
+            .into_response()
+        } else {
+            ApiError::new(
+                axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                "Payload Too Large",
+                BAD_BODY_VALUE,
+            )
+            .into_response()
+        }
     } else {
         response
     }

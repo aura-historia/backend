@@ -371,6 +371,15 @@ fn event_kind(event_name: &str) -> Option<NewsletterWebhookEventKind> {
     }
 }
 
+impl LoopsNewsletterWebhookVerifier {
+    /// Validates the configured webhook signing secret without inspecting a request.
+    pub fn validate_signing_secret(
+        signing_secret: &str,
+    ) -> Result<(), NewsletterWebhookVerificationError> {
+        decode_signing_secret(signing_secret).map(|_| ())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
