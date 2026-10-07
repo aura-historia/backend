@@ -90,6 +90,7 @@ members = [
     "src/user-core",
     "src/user-service",
     "src/user-cognito",
+    "src/user-email-aws",
     "src/user-postgres",
     "src/user-loops",
     "src/notification-core",
@@ -263,6 +264,7 @@ proc-macro2 = "1.0.106"
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
 user-cognito = { path = "src/user-cognito" }
+user-email-aws = { path = "src/user-email-aws" }
 user-postgres = { path = "src/user-postgres" }
 user-loops = { path = "src/user-loops" }
 serde-email = "4.0.0"

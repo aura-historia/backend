@@ -10,6 +10,7 @@ Read only the contract for the boundary you are changing. [`arch.md`](arch.md) i
 | CDC and workers | [Event flow](events/flow.md) for routes/contracts; [worker runbook](durable-worker-runbook.md) for activation, custody and recovery |
 | Crawler | [Crawler guide](crawler/README.md) |
 | OpenSearch stage | [Stage runbook](opensearch-stage.md) |
+| Newsletter confirmation email | [SES sender, frontend link and deployment contract](newsletter-confirmation-email.md) |
 | AWS deployment | [Infrastructure guide](../infra/README.md) |
 
 Documentation and CDK declarations are not proof of deployed state. Follow the owning runbook and record approved environment evidence before activation.

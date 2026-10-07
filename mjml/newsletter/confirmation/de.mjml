@@ -1,0 +1,49 @@
+<mjml lang="de">
+  <mj-head>
+    <mj-attributes>
+      <mj-all font-family="Manrope, Helvetica, Arial, sans-serif" />
+      <mj-text color="#1c1c16" font-size="15px" line-height="1.6" />
+      <mj-button background-color="#42120f" color="#ffffff" border-radius="4px" font-size="15px" inner-padding="12px 32px" />
+      <mj-section padding="0" />
+      <mj-column padding="0" />
+      <mj-divider border-color="#E8E0D6" border-width="1px" />
+    </mj-attributes>
+    <mj-title>Newsletter-Anmeldung bei Aura Historia bestätigen</mj-title>
+    <mj-preview>Bestätigen Sie Ihre E-Mail-Adresse für den Aura Historia Newsletter.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section padding="32px 24px 20px" />
+    <mj-section padding="0 24px">
+      <mj-column><mj-divider border-color="#42120f" border-width="2px" padding="0" /></mj-column>
+    </mj-section>
+    <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Hallo {{first_name}},{{else}}Guten Tag,{{/if}}</mj-text>
+        <mj-text font-family="'Newsreader', Georgia, serif" font-size="26px" font-weight="600">Newsletter-Anmeldung bestätigen</mj-text>
+        <mj-text>Sie haben den Aura Historia Newsletter angefordert. Bitte bestätigen Sie Ihre E-Mail-Adresse über die Schaltfläche unten. Erst danach wird Ihre Anmeldung aktiviert.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
+      <mj-column>
+        <mj-button href="{{confirmation_url}}" align="center">Anmeldung bestätigen</mj-button>
+        <mj-text>Dieser Bestätigungslink ist 24 Stunden gültig. Wenn Sie die Anmeldung nicht angefordert haben, können Sie diese E-Mail einfach ignorieren.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section padding="24px 0 0">
+      <mj-column><mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" /></mj-column>
+    </mj-section>
+    <mj-section padding="24px 24px 32px">
+      <mj-column>
+        <mj-divider />
+        <mj-text color="#6d625d" font-size="12px" line-height="1.6" align="center">
+          © 2026 Aura Historia — Alle Rechte vorbehalten.<br />
+          <a href="mailto:contact@aura-historia.com" style="color:#42120f;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#42120f;text-decoration:none;">aura-historia.com</a>
+          <br /><br />Impressum<br />
+          Handelsname: Aura Historia &middot; Inhaber: Julian Bruder Einzelunternehmen<br />
+          Anschrift: Hardenbergstraße 80, 04275 Leipzig, Deutschland<br />
+          Kontakt: contact@aura-historia.com &middot; USt-IdNr.: beantragt
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>
