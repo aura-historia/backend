@@ -52,9 +52,17 @@ struct Contact {
     opt_in_status: Option<String>,
 }
 
+struct ObservedContact {
+    id: String,
+    subscribed: bool,
+    eligible_opt_in: bool,
+    on_target_list: bool,
+}
+
 pub struct LoopsMarketingEmailConsentWriter {
     config: LoopsNewsletterConfig,
     client: reqwest::Client,
+    request_timeout: Duration,
 }
 
 impl LoopsMarketingEmailConsentWriter {
@@ -66,7 +74,26 @@ impl LoopsMarketingEmailConsentWriter {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| Error::Protocol { status: None })?;
-        Ok(Self { config, client })
+        Ok(Self {
+            config,
+            client,
+            request_timeout: Duration::from_secs(5),
+        })
+    }
+
+    // An arbitrary reqwest client cannot be inspected for redirect policy. Keep injection
+    // test-only so production always uses the bounded, no-redirect constructor above.
+    #[cfg(test)]
+    fn with_client(
+        config: LoopsNewsletterConfig,
+        client: reqwest::Client,
+        request_timeout: Duration,
+    ) -> Self {
+        Self {
+            config,
+            client,
+            request_timeout,
+        }
     }
 
     fn profile_payload(&self, intent: &ConsentIntent) -> Map<String, Value> {
@@ -117,7 +144,7 @@ impl LoopsMarketingEmailConsentWriter {
             .client
             .put(self.config.update_url.clone())
             .header(AUTHORIZATION, self.config.authorization.clone())
-            .timeout(Duration::from_secs(5))
+            .timeout(self.request_timeout)
             .json(&payload)
             .send()
             .await
@@ -168,14 +195,14 @@ impl LoopsMarketingEmailConsentWriter {
         Ok(accepted.id)
     }
 
-    async fn suppression(&self, email: &Email, id: &str) -> Result<bool, Error> {
+    async fn suppression(&self, email: &Email, expected_id: Option<&str>) -> Result<bool, Error> {
         let mut url = self.config.suppression_url.clone();
         url.query_pairs_mut().append_pair("email", email.as_ref());
         let response = self
             .client
             .get(url)
             .header(AUTHORIZATION, self.config.authorization.clone())
-            .timeout(Duration::from_secs(5))
+            .timeout(self.request_timeout)
             .send()
             .await
             .map_err(|_| Error::ReadUnavailable)?;
@@ -193,20 +220,23 @@ impl LoopsMarketingEmailConsentWriter {
         let body = read_bounded(response).await?;
         let result: SuppressionResponse =
             serde_json::from_slice(&body).map_err(|_| Error::Protocol { status: code })?;
-        if result.contact.id != id || result.contact.email != email.as_ref() {
+        if result.contact.id.trim().is_empty()
+            || result.contact.email != email.as_ref()
+            || expected_id.is_some_and(|id| result.contact.id != id)
+        {
             return Err(Error::Protocol { status: code });
         }
         Ok(result.is_suppressed)
     }
 
-    async fn find(&self, email: &Email) -> Result<State, Error> {
+    async fn find_contact(&self, email: &Email) -> Result<Option<ObservedContact>, Error> {
         let mut url = self.config.find_url.clone();
         url.query_pairs_mut().append_pair("email", email.as_ref());
         let response = self
             .client
             .get(url)
             .header(AUTHORIZATION, self.config.authorization.clone())
-            .timeout(Duration::from_secs(5))
+            .timeout(self.request_timeout)
             .send()
             .await
             .map_err(|error| {
@@ -231,24 +261,22 @@ impl LoopsMarketingEmailConsentWriter {
         let contacts: Vec<Contact> =
             serde_json::from_slice(&body).map_err(|_| Error::Protocol { status: code })?;
         match contacts.as_slice() {
-            [] => Ok(State::Missing),
+            [] => Ok(None),
             [contact] if !contact.id.trim().is_empty() && contact.email == email.as_ref() => {
                 // A pending/rejected provider DOI is not marketing eligibility.
-                let accepted_opt_in = contact
-                    .opt_in_status
-                    .as_deref()
-                    .is_none_or(|v| v == "accepted");
-                let suppressed = self.suppression(email, &contact.id).await?;
-                Ok(State::Present {
-                    contact_id: contact.id.clone(),
-                    suppressed,
-                    globally_subscribed: contact.subscribed && accepted_opt_in,
+                Ok(Some(ObservedContact {
+                    id: contact.id.clone(),
+                    subscribed: contact.subscribed,
+                    eligible_opt_in: contact
+                        .opt_in_status
+                        .as_deref()
+                        .is_none_or(|v| v == "accepted"),
                     on_target_list: contact
                         .mailing_lists
                         .get(&self.config.newsletter_list_id)
                         .copied()
                         .unwrap_or(false),
-                })
+                }))
             }
             _ => Err(Error::Protocol { status: code }),
         }
@@ -273,50 +301,67 @@ async fn read_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, Error>
     Ok(body)
 }
 
+fn readback_error(error: Error) -> Error {
+    match error {
+        Error::Protocol { .. } => error,
+        _ => Error::AcceptanceUnknown,
+    }
+}
+
 #[async_trait]
 impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
     async fn current_state(&self, email: &Email) -> Result<State, Error> {
-        self.find(email).await
+        let Some(contact) = self.find_contact(email).await? else {
+            return Ok(State::Missing);
+        };
+        let suppressed = self.suppression(email, Some(&contact.id)).await?;
+        Ok(State::Present {
+            contact_id: contact.id,
+            suppressed,
+            globally_subscribed: contact.subscribed && contact.eligible_opt_in,
+            on_target_list: contact.on_target_list,
+        })
     }
 
     async fn grant(&self, intent: &ConsentIntent) -> Result<Outcome, Error> {
         if !intent.desired || intent.source == ConsentIntentSource::ProviderRaceRepair {
             return Err(Error::IneligibleIntent);
         }
-        match self.find(&intent.email).await? {
-            State::Present {
-                suppressed: true, ..
-            } => {
-                return Ok(Outcome::BlockedByProviderPreferences);
-            }
-            State::Present {
-                contact_id,
-                globally_subscribed: true,
-                on_target_list: true,
-                suppressed: false,
-            } => {
-                return Ok(Outcome::AlreadyApplied {
-                    contact_id: Some(contact_id),
-                });
-            }
-            _ => {}
+        let before = self.find_contact(&intent.email).await?;
+        let suppressed = self
+            .suppression(
+                &intent.email,
+                before.as_ref().map(|contact| contact.id.as_str()),
+            )
+            .await?;
+        if suppressed {
+            return Ok(Outcome::BlockedByProviderPreferences);
+        }
+        if let Some(contact) = before
+            && contact.subscribed
+            && contact.eligible_opt_in
+            && contact.on_target_list
+        {
+            return Ok(Outcome::AlreadyApplied {
+                contact_id: Some(contact.id),
+            });
         }
         let id = self.send_update(self.consent_payload(intent, true)).await?;
-        match self
-            .find(&intent.email)
-            .await
-            .map_err(|error| match error {
-                Error::Protocol { .. } => error,
-                _ => Error::AcceptanceUnknown,
-            })? {
-            State::Present {
-                contact_id,
-                globally_subscribed: true,
-                on_target_list: true,
-                suppressed: false,
-            } if contact_id == id => Ok(Outcome::Applied { contact_id }),
-            State::Present { contact_id, .. } if contact_id == id => {
-                Ok(Outcome::BlockedByProviderPreferences)
+        // Both independent reads are required after acceptance, even if find returns Missing.
+        let after = self.find_contact(&intent.email).await;
+        let suppression = self.suppression(&intent.email, Some(&id)).await;
+        let after = after.map_err(readback_error)?;
+        let suppressed = suppression.map_err(readback_error)?;
+        if suppressed {
+            return Ok(Outcome::BlockedByProviderPreferences);
+        }
+        match after {
+            Some(contact) if contact.id == id => {
+                if contact.subscribed && contact.eligible_opt_in && contact.on_target_list {
+                    Ok(Outcome::Applied { contact_id: id })
+                } else {
+                    Ok(Outcome::BlockedByProviderPreferences)
+                }
             }
             _ => Err(Error::AcceptanceUnknown),
         }
@@ -326,16 +371,11 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
         if intent.desired {
             return Err(Error::IneligibleIntent);
         }
-        match self.find(&intent.email).await? {
-            State::Missing => return Ok(Outcome::AlreadyApplied { contact_id: None }),
-            State::Present {
-                contact_id,
-                globally_subscribed: false,
-                on_target_list: false,
-                ..
-            } => {
+        match self.find_contact(&intent.email).await? {
+            None => return Ok(Outcome::AlreadyApplied { contact_id: None }),
+            Some(contact) if !contact.subscribed && !contact.on_target_list => {
                 return Ok(Outcome::AlreadyApplied {
-                    contact_id: Some(contact_id),
+                    contact_id: Some(contact.id),
                 });
             }
             _ => {}
@@ -344,19 +384,14 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
             .send_update(self.consent_payload(intent, false))
             .await?;
         match self
-            .find(&intent.email)
+            .find_contact(&intent.email)
             .await
-            .map_err(|error| match error {
-                Error::Protocol { .. } => error,
-                _ => Error::AcceptanceUnknown,
-            })? {
-            State::Missing => Ok(Outcome::Applied { contact_id: id }),
-            State::Present {
-                contact_id,
-                globally_subscribed: false,
-                on_target_list: false,
-                ..
-            } if contact_id == id => Ok(Outcome::Applied { contact_id }),
+            .map_err(readback_error)?
+        {
+            None => Ok(Outcome::Applied { contact_id: id }),
+            Some(contact) if contact.id == id && !contact.subscribed && !contact.on_target_list => {
+                Ok(Outcome::Applied { contact_id: id })
+            }
             _ => Err(Error::AcceptanceUnknown),
         }
     }
@@ -455,6 +490,16 @@ mod tests {
             .await;
     }
 
+    async fn requests_to(server: &MockServer, endpoint: &str) -> usize {
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == endpoint)
+            .count()
+    }
+
     fn accepted() -> ResponseTemplate {
         ResponseTemplate::new(200).set_body_json(json!({"success": true, "id": ID}))
     }
@@ -525,6 +570,11 @@ mod tests {
                 contact_id: ID.into()
             }
         );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 2);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            2
+        );
     }
 
     #[tokio::test]
@@ -544,6 +594,46 @@ mod tests {
                 .iter()
                 .all(|request| request.method.as_str() == "GET")
         );
+    }
+
+    #[tokio::test]
+    async fn missing_contact_still_checks_suppression_before_grant() {
+        let server = MockServer::start().await;
+        find_mock(&server, json!([])).await;
+        suppression_mock(&server, true).await;
+        assert_eq!(
+            writer(&server).grant(&intent(true)).await.unwrap(),
+            Outcome::BlockedByProviderPreferences
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 1);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            1
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
+    }
+
+    #[tokio::test]
+    async fn inconclusive_missing_contact_suppression_never_grants() {
+        for response in [
+            ResponseTemplate::new(503),
+            ResponseTemplate::new(200).set_body_json(json!({"isSuppressed": false})),
+        ] {
+            let server = MockServer::start().await;
+            find_mock(&server, json!([])).await;
+            Mock::given(method("GET"))
+                .and(path("/api/v1/contacts/suppression"))
+                .and(query_param("email", EMAIL))
+                .respond_with(response)
+                .expect(1)
+                .mount(&server)
+                .await;
+            assert!(matches!(
+                writer(&server).grant(&intent(true)).await,
+                Err(Error::ReadUnavailable | Error::Protocol { .. })
+            ));
+            assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
+        }
     }
 
     #[tokio::test]
@@ -631,21 +721,36 @@ mod tests {
             writer.consent_payload(&repair, false),
             json!({"email": EMAIL, "subscribed": false, "mailingLists": {(LIST): false}})
         );
-        assert!(
-            server
-                .received_requests()
-                .await
-                .unwrap()
-                .iter()
-                .all(|request| request.method.as_str() == "GET")
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 1);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            0
         );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
+    }
+
+    #[tokio::test]
+    async fn already_safe_revoke_needs_neither_suppression_nor_update() {
+        let server = MockServer::start().await;
+        find_mock(&server, contact(false, false)).await;
+        assert_eq!(
+            writer(&server).revoke(&intent(false)).await.unwrap(),
+            Outcome::AlreadyApplied {
+                contact_id: Some(ID.into())
+            }
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 1);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            0
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
     }
 
     #[tokio::test]
     async fn revoke_existing_uses_explicit_false_flags_and_never_touches_other_lists() {
         let server = MockServer::start().await;
         find_mock(&server, contact(true, true)).await;
-        suppression_mock(&server, false).await;
         Mock::given(method("PUT"))
             .and(path("/api/v1/contacts/update"))
             .and(body_json(
@@ -665,7 +770,6 @@ mod tests {
     async fn revoke_applies_only_after_false_flags_readback() {
         let server = MockServer::start().await;
         transitioning_find(&server, contact(true, true), contact(false, false)).await;
-        suppression_mock(&server, false).await;
         Mock::given(method("PUT"))
             .and(path("/api/v1/contacts/update"))
             .and(body_json(
@@ -681,13 +785,29 @@ mod tests {
                 contact_id: ID.into()
             }
         );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 2);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            0
+        );
     }
 
     #[tokio::test]
     async fn suppressed_grant_readback_does_not_claim_applied() {
         let server = MockServer::start().await;
         transitioning_find(&server, json!([]), contact(true, true)).await;
-        suppression_mock(&server, true).await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path("/api/v1/contacts/suppression"))
+            .respond_with(move |_: &wiremock::Request| {
+                let suppressed = reads.fetch_add(1, Ordering::SeqCst) != 0;
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "contact": {"id": ID, "email": EMAIL}, "isSuppressed": suppressed
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
         Mock::given(method("PUT"))
             .respond_with(accepted())
             .expect(1)
@@ -703,6 +823,7 @@ mod tests {
     async fn missing_grant_readback_is_uncertain() {
         let server = MockServer::start().await;
         transitioning_find(&server, json!([]), json!([])).await;
+        suppression_mock(&server, false).await;
         Mock::given(method("PUT"))
             .respond_with(accepted())
             .expect(1)
@@ -712,6 +833,109 @@ mod tests {
             writer(&server).grant(&intent(true)).await.unwrap_err(),
             Error::AcceptanceUnknown
         );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 2);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn accepted_grant_with_unavailable_post_suppression_is_not_applied() {
+        let server = MockServer::start().await;
+        transitioning_find(&server, json!([]), contact(true, true)).await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path("/api/v1/contacts/suppression"))
+            .and(query_param("email", EMAIL))
+            .respond_with(move |_: &wiremock::Request| {
+                if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "contact": {"id": ID, "email": EMAIL}, "isSuppressed": false
+                    }))
+                } else {
+                    ResponseTemplate::new(503)
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .respond_with(accepted())
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert_eq!(
+            writer(&server).grant(&intent(true)).await.unwrap_err(),
+            Error::AcceptanceUnknown
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 2);
+        assert_eq!(
+            requests_to(&server, "/api/v1/contacts/suppression").await,
+            2
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 1);
+    }
+
+    #[tokio::test]
+    async fn injected_client_classifies_prewrite_connection_failure_as_not_sent() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}/api", listener.local_addr().unwrap());
+        let config =
+            LoopsNewsletterConfig::new("synthetic-key".into(), LIST.into(), base_url).unwrap();
+        drop(listener);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let writer = LoopsMarketingEmailConsentWriter::with_client(
+            config,
+            client,
+            Duration::from_millis(50),
+        );
+        assert_eq!(
+            writer
+                .send_update(writer.consent_payload(&intent(true), true))
+                .await
+                .unwrap_err(),
+            Error::NotSent
+        );
+    }
+
+    #[tokio::test]
+    async fn injected_client_classifies_write_timeout_as_acceptance_unknown() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .respond_with(accepted().set_delay(Duration::from_millis(250)))
+            .mount(&server)
+            .await;
+        let config = LoopsNewsletterConfig::new(
+            "synthetic-key".into(),
+            LIST.into(),
+            format!("{}/api", server.uri()),
+        )
+        .unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(50))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let writer = LoopsMarketingEmailConsentWriter::with_client(
+            config,
+            client,
+            Duration::from_millis(50),
+        );
+        assert_eq!(
+            writer
+                .send_update(writer.consent_payload(&intent(true), true))
+                .await
+                .unwrap_err(),
+            Error::AcceptanceUnknown
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 1);
     }
 
     #[tokio::test]
@@ -743,6 +967,7 @@ mod tests {
         ] {
             let server = MockServer::start().await;
             find_mock(&server, json!([])).await;
+            suppression_mock(&server, false).await;
             Mock::given(method("PUT"))
                 .and(path("/api/v1/contacts/update"))
                 .respond_with(ResponseTemplate::new(status).set_body_json(body))
@@ -761,6 +986,7 @@ mod tests {
     async fn oversized_or_redirected_write_never_counts_as_success_or_forwards_credentials() {
         let server = MockServer::start().await;
         find_mock(&server, json!([])).await;
+        suppression_mock(&server, false).await;
         Mock::given(method("PUT"))
             .and(path("/api/v1/contacts/update"))
             .respond_with(
@@ -777,6 +1003,7 @@ mod tests {
 
         let server = MockServer::start().await;
         find_mock(&server, json!([])).await;
+        suppression_mock(&server, false).await;
         Mock::given(method("PUT"))
             .and(path("/api/v1/contacts/update"))
             .respond_with(
