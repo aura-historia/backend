@@ -278,7 +278,32 @@ function tableMappings(): Record<string, unknown> {
     },
     {
       table: "marketing_email_consent_sync_intents",
-      removedColumns: [],
+      // DMS permits only one transformation per column. Keep the two router
+      // fields by removing every other column, then rename intent_id once.
+      removedColumns: [
+        "intent_sequence",
+        "source_key",
+        "subject_type",
+        "source",
+        "user_id",
+        "email",
+        "desired",
+        "consent_revision",
+        "changed_at",
+        "profile_snapshot",
+        "status",
+        "attempt_count",
+        "lease_token",
+        "lease_expires_at",
+        "completed_lease_token",
+        "completed_at",
+        "completion_status",
+        "provider_contact_id",
+        "last_error_code",
+        "not_after",
+        "created",
+        "updated",
+      ],
     },
   ];
 
@@ -312,20 +337,6 @@ function tableMappings(): Record<string, unknown> {
     }
   }
 
-  for (const column of ["intent_id", "recipient_key"] as const) {
-    rules.push({
-      "rule-type": "transformation",
-      "rule-id": nextRule(),
-      "rule-name": `include-marketing-consent-${column}`,
-      "rule-target": "column",
-      "object-locator": {
-        "schema-name": "public",
-        "table-name": "marketing_email_consent_sync_intents",
-        "column-name": column,
-      },
-      "rule-action": "include-column",
-    });
-  }
   rules.push({
     "rule-type": "transformation",
     "rule-id": nextRule(),

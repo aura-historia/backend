@@ -1,6 +1,6 @@
 # Durable CDC and worker operations
 
-**Target, not verified live state.** PostgreSQL is business truth; the intended path is DMS CDC → seven-day Kinesis → router Lambda → ten scoped Standard pairs plus one marketing-consent FIFO SQS source/DLQ pair → workers. `CdcRouterEnabled` is separate from compute creation (which activates worker mappings). [Architecture §12](arch.md#12-cdc-and-projection-architecture) owns invariants, [event flow](events/flow.md) owns routing, and [infrastructure](../infra/README.md#first-time-stage) owns deployment order. DMS selection changes, slot/LSN, first-start/capture evidence and external source decommissioning require a separately approved operator plan; code and CDK do not prove live activation.
+**Target, not verified live state.** PostgreSQL is business truth; the intended path is DMS CDC → seven-day Kinesis → router Lambda → ten scoped Standard pairs plus one marketing-consent FIFO SQS source/DLQ pair → workers. `CdcRouterEnabled` is separate from compute creation (which activates worker mappings). [Architecture §12](arch.md#12-cdc-and-projection-architecture) owns invariants, [event flow](events/flow.md) owns routing, and [infrastructure](../infra/README.md#first-time-stage) owns deployment order. Applying the data stack carries declared DMS table-selection changes into task configuration, subject to DMS update constraints and task state; it does not start or restart DMS. Approval and coordination before that deployment, first-start/restart handling, slot/LSN and capture evidence, and external source decommissioning require an operator plan. Code and CDK do not prove live activation.
 
 ## Activation and legacy handoff
 
@@ -20,8 +20,10 @@ Worker source queues retain seven days and paired DLQs 14; transfer preserves or
 Deploy the applied consent schema and selected-release `marketing-consent-sync-lambda`
 before creating its active batch-one mapping. Its source and DLQ are retained in
 both real stages; the router mapping stays disabled until separately approved.
-DMS source-selection changes and first start are operator actions, not automatic
-side effects of a stack deployment. The source retries five receives and then
+The data-stack deployment delivers the declared DMS source-selection change to
+the task configuration, subject to DMS update constraints and task state; it
+does not start or restart DMS. Approve and coordinate that deployment, and keep
+first start or any required restart as operator actions. The source retries five receives and then
 stops in its DLQ; router failures can stop in the retained S3 archive after the
 mapping retry/age limits. Neither location retries forever or replays itself.
 Before a controlled replay, inspect the intent's PostgreSQL status, source/DLQ

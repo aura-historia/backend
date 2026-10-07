@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use aws_sdk_cloudformation::{error::ProvideErrorMetadata, types::StackStatus};
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use futures::stream::{self, StreamExt};
+use serde::Deserialize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,27 +29,21 @@ const COMMIT_SHA: &str = "local";
 /// unsigned OpenSearch proxy without username/password credentials.
 const STAGE: &str = "ephemeral";
 
-/// All Lambda binary names that the ephemeral CloudFormation stack requires.
-///
-/// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
-const LAMBDA_BINARIES: &[&str] = &[
-    "aura-historia-api",
-    "cognito-post-confirmation",
-    "cloudwatch-log-retention-lambda",
-    "shopify-lambda",
-    "stripe-lambda",
-    "fxrate-lambda",
-    "product-listing-opensearch-lambda",
-];
+/// Shared catalog for the artifact-backed Lambda functions in the ephemeral stack.
+const EPHEMERAL_LAMBDA_ARTIFACT_CATALOG: &str =
+    include_str!("../../../ci/ephemeral-lambda-binaries.json");
 
-const POSTGRES_LAMBDA_BINARIES: &[&str] = &[
-    "aura-historia-api",
-    "cognito-post-confirmation",
-    "shopify-lambda",
-    "stripe-lambda",
-    "fxrate-lambda",
-    "product-listing-opensearch-lambda",
-];
+#[derive(Debug, Deserialize)]
+struct EphemeralLambdaArtifact {
+    binary: String,
+    postgres: bool,
+}
+
+fn ephemeral_lambda_artifacts() -> Vec<EphemeralLambdaArtifact> {
+    serde_json::from_str(EPHEMERAL_LAMBDA_ARTIFACT_CATALOG)
+        .expect("ephemeral Lambda artifact catalog should be valid JSON")
+}
+
 const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE_ARCHIVE_PATH: &str =
     "aura-historia/test-postgres-ca.pem";
 
@@ -247,13 +242,15 @@ async fn package_and_upload_lambdas() {
     drop(fixture_pool);
     let fixture_root_certificate = crate::get_postgres_tls_root_certificate_path();
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
+    let lambda_artifacts = ephemeral_lambda_artifacts();
     // cargo-lambda places each binary at target/lambda/{name}/bootstrap,
     // already named "bootstrap" as required by the provided.al2023 runtime.
     let target_dir = workspace_dir.join("target").join("lambda");
 
-    let tasks: Vec<_> = LAMBDA_BINARIES
+    let tasks: Vec<_> = lambda_artifacts
         .iter()
-        .map(|binary_name| {
+        .map(|artifact| {
+            let binary_name = artifact.binary.as_str();
             let binary_path = target_dir.join(binary_name).join("bootstrap");
             assert!(
                 binary_path.exists(),
@@ -262,9 +259,8 @@ async fn package_and_upload_lambdas() {
                 binary_path.display()
             );
             let s3_key = format!("{binary_name}-{STAGE}-{COMMIT_SHA}.zip");
-            let test_tls_root_certificate = POSTGRES_LAMBDA_BINARIES
-                .contains(binary_name)
-                .then(|| fixture_root_certificate.clone());
+            let test_tls_root_certificate =
+                artifact.postgres.then(|| fixture_root_certificate.clone());
             (binary_path, s3_key, test_tls_root_certificate)
         })
         .collect();
@@ -293,7 +289,7 @@ async fn package_and_upload_lambdas() {
     .collect::<Vec<()>>()
     .await;
 
-    info!("All {} Lambda ZIPs uploaded to S3.", LAMBDA_BINARIES.len());
+    info!("All {} Lambda ZIPs uploaded to S3.", lambda_artifacts.len());
 }
 
 /// Creates a ZIP archive containing the given binary renamed to `bootstrap`.

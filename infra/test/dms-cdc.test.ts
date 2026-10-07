@@ -213,11 +213,37 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       const locator = rule["object-locator"] as Record<string, string>;
       return locator["table-name"] === "marketing_email_consent_sync_intents";
     });
-    const includedConsentColumns = consentColumnRules
-      .filter((rule) => rule["rule-action"] === "include-column")
-      .map((rule) => (rule["object-locator"] as Record<string, string>)["column-name"])
-      .sort();
-    expect(includedConsentColumns).toEqual(["intent_id", "recipient_key"]);
+    const consentColumnTransforms = consentColumnRules.map((rule) => {
+      const locator = rule["object-locator"] as Record<string, string>;
+      return { column: locator["column-name"], action: rule["rule-action"] };
+    });
+    expect(consentColumnTransforms.some(({ action }) => action === "include-column")).toBe(false);
+    expect(new Set(consentColumnTransforms.map(({ column }) => column)).size).toBe(consentColumnTransforms.length);
+    expect(consentColumnTransforms.filter(({ action }) => action === "rename")).toHaveLength(1);
+    expect(consentColumnTransforms.filter(({ action }) => action === "remove-column").map(({ column }) => column).sort()).toEqual([
+      "attempt_count",
+      "changed_at",
+      "completed_at",
+      "completed_lease_token",
+      "completion_status",
+      "consent_revision",
+      "created",
+      "desired",
+      "email",
+      "intent_sequence",
+      "last_error_code",
+      "lease_expires_at",
+      "lease_token",
+      "not_after",
+      "profile_snapshot",
+      "provider_contact_id",
+      "source",
+      "source_key",
+      "status",
+      "subject_type",
+      "updated",
+      "user_id",
+    ]);
     expect(consentColumnRules).toContainEqual(expect.objectContaining({
       "rule-action": "rename",
       "rule-target": "column",
