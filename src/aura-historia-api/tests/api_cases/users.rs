@@ -1029,9 +1029,25 @@ async fn should_create_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    let fields = body
+        .as_object()
+        .unwrap_or_else(|| panic!("create response must be an object: {body}"))
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        std::collections::HashSet::from(["userId", "accessTokenId", "accessToken"]),
+        fields
+    );
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_id_prefix(&body["userId"], "usr_");
     assert_id_prefix(&body["accessTokenId"], "at_");
@@ -1057,9 +1073,15 @@ async fn should_list_access_tokens_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     let items = body
         .as_array()
         .unwrap_or_else(|| panic!("access-token response must be an array: {body}"));
@@ -1067,6 +1089,7 @@ async fn should_list_access_tokens_for_current_user() {
     for item in items {
         assert_id_prefix(&item["userId"], "usr_");
         assert_id_prefix(&item["accessTokenId"], "at_");
+        assert_secret_free_access_token_metadata(item);
     }
 }
 
@@ -1357,9 +1380,16 @@ async fn should_get_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_secret_free_access_token_metadata(&body);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(
         serde_json::json!(access_token_id.to_string()),
@@ -1391,9 +1421,16 @@ async fn should_update_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to patch access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_secret_free_access_token_metadata(&body);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(
         serde_json::json!(access_token_id.to_string()),
@@ -2587,4 +2624,13 @@ fn assert_id_prefix(value: &serde_json::Value, prefix: &str) {
         value.starts_with(prefix),
         "expected object ID prefix {prefix}, got {value}"
     );
+}
+
+fn assert_secret_free_access_token_metadata(value: &serde_json::Value) {
+    for field in ["accessToken", "token", "tokenShort", "tokenHash", "hash"] {
+        assert!(value.get(field).is_none(), "unexpected {field}: {value}");
+    }
+    for field in ["userId", "accessTokenId", "name", "scopes", "origin"] {
+        assert!(value.get(field).is_some(), "missing {field}: {value}");
+    }
 }
