@@ -946,6 +946,9 @@ struct ConsentUserRow {
     user_id: Uuid,
     email: String,
     version: i64,
+    marketing_email_consent: bool,
+    marketing_email_consent_revision: i64,
+    marketing_email_consent_changed_at: Option<OffsetDateTime>,
 }
 impl TryFrom<ConsentUserRow> for ConsentUser {
     type Error = MarketingConsentPersistenceError;
@@ -956,6 +959,9 @@ impl TryFrom<ConsentUserRow> for ConsentUser {
             email: Email::try_from(row.email).map_err(|_| Self::Error::InvalidPersistedState)?,
             version: UserStorageVersion::try_from(row.version)
                 .map_err(|_| Self::Error::InvalidPersistedState)?,
+            marketing_email_consent: row.marketing_email_consent,
+            marketing_email_consent_revision: row.marketing_email_consent_revision,
+            marketing_email_consent_changed_at: row.marketing_email_consent_changed_at,
         })
     }
 }
@@ -990,7 +996,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         id: UserId,
     ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
         sqlx::query_as::<_, ConsentUserRow>(
-            "SELECT user_id, email, version FROM users WHERE user_id = $1",
+            "SELECT user_id, email, version, marketing_email_consent, marketing_email_consent_revision, marketing_email_consent_changed_at FROM users WHERE user_id = $1",
         )
         .bind(id.as_uuid())
         .fetch_optional(self.tx.connection())
@@ -1006,7 +1012,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         email: &Email,
     ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
         sqlx::query_as::<_, ConsentUserRow>(
-            "SELECT user_id, email, version FROM users WHERE email = $1",
+            "SELECT user_id, email, version, marketing_email_consent, marketing_email_consent_revision, marketing_email_consent_changed_at FROM users WHERE email = $1",
         )
         .bind::<&str>(email.as_ref())
         .fetch_optional(self.tx.connection())
@@ -1088,6 +1094,33 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
             .fetch_optional(&mut *conn).await.map_err(db)?;
         match current {
             Some((false,)) => Ok(()),
+            _ => Err(MarketingConsentIntentError::ConcurrencyConflict),
+        }
+    }
+
+    async fn apply_provider_resubscription(
+        &mut self,
+        user: &ConsentUser,
+        changed_at: OffsetDateTime,
+    ) -> Result<(), MarketingConsentIntentError> {
+        if changed_at > OffsetDateTime::now_utc() + Duration::minutes(1) {
+            return Err(MarketingConsentIntentError::InvalidInput);
+        }
+        let conn = self.tx.connection();
+        lock_recipient(&mut *conn, &marketing_consent_recipient_key(&user.email)).await?;
+        let version = i64::try_from(user.version.into_inner())
+            .map_err(|_| MarketingConsentIntentError::InvalidInput)?;
+        let updated = sqlx::query("UPDATE users SET marketing_email_consent = true, marketing_email_consent_revision = marketing_email_consent_revision + 1, marketing_email_consent_changed_at = $3, version = version + 1, updated = now() WHERE user_id = $1 AND email = $2 AND version = $4 AND marketing_email_consent = false")
+            .bind(user.user_id.as_uuid()).bind::<&str>(user.email.as_ref()).bind(changed_at).bind(version)
+            .execute(&mut *conn).await.map_err(db)?;
+        if updated.rows_affected() == 1 {
+            return Ok(());
+        }
+        let current: Option<(bool,)> = sqlx::query_as("SELECT marketing_email_consent FROM users WHERE user_id = $1 AND email = $2 AND version = $3")
+            .bind(user.user_id.as_uuid()).bind::<&str>(user.email.as_ref()).bind(version)
+            .fetch_optional(&mut *conn).await.map_err(db)?;
+        match current {
+            Some((true,)) => Ok(()),
             _ => Err(MarketingConsentIntentError::ConcurrencyConflict),
         }
     }

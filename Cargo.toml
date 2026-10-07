@@ -91,6 +91,7 @@ members = [
     "src/user-core",
     "src/user-service",
     "src/user-cognito",
+    "src/user-email-aws",
     "src/user-postgres",
     "src/user-loops",
     "src/notification-core",
@@ -126,7 +127,7 @@ notification-delivery-lambda = { path = "src/notification-delivery-lambda" }
 marketing-consent-sync-lambda = { path = "src/marketing-consent-sync-lambda" }
 base64 = "0.23.0"
 async-trait = "0.1.89"
-getrandom = "0.3.4"
+getrandom = "0.4.3"
 axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
@@ -265,6 +266,7 @@ proc-macro2 = "1.0.106"
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
 user-cognito = { path = "src/user-cognito" }
+user-email-aws = { path = "src/user-email-aws" }
 user-postgres = { path = "src/user-postgres" }
 user-loops = { path = "src/user-loops" }
 serde-email = "4.0.0"

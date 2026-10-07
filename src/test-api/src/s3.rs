@@ -61,6 +61,11 @@ mod mail_templates {
     /// Each entry corresponds to one combination of
     /// [`MailTemplateType::as_s3_dir_str`] × [`LanguageData::as_str`].
     const MJML_TEMPLATES: &[&str] = &[
+        "mjml/newsletter/confirmation/de.mjml",
+        "mjml/newsletter/confirmation/en.mjml",
+        "mjml/newsletter/confirmation/es.mjml",
+        "mjml/newsletter/confirmation/fr.mjml",
+        "mjml/newsletter/confirmation/it.mjml",
         "mjml/watchlist/product-update/price/de.mjml",
         "mjml/watchlist/product-update/price/en.mjml",
         "mjml/watchlist/product-update/price/es.mjml",

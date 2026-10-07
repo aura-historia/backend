@@ -1,3 +1,4 @@
+pub mod apply_loops_preference_event;
 pub mod apply_stripe_subscription;
 pub mod associate_user_stripe_customer_id;
 pub mod change_user_role;
