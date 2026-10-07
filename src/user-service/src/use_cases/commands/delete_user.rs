@@ -162,13 +162,16 @@ where
             UserAdminRemovalDecision::TargetNotAdmin | UserAdminRemovalDecision::Allowed => {}
         }
         // The coordinator owns the stable key and the atomic deletion/revoke decision.
-        MarketingConsentCoordinator::new(&mut tx, &self.consent)
-            .user_deletion(command.user_id, OffsetDateTime::now_utc())
+        let consent = MarketingConsentCoordinator::new(&mut tx, &self.consent)
+            .user_deletion_with_evidence(command.user_id, OffsetDateTime::now_utc())
             .await?;
 
         tx.commit()
             .await
             .map_err(|_| DeleteUserError::CommitTransactionFailed)?;
+        if let Some(evidence) = consent.evidence {
+            evidence.emit_after_commit(Some(context));
+        }
 
         tracing::info!(
             event = "user.deleted",

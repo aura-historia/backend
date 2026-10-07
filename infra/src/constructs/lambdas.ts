@@ -53,6 +53,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "cloudwatch-log-retention-lambda",
     memorySize: 128,
     timeoutSeconds: 10,
+    environment: consentLogRetentionEnvironment,
   },
   cdcRouter: {
     id: "CdcRouterLambda",
@@ -80,6 +81,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 256,
     postgres: true,
     timeoutSeconds: 5,
+    environment: backendReleaseEnvironment,
   },
   preSignUp: {
     id: "PrimaryUserPoolPreSignUpLambda",
@@ -257,6 +259,12 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
+export function consentEvidenceLogGroupNames(stage: string): readonly [string, string] {
+  return [
+    `/aws/lambda/aura-historia-api-${stage}`,
+    `/aws/lambda/cognito-post-confirmation-${stage}`,
+  ];
+}
 type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "preSignUp";
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
   Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
@@ -308,6 +316,25 @@ export class Lambdas extends Construct {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: props.config.isEphemeral ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
     });
+    const [apiEvidenceLogGroupName, postConfirmationEvidenceLogGroupName] =
+      consentEvidenceLogGroupNames(props.config.stage);
+    const consentEvidenceLogGroupRemovalPolicy = props.config.isEphemeral
+      ? cdk.RemovalPolicy.DESTROY
+      : cdk.RemovalPolicy.RETAIN;
+    const apiEvidenceLogGroup = new logs.LogGroup(this, "AuraHistoriaApiEvidenceLogGroup", {
+      logGroupName: apiEvidenceLogGroupName,
+      retention: logs.RetentionDays.INFINITE,
+      removalPolicy: consentEvidenceLogGroupRemovalPolicy,
+    });
+    const postConfirmationEvidenceLogGroup = new logs.LogGroup(
+      this,
+      "PostConfirmationEvidenceLogGroup",
+      {
+        logGroupName: postConfirmationEvidenceLogGroupName,
+        retention: logs.RetentionDays.INFINITE,
+        removalPolicy: consentEvidenceLogGroupRemovalPolicy,
+      },
+    );
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       commitSha: props.parameters.commitSha,
@@ -348,7 +375,13 @@ export class Lambdas extends Construct {
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         reservedConcurrentExecutions: key === "productListingIngestion" ? 2 : undefined,
-        logGroup: key === "productListingIngestion" ? ingestionLogGroup : undefined,
+        logGroup: key === "productListingIngestion"
+          ? ingestionLogGroup
+          : key === "auraHistoriaApi"
+            ? apiEvidenceLogGroup
+            : key === "postConfirmation"
+              ? postConfirmationEvidenceLogGroup
+              : undefined,
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -575,10 +608,22 @@ function withMigrationPostgresEnvironment(
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
+  const logGroupArnPattern = cdk.Stack.of(functions.cloudWatchLogRetention).formatArn({
+    service: "logs",
+    resource: "log-group",
+    resourceName: "*",
+    arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+  });
   functions.cloudWatchLogRetention.addToRolePolicy(
     new iam.PolicyStatement({
-      actions: ["logs:DescribeLogGroups", "logs:PutRetentionPolicy"],
+      actions: ["logs:DescribeLogGroups"],
       resources: ["*"],
+    }),
+  );
+  functions.cloudWatchLogRetention.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["logs:PutRetentionPolicy"],
+      resources: [logGroupArnPattern],
     }),
   );
   for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
@@ -690,10 +735,21 @@ function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Rec
   };
 }
 
+function backendReleaseEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return { BACKEND_RELEASE_SHA: context.commitSha };
+}
+
+function consentLogRetentionEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    CONSENT_EVIDENCE_LOG_GROUPS: JSON.stringify(consentEvidenceLogGroupNames(context.config.stage)),
+  };
+}
+
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   const { config, search } = context;
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
+    BACKEND_RELEASE_SHA: context.commitSha,
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     STAGE: config.stage,

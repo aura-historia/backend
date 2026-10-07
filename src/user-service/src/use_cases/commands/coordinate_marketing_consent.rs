@@ -4,6 +4,9 @@ use crate::ports::{
     NewsletterProfile, UserCognitoIdentityRegistry, UserCognitoIdentityRegistryError,
     UserCognitoIdentityRegistryFactory,
 };
+use crate::use_cases::commands::marketing_consent_evidence::{
+    ConsentEvidenceAction, ConsentEvidenceSource, MarketingConsentEvidence,
+};
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
 use serde_email::Email;
@@ -84,6 +87,11 @@ pub trait CoordinateMarketingConsentUseCase: Send + Sync {
     ) -> Result<Option<MarketingConsentSyncIntentId>, CoordinateMarketingConsentError>;
 }
 
+pub(crate) struct MarketingConsentDecisionResult {
+    pub(crate) intent_id: MarketingConsentSyncIntentId,
+    pub(crate) evidence: Option<MarketingConsentEvidence>,
+}
+
 pub struct CoordinateMarketingConsentHandler<U, I, C> {
     unit_of_work: U,
     identities: I,
@@ -135,7 +143,13 @@ where
                     email,
                 } => Some(
                     coordinator
-                        .cognito_signup(&self.identities, identity, user_id, email, now)
+                        .cognito_signup_with_evidence(
+                            &self.identities,
+                            identity,
+                            user_id,
+                            email,
+                            now,
+                        )
                         .await?,
                 ),
                 MarketingConsentDecision::AcceptedDoubleOptIn {
@@ -143,7 +157,7 @@ where
                     email,
                 } => Some(
                     coordinator
-                        .accepted_double_opt_in(confirmation_id, email, now)
+                        .accepted_double_opt_in_with_evidence(confirmation_id, email, now)
                         .await?,
                 ),
                 MarketingConsentDecision::UserWithdrawal {
@@ -152,17 +166,19 @@ where
                     action_id,
                 } => Some(
                     coordinator
-                        .user_withdrawal(user_id, email, action_id, now)
+                        .user_withdrawal_with_evidence(user_id, email, action_id, now)
                         .await?,
                 ),
                 MarketingConsentDecision::EmailOnlyWithdrawal { email, action_id } => Some(
                     coordinator
-                        .email_only_withdrawal(email, action_id, now)
+                        .email_only_withdrawal_with_evidence(email, action_id, now)
                         .await?,
                 ),
-                MarketingConsentDecision::UserDeletion { user_id } => {
-                    Some(coordinator.user_deletion(user_id, now).await?)
-                }
+                MarketingConsentDecision::UserDeletion { user_id } => Some(
+                    coordinator
+                        .user_deletion_with_evidence(user_id, now)
+                        .await?,
+                ),
                 MarketingConsentDecision::ProviderWithdrawal { email, accepted_at } => {
                     coordinator.provider_withdrawal(email, accepted_at).await?;
                     None
@@ -172,7 +188,12 @@ where
         tx.commit()
             .await
             .map_err(|_| CoordinateMarketingConsentError::CommitTransactionFailed)?;
-        Ok(result)
+        Ok(result.map(|result| {
+            if let Some(evidence) = result.evidence.as_ref() {
+                evidence.emit_after_commit(Some(context));
+            }
+            result.intent_id
+        }))
     }
 }
 
@@ -203,6 +224,20 @@ where
         email: Email,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
+        Ok(self
+            .cognito_signup_with_evidence(identities, identity, user_id, email, changed_at)
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn cognito_signup_with_evidence<I: UserCognitoIdentityRegistryFactory<Tx>>(
+        &mut self,
+        identities: &I,
+        identity: CognitoIdentity,
+        user_id: UserId,
+        email: Email,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
         source_key(
             "signup",
             &[identity.issuer.as_str(), identity.subject.as_str()],
@@ -215,7 +250,7 @@ where
         if bound_id != Some(user_id) {
             return Err(CoordinateMarketingConsentError::UserNotFound);
         }
-        self.apply_intent(
+        self.apply_intent_with_evidence(
             MarketingConsentDecision::CognitoSignup {
                 identity,
                 user_id,
@@ -234,8 +269,25 @@ where
         email: Email,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        self.accepted_double_opt_in_with_profile(confirmation_id, email, None, changed_at)
-            .await
+        Ok(self
+            .accepted_double_opt_in_with_evidence(confirmation_id, email, changed_at)
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn accepted_double_opt_in_with_evidence(
+        &mut self,
+        confirmation_id: String,
+        email: Email,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        self.accepted_double_opt_in_with_profile_and_evidence(
+            confirmation_id,
+            email,
+            None,
+            changed_at,
+        )
+        .await
     }
 
     /// Only invoke after a trusted DOI workflow has accepted this proof. The profile
@@ -247,7 +299,25 @@ where
         profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        self.apply_intent(
+        Ok(self
+            .accepted_double_opt_in_with_profile_and_evidence(
+                confirmation_id,
+                email,
+                profile_snapshot,
+                changed_at,
+            )
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn accepted_double_opt_in_with_profile_and_evidence(
+        &mut self,
+        confirmation_id: String,
+        email: Email,
+        profile_snapshot: Option<NewsletterProfile>,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        self.apply_intent_with_evidence(
             MarketingConsentDecision::AcceptedDoubleOptIn {
                 confirmation_id,
                 email,
@@ -265,7 +335,20 @@ where
         action_id: String,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        self.apply_intent(
+        Ok(self
+            .user_withdrawal_with_evidence(user_id, email, action_id, changed_at)
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn user_withdrawal_with_evidence(
+        &mut self,
+        user_id: UserId,
+        email: Email,
+        action_id: String,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        self.apply_intent_with_evidence(
             MarketingConsentDecision::UserWithdrawal {
                 user_id,
                 email,
@@ -283,7 +366,19 @@ where
         action_id: String,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        self.apply_intent(
+        Ok(self
+            .email_only_withdrawal_with_evidence(email, action_id, changed_at)
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn email_only_withdrawal_with_evidence(
+        &mut self,
+        email: Email,
+        action_id: String,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        self.apply_intent_with_evidence(
             MarketingConsentDecision::EmailOnlyWithdrawal { email, action_id },
             None,
             changed_at,
@@ -296,7 +391,18 @@ where
         user_id: UserId,
         changed_at: OffsetDateTime,
     ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        self.apply_intent(
+        Ok(self
+            .user_deletion_with_evidence(user_id, changed_at)
+            .await?
+            .intent_id)
+    }
+
+    pub(crate) async fn user_deletion_with_evidence(
+        &mut self,
+        user_id: UserId,
+        changed_at: OffsetDateTime,
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        self.apply_intent_with_evidence(
             MarketingConsentDecision::UserDeletion { user_id },
             None,
             changed_at,
@@ -363,13 +469,13 @@ where
             .await?)
     }
 
-    async fn apply_intent(
+    async fn apply_intent_with_evidence(
         &mut self,
         decision: MarketingConsentDecision,
         profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
-    ) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError> {
-        Ok(coordinate_marketing_consent_in_transaction(
+    ) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError> {
+        coordinate_marketing_consent_in_transaction(
             self.tx,
             self.intents,
             decision,
@@ -377,7 +483,7 @@ where
             changed_at,
         )
         .await?
-        .expect("intent-producing consent decision"))
+        .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)
     }
 }
 
@@ -388,7 +494,7 @@ async fn coordinate_marketing_consent_in_transaction<Tx, C>(
     decision: MarketingConsentDecision,
     profile_snapshot: Option<NewsletterProfile>,
     now: OffsetDateTime,
-) -> Result<Option<MarketingConsentSyncIntentId>, CoordinateMarketingConsentError>
+) -> Result<Option<MarketingConsentDecisionResult>, CoordinateMarketingConsentError>
 where
     Tx: Transaction,
     C: MarketingConsentIntentsFactory<Tx>,
@@ -399,21 +505,28 @@ where
             let mut port = intents.in_transaction(tx);
             let key = key.as_deref().expect("signup has a key");
             if let Some(existing) = port.find_by_source_key(key).await? {
-                Some(replay(
-                    existing,
-                    ConsentSubject::User(user_id),
-                    &email,
-                    true,
-                    ConsentIntentSource::CognitoSignup,
-                )?)
+                Some(MarketingConsentDecisionResult {
+                    intent_id: replay(
+                        existing,
+                        ConsentSubject::User(user_id),
+                        &email,
+                        true,
+                        ConsentIntentSource::CognitoSignup,
+                    )?,
+                    evidence: None,
+                })
             } else {
                 let user = port
                     .find_user_by_id(user_id)
                     .await?
                     .ok_or(CoordinateMarketingConsentError::UserNotFound)?;
                 exact_email(&user.email, &email)?;
-                Some(
-                    port.record_user_transition(
+                let revision = user
+                    .marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)?;
+                let intent = port
+                    .record_user_transition(
                         &user,
                         true,
                         ConsentIntentSource::CognitoSignup,
@@ -421,9 +534,22 @@ where
                         None,
                         now,
                     )
-                    .await?
-                    .intent_id,
-                )
+                    .await?;
+                Some(MarketingConsentDecisionResult {
+                    intent_id: intent.intent_id,
+                    evidence: Some(MarketingConsentEvidence::user_transition(
+                        ConsentEvidenceSource::CognitoSignup,
+                        ConsentEvidenceAction::Grant,
+                        user_id,
+                        &email,
+                        user.marketing_email_consent,
+                        true,
+                        intent.intent_id.to_string(),
+                        revision,
+                        now,
+                        "en",
+                    )),
+                })
             }
         }
         MarketingConsentDecision::AcceptedDoubleOptIn { email, .. } => Some(
@@ -441,21 +567,28 @@ where
             let mut port = intents.in_transaction(tx);
             let key = key.as_deref().expect("withdrawal has a key");
             if let Some(existing) = port.find_by_source_key(key).await? {
-                Some(replay(
-                    existing,
-                    ConsentSubject::User(user_id),
-                    &email,
-                    false,
-                    ConsentIntentSource::UserWithdrawal,
-                )?)
+                Some(MarketingConsentDecisionResult {
+                    intent_id: replay(
+                        existing,
+                        ConsentSubject::User(user_id),
+                        &email,
+                        false,
+                        ConsentIntentSource::UserWithdrawal,
+                    )?,
+                    evidence: None,
+                })
             } else {
                 let user = port
                     .find_user_by_id(user_id)
                     .await?
                     .ok_or(CoordinateMarketingConsentError::UserNotFound)?;
                 exact_email(&user.email, &email)?;
-                Some(
-                    port.record_user_transition(
+                let revision = user
+                    .marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)?;
+                let intent = port
+                    .record_user_transition(
                         &user,
                         false,
                         ConsentIntentSource::UserWithdrawal,
@@ -463,9 +596,22 @@ where
                         None,
                         now,
                     )
-                    .await?
-                    .intent_id,
-                )
+                    .await?;
+                Some(MarketingConsentDecisionResult {
+                    intent_id: intent.intent_id,
+                    evidence: Some(MarketingConsentEvidence::user_transition(
+                        ConsentEvidenceSource::UserWithdrawal,
+                        ConsentEvidenceAction::Revoke,
+                        user_id,
+                        &email,
+                        user.marketing_email_consent,
+                        false,
+                        intent.intent_id.to_string(),
+                        revision,
+                        now,
+                        "en",
+                    )),
+                })
             }
         }
         MarketingConsentDecision::EmailOnlyWithdrawal { email, .. } => {
@@ -482,11 +628,18 @@ where
                 {
                     return Err(CoordinateMarketingConsentError::SourceKeyConflict);
                 }
-                Some(existing.intent_id)
+                Some(MarketingConsentDecisionResult {
+                    intent_id: existing.intent_id,
+                    evidence: None,
+                })
             } else if let Some(user) = port.find_user_by_email(&email).await? {
                 exact_email(&user.email, &email)?;
-                Some(
-                    port.record_user_transition(
+                let revision = user
+                    .marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)?;
+                let intent = port
+                    .record_user_transition(
                         &user,
                         false,
                         ConsentIntentSource::UserWithdrawal,
@@ -494,12 +647,25 @@ where
                         None,
                         now,
                     )
-                    .await?
-                    .intent_id,
-                )
+                    .await?;
+                Some(MarketingConsentDecisionResult {
+                    intent_id: intent.intent_id,
+                    evidence: Some(MarketingConsentEvidence::user_transition(
+                        ConsentEvidenceSource::UserWithdrawal,
+                        ConsentEvidenceAction::Revoke,
+                        user.user_id,
+                        &email,
+                        user.marketing_email_consent,
+                        false,
+                        intent.intent_id.to_string(),
+                        revision,
+                        now,
+                        "en",
+                    )),
+                })
             } else {
-                Some(
-                    port.record_email_only_intent(
+                let intent = port
+                    .record_email_only_intent(
                         &email,
                         false,
                         ConsentIntentSource::EmailOnlyWithdrawal,
@@ -507,9 +673,18 @@ where
                         None,
                         now,
                     )
-                    .await?
-                    .intent_id,
-                )
+                    .await?;
+                Some(MarketingConsentDecisionResult {
+                    intent_id: intent.intent_id,
+                    evidence: Some(MarketingConsentEvidence::email_only(
+                        ConsentEvidenceSource::UserWithdrawal,
+                        ConsentEvidenceAction::Revoke,
+                        &email,
+                        intent.intent_id.to_string(),
+                        now,
+                        "en",
+                    )),
+                })
             }
         }
 
@@ -523,13 +698,38 @@ where
                 {
                     return Err(CoordinateMarketingConsentError::SourceKeyConflict);
                 }
-                Some(existing.intent_id)
+                Some(MarketingConsentDecisionResult {
+                    intent_id: existing.intent_id,
+                    evidence: None,
+                })
             } else {
                 let user = port
                     .find_user_by_id(user_id)
                     .await?
                     .ok_or(CoordinateMarketingConsentError::UserNotFound)?;
-                Some(port.record_user_deletion(&user, key, now).await?.intent_id)
+                let revision = user
+                    .marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)?;
+                let intent = port.record_user_deletion(&user, key, now).await?;
+                Some(MarketingConsentDecisionResult {
+                    intent_id: intent.intent_id,
+                    evidence: Some(
+                        MarketingConsentEvidence::user_transition(
+                            ConsentEvidenceSource::AccountDeleted,
+                            ConsentEvidenceAction::Revoke,
+                            user_id,
+                            &user.email,
+                            user.marketing_email_consent,
+                            false,
+                            intent.intent_id.to_string(),
+                            revision,
+                            now,
+                            "und",
+                        )
+                        .with_wording_reference("account-deletion-flow:v1"),
+                    ),
+                })
             }
         }
         MarketingConsentDecision::ProviderWithdrawal { email, accepted_at } => {
@@ -555,7 +755,7 @@ async fn accepted_double_opt_in_in_transaction<Tx, C>(
     key: &str,
     profile_snapshot: Option<NewsletterProfile>,
     now: OffsetDateTime,
-) -> Result<MarketingConsentSyncIntentId, CoordinateMarketingConsentError>
+) -> Result<MarketingConsentDecisionResult, CoordinateMarketingConsentError>
 where
     Tx: Transaction,
     C: MarketingConsentIntentsFactory<Tx>,
@@ -569,10 +769,17 @@ where
         {
             return Err(CoordinateMarketingConsentError::SourceKeyConflict);
         }
-        Ok(existing.intent_id)
+        Ok(MarketingConsentDecisionResult {
+            intent_id: existing.intent_id,
+            evidence: None,
+        })
     } else if let Some(user) = port.find_user_by_email(email).await? {
         exact_email(&user.email, email)?;
-        Ok(port
+        let revision = user
+            .marketing_email_consent_revision
+            .checked_add(1)
+            .ok_or(CoordinateMarketingConsentError::InvalidPersistedState)?;
+        let intent = port
             .record_user_transition(
                 &user,
                 true,
@@ -581,10 +788,24 @@ where
                 profile_snapshot,
                 now,
             )
-            .await?
-            .intent_id)
+            .await?;
+        Ok(MarketingConsentDecisionResult {
+            intent_id: intent.intent_id,
+            evidence: Some(MarketingConsentEvidence::user_transition(
+                ConsentEvidenceSource::AuraDoubleOptIn,
+                ConsentEvidenceAction::Grant,
+                user.user_id,
+                email,
+                user.marketing_email_consent,
+                true,
+                intent.intent_id.to_string(),
+                revision,
+                now,
+                "en",
+            )),
+        })
     } else {
-        Ok(port
+        let intent = port
             .record_email_only_intent(
                 email,
                 true,
@@ -593,8 +814,18 @@ where
                 profile_snapshot,
                 now,
             )
-            .await?
-            .intent_id)
+            .await?;
+        Ok(MarketingConsentDecisionResult {
+            intent_id: intent.intent_id,
+            evidence: Some(MarketingConsentEvidence::email_only(
+                ConsentEvidenceSource::AuraDoubleOptIn,
+                ConsentEvidenceAction::Grant,
+                email,
+                intent.intent_id.to_string(),
+                now,
+                "en",
+            )),
+        })
     }
 }
 
@@ -718,7 +949,9 @@ mod tests {
 
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
+    use std::io::{self, Write};
     use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
 
     #[derive(Default)]
     struct State {
@@ -727,6 +960,7 @@ mod tests {
         intent: Option<ConsentIntent>,
         identity_user: Option<UserId>,
         conflict: bool,
+        fail_commit: bool,
         accepted_at: Option<OffsetDateTime>,
     }
     type Shared = Arc<Mutex<State>>;
@@ -767,8 +1001,13 @@ mod tests {
     #[async_trait::async_trait]
     impl Transaction for Tx {
         async fn commit(self) -> Result<(), TransactionError> {
-            locked(&self.0).calls.push("commit");
-            Ok(())
+            let mut state = locked(&self.0);
+            state.calls.push("commit");
+            if state.fail_commit {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
         }
     }
     #[async_trait::async_trait]
@@ -1038,6 +1277,234 @@ mod tests {
         }));
         (state, id)
     }
+
+    #[derive(Clone)]
+    struct CommitAwareMakeWriter {
+        state: Shared,
+        output: Arc<Mutex<Vec<u8>>>,
+    }
+
+    struct CommitAwareWriter {
+        state: Shared,
+        output: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl<'writer> MakeWriter<'writer> for CommitAwareMakeWriter {
+        type Writer = CommitAwareWriter;
+
+        fn make_writer(&'writer self) -> Self::Writer {
+            CommitAwareWriter {
+                state: self.state.clone(),
+                output: self.output.clone(),
+            }
+        }
+    }
+
+    impl Write for CommitAwareWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            assert_eq!(locked(&self.state).calls.last(), Some(&"commit"));
+            self.output.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn committed_signup_logs_exact_evidence_after_commit_and_failure_logs_nothing() {
+        let (state, id) = with_user();
+        locked(&state).user.as_mut().unwrap().email = email("private.recipient@example.test");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: state.clone(),
+                output: output.clone(),
+            })
+            .finish();
+        let decision = || MarketingConsentDecision::CognitoSignup {
+            identity: identity(),
+            user_id: id,
+            email: email("private.recipient@example.test"),
+        };
+
+        tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(handler(&state).execute(&context(Principal::System), decision()))
+        })
+        .unwrap();
+        let line = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let record: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let fields = &record["fields"];
+        assert_eq!(fields["event"], "marketing_consent.evidence.v1");
+        assert_eq!(fields["consent_purpose"], "EMAIL_MARKETING");
+        assert_eq!(fields["consent_source"], "COGNITO_SIGNUP");
+        assert_eq!(fields["consent_action"], "GRANT");
+        assert_eq!(fields["subject_kind"], "USER");
+        assert_eq!(fields["user_id"], id.to_string());
+        assert!(
+            fields["consent_decision_id"]
+                .as_str()
+                .unwrap()
+                .starts_with("mci_")
+        );
+        assert_eq!(fields["recipient_fingerprint"].as_str().unwrap().len(), 64);
+        assert_eq!(fields["previous_consent"], false);
+        assert_eq!(fields["current_consent"], true);
+        assert_eq!(fields["consent_revision"], 1);
+        assert!(
+            fields["consent_effective_at_utc"]
+                .as_str()
+                .unwrap()
+                .ends_with('Z')
+        );
+        assert!(
+            fields["consent_recorded_at_utc"]
+                .as_str()
+                .unwrap()
+                .ends_with('Z')
+        );
+        assert_eq!(
+            fields["consent_wording_reference"],
+            "webapp:marketing-email-consent:v1"
+        );
+        assert_eq!(fields["consent_wording_locale"], "en");
+        assert!(fields["backend_release_sha"].as_str().is_some());
+        assert_eq!(fields["request_id"], "request");
+        assert_eq!(fields["correlation_id"], "correlation");
+        for prohibited in [
+            "private.recipient@example.test",
+            "raw_token",
+            "token_hash",
+            "signature",
+            "password",
+            "provider_payload",
+            "rendered_email",
+        ] {
+            assert!(!line.contains(prohibited));
+        }
+        assert!(locked(&state).calls.ends_with(&["transition", "commit"]));
+
+        locked(&state).calls.clear();
+        output.lock().unwrap().clear();
+        let replay_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: state.clone(),
+                output: output.clone(),
+            })
+            .finish();
+        tracing::subscriber::with_default(replay_subscriber, || {
+            runtime.block_on(handler(&state).execute(&context(Principal::System), decision()))
+        })
+        .unwrap();
+        assert!(output.lock().unwrap().is_empty());
+
+        locked(&state).calls.clear();
+        if let Some(user) = locked(&state).user.as_mut() {
+            user.marketing_email_consent = true;
+            user.marketing_email_consent_revision = 1;
+            user.marketing_email_consent_changed_at = Some(OffsetDateTime::UNIX_EPOCH);
+        }
+        output.lock().unwrap().clear();
+        let revoke_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: state.clone(),
+                output: output.clone(),
+            })
+            .finish();
+        tracing::subscriber::with_default(revoke_subscriber, || {
+            runtime.block_on(handler(&state).execute(
+                &context(Principal::User(id)),
+                MarketingConsentDecision::UserWithdrawal {
+                    user_id: id,
+                    email: email("private.recipient@example.test"),
+                    action_id: "safe-action-1".to_owned(),
+                },
+            ))
+        })
+        .unwrap();
+        let revoke_line = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let revoke_record: serde_json::Value = serde_json::from_str(&revoke_line).unwrap();
+        let revoke_fields = &revoke_record["fields"];
+        assert_eq!(revoke_fields["consent_source"], "USER_WITHDRAWAL");
+        assert_eq!(revoke_fields["consent_action"], "REVOKE");
+        assert_eq!(revoke_fields["previous_consent"], true);
+        assert_eq!(revoke_fields["current_consent"], false);
+        assert!(locked(&state).calls.ends_with(&["transition", "commit"]));
+
+        let (failed_state, failed_id) = with_user();
+        locked(&failed_state).user.as_mut().unwrap().email =
+            email("private.recipient@example.test");
+        locked(&failed_state).conflict = true;
+        let failed_output = Arc::new(Mutex::new(Vec::new()));
+        let failed_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: failed_state.clone(),
+                output: failed_output.clone(),
+            })
+            .finish();
+        let failed_decision = || MarketingConsentDecision::CognitoSignup {
+            identity: identity(),
+            user_id: failed_id,
+            email: email("private.recipient@example.test"),
+        };
+        assert!(
+            tracing::subscriber::with_default(failed_subscriber, || {
+                runtime.block_on(
+                    handler(&failed_state).execute(&context(Principal::System), failed_decision()),
+                )
+            },)
+            .is_err()
+        );
+        assert!(failed_output.lock().unwrap().is_empty());
+        assert!(!locked(&failed_state).calls.contains(&"commit"));
+
+        let (commit_failed_state, commit_failed_id) = with_user();
+        locked(&commit_failed_state).user.as_mut().unwrap().email =
+            email("private.recipient@example.test");
+        locked(&commit_failed_state).fail_commit = true;
+        let commit_failed_output = Arc::new(Mutex::new(Vec::new()));
+        let commit_failed_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: commit_failed_state.clone(),
+                output: commit_failed_output.clone(),
+            })
+            .finish();
+        let commit_failed_decision = || MarketingConsentDecision::CognitoSignup {
+            identity: identity(),
+            user_id: commit_failed_id,
+            email: email("private.recipient@example.test"),
+        };
+        assert!(
+            tracing::subscriber::with_default(commit_failed_subscriber, || {
+                runtime.block_on(
+                    handler(&commit_failed_state)
+                        .execute(&context(Principal::System), commit_failed_decision()),
+                )
+            },)
+            .is_err()
+        );
+        assert!(commit_failed_output.lock().unwrap().is_empty());
+        assert!(
+            locked(&commit_failed_state)
+                .calls
+                .ends_with(&["transition", "commit"])
+        );
+    }
+
     #[test]
     fn proof_keys_are_domain_separated_and_unambiguous() {
         assert_ne!(

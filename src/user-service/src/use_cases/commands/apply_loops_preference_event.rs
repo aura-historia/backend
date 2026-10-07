@@ -10,6 +10,9 @@ use crate::ports::{
 use crate::use_cases::commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
+use crate::use_cases::commands::marketing_consent_evidence::{
+    ConsentEvidenceAction, ConsentEvidenceSource, MarketingConsentEvidence,
+};
 use application::transaction::{Transaction, UnitOfWork};
 use serde_email::Email;
 use time::{Duration, OffsetDateTime};
@@ -259,6 +262,7 @@ where
         mut tx: U::Tx,
         receipt: LoopsWebhookReceiptInput,
         applied: bool,
+        evidence: Option<MarketingConsentEvidence>,
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
         let disposition = receipt.disposition;
         let write = self
@@ -272,6 +276,9 @@ where
                 tx.commit()
                     .await
                     .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+                if let Some(evidence) = evidence {
+                    evidence.emit_after_commit(None);
+                }
                 if applied {
                     Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
                         disposition,
@@ -338,6 +345,7 @@ where
         }
 
         let fence = self.find_fence(&mut tx, &event.email).await?;
+        let mut evidence = None;
         let disposition = match classification {
             EventClassification::Ignore(disposition) => disposition,
             EventClassification::Withdraw(disposition) => {
@@ -368,6 +376,12 @@ where
                         } else {
                             self.apply_withdrawal(&mut tx, event.email.clone(), event.event_time)
                                 .await?;
+                            evidence = provider_withdrawal_evidence(
+                                &event,
+                                kind,
+                                Some(user),
+                                disposition,
+                            )?;
                             self.advance_fence(
                                 &mut tx,
                                 &event.email,
@@ -381,6 +395,7 @@ where
                     } else {
                         self.apply_withdrawal(&mut tx, event.email.clone(), event.event_time)
                             .await?;
+                        evidence = provider_withdrawal_evidence(&event, kind, None, disposition)?;
                         self.advance_fence(
                             &mut tx,
                             &event.email,
@@ -401,7 +416,7 @@ where
                 | Disposition::AppliedComplaintBlock
         );
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, applied).await
+        self.insert_and_commit(tx, receipt, applied, evidence).await
     }
 
     fn classify(
@@ -493,7 +508,7 @@ where
             .is_some_and(|fence| event.event_time <= fence.latest_event_at)
         {
             let receipt = self.receipt(&event, Disposition::IgnoredStale);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         }
         // A replacement contact ID is eligible only when the later provider read
         // confirms this exact mailbox now resolves to the event's contact. Keep
@@ -508,7 +523,7 @@ where
             .map_err(map_intent_error)?
         else {
             let receipt = self.receipt(&event, Disposition::IgnoredNoRegisteredUser);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         };
         if !valid_user_consent_state(&user) {
             return Err(ApplyLoopsPreferenceEventError::Retryable);
@@ -518,7 +533,7 @@ where
             .is_some_and(|changed_at| event.event_time <= changed_at)
         {
             let receipt = self.receipt(&event, Disposition::IgnoredStale);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         }
         let captured = CapturedConsentFence::from(&user);
         tx.commit()
@@ -572,6 +587,7 @@ where
             .find_user_by_email(&event.email)
             .await
             .map_err(map_intent_error)?;
+        let mut evidence = None;
         let disposition = match latest_user {
             Some(user)
                 if user.user_id == captured.user_id
@@ -590,6 +606,28 @@ where
                     .apply_provider_resubscription(&user, event.event_time)
                     .await
                     .map_err(map_intent_error)?;
+                let revision = if user.marketing_email_consent {
+                    user.marketing_email_consent_revision
+                } else {
+                    user.marketing_email_consent_revision
+                        .checked_add(1)
+                        .ok_or(ApplyLoopsPreferenceEventError::Retryable)?
+                };
+                evidence = Some(
+                    MarketingConsentEvidence::user_transition(
+                        ConsentEvidenceSource::LoopsUserPreference,
+                        ConsentEvidenceAction::Resubscribe,
+                        user.user_id,
+                        &event.email,
+                        user.marketing_email_consent,
+                        true,
+                        event.delivery_id.clone(),
+                        revision,
+                        event.event_time,
+                        "und",
+                    )
+                    .with_wording_reference("provider-native-preference-event"),
+                );
                 self.advance_fence(
                     &mut tx,
                     &event.email,
@@ -604,7 +642,7 @@ where
         };
         let applied = disposition == Disposition::AppliedResubscription;
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, applied).await
+        self.insert_and_commit(tx, receipt, applied, evidence).await
     }
 
     async fn commit_ignored_resubscription(
@@ -631,7 +669,7 @@ where
             return Ok(existing);
         }
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, false).await
+        self.insert_and_commit(tx, receipt, false, None).await
     }
 }
 
@@ -645,6 +683,65 @@ struct VerifiedPreferenceEvent {
     contact_id: String,
     mailing_list_id: Option<String>,
     processed_at: OffsetDateTime,
+}
+
+fn provider_withdrawal_evidence(
+    event: &VerifiedPreferenceEvent,
+    kind: NewsletterWebhookEventKind,
+    user: Option<&ConsentUser>,
+    disposition: Disposition,
+) -> Result<Option<MarketingConsentEvidence>, ApplyLoopsPreferenceEventError> {
+    if !matches!(
+        disposition,
+        Disposition::AppliedWithdrawal | Disposition::AppliedContactRemoval
+    ) {
+        return Ok(None);
+    }
+    let (source, action) = if kind == NewsletterWebhookEventKind::ContactDeleted {
+        (
+            ConsentEvidenceSource::ProviderContactRemoved,
+            ConsentEvidenceAction::Remove,
+        )
+    } else {
+        (
+            ConsentEvidenceSource::LoopsUserPreference,
+            ConsentEvidenceAction::Revoke,
+        )
+    };
+    let evidence = match user {
+        Some(user) => {
+            let revision = if user.marketing_email_consent {
+                user.marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(ApplyLoopsPreferenceEventError::Retryable)?
+            } else {
+                user.marketing_email_consent_revision
+            };
+            MarketingConsentEvidence::user_transition(
+                source,
+                action,
+                user.user_id,
+                &event.email,
+                user.marketing_email_consent,
+                false,
+                event.delivery_id.clone(),
+                revision,
+                event.event_time,
+                "und",
+            )
+        }
+        None => MarketingConsentEvidence::email_only(
+            source,
+            action,
+            &event.email,
+            event.delivery_id.clone(),
+            event.event_time,
+            "und",
+        ),
+    };
+    Ok(Some(evidence.with_wording_reference(
+        "provider-native-preference-event",
+    )))
 }
 
 #[derive(Clone, Copy)]
@@ -717,4 +814,58 @@ fn map_receipt_error(_: LoopsWebhookReceiptError) -> ApplyLoopsPreferenceEventEr
 
 fn map_consent_error(_: CoordinateMarketingConsentError) -> ApplyLoopsPreferenceEventError {
     ApplyLoopsPreferenceEventError::Retryable
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+
+    fn event() -> VerifiedPreferenceEvent {
+        let email = Email::try_from("private.recipient@example.test").unwrap();
+        VerifiedPreferenceEvent {
+            delivery_id: "delivery-1".to_owned(),
+            raw_body_sha256: [0; 32],
+            event_name: "email.spam_reported".to_owned(),
+            event_time: OffsetDateTime::UNIX_EPOCH,
+            email_text: <Email as AsRef<str>>::as_ref(&email).to_owned(),
+            email,
+            contact_id: "provider-contact-1".to_owned(),
+            mailing_list_id: None,
+            processed_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn provider_blocks_and_delivery_failures_do_not_create_withdrawal_evidence() {
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailSpamReported,
+                None,
+                Disposition::AppliedComplaintBlock,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailHardBounced,
+                None,
+                Disposition::IgnoredHardBounce,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailUnsubscribed,
+                None,
+                Disposition::IgnoredStale,
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
 }

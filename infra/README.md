@@ -340,11 +340,58 @@ private `/tmp/aura-historia-google-adc/application_default_credentials.json` fil
 sets `GOOGLE_APPLICATION_CREDENTIALS`, and clears the JSON environment value. The
 Google/Vertex adapter and ADC provider still initialize only on an embedding request;
 an OpenSearch reachability check remains confined to `/api/v1/ready`. It logs only its
-component, Lambda request ID, remaining invocation budget, and cold-start duration;
-it never logs event bodies, credentials, or provider errors.
+component, Lambda request ID, remaining invocation budget, and cold-start duration.
+The consent-evidence event below is the specific post-commit exception; no path logs
+event bodies, credentials, raw provider payloads, or provider errors.
+
+## Consent evidence log retention
+
+The API and Cognito PostConfirmation Lambdas emit bounded `marketing_consent.evidence.v1`
+JSON records only after their consent transaction commits. Their exact log groups are
+`/aws/lambda/aura-historia-api-<stage>` and
+`/aws/lambda/cognito-post-confirmation-<stage>`. CDK creates explicit log-group resources
+with no `RetentionInDays` property and `Retain` removal/replacement policies in `dev` and
+`prod`. The API and PostConfirmation functions receive `BACKEND_RELEASE_SHA`; this records
+the backend artifact only and does not identify which frontend wording was deployed. The
+global CreateLogGroup retention handler receives only those two stage-specific names as
+exemptions. It continues to set 30 days for every other newly created log group. Its
+existing `DescribeLogGroups` / `PutRetentionPolicy` permissions do not grant log reading
+or deletion. Business Lambda roles receive no log read, query, or delete permission.
+
+For a new stage, the explicit groups are created with the compute stack. For an existing
+stage, the Lambda-created groups already exist outside CloudFormation; do not run the
+normal Deploy first, because it would try to create colliding named groups. Under the
+existing deployment/operator approval boundary, complete this one-time ownership and
+retention migration without deleting or recreating either group:
+
+1. Hold the normal deployment. Verify the account, region, compute stack, exact physical
+   group names, current retention and resource ownership. Stop if either group has a
+   different owner or unexpected configuration.
+2. Synthesize the exact selected source SHA. Confirm the two `AWS::Logs::LogGroup`
+   resources use the names above, have no retention property, and carry `Retain` for
+   deletion and replacement. Prepare an import-only CloudFormation template/change set
+   for those two logical IDs; preserve all existing stack resources and make no Lambda or
+   unrelated changes in the import operation.
+3. With explicit operator authorization, remove the existing 30-day retention policy
+   from each verified group using CloudWatch `DeleteRetentionPolicy`. This clears expiry
+   without deleting archived log events. Record the action and verify both groups still
+   exist with retention unset.
+4. Inspect the prepared change set and require exactly two `AWS::Logs::LogGroup` imports
+   for the verified names, with no creates, updates, replacements or deletions. Execute
+   only that reviewed import change set. Verify the groups are now stack-managed and
+   retained.
+5. Review and deploy the normal CDK template separately. Confirm the API and
+   PostConfirmation `LoggingConfig` references the imported groups and the retention
+   Lambda's exemption environment contains only those two exact names. Verify no group
+   replacement/deletion is proposed and that unrelated log groups keep the existing
+   30-day policy.
+
+The infrastructure change does not perform a live import, retention change, log deletion,
+or event export. For retained-log access, query fields, privacy review and approved
+stream/group deletion steps, follow the [consent evidence operator procedure](../docs/durable-worker-runbook.md#marketing-consent-evidence-logs).
 
 The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
-PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
+`BACKEND_RELEASE_SHA`, PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
 Stripe billing settings, Loops newsletter settings, generated Cognito issuer/JWKS/client/pool settings,
 Vertex project and location, and staged ADC credential JSON. Real-stage nonsecret and secret
 configuration uses the existing SSM dynamic-reference paths:
