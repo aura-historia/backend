@@ -9143,6 +9143,7 @@ dependencies = [
  "html-escape",
  "http 1.5.0",
  "localization",
+ "mrml",
  "serde-email",
  "serde_json",
  "tokio",

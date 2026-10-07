@@ -56,7 +56,7 @@ pub struct NewsletterConfirmationEmailConfig {
 
 impl NewsletterConfirmationEmailConfig {
     /// `frontend_origin` is a trusted deployment setting, never a request redirect.
-    /// Only explicit local/ephemeral loopback deployments may use HTTP.
+    /// Real stages have pinned HTTPS origins; local/ephemeral require HTTP loopback.
     pub fn new(
         bucket: impl Into<String>,
         from: impl Into<String>,
@@ -88,10 +88,23 @@ impl NewsletterConfirmationEmailConfig {
             Some(Host::Ipv6(ip)) => ip.is_loopback(),
             _ => false,
         };
-        if (origin.scheme() != "https"
-            && !(origin.scheme() == "http"
-                && matches!(stage.as_str(), "local" | "ephemeral")
-                && loopback))
+        let trusted_origin = match stage.as_str() {
+            "prod" => {
+                origin.scheme() == "https"
+                    && origin.host_str() == Some("aura-historia.com")
+                    && origin.port().is_none()
+            }
+            "dev" => {
+                origin.scheme() == "https"
+                    && origin.host_str() == Some("stage.aura-historia.com")
+                    && origin.port().is_none()
+            }
+            "local" | "ephemeral" => {
+                origin.scheme() == "http" && loopback && origin.port().is_some()
+            }
+            _ => return Err(NewsletterConfirmationEmailConfigError::InvalidConfiguration),
+        };
+        if !trusted_origin
             || origin.cannot_be_a_base()
             || origin.username() != ""
             || origin.password().is_some()
@@ -359,11 +372,13 @@ fn classify_ses_error(error: &SdkError<SendEmailError>) -> NewsletterConfirmatio
                 || service.is_mail_from_domain_not_verified_exception()
                 || service.is_not_found_exception()
                 || service.is_sending_paused_exception()
-                || matches!(response.raw().status().as_u16(), 400..=407 | 409..=428 | 430..=499)
+                || service.is_too_many_requests_exception()
+                || service.is_limit_exceeded_exception()
+                || matches!(response.raw().status().as_u16(), 400..=407 | 409..=428 | 429..=499)
             {
                 NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
             } else {
-                // Throttling, timeout and 5xx may follow acceptance; do not retry.
+                // Timeout and 5xx may follow acceptance; do not retry.
                 NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
             }
         }
@@ -395,7 +410,10 @@ mod tests {
     #[test]
     fn validates_only_trusted_origins_and_key_components() {
         for origin in [
+            "https://attacker.test",
             "https://attacker.test/path",
+            "https://stage.aura-historia.com",
+            "https://aura-historia.com:8443",
             "https://attacker.test/?next=evil",
             "https://attacker.test/#token=evil",
             "https://user:pass@attacker.test",
@@ -405,7 +423,11 @@ mod tests {
             assert!(config("prod", origin).is_err(), "{origin}");
         }
         assert!(config("prod", "https://aura-historia.com").is_ok());
-        assert!(config("stage", "https://stage.aura-historia.com").is_ok());
+        assert!(config("dev", "https://stage.aura-historia.com").is_ok());
+        assert!(config("dev", "https://aura-historia.com").is_err());
+        assert!(config("dev", "https://stage.aura-historia.com:8443").is_err());
+        assert!(config("ephemeral", "https://attacker.test").is_err());
+        assert!(config("stage", "https://stage.aura-historia.com").is_err());
         assert!(config("ephemeral", "http://127.0.0.1:3000").is_ok());
         assert!(config("local", "http://localhost:3000").is_ok());
         assert!(config("prod", "http://localhost:3000").is_err());
@@ -448,7 +470,7 @@ mod tests {
                         .region(aws_sdk_sesv2::config::Region::new("eu-central-1"))
                         .build(),
                 ),
-                config: config("stage", "https://stage.aura-historia.com").unwrap(),
+                config: config("dev", "https://stage.aura-historia.com").unwrap(),
             };
             let email = NewsletterConfirmationEmail {
                 confirmation_id: NewsletterConfirmationId::new(),
@@ -461,7 +483,7 @@ mod tests {
             };
             assert_eq!(
                 sender.template_key(language),
-                format!("stage/abc123/mjml/newsletter/confirmation/{code}.html")
+                format!("dev/abc123/mjml/newsletter/confirmation/{code}.html")
             );
             let link = sender.confirmation_url(language, &email.token).unwrap();
             assert_eq!(link.path(), format!("/{code}/newsletter/confirm"));

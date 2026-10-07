@@ -159,6 +159,14 @@ impl HttpClient for ReplayHttp {
 }
 
 fn sender(s3_http: ReplayHttp, ses_http: ReplayHttp) -> SesNewsletterConfirmationEmailSender {
+    sender_with_ses_timeout(s3_http, ses_http, Some(Duration::from_millis(100)))
+}
+
+fn sender_with_ses_timeout(
+    s3_http: ReplayHttp,
+    ses_http: ReplayHttp,
+    sdk_timeout: Option<Duration>,
+) -> SesNewsletterConfirmationEmailSender {
     let s3 = aws_sdk_s3::Client::from_conf(
         aws_sdk_s3::Config::builder()
             .behavior_version_latest()
@@ -170,27 +178,24 @@ fn sender(s3_http: ReplayHttp, ses_http: ReplayHttp) -> SesNewsletterConfirmatio
     );
     // The injected client deliberately permits retries. SendEmail has no idempotency key;
     // the sender must override this to one attempt before making a network call.
-    let ses = aws_sdk_sesv2::Client::from_conf(
-        aws_sdk_sesv2::Config::builder()
-            .behavior_version_latest()
-            .region(SesRegion::new("eu-central-1"))
-            .credentials_provider(SesCredentials::new("test", "test", None, None, "sdk-test"))
-            .http_client(ses_http)
-            .retry_config(RetryConfig::standard().with_max_attempts(3))
-            .timeout_config(
-                TimeoutConfig::builder()
-                    .operation_timeout(Duration::from_millis(100))
-                    .build(),
-            )
-            .build(),
-    );
+    let mut ses_config = aws_sdk_sesv2::Config::builder()
+        .behavior_version_latest()
+        .region(SesRegion::new("eu-central-1"))
+        .credentials_provider(SesCredentials::new("test", "test", None, None, "sdk-test"))
+        .http_client(ses_http)
+        .retry_config(RetryConfig::standard().with_max_attempts(3));
+    if let Some(timeout) = sdk_timeout {
+        ses_config =
+            ses_config.timeout_config(TimeoutConfig::builder().operation_timeout(timeout).build());
+    }
+    let ses = aws_sdk_sesv2::Client::from_conf(ses_config.build());
     let config = NewsletterConfirmationEmailConfig::new(
         "test-templates",
         "sender@example.test",
         "reply@example.test",
         "ephemeral",
         "test-commit",
-        "https://aura-historia.com",
+        "http://127.0.0.1:3000",
     )
     .unwrap_or_else(|_| panic!("valid newsletter email config"));
     SesNewsletterConfirmationEmailSender::new(s3, ses, config)
@@ -247,7 +252,7 @@ async fn sends_signed_ses_payload_with_confirmation_link_and_accepts_receipt() {
         html.contains("Ada &amp; Co"),
         "first name must be HTML-escaped"
     );
-    assert!(html.contains("https://aura-historia.com"));
+    assert!(html.contains("http://127.0.0.1:3000"));
     assert!(
         !html.contains(&confirmation_id),
         "the link must not expose the challenge ID"
@@ -329,6 +334,30 @@ async fn modeled_message_rejection_is_definite() {
 }
 
 #[tokio::test]
+async fn modeled_and_unmodeled_throttling_are_definite_rejections() {
+    for reply in [
+        Reply::Response(
+            500,
+            r#"{"__type":"TooManyRequestsException","message":"throttled"}"#,
+        ),
+        Reply::Response(
+            500,
+            r#"{"__type":"LimitExceededException","message":"limited"}"#,
+        ),
+        Reply::Response(429, r#"{"message":"rate limited"}"#),
+    ] {
+        let ses_http = ReplayHttp::new(Service::Ses, [reply]);
+        assert_eq!(
+            sender(template_http(), ses_http.clone())
+                .send(email(None))
+                .await,
+            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+        );
+        assert_eq!(ses_http.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
 async fn ambiguous_transport_failure_does_not_trigger_hidden_ses_sdk_retry() {
     let ses_http = ReplayHttp::new(
         Service::Ses,
@@ -365,4 +394,42 @@ async fn stalled_ses_response_times_out_with_unknown_acceptance_and_no_resend() 
         NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
     );
     assert_eq!(ses_http.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn stalled_ses_request_is_bounded_by_adapter_deadline() {
+    let ses_http = ReplayHttp::new(Service::Ses, [Reply::Hang]);
+    let start = tokio::time::Instant::now();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        sender_with_ses_timeout(template_http(), ses_http.clone(), None).send(email(None)),
+    )
+    .await
+    .expect("adapter SES deadline must bound the stalled request");
+    assert_eq!(
+        outcome,
+        NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
+    );
+    assert!(start.elapsed() >= Duration::from_secs(3));
+    assert_eq!(ses_http.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn stalled_s3_request_is_bounded_by_adapter_deadline_without_ses_send() {
+    let s3_http = ReplayHttp::new(Service::S3, [Reply::Hang]);
+    let ses_http = ReplayHttp::new(Service::Ses, []);
+    let start = tokio::time::Instant::now();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(4),
+        sender_with_ses_timeout(s3_http.clone(), ses_http.clone(), None).send(email(None)),
+    )
+    .await
+    .expect("adapter S3 deadline must bound the stalled request");
+    assert_eq!(
+        outcome,
+        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+    );
+    assert!(start.elapsed() >= Duration::from_secs(2));
+    assert_eq!(s3_http.paths().len(), 1);
+    assert!(ses_http.requests().is_empty());
 }
