@@ -345,6 +345,262 @@ async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invali
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn global_unsubscribe_and_contact_deletion_apply_their_distinct_withdrawal_dispositions() {
+    let pool = get_postgres_client().await;
+    let cases = [
+        (
+            "loops-global-contact-unsubscribe",
+            "contact.unsubscribed",
+            NewsletterWebhookEventKind::ContactUnsubscribed,
+            Disposition::AppliedWithdrawal,
+        ),
+        (
+            "loops-contact-deleted",
+            "contact.deleted",
+            NewsletterWebhookEventKind::ContactDeleted,
+            Disposition::AppliedContactRemoval,
+        ),
+    ];
+
+    for (index, (delivery_id, event_name, kind, disposition)) in cases.into_iter().enumerate() {
+        let address = email(&format!("loops-global-negative-{index}@example.test"));
+        let user_id = UserId::new();
+        seed_user(&pool, user_id, &address).await;
+        let granted_at = timestamp() - Duration::seconds(3);
+        grant_user(&pool, &address, granted_at).await;
+        let event_at = timestamp();
+        let outcome = handler(&pool, MockProvider::state(CONTACT_ID, false, false, false))
+            .execute(ApplyLoopsPreferenceEventCommand {
+                verification: verified_event(
+                    delivery_id,
+                    90 + index as u8,
+                    event_name,
+                    kind,
+                    event_at,
+                    address.as_ref(),
+                    CONTACT_ID,
+                    None,
+                ),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            ApplyLoopsPreferenceEventOutcome::CommittedApplication(disposition),
+            outcome
+        );
+        assert_eq!(
+            (false, 2, Some(event_at)),
+            consent_state(&pool, user_id).await
+        );
+        let saved_source: (String, String) = sqlx::query_as(
+            "SELECT provider_event_name, disposition FROM loops_webhook_receipts WHERE delivery_id = $1",
+        )
+        .bind(delivery_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            (event_name.to_owned(), disposition.as_str().to_owned()),
+            saved_source
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn recreated_contact_can_withdraw_and_can_rebind_after_verified_resubscription() {
+    let pool = get_postgres_client().await;
+
+    let withdrawal_address = email("loops-contact-rotation-withdraw@example.test");
+    let withdrawal_user_id = UserId::new();
+    seed_user(&pool, withdrawal_user_id, &withdrawal_address).await;
+    let initial_withdrawal_at = timestamp() - Duration::seconds(5);
+    grant_user(
+        &pool,
+        &withdrawal_address,
+        initial_withdrawal_at - Duration::seconds(1),
+    )
+    .await;
+    let original_contact = handler(&pool, MockProvider::state("contact-a", false, false, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-contact-rotation-a-delete",
+                93,
+                "contact.deleted",
+                NewsletterWebhookEventKind::ContactDeleted,
+                initial_withdrawal_at,
+                withdrawal_address.as_ref(),
+                "contact-a",
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedContactRemoval),
+        original_contact
+    );
+    assert_eq!(
+        (false, 2, Some(initial_withdrawal_at)),
+        consent_state(&pool, withdrawal_user_id).await
+    );
+
+    let recreated_grant_at = initial_withdrawal_at + Duration::seconds(1);
+    grant_user(&pool, &withdrawal_address, recreated_grant_at).await;
+    assert_eq!(
+        (true, 3, Some(recreated_grant_at)),
+        consent_state(&pool, withdrawal_user_id).await
+    );
+    let recreated_withdrawal_at = initial_withdrawal_at + Duration::seconds(2);
+    let recreated_contact = handler(&pool, MockProvider::state("contact-b", false, false, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-contact-rotation-b-unsubscribe",
+                94,
+                "contact.unsubscribed",
+                NewsletterWebhookEventKind::ContactUnsubscribed,
+                recreated_withdrawal_at,
+                withdrawal_address.as_ref(),
+                "contact-b",
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
+        recreated_contact
+    );
+    assert_eq!(
+        (false, 4, Some(recreated_withdrawal_at)),
+        consent_state(&pool, withdrawal_user_id).await
+    );
+    let withdrawal_fence: (OffsetDateTime, String, bool) = sqlx::query_as(
+        "SELECT latest_event_at, provider_contact_id, purpose_subscribed FROM loops_webhook_preference_fences WHERE email = $1",
+    )
+    .bind::<&str>(withdrawal_address.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (recreated_withdrawal_at, "contact-b".to_owned(), false),
+        withdrawal_fence
+    );
+    let grant_statuses: Vec<String> = sqlx::query_scalar(
+        "SELECT status FROM marketing_email_consent_sync_intents WHERE email = $1 AND desired ORDER BY intent_sequence",
+    )
+    .bind::<&str>(withdrawal_address.as_ref())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        vec!["BLOCKED".to_owned(), "BLOCKED".to_owned()],
+        grant_statuses
+    );
+
+    let resubscribe_address = email("loops-contact-rotation-resubscribe@example.test");
+    let resubscribe_user_id = UserId::new();
+    seed_user(&pool, resubscribe_user_id, &resubscribe_address).await;
+    let original_contact_at = timestamp() - Duration::seconds(5);
+    let original_contact = handler(&pool, MockProvider::state("contact-a", false, false, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-contact-rotation-resubscribe-a-delete",
+                95,
+                "contact.deleted",
+                NewsletterWebhookEventKind::ContactDeleted,
+                original_contact_at,
+                resubscribe_address.as_ref(),
+                "contact-a",
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedContactRemoval),
+        original_contact
+    );
+    let resubscribe_at = original_contact_at + Duration::seconds(2);
+    let rebound_contact = handler(&pool, MockProvider::state("contact-b", true, true, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-contact-rotation-b-resubscribe",
+                96,
+                "email.resubscribed",
+                NewsletterWebhookEventKind::EmailResubscribed,
+                resubscribe_at,
+                resubscribe_address.as_ref(),
+                "contact-b",
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedResubscription),
+        rebound_contact
+    );
+    assert_eq!(
+        (true, 1, Some(resubscribe_at)),
+        consent_state(&pool, resubscribe_user_id).await
+    );
+    let resubscribe_fence: (OffsetDateTime, String, bool) = sqlx::query_as(
+        "SELECT latest_event_at, provider_contact_id, purpose_subscribed FROM loops_webhook_preference_fences WHERE email = $1",
+    )
+    .bind::<&str>(resubscribe_address.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (resubscribe_at, "contact-b".to_owned(), true),
+        resubscribe_fence
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn same_provider_second_withdrawal_wins_over_a_subsecond_local_grant() {
+    let pool = get_postgres_client().await;
+    let address = email("loops-same-second-withdrawal@example.test");
+    let user_id = UserId::new();
+    seed_user(&pool, user_id, &address).await;
+
+    // Loops eventTime has second precision. Model a local grant late in the
+    // provider second; a negative event in that second is uncertain and blocks.
+    let event_at = timestamp() - Duration::seconds(1);
+    let granted_at = event_at + Duration::milliseconds(900);
+    grant_user(&pool, &address, granted_at).await;
+    assert_eq!(
+        (true, 1, Some(granted_at)),
+        consent_state(&pool, user_id).await
+    );
+
+    let outcome = handler(&pool, MockProvider::state(CONTACT_ID, false, false, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-same-second-negative",
+                97,
+                "contact.unsubscribed",
+                NewsletterWebhookEventKind::ContactUnsubscribed,
+                event_at,
+                address.as_ref(),
+                CONTACT_ID,
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
+        outcome
+    );
+    assert_eq!(
+        (false, 2, Some(event_at)),
+        consent_state(&pool, user_id).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn email_only_withdrawal_cancels_matching_grant_and_pending_challenge_without_creating_user()
 {
     let pool = get_postgres_client().await;

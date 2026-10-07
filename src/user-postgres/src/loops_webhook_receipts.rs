@@ -106,7 +106,7 @@ impl LoopsWebhookReceipts for SqlxLoopsWebhookReceipts<'_> {
         purpose_subscribed: bool,
     ) -> Result<(), LoopsWebhookReceiptError> {
         let result = sqlx::query(
-            "INSERT INTO loops_webhook_preference_fences (email, latest_event_at, provider_contact_id, purpose_subscribed) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO UPDATE SET latest_event_at = EXCLUDED.latest_event_at, provider_contact_id = EXCLUDED.provider_contact_id, purpose_subscribed = EXCLUDED.purpose_subscribed, updated_at = clock_timestamp() WHERE loops_webhook_preference_fences.provider_contact_id = EXCLUDED.provider_contact_id AND (EXCLUDED.latest_event_at > loops_webhook_preference_fences.latest_event_at OR (EXCLUDED.latest_event_at = loops_webhook_preference_fences.latest_event_at AND EXCLUDED.purpose_subscribed = false))",
+            "INSERT INTO loops_webhook_preference_fences (email, latest_event_at, provider_contact_id, purpose_subscribed) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO UPDATE SET latest_event_at = EXCLUDED.latest_event_at, provider_contact_id = EXCLUDED.provider_contact_id, purpose_subscribed = EXCLUDED.purpose_subscribed, updated_at = clock_timestamp() WHERE EXCLUDED.latest_event_at > loops_webhook_preference_fences.latest_event_at OR (EXCLUDED.latest_event_at = loops_webhook_preference_fences.latest_event_at AND EXCLUDED.purpose_subscribed = false)",
         )
         .bind::<&str>(email.as_ref())
         .bind(event_at)

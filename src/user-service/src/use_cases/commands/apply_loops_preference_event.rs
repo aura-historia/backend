@@ -343,11 +343,6 @@ where
             EventClassification::Withdraw(disposition) => {
                 if fence
                     .as_ref()
-                    .is_some_and(|fence| fence.provider_contact_id != event.contact_id)
-                {
-                    Disposition::IgnoredContactMismatch
-                } else if fence
-                    .as_ref()
                     .is_some_and(|fence| event.event_time < fence.latest_event_at)
                 {
                     Disposition::IgnoredStale
@@ -365,7 +360,9 @@ where
                         if user.marketing_email_consent
                             && user
                                 .marketing_email_consent_changed_at
-                                .is_some_and(|changed_at| event.event_time < changed_at)
+                                .is_some_and(|changed_at| {
+                                    event.event_time.unix_timestamp() < changed_at.unix_timestamp()
+                                })
                         {
                             Disposition::IgnoredStale
                         } else {
@@ -493,18 +490,16 @@ where
         let fence = self.find_fence(&mut tx, &event.email).await?;
         if fence
             .as_ref()
-            .is_some_and(|fence| fence.provider_contact_id != event.contact_id)
-        {
-            let receipt = self.receipt(&event, Disposition::IgnoredContactMismatch);
-            return self.insert_and_commit(tx, receipt, false).await;
-        }
-        if fence
-            .as_ref()
             .is_some_and(|fence| event.event_time <= fence.latest_event_at)
         {
             let receipt = self.receipt(&event, Disposition::IgnoredStale);
             return self.insert_and_commit(tx, receipt, false).await;
         }
+        // A replacement contact ID is eligible only when the later provider read
+        // confirms this exact mailbox now resolves to the event's contact. Keep
+        // the captured fence so the final transaction can reject an intervening
+        // provider decision/contact rotation.
+        let captured_provider_fence = fence;
         let Some(user) = self
             .intents
             .in_transaction(&mut tx)
@@ -582,10 +577,10 @@ where
                 if user.user_id == captured.user_id
                     && captured.matches(&user)
                     && valid_user_consent_state(&user)
-                    && latest_fence.as_ref().is_none_or(|fence| {
-                        fence.provider_contact_id == event.contact_id
-                            && event.event_time > fence.latest_event_at
-                    })
+                    && latest_fence == captured_provider_fence
+                    && latest_fence
+                        .as_ref()
+                        .is_none_or(|fence| event.event_time > fence.latest_event_at)
                     && user
                         .marketing_email_consent_changed_at
                         .is_none_or(|changed_at| event.event_time > changed_at) =>
