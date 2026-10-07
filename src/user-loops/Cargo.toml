@@ -11,6 +11,7 @@ openssl = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde-email = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 user-core = { workspace = true }

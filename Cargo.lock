@@ -9142,6 +9142,7 @@ dependencies = [
  "openssl",
  "reqwest 0.12.28",
  "serde",
+ "serde-email",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
