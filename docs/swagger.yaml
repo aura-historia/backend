@@ -7306,7 +7306,8 @@ paths:
         The response includes the plaintext bearer token once. List, get, and update responses contain only
         secret-free metadata and never return the bearer token again.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:write` capability.
 
         "
       operationId: postMyAccessToken
@@ -7314,6 +7315,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Access-token creation payload.
@@ -7361,7 +7363,7 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
+                    detail: Request body is required.
                 invalid_scope:
                   summary: Unsupported access-token scope value
                   value:
@@ -7370,7 +7372,7 @@ paths:
                     error: BAD_BODY_VALUE
                     detail: "Unsupported scope 'unsupported:scope'."
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7378,7 +7380,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: User not found
           content:
@@ -7402,11 +7408,12 @@ paths:
     get:
       summary: List Aura Historia access tokens
       description:
-        "Lists the authenticated user's non-expired Aura Historia access tokens.
+        "Lists all of the authenticated user's persisted Aura Historia access tokens, including expired and current tokens.
 
         The response contains secret-free metadata only. It does not return plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:read` capability.
 
         "
       operationId: getMyAccessTokens
@@ -7414,6 +7421,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Access tokens retrieved successfully
@@ -7436,7 +7444,7 @@ paths:
                   $ref: "#/components/schemas/OwnAccessTokenData"
               examples:
                 one_token:
-                  summary: One non-expired access token
+                  summary: One persisted access token
                   value:
                     - userId: usr_5pvhvpxyhve6ts31n9x8c2y513
                       accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
@@ -7446,10 +7454,10 @@ paths:
                       origin: User
                       expires: "2026-06-30T00:00:00Z"
                 no_tokens:
-                  summary: No non-expired access tokens exist
+                  summary: No persisted access tokens exist
                   value: []
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7457,7 +7465,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: User not found
           content:
@@ -7488,7 +7500,8 @@ paths:
         `scopes: []` to clear scopes. The response contains secret-free metadata only and never returns
         plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:write` capability.
 
         "
       operationId: patchMyAccessToken
@@ -7496,6 +7509,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Partial access-token update payload.
@@ -7548,7 +7562,7 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
+                    detail: Request body is required.
                 invalid_access_token_id:
                   summary: Invalid access token identifier in request body
                   value:
@@ -7560,7 +7574,7 @@ paths:
                       type: BODY
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7568,7 +7582,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: Access token not found
           content:
@@ -7593,11 +7611,13 @@ paths:
     get:
       summary: Get one Aura Historia access token
       description:
-        "Retrieves one non-expired Aura Historia access token owned by the authenticated user.
+        "Retrieves one persisted Aura Historia access token owned by the authenticated user, including expired and
+        current tokens.
 
         The response contains secret-free metadata only. It does not return plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:read` capability.
 
         "
       operationId: getMyAccessToken
@@ -7605,6 +7625,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: accessTokenId
           in: path
@@ -7667,7 +7688,7 @@ paths:
                       type: PATH
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7675,7 +7696,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: Access token not found
           content:
@@ -7758,7 +7783,7 @@ paths:
                       type: PATH
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7766,7 +7791,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "500":
           description: Internal server error
           content:
@@ -14808,7 +14837,7 @@ components:
         expires:
           type: string
           format: date-time
-          description: Optional RFC3339 expiration timestamp; omitted when the token does not expire.
+          description: Optional RFC3339 expiration timestamp; omitted when the token does not expire and returned for expired and current tokens.
           example: "2026-06-30T00:00:00Z"
     CreatedAccessTokenData:
       type: object
