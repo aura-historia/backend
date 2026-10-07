@@ -11,6 +11,7 @@ use lambda_http::{
 use listing_source_core::ListingSourceId;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serial_test::serial;
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -23,6 +24,8 @@ use user_core::access_token::Scope;
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const OPENSEARCH: OpenSearch = OpenSearch();
 const WOOCOMMERCE_WEBHOOK_SECRET: &str = "lambda-http-api-v2-webhook-secret";
+const LOOPS_WEBHOOK_SIGNING_SECRET: &str = "whsec_bG9vcHMta2V5LWN1cnJlbnQ=";
+const LOOPS_WEBHOOK_SIGNING_KEY: &[u8] = b"loops-key-current";
 
 #[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
 async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() {
@@ -350,7 +353,7 @@ async fn should_persist_an_authenticated_partner_write_through_the_http_api_v2_a
 
 #[serial(lambda_composition_environment)]
 #[test_api::aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_serve_health_through_full_lambda_composition_when_google_and_opensearch_are_unavailable()
+async fn should_acknowledge_signed_loops_test_event_through_full_lambda_composition_when_google_and_opensearch_are_unavailable()
  {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let _environment = EnvironmentGuard::set(&[
@@ -375,7 +378,7 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
         )
         .await?;
         let response = serialize_http_api_v2_router_response(
-            app,
+            app.clone(),
             http_api_v2_event(include_str!("fixtures/http_api_v2_health.json"))?,
         )
         .await?;
@@ -383,6 +386,54 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
         assert_eq!(serde_json::json!(200), response["statusCode"]);
         assert_eq!(serde_json::json!("ok\n"), response["body"]);
         assert_eq!(serde_json::json!(false), response["isBase64Encoded"]);
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs()
+            .to_string();
+        let delivery_id = format!("msg_lambda_loops_{}", uuid::Uuid::new_v4());
+        let event_time = timestamp.parse::<i64>()?;
+        let raw_body = format!(
+            " {{\n  \"webhookSchemaVersion\" : \"1.0.0\", \"eventName\": \"testing.testEvent\", \"eventTime\": {event_time}, \"unused\": \"élève\" \n}}"
+        )
+        .into_bytes();
+        let signature = loops_signature(&delivery_id, &timestamp, &raw_body)?;
+        let webhook_response = serialize_http_api_v2_router_response(
+            app,
+            http_api_v2_binary_loops_event(
+                &delivery_id,
+                &timestamp,
+                &signature,
+                &raw_body,
+            )?,
+        )
+        .await?;
+
+        assert_eq!(serde_json::json!(204), webhook_response["statusCode"]);
+        assert_eq!(serde_json::json!(""), webhook_response["body"]);
+        assert_eq!(serde_json::json!(false), webhook_response["isBase64Encoded"]);
+        assert_eq!(
+            serde_json::json!("private, no-store"),
+            webhook_response["headers"]["cache-control"]
+        );
+
+        let pool = get_postgres_client().await;
+        let (stored_digest, event_name, disposition, email): (
+            Vec<u8>,
+            String,
+            String,
+            Option<String>,
+        ) = sqlx::query_as(
+            "SELECT raw_body_sha256, provider_event_name, disposition, email FROM loops_webhook_receipts WHERE delivery_id = $1",
+        )
+        .bind(&delivery_id)
+        .fetch_one(&pool)
+        .await?;
+        let expected_digest: [u8; 32] = Sha256::digest(&raw_body).into();
+        assert_eq!(expected_digest.to_vec(), stored_digest);
+        assert_eq!("testing.testEvent", event_name);
+        assert_eq!("IGNORED_UNSUPPORTED_EVENT", disposition);
+        assert_eq!(None, email);
         Ok(())
     }
     .await;
@@ -586,8 +637,65 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::LOOPS_NEWSLETTER_LIST_ID_ENV,
             "lambda-test-newsletter-list",
         ),
+        (
+            aura_historia_api::LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
+            LOOPS_WEBHOOK_SIGNING_SECRET,
+        ),
     ]);
     ApiConfig::from_getter(|name| values.get(name).map(ToString::to_string))
+}
+
+fn loops_signature(
+    delivery_id: &str,
+    timestamp: &str,
+    body: &[u8],
+) -> Result<String, openssl::error::ErrorStack> {
+    let key = PKey::hmac(LOOPS_WEBHOOK_SIGNING_KEY)?;
+    let mut signer = Signer::new(MessageDigest::sha256(), &key)?;
+    signer.update(delivery_id.as_bytes())?;
+    signer.update(b".")?;
+    signer.update(timestamp.as_bytes())?;
+    signer.update(b".")?;
+    signer.update(body)?;
+    Ok(format!(
+        "v1,{}",
+        base64::engine::general_purpose::STANDARD.encode(signer.sign_to_vec()?)
+    ))
+}
+
+fn http_api_v2_binary_loops_event(
+    delivery_id: &str,
+    timestamp: &str,
+    signature: &str,
+    body: &[u8],
+) -> Result<lambda_http::request::LambdaRequest, serde_json::Error> {
+    let path = "/api/v1/webhooks/loops";
+    let event = serde_json::json!({
+        "version": "2.0",
+        "routeKey": "POST /api/v1/webhooks/loops",
+        "rawPath": path,
+        "rawQueryString": "",
+        "headers": {
+            "content-type": "application/json",
+            "host": "api.example.test",
+            "webhook-id": delivery_id,
+            "webhook-timestamp": timestamp,
+            "webhook-signature": signature
+        },
+        "requestContext": {
+            "stage": "$default",
+            "http": {
+                "method": "POST",
+                "path": path,
+                "protocol": "HTTP/1.1",
+                "sourceIp": "127.0.0.1",
+                "userAgent": "aura-historia-api-lambda-test"
+            }
+        },
+        "body": base64::engine::general_purpose::STANDARD.encode(body),
+        "isBase64Encoded": true
+    });
+    serde_json::from_value(event)
 }
 
 struct EnvironmentGuard {
