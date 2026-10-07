@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-07 — Own access-token request and response DTOs (#1965)
+
+- `POST /api/v1/me/access-tokens` requires `name` and `scopes` (including `[]`), accepts optional `expires`, and returns only `userId`, `accessTokenId`, and the one-time plaintext `accessToken`. The create response is `Cache-Control: no-store`.
+- Own list/get/update responses use `userId`, `accessTokenId`, `name`, `scopes`, `origin`, and optional `expires`. They never return plaintext or masked token values.
+
 ## 2026-10-05 — Remove saved-search match explanations (#1847)
 
 - Removed `matchReason` from ProductListing user-state responses and `enhancedMatchReason` from saved-search match records. Match feedback is unchanged; classifier scores and generated explanations are not persisted or returned.

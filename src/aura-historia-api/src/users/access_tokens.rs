@@ -134,7 +134,7 @@ pub async fn post_access_token(
         origin: AccessTokenOrigin::User,
     };
     match state.create_access_token.execute(&ctx, command).await {
-        Ok(r) => (StatusCode::CREATED, Json(CreatedTokenData::from(r))).into_response(),
+        Ok(r) => no_store((StatusCode::CREATED, Json(CreatedTokenData::from(r))).into_response()),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -516,24 +516,110 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_admin_access_token_metadata_without_secrets() {
+    fn should_serialize_own_access_token_metadata_with_scopes_and_expiry() {
         let value = serde_json::to_value(TokenData::from(AccessTokenView {
             user_id: UserId::new(),
             access_token_id: AccessTokenId::new(),
-            name: AccessTokenName::from("admin inspection"),
-            scopes: HashSet::from([Scope::UsersRead]),
+            name: AccessTokenName::from("own token"),
+            scopes: HashSet::from([Scope::UsersRead, Scope::UsersWrite]),
+            origin: AccessTokenOrigin::User,
+            expires: Some(
+                OffsetDateTime::parse("2026-06-30T00:00:00Z", &Rfc3339)
+                    .unwrap_or_else(|error| panic!("test expiry is valid RFC3339: {error}")),
+            ),
+        }))
+        .unwrap_or_else(|error| panic!("own access-token metadata serializes: {error}"));
+
+        let scopes = value["scopes"]
+            .as_array()
+            .unwrap_or_else(|| panic!("scopes serialize as an array: {value}"))
+            .iter()
+            .map(|scope| {
+                scope
+                    .as_str()
+                    .unwrap_or_else(|| panic!("scope serializes as a string: {scope}"))
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(HashSet::from(["users:read", "users:write"]), scopes);
+        assert_eq!("2026-06-30T00:00:00Z", value["expires"]);
+        assert_eq!("User", value["origin"]);
+        assert!(value.get("accessTokenId").is_some());
+        for field in ["accessToken", "token", "tokenShort", "tokenHash", "hash"] {
+            assert!(value.get(field).is_none(), "unexpected {field}: {value}");
+        }
+    }
+
+    #[test]
+    fn should_serialize_own_access_token_metadata_with_empty_scopes_and_no_expiry() {
+        let value = serde_json::to_value(TokenData::from(AccessTokenView {
+            user_id: UserId::new(),
+            access_token_id: AccessTokenId::new(),
+            name: AccessTokenName::from("unscoped token"),
+            scopes: HashSet::new(),
             origin: AccessTokenOrigin::User,
             expires: None,
         }))
-        .unwrap_or_else(|error| panic!("admin access-token metadata serializes: {error}"));
+        .unwrap_or_else(|error| panic!("own access-token metadata serializes: {error}"));
 
+        assert_eq!(json!([]), value["scopes"]);
+        assert!(value.get("expires").is_none());
         assert!(value.get("accessToken").is_none());
         assert!(value.get("token").is_none());
-        assert!(value.get("tokenShort").is_none());
-        assert!(value.get("tokenHash").is_none());
-        assert!(value.get("hash").is_none());
-        assert!(value.get("accessTokenId").is_some());
-        assert!(value.get("scopes").is_some());
+    }
+
+    #[test]
+    fn should_deserialize_access_token_creation_with_required_scopes_and_optional_expiry() {
+        let selected_scopes: PostTokenData = serde_json::from_value(json!({
+            "name": "partner sync",
+            "scopes": ["users:read", "users:write"],
+            "expires": "2026-06-30T00:00:00Z"
+        }))
+        .unwrap_or_else(|error| panic!("selected-scope create request deserializes: {error}"));
+        assert_eq!("partner sync", selected_scopes.name);
+        assert_eq!(
+            HashSet::from(["users:read".to_owned(), "users:write".to_owned()]),
+            selected_scopes.scopes
+        );
+        assert_eq!(
+            Some(
+                OffsetDateTime::parse("2026-06-30T00:00:00Z", &Rfc3339)
+                    .unwrap_or_else(|error| panic!("test expiry is valid RFC3339: {error}")),
+            ),
+            selected_scopes.expires
+        );
+
+        let empty_scopes: PostTokenData = serde_json::from_value(json!({
+            "name": "unscoped token",
+            "scopes": []
+        }))
+        .unwrap_or_else(|error| panic!("empty-scope create request deserializes: {error}"));
+        assert!(empty_scopes.scopes.is_empty());
+        assert_eq!(None, empty_scopes.expires);
+        assert!(
+            serde_json::from_value::<PostTokenData>(json!({"name": "missing scopes"})).is_err()
+        );
+    }
+
+    #[test]
+    fn should_serialize_create_result_with_only_identity_and_one_time_plaintext() {
+        let value = serde_json::to_value(CreatedTokenData {
+            user_id: UserId::new(),
+            access_token_id: AccessTokenId::new(),
+            access_token: "aurahistoria_one_time_secret".to_owned(),
+        })
+        .unwrap_or_else(|error| panic!("created access-token response serializes: {error}"));
+
+        let fields = value
+            .as_object()
+            .unwrap_or_else(|| panic!("create result serializes as an object: {value}"))
+            .keys()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            HashSet::from(["userId", "accessTokenId", "accessToken"]),
+            fields
+        );
+        assert_eq!("aurahistoria_one_time_secret", value["accessToken"]);
     }
 
     #[test]
