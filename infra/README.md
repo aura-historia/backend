@@ -308,10 +308,9 @@ Real PostgreSQL Lambdas receive the committed public AWS RDS bundle from the
 `POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`. The asset is
 sourced from `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`
 and pinned in git (SHA-256 `e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3`);
-refresh it deliberately when AWS changes its trust set. Ephemeral test ZIPs instead
-contain their process-generated fixture **public** CA at
-`/var/task/aura-historia/test-postgres-ca.pem`. No private CA, database password,
-provider token, or signed event body is packaged or logged.
+refresh it deliberately when AWS changes its trust set. Isolated PostgreSQL
+tests use a process-generated fixture **public** CA; no private CA, database
+password, provider token, or signed event body is packaged or logged.
 
 CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
 binary from `src/<binary>/` (not the workspace root, whose default-run package

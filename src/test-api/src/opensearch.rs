@@ -93,7 +93,7 @@ impl IntegrationTestService for OpenSearch {
 
     async fn set_up(&self) {
         OPENSEARCH_BOOTSTRAPPED
-            .get_or_init(|| async { set_up_open_search(false).await })
+            .get_or_init(|| async { set_up_open_search().await })
             .await;
     }
 
@@ -119,14 +119,9 @@ fn test_domain_access_policy() -> String {
     .to_string()
 }
 
-#[cfg(feature = "cloudformation")]
-pub(crate) async fn set_up_after_cloudformation() {
-    set_up_open_search(true).await;
-}
-
-async fn set_up_open_search(recreate_existing_domain: bool) {
+async fn set_up_open_search() {
     let started = std::time::Instant::now();
-    set_up_domain(recreate_existing_domain)
+    set_up_domain()
         .await
         .expect("shouldn't fail creating OpenSearch-Domain");
     wait_until_domain_processed(TEST_DOMAIN_NAME)
@@ -141,7 +136,7 @@ async fn set_up_open_search(recreate_existing_domain: bool) {
     );
 }
 
-async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOutput, BoxError> {
+async fn set_up_domain() -> Result<CreateDomainOutput, BoxError> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
     let custom_endpoint =
         format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
@@ -153,20 +148,6 @@ async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOut
         .send()
         .await
     {
-        Ok(_response) if recreate_existing_domain => {
-            debug!(
-                "OpenSearch domain '{}' exists from CloudFormation; recreating it for LocalStack",
-                TEST_DOMAIN_NAME
-            );
-            let _ = client
-                .delete_domain()
-                .domain_name(TEST_DOMAIN_NAME)
-                .send()
-                .await;
-            wait_until_domain_deleted(TEST_DOMAIN_NAME)
-                .await
-                .expect("shouldn't fail waiting for OpenSearch domain deletion");
-        }
         Ok(_response) => {
             // Domain already exists — it may have been created without path-based routing
             // registered. Call update_domain_config to ensure LocalStack routes /test-domain/*.
@@ -224,27 +205,6 @@ async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOut
         .send()
         .await
         .map_err(box_error)
-}
-
-async fn wait_until_domain_deleted(domain: &'static str) -> Result<(), BoxError> {
-    let mut retries = 100;
-    loop {
-        match aws_sdk_opensearch::Client::new(get_aws_config().await)
-            .describe_domain()
-            .domain_name(domain)
-            .send()
-            .await
-        {
-            Ok(_) => {
-                retries -= 1;
-                if retries < 0 {
-                    return Err(std::io::Error::other("Domain took too long to delete").into());
-                }
-                sleep(Duration::from_millis(500)).await;
-            }
-            Err(_) => return Ok(()),
-        }
-    }
 }
 
 async fn wait_until_domain_processed(domain: &'static str) -> Result<(), BoxError> {
@@ -446,9 +406,7 @@ async fn wait_until_indices_are_set_up() -> Result<(), Error> {
 /// Clears all documents from every standard index to ensure test isolation.
 ///
 /// Silently skips any index that does not yet exist (e.g. before the first
-/// test has caused its creation). Reusable from any `IntegrationTestService`
-/// implementation that needs a full OpenSearch reset, including the
-/// `Cloudformation` service.
+/// test has caused its creation).
 pub(crate) async fn clear_all_indices() {
     let started = std::time::Instant::now();
     const INDICES: &[&str] = &["product-listings", "user_search_filters", "users"];

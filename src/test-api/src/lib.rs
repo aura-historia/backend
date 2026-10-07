@@ -2,12 +2,6 @@
 mod api_gateway;
 #[cfg(feature = "aura-historia-api")]
 mod aura_historia_api;
-#[cfg(feature = "cloudformation")]
-mod cloudformation;
-#[cfg(feature = "cognito")]
-mod cloudformation_output;
-#[cfg(feature = "cognito")]
-mod cognito;
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
 pub mod localstack;
@@ -27,11 +21,6 @@ pub use api_gateway::*;
 use async_trait::async_trait;
 #[cfg(feature = "aura-historia-api")]
 pub use aura_historia_api::{AuraHistoriaApi, AuraHistoriaApiAppFactory};
-#[cfg(feature = "cloudformation")]
-pub use cloudformation::Cloudformation;
-#[cfg(feature = "cognito")]
-pub use cognito::*;
-
 #[cfg(feature = "eventbridge")]
 pub use eventbridge::get_eventbridge_client;
 pub use futures_util::FutureExt;
