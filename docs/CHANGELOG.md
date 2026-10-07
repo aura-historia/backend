@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-07 — Signed Loops preference webhook (#1948)
+
+- Added anonymous `POST /api/v1/webhooks/loops`; it requires valid `webhook-id`, `webhook-timestamp`, and `webhook-signature` proof over the exact request bytes, with no Aura bearer. The body limit is 64 KiB and the processing budget is 10 seconds.
+- `204` acknowledges only a committed C13 receipt/application, identical duplicate, or safely ignored verified event. Invalid proof returns `401 LOOPS_WEBHOOK_UNAUTHORIZED`; malformed selected body/event returns `400 LOOPS_WEBHOOK_INVALID_BODY`; delivery identity conflict returns `409 LOOPS_WEBHOOK_CONFLICT`; oversized body returns `413 LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE`; internal configuration failure returns `500 LOOPS_WEBHOOK_INTERNAL_ERROR`; and retryable provider/database/deadline failures return `503 LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE`. Responses are `no-store`.
+
 ## 2026-10-07 — Own access-token request and response DTOs (#1965)
 
 - `POST /api/v1/me/access-tokens` requires `name` and `scopes` (including `[]`), accepts optional `expires`, and returns only `userId`, `accessTokenId`, and the one-time plaintext `accessToken`. The create response is `Cache-Control: no-store`.

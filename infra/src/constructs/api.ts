@@ -18,6 +18,7 @@ export enum RouteAuthPolicy {
   ApplicationBearer = "APPLICATION_BEARER",
   OAuth = "OAUTH",
   ProviderSignature = "PROVIDER_SIGNATURE",
+  LoopsSignature = "LOOPS_SIGNATURE",
 }
 
 export enum RouteAuthorizationClass {
@@ -37,6 +38,7 @@ export enum OAuthCredentialRequirement {
 export enum ProviderProofRequirement {
   None = "NONE",
   WooCommerceSignature = "WOOCOMMERCE_SIGNATURE",
+  LoopsSignature = "LOOPS_SIGNATURE",
 }
 
 /**
@@ -143,6 +145,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OAuth, "/api/v1/oauth/introspect", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ProviderSignature, "/api/v1/webhooks/woocommerce/{listing_source_id}", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.LoopsSignature, "/api/v1/webhooks/loops", ["POST"]),
 ];
 
 export interface HttpApiProps {
@@ -177,6 +180,9 @@ export class BackendHttpApi extends Construct {
           "X-WC-Webhook-Event",
           "X-WC-Webhook-ID",
           "X-WC-Webhook-Delivery-ID",
+          "Webhook-Id",
+          "Webhook-Timestamp",
+          "Webhook-Signature",
           "X-Api-Key",
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
@@ -538,6 +544,8 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.AuthenticatedUser, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
     case RouteAuthPolicy.ProviderSignature:
       return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.Partner, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.WooCommerceSignature };
+    case RouteAuthPolicy.LoopsSignature:
+      return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.LoopsSignature };
     case RouteAuthPolicy.OAuth:
       throw new Error(`OAuth route '${path}' has no explicit credential policy.`);
   }

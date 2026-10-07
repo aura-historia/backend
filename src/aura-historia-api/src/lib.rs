@@ -31,8 +31,8 @@ use crate::auth::{
 };
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    ListingSourcesState, NewsletterState, NotificationsState, OAuthState, PartiesState,
-    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ListingSourcesState, LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState,
+    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
     ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, ReadinessCheck,
     SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
@@ -189,15 +189,21 @@ use tokio::net::TcpListener;
 use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
-use user_loops::{LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter};
+use user_loops::{
+    LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter,
+    LoopsNewsletterWebhookVerifier,
+};
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
-    SqlxCognitoUserIdentityReader, SqlxMarketingConsentIntentRepository,
-    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
-    SqlxUserAuthenticationReader, SqlxUserCognitoIdentityRegistryFactory,
-    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
+    SqlxCognitoUserIdentityReader, SqlxLoopsWebhookReceiptRepository,
+    SqlxMarketingConsentIntentRepository, SqlxNewsletterProfileReader,
+    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
+    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
+    SqlxUserTierEntitlementsFactory,
 };
+use user_service::ports::NewsletterWebhookMailingListId;
+use user_service::use_cases::ApplyLoopsPreferenceEventHandler;
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
@@ -243,6 +249,7 @@ pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PR
 pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
+pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
     "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
@@ -299,6 +306,7 @@ pub struct ApiConfig {
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     loops: LoopsNewsletterConfig,
+    loops_webhook_signing_secret: String,
     product_listing_search_parallel_enrichment_enabled: bool,
     product_listing_search_fx_cache: FxSearchCacheConfig,
     product_listing_search_source_cache: SourceSearchCacheConfig,
@@ -385,6 +393,12 @@ impl ApiConfig {
             get(LOOPS_API_BASE_URL_ENV).unwrap_or_else(|| DEFAULT_LOOPS_API_BASE_URL.to_owned()),
         )
         .map_err(ApiConfigError::LoopsConfig)?;
+        let loops_webhook_signing_secret =
+            required_config(&mut get, LOOPS_WEBHOOK_SIGNING_SECRET_ENV)?;
+        user_loops::LoopsNewsletterWebhookVerifier::validate_signing_secret(
+            &loops_webhook_signing_secret,
+        )
+        .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
 
         Ok(Self {
             bind_addr,
@@ -394,6 +408,7 @@ impl ApiConfig {
             stripe_billing,
             billing_prices,
             loops,
+            loops_webhook_signing_secret,
             product_listing_search_parallel_enrichment_enabled,
             product_listing_search_fx_cache,
             product_listing_search_source_cache,
@@ -428,6 +443,10 @@ impl ApiConfig {
 
     fn loops(&self) -> &LoopsNewsletterConfig {
         &self.loops
+    }
+
+    fn loops_webhook_signing_secret(&self) -> &str {
+        &self.loops_webhook_signing_secret
     }
 
     fn product_listing_search_fx_cache_config(&self) -> FxSearchCacheConfig {
@@ -643,6 +662,8 @@ pub enum ApiConfigError {
     ),
     #[error("invalid Loops newsletter configuration")]
     LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
+    #[error("invalid Loops webhook signing-secret configuration")]
+    InvalidLoopsWebhookSigningSecret,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -689,6 +710,21 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .route(
                     "/api/v1/webhooks/woocommerce/{listing_source_id}",
                     post(webhooks::post_woocommerce::post_woocommerce),
+                )
+                .with_state(webhooks),
+        );
+    }
+
+    if let Some(webhooks) = state.loops_webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/webhooks/loops",
+                    post(webhooks::post_loops::post_loops).layer(
+                        tower_http::limit::RequestBodyLimitLayer::new(
+                            crate::transport::MAX_LOOPS_WEBHOOK_BODY_BYTES,
+                        ),
+                    ),
                 )
                 .with_state(webhooks),
         );
@@ -1250,6 +1286,18 @@ async fn app_state_from_config_and_pool(
         SqlxNewsletterProfileReader::new(pool.clone()),
         newsletter_writer,
     );
+    let loops_consent_provider = LoopsMarketingEmailConsentWriter::new(config.loops().clone())
+        .map_err(|_| ApiStateError::LoopsClient)?;
+    let loops_webhook_target_list_id =
+        NewsletterWebhookMailingListId::new(config.loops().newsletter_list_id().to_owned())
+            .ok_or(ApiStateError::LoopsWebhookListConfiguration)?;
+    let apply_loops_preference_event = ApplyLoopsPreferenceEventHandler::new(
+        unit_of_work.clone(),
+        SqlxMarketingConsentIntentRepository::new(),
+        SqlxLoopsWebhookReceiptRepository::new(),
+        loops_consent_provider,
+        loops_webhook_target_list_id,
+    );
     let watch_product = WatchProductListingHandler::new(
         unit_of_work.clone(),
         SqlxWatchlistRepositoryFactory,
@@ -1783,6 +1831,11 @@ async fn app_state_from_config_and_pool(
             Arc::new(intake_woocommerce_product),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
+        .with_loops_webhooks(LoopsWebhooksState::new(
+            config.loops_webhook_signing_secret().to_owned(),
+            Arc::new(LoopsNewsletterWebhookVerifier),
+            Arc::new(apply_loops_preference_event),
+        ))
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
         .with_notifications(notifications_state)
@@ -2029,6 +2082,8 @@ pub enum ApiStateError {
     JwksClient(reqwest::Error),
     #[error("failed to configure Loops newsletter HTTP client")]
     LoopsClient,
+    #[error("invalid Loops webhook target-list configuration")]
+    LoopsWebhookListConfiguration,
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
@@ -2124,6 +2179,10 @@ mod tests {
                 LOOPS_NEWSLETTER_LIST_ID_ENV,
                 "test-newsletter-list".to_owned(),
             ),
+            (
+                LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
+                "whsec_dGVzdC1sb29wcy13ZWJob29r".to_owned(),
+            ),
         ])
     }
 
@@ -2160,6 +2219,48 @@ mod tests {
                 Err(ApiConfigError::LoopsConfig(_))
             ));
         }
+    }
+
+    #[test]
+    fn should_validate_required_loops_webhook_signing_secret() {
+        let mut missing = valid_api_config_values();
+        missing.remove(LOOPS_WEBHOOK_SIGNING_SECRET_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: LOOPS_WEBHOOK_SIGNING_SECRET_ENV
+            })
+        ));
+
+        for value in ["", "   ", "whsec_not-base64!"] {
+            let mut invalid = valid_api_config_values();
+            invalid.insert(LOOPS_WEBHOOK_SIGNING_SECRET_ENV, value.to_owned());
+            let result = ApiConfig::from_getter(|name| invalid.get(name).cloned());
+            if value.trim().is_empty() {
+                assert!(matches!(
+                    result,
+                    Err(ApiConfigError::MissingRequiredConfig { .. })
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(ApiConfigError::InvalidLoopsWebhookSigningSecret)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn should_not_reveal_loops_webhook_signing_secret_in_configuration_errors() {
+        let sentinel = "whsec-secret-sentinel";
+        let mut values = valid_api_config_values();
+        values.insert(LOOPS_WEBHOOK_SIGNING_SECRET_ENV, sentinel.to_owned());
+        let Err(error) = ApiConfig::from_getter(|name| values.get(name).cloned()) else {
+            panic!("invalid Loops webhook secret unexpectedly accepted");
+        };
+
+        assert!(!error.to_string().contains(sentinel));
+        assert!(!format!("{error:?}").contains(sentinel));
     }
 
     #[test]
