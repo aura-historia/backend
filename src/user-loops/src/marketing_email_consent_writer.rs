@@ -180,14 +180,8 @@ impl LoopsMarketingEmailConsentWriter {
                 Error::Rejected { status: code }
             });
         }
-        if status == StatusCode::UNAUTHORIZED
-            || status == StatusCode::FORBIDDEN
-            || status.is_redirection()
-        {
-            return Err(Error::Protocol { status: code });
-        }
         if status != StatusCode::OK {
-            return Err(Error::Rejected { status: code });
+            return Err(Error::Protocol { status: code });
         }
         let body = read_bounded(response).await.map_err(|error| match error {
             Error::ReadUnavailable => Error::AcceptanceUnknown,
@@ -392,20 +386,22 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
         // Both independent reads are required after acceptance, even if find returns Missing.
         let after = self.find_contact(&intent.email).await;
         let suppression = self.suppression(&intent.email).await;
-        let after = after.map_err(readback_error)?;
-        let suppressed = match suppression.map_err(readback_error)? {
-            SuppressionObservation::Present {
-                contact_id,
-                suppressed,
-            } if contact_id == id => suppressed,
-            _ => return Err(Error::AcceptanceUnknown),
-        };
-        if suppressed {
-            return Ok(Outcome::BlockedByProviderPreferences);
-        }
-        match after {
-            Some(contact) if contact.id == id => {
-                if contact.subscribed && contact.eligible_opt_in && contact.on_target_list {
+        match (
+            after.map_err(readback_error)?,
+            suppression.map_err(readback_error)?,
+        ) {
+            (
+                Some(contact),
+                SuppressionObservation::Present {
+                    contact_id,
+                    suppressed,
+                },
+            ) if contact.id == id && contact_id == id => {
+                if !suppressed
+                    && contact.subscribed
+                    && contact.eligible_opt_in
+                    && contact.on_target_list
+                {
                     Ok(Outcome::Applied { contact_id: id })
                 } else {
                     Ok(Outcome::BlockedByProviderPreferences)
@@ -942,6 +938,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_post_grant_find_with_suppressed_expected_contact_is_uncertain() {
+        let server = MockServer::start().await;
+        transitioning_find(&server, json!([]), json!([])).await;
+        transitioning_suppression(
+            &server,
+            ResponseTemplate::new(200).set_body_json(json!({
+                "contact": {"id": ID, "email": EMAIL}, "isSuppressed": true
+            })),
+        )
+        .await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .respond_with(accepted())
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = writer(&server).grant(&intent(true)).await;
+        assert_ne!(result, Ok(Outcome::BlockedByProviderPreferences));
+        assert_eq!(result, Err(Error::AcceptanceUnknown));
+    }
+
+    #[tokio::test]
+    async fn different_post_grant_find_id_with_suppressed_expected_contact_is_uncertain() {
+        let server = MockServer::start().await;
+        transitioning_find(
+            &server,
+            json!([]),
+            json!([{"id": "other-contact", "email": EMAIL, "subscribed": true,
+                "mailingLists": {(LIST): true}, "optInStatus": "accepted"}]),
+        )
+        .await;
+        transitioning_suppression(
+            &server,
+            ResponseTemplate::new(200).set_body_json(json!({
+                "contact": {"id": ID, "email": EMAIL}, "isSuppressed": true
+            })),
+        )
+        .await;
+        Mock::given(method("PUT"))
+            .and(path("/api/v1/contacts/update"))
+            .respond_with(accepted())
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            writer(&server).grant(&intent(true)).await,
+            Err(Error::AcceptanceUnknown)
+        );
+    }
+
+    #[tokio::test]
     async fn missing_grant_readback_is_uncertain() {
         let server = MockServer::start().await;
         transitioning_find(&server, json!([]), json!([])).await;
@@ -1158,6 +1207,8 @@ mod tests {
             (429, json!({}), Error::Throttled { status: Some(429) }),
             (503, json!({}), Error::AcceptanceUnknown),
             (302, json!({}), Error::Protocol { status: Some(302) }),
+            (405, json!({}), Error::Protocol { status: Some(405) }),
+            (404, json!({}), Error::Protocol { status: Some(404) }),
             (
                 200,
                 json!({"success": true, "id": ""}),
