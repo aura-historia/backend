@@ -4655,6 +4655,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
+name = "marketing-consent-sync-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-loops",
+ "user-postgres",
+ "user-service",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "markup5ever"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

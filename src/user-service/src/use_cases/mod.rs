@@ -69,6 +69,10 @@ pub use commands::set_user_stripe_customer_id::{
 pub use commands::suspend_user::{
     SuspendUserCommand, SuspendUserError, SuspendUserHandler, SuspendUserResult, SuspendUserUseCase,
 };
+pub use commands::sync_marketing_consent_intent::{
+    SyncMarketingConsentIntentError, SyncMarketingConsentIntentHandler,
+    SyncMarketingConsentIntentResult, SyncMarketingConsentIntentUseCase,
+};
 pub use commands::unsuspend_user::{
     UnsuspendUserCommand, UnsuspendUserError, UnsuspendUserHandler, UnsuspendUserResult,
     UnsuspendUserUseCase,
