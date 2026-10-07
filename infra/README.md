@@ -59,7 +59,7 @@ DmsCdc (real stages only)
 
 It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. See [DMS declaration and evidence](#dms-cdc-declaration-and-evidence-1781) for checked-in slot, start-position, test and cost boundaries. DMS first start requires a separately approved operator plan.
 
-The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all ten destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. R6 selects the journal plus raw revisions, saved filters, matches, and delivery intents, with explicit trigger operations enforced by the router. #1788 owns AWS evidence and controlled replay proof.
+The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all eleven destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. The consent destination is a retained FIFO source/DLQ pair, consumed by the versioned `marketing-consent-sync-lambda`; it has no direct API or Cognito publisher. R6 selects the journal plus raw revisions, saved filters, matches, delivery intents, and consent intents, with explicit trigger operations enforced by the router. The consent DMS mapping exposes only renamed `sync_intent_id` and `recipient_key`. #1788 owns AWS evidence and controlled replay proof.
 
 ## Common commands
 
@@ -437,7 +437,7 @@ For recovery, select the retained snapshot or desired point-in-time restore time
 
 For `dev` and `prod`, this CDK declaration creates private RDS PostgreSQL `16.13`, single-AZ DMS `3.6.1` on `dms.t3.small` (2 vCPU, 2 GiB), one provisioned Kinesis shard with seven-day retention, and Kinesis plus shared Secrets Manager interface endpoints. The replication secret path is `/aura-historia/<stage>/postgres/replication`; it is never an output or log value. `aura_replication` has table-scoped `SELECT` and `rds_replication` only.
 
-The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Deploy may declare a new stopped task; no workflow starts/resets an existing task or creates/replaces a slot or checkpoint. Before data-stack deployment, Deploy bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [event flow](../docs/events/flow.md#cdc-routing) for table/operation routing and [worker operations](../docs/durable-worker-runbook.md#activation-and-legacy-handoff) for activation custody. An approved DMS operator plan must cover the actual slot/LSN, LOB/Kinesis bounds, fixture protocol and recovery before first start; the checked-in declaration alone does not establish those live facts.
+The task is CDC-only and initially stopped. Its PostgreSQL endpoint explicitly selects `aura_historia`, uses DMS's `test-decoding` setting with the pre-existing named slot `aura_historia_dms_cdc_<stage>`, and reads only the generated replication secret through the regional DMS service principal; its distinct Kinesis target service-access role trusts `dms.amazonaws.com`. The selected sources include `marketing_email_consent_sync_intents`, transformed to publish only `sync_intent_id` (renamed from PostgreSQL `intent_id`) and `recipient_key`; `users`, `newsletter_subscription_confirmations`, and webhook receipt tables stay excluded. DMS selection changes to an existing task and its first start are operator actions under an approved plan; CloudFormation deployment never starts or automatically restarts DMS. The empty-default compatibility parameter omits `CdcStartPosition` for greenfield task creation and preserves any existing approved first-start LSN during stack updates. The separately approved first start must obtain and validate the actual source slot/LSN, then call DMS `start-replication` with that approved LSN. Later recovery uses `resume-processing` and DMS's recovery checkpoint, never a replacement parameter value. Deploy may declare a new stopped task; no workflow starts/resets an existing task or creates/replaces a slot or checkpoint. Before data-stack deployment, Deploy bootstraps the shared account-level `dms-vpc-role` (DMS-only `sts:AssumeRole` trust and AWS-managed `service-role/AmazonDMSVPCManagementRole`). It creates a missing role, attaches a missing managed policy to a correctly trusted role, and refuses to replace an unexpected existing trust policy. This role is not owned or deleted by either stage's CDK stack. For manually deployed stacks, an operator must provision/verify it first. A lost or invalid slot requires a new fenced replay/rebuild plan. See [event flow](../docs/events/flow.md#cdc-routing) for table/operation routing and [worker operations](../docs/durable-worker-runbook.md#activation-and-legacy-handoff) for activation custody. An approved DMS operator plan must cover the actual slot/LSN, LOB/Kinesis bounds, fixture protocol and recovery before first start; the checked-in declaration alone does not establish those live facts.
 
 From `infra/`, the existing configuration checks are:
 
@@ -452,7 +452,7 @@ They do not deploy or exercise AWS. The AWS fixture procedure is documented/manu
 ## Target artifact boundary
 
 On every trigger, `Deploy (CD)` builds/reuses the selected source's Rust Lambda
-ZIP catalog referenced by CDK, including the ten scoped worker Lambdas and
+ZIP catalog referenced by CDK, including the eleven scoped worker Lambdas and
 `cdc-router-lambda`, compiled mail templates, and cataloged ECS images. Deployment
 references stage-local S3 artifacts by `CommitSHA` and images by registry digest.
 It never builds, uploads, configures, or deploys the legacy native
@@ -533,19 +533,25 @@ pairs and authoritative PostgreSQL state before any cutover.
 
 ## Worker queue contract
 
-`src/worker-queue-config.ts` owns the typed catalog and shared settings. All ten
+`src/worker-queue-config.ts` owns the typed catalog and shared settings. All eleven
 queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
 `product-listing-opensearch`, `product-listing-normalization`, `product-content-assessment`,
 `product-embedding`, `product-translation`, `search-filter-projection`,
 `search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`, and
-`notification-delivery` queues have retained Lambda mappings in every compute stack.
+`notification-delivery` queues remain Standard; `marketing-consent-sync` is the dedicated
+FIFO scope. All eleven queues have versioned Lambda mappings in every compute stack.
 First compute creation requires manual Deploy `scope=all` after verified migration,
 initial FX and the other operator prerequisites; these mappings are active when created. This catalog remains separate from Shopify resources and wiring.
 
-Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
+Each enabled scope owns one source queue and one DLQ. The ten existing CDC scopes
+remain Standard; only `marketing-consent-sync` uses FIFO:
 
-- Source: `aura-worker-<scope>-<stage>`.
-- DLQ: `aura-worker-<scope>-dlq-<stage>`.
+- Standard source/DLQ: `aura-worker-<scope>-<stage>` and
+  `aura-worker-<scope>-dlq-<stage>`.
+- Consent FIFO source/DLQ: `aura-worker-marketing-consent-sync-<stage>.fifo` and
+  `aura-worker-marketing-consent-sync-dlq-<stage>.fifo`.
+- FIFO explicitly disables content-based deduplication; the router supplies stable
+  message-group and deduplication IDs.
 - Stage is exactly CDK's `prod`, `dev`, or `ephemeral`, not a stack-name prefix or
   the frontend's `stage` label. Names are validated against SQS's 80-character
   limit; they are never truncated. Runtime `STAGE` must match the queue suffix.
@@ -557,7 +563,9 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 - DLQ `redrivePermission=byQueue` allows only its named source ARN. Source queues
   use `denyAll` so they cannot become another queue's DLQ. This is not permission
   for a runtime to perform operator replay/redrive.
-- Prod queues retain on **deletion and replacement**. Dev/ephemeral queues delete.
+- Existing Standard queues retain in prod and delete in dev/ephemeral, preserving
+  their current lifecycle. The consent FIFO pair retains in both real stages on
+  **deletion and replacement** and is disposable only in isolated ephemeral.
   Retained old queues need explicit operator inventory/recovery; renaming a queue
   does not migrate its messages or consumers.
 
@@ -573,6 +581,16 @@ Each enabled scope owns one **Standard source queue** and one **Standard DLQ**:
 | `product-translation` | `ProductTranslation` | 300s |
 | `product-listing-normalization` | `ProductListingNormalization` | 270s |
 | `notification-delivery` | `NotificationDelivery` | 330s |
+| `marketing-consent-sync` | `MarketingConsentSync` | 330s |
+
+`marketing-consent-sync-lambda` is the real 512 MiB / 45s consumer for the consent
+FIFO source. Its published-version mapping has batch size one, no batching window,
+and `ReportBatchItemFailures`. It uses one reusable PostgreSQL connection, the
+existing `/loops/<stage>/api-key` and `/loops/<stage>/newsletter-list-id`
+references, and only its source-queue receive/delete/visibility/attribute actions.
+Prod alarms use the existing worker age/DLQ thresholds plus Lambda errors (5) and
+throttles (1). The API's existing direct Loops writer remains until the later API
+cutover; the new queue does not grant direct SQS publication to API or Cognito.
 
 `product-listing-opensearch`, `product-content-assessment`, `product-translation`, `search-filter-projection`, `search-filter-percolator`, `search-filter-match-notification`, and `watchlist-notification` are 512 MiB, 45s Lambdas with retained SQS mappings targeting published function versions, batch size one, and `ReportBatchItemFailures`. Content assessment uses **270s** source visibility (`6 × 45s`); the other listed mappings use **300s**, exceeding six times the Lambda timeout. `product-embedding-lambda` is 1024 MiB with a 60s cap and **360s** source visibility (`6 × 60s`) for one bounded image/Vertex/persistence attempt. The percolator classifies enhanced saved-search candidates with Cloudflare Workers AI Clef Flash by default, using the user's original description, localized listing title and description, and at most one image. `product-translation-lambda` receives only PostgreSQL, Vertex project/location/model, Google ADC, and its source queue; it refreshes ADC after warm idle, performs inference outside its short guarded write transaction, and retries missing source, provider, persistence, timeout, panic, malformed, and unknown-commit work through SQS/DLQ. Mappings are active at compute creation; an operator-approved pause must preserve each resource, function version, queue pair and IAM role. Neither Lambda changes visibility or runs a receipt daemon; only completed service results are omitted from failures. The notification generators are PostgreSQL-only: they do not receive OpenSearch, Vertex, S3 template, or SES configuration or permissions. The saved-filter projection rereads authoritative PostgreSQL state and turns a source-missing upsert into its versioned persistent deletion fence before acknowledging.
 
@@ -695,10 +713,17 @@ CDK preserves previous activation parameters on updates, including
 `CdcRouterEnabled` and `PeriodicMatcherEnabled`; both default to `false` on first
 creation. DMS start-position compatibility parameters likewise retain prior
 approved values. Scope is not an activation override. Compute creation activates
-the ten worker mappings, partner integrations and FX/cleanup schedules together;
+the eleven worker mappings, partner integrations and FX/cleanup schedules together;
 there is no separate release flag for them and **no built-in readiness marker**
 proving migrations, FX, OpenSearch or handoff are complete. Neither stack existence
 nor a successful foundation summary proves application readiness.
+
+The marketing-consent consumer mapping uses the selected release's built
+`marketing-consent-sync-lambda` artifact and an applied consent schema before the
+mapping is created. Its producer route remains behind the separately disabled
+CDC router mapping; this release does not cut over API consent writes. Router S3
+failure archives and worker DLQs require investigation and controlled replay;
+they do not retry or replay indefinitely on their own.
 
 The per-stage compute stack also exposes `SearchFilterClassifierModel` and
 `SearchFilterMatchShouldShowThresholdBps`. Their defaults come from the stage
@@ -723,12 +748,17 @@ Deploy; even foundation-only releases prepare the selected artifact catalog.
 4. Run **Initialize FX** (`Initialize (CD)`) with the same stage and SHA; verify
    successful persisted initial capture. It does not deploy application stacks.
 5. Before manual Deploy **the same ref**, `scope=all`, verify matching migrations,
-   initial FX, OpenSearch readiness, native-consumer handoff (old consumers stopped
-   and in-flight/backlog work settled or preserved), and explicit SES/provider
-   consent, recipients, quotas and credentials. Verify certificate/DNS and other
-   required stage configuration. Hold `all` if any prerequisite is unverified.
-   It creates active compute, not an inactive preview. Keep DMS/router activation
-   separately approved; never run two consumers of one queue.
+   including the consent-intent schema, initial FX, OpenSearch readiness,
+   native-consumer handoff (old consumers stopped and in-flight/backlog work
+   settled or preserved), explicit SES/provider consent, recipients, quotas and
+   credentials, and the existing `/loops/<stage>/api-key` and
+   `/loops/<stage>/newsletter-list-id` configuration. Verify certificate/DNS and
+   other required stage configuration. Hold `all` if any prerequisite is
+   unverified. It creates active compute, including the real C04 consent consumer
+   and its batch-one mapping, not an inactive preview. Keep DMS selection changes,
+   first start and `CdcRouterEnabled` activation separately approved operator
+   actions; no deployment automatically starts or restarts DMS. Never run two
+   consumers of one queue.
 
 Use the pinned full SHA for dev continuation rather than a now-moving `develop`;
 prod continues with the same immutable tag. After deployment record actual

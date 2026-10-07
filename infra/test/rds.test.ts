@@ -126,8 +126,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(18);
-    expect(runtimeFunctions).toHaveLength(17);
+    expect(functions).toHaveLength(19);
+    expect(runtimeFunctions).toHaveLength(18);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
@@ -376,7 +376,7 @@ test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a 
   const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
     .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
 
-  expect(functions).toHaveLength(15);
+  expect(functions).toHaveLength(16);
   expect(functions.find((resource) =>
     resource.Properties.FunctionName === "product-embedding-lambda-ephemeral",
   )).toBeDefined();

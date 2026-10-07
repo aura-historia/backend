@@ -108,6 +108,28 @@ test("production applies the queue-worker error threshold to content assessment"
   });
 });
 
+test("production alarms the consent consumer's Lambda errors and throttles", () => {
+  const template = productionObservabilityTemplate();
+  const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
+  const functionName = "marketing-consent-sync-lambda-prod";
+
+  for (const [metricName, threshold] of [["Errors", 5], ["Throttles", 1]] as const) {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: `prod-${functionName}-${metricName.toLowerCase()}`,
+      Namespace: "AWS/Lambda",
+      MetricName: metricName,
+      Dimensions: [{ Name: "FunctionName", Value: functionName }],
+      Statistic: "Sum",
+      Period: 300,
+      Threshold: threshold,
+      EvaluationPeriods: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+      TreatMissingData: "notBreaching",
+      AlarmActions: [{ Ref: topicIds[0] }],
+    });
+  }
+});
+
 test("production alarms DMS source/target lag, DMS and Kinesis capacity, and source WAL storage, with task-state notifications", () => {
   const template = productionObservabilityTemplate();
   const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));

@@ -31,6 +31,7 @@ export interface EventingProps {
   readonly searchFilterMatchNotificationVersion: lambda.IVersion;
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
+  readonly marketingConsentSyncVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
   readonly cdcRouterActivation?: cdk.CfnCondition;
@@ -48,6 +49,7 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   PRODUCT_LISTING_OPENSEARCH: "product-listing-opensearch",
   PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
   NOTIFICATION_DELIVERY: "notification-delivery",
+  MARKETING_CONSENT_SYNC: "marketing-consent-sync",
 } as const satisfies Record<string, WorkerScope>;
 
 export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
@@ -118,6 +120,7 @@ export class Eventing extends Construct {
       props.searchFilterMatchNotificationVersion,
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
+      props.marketingConsentSyncVersion,
     );
   }
 }
@@ -402,6 +405,7 @@ function createSqsEventSources(
   searchFilterMatchNotificationVersion: lambda.IVersion,
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
+  marketingConsentSyncVersion: lambda.IVersion,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
@@ -583,6 +587,16 @@ function createSqsEventSources(
 
     "Watchlist notification",
   );
+
+  addWorkerLambdaEventSource(
+    scope,
+    "MarketingConsentSyncQueueEventSource",
+    functions.marketingConsentSync,
+    workerQueues["marketing-consent-sync"],
+    marketingConsentSyncVersion,
+    "Marketing consent sync",
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true },
+  );
 }
 
 function addWorkerLambdaEventSource(
@@ -592,6 +606,7 @@ function addWorkerLambdaEventSource(
   workerQueue: WorkerQueueCatalog[WorkerScope] | undefined,
   version: lambda.IVersion,
   description: string,
+  options: { readonly includeGetQueueUrl?: boolean; readonly dependOnAccessPolicy?: boolean } = {},
 ): void {
   if (!workerQueue) {
     throw new Error(`${description} worker queue is required for its Lambda event source.`);
@@ -602,17 +617,25 @@ function addWorkerLambdaEventSource(
       "sqs:DeleteMessage",
       "sqs:GetQueueAttributes",
       "sqs:ChangeMessageVisibility",
-      "sqs:GetQueueUrl",
+      ...(options.includeGetQueueUrl === false ? [] : ["sqs:GetQueueUrl"]),
     ],
     resources: [workerQueue.queue.queueArn],
   }));
-  new lambda.CfnEventSourceMapping(scope, id, {
+  const mapping = new lambda.CfnEventSourceMapping(scope, id, {
     batchSize: 1,
     enabled: true,
     eventSourceArn: workerQueue.queue.queueArn,
     functionName: version.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
+  if (options.dependOnAccessPolicy) {
+    const executionPolicy = fn.role?.node.tryFindChild("DefaultPolicy") as iam.Policy | undefined;
+    const policyResource = executionPolicy?.node.defaultChild as iam.CfnPolicy | undefined;
+    if (!policyResource) {
+      throw new Error(`${description} worker mapping requires its execution policy.`);
+    }
+    mapping.addResourceDependency(policyResource);
+  }
 }
 
 function addSqsEventSource(

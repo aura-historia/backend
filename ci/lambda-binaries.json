@@ -19,5 +19,6 @@
   "search-filter-match-notification-lambda",
   "watchlist-notification-lambda",
   "notification-delivery-lambda",
+  "marketing-consent-sync-lambda",
   "cdc-router-lambda"
 ]

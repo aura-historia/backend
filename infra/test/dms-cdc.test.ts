@@ -193,12 +193,41 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .map((rule) => (rule["object-locator"] as Record<string, string>)["table-name"])
       .sort();
     expect(includedTables).toEqual([
+      "marketing_email_consent_sync_intents",
       "notification_deliveries",
       "product_listing_events",
       "product_listing_raw_revisions",
       "search_filter_matches",
       "search_filters",
     ]);
+    for (const excludedTable of [
+      "users",
+      "newsletter_subscription_confirmations",
+      "loops_webhook_receipts",
+      "loops_webhook_preference_fences",
+    ]) {
+      expect(includedTables).not.toContain(excludedTable);
+    }
+
+    const consentColumnRules = mappings.rules.filter((rule) => {
+      const locator = rule["object-locator"] as Record<string, string>;
+      return locator["table-name"] === "marketing_email_consent_sync_intents";
+    });
+    const includedConsentColumns = consentColumnRules
+      .filter((rule) => rule["rule-action"] === "include-column")
+      .map((rule) => (rule["object-locator"] as Record<string, string>)["column-name"])
+      .sort();
+    expect(includedConsentColumns).toEqual(["intent_id", "recipient_key"]);
+    expect(consentColumnRules).toContainEqual(expect.objectContaining({
+      "rule-action": "rename",
+      "rule-target": "column",
+      "object-locator": expect.objectContaining({
+        "schema-name": "public",
+        "table-name": "marketing_email_consent_sync_intents",
+        "column-name": "intent_id",
+      }),
+      value: "sync_intent_id",
+    }));
 
     const removedColumns = mappings.rules
       .filter((rule) => rule["rule-action"] === "remove-column")

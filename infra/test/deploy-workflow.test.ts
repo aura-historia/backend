@@ -281,6 +281,7 @@ describe("immutable artifact publication", () => {
     const binaries: string[] = JSON.parse(read("ci/lambda-binaries.json"));
     expect(Array.isArray(binaries)).toBe(true);
     expect(binaries).toContain("product-listing-ingestion-lambda");
+    expect(binaries).toContain("marketing-consent-sync-lambda");
     expect(binaries).not.toContain("aura-historia-worker");
     expect(new Set(binaries).size).toBe(binaries.length);
     const members = read("Cargo.toml").match(/\[workspace\]\s*members\s*=\s*\[([^\]]*)\]/)?.[1];

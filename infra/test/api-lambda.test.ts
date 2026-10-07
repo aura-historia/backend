@@ -185,12 +185,13 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(version.Properties.ProvisionedConcurrencyConfig).toBeUndefined();
   });
 
-  test("keeps Loops newsletter settings on the API Lambda only", () => {
+  test("limits Loops newsletter settings to the API and consent workers", () => {
     const template = computeTemplate(stage);
     const functions = Object.values(template.findResources("AWS::Lambda::Function")) as CloudFormationResource[];
 
     for (const functionResource of functions) {
-      if (functionResource.Properties.FunctionName === `aura-historia-api-${stage}`) {
+      if ([`aura-historia-api-${stage}`, `marketing-consent-sync-lambda-${stage}`]
+        .includes(functionResource.Properties.FunctionName as string)) {
         continue;
       }
       const environment = functionResource.Properties.Environment as

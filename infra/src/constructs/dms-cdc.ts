@@ -276,6 +276,10 @@ function tableMappings(): Record<string, unknown> {
         "updated",
       ],
     },
+    {
+      table: "marketing_email_consent_sync_intents",
+      removedColumns: [],
+    },
   ];
 
   let ruleId = 1;
@@ -307,6 +311,34 @@ function tableMappings(): Record<string, unknown> {
       });
     }
   }
+
+  for (const column of ["intent_id", "recipient_key"] as const) {
+    rules.push({
+      "rule-type": "transformation",
+      "rule-id": nextRule(),
+      "rule-name": `include-marketing-consent-${column}`,
+      "rule-target": "column",
+      "object-locator": {
+        "schema-name": "public",
+        "table-name": "marketing_email_consent_sync_intents",
+        "column-name": column,
+      },
+      "rule-action": "include-column",
+    });
+  }
+  rules.push({
+    "rule-type": "transformation",
+    "rule-id": nextRule(),
+    "rule-name": "rename-marketing-consent-intent-id",
+    "rule-target": "column",
+    "object-locator": {
+      "schema-name": "public",
+      "table-name": "marketing_email_consent_sync_intents",
+      "column-name": "intent_id",
+    },
+    "rule-action": "rename",
+    value: "sync_intent_id",
+  });
 
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },

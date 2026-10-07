@@ -54,7 +54,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     }
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
+    expect(mappings).toHaveLength(stage === "ephemeral" ? 13 : 14);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
     if (stage === "ephemeral") {
       expect(router).toBeUndefined();

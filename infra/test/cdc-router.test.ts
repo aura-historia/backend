@@ -15,6 +15,7 @@ const ROUTER_QUEUES = {
   PRODUCT_LISTING_OPENSEARCH: "product-listing-opensearch",
   PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
   NOTIFICATION_DELIVERY: "notification-delivery",
+  MARKETING_CONSENT_SYNC: "marketing-consent-sync",
 } as const;
 
 const KINESIS_READ_ACTIONS = [
@@ -245,8 +246,8 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     });
     const sourceQueueArns = sourceQueues?.Resource as unknown[];
     const deadLetterQueueArns = deadLetterQueues?.Resource as unknown[];
-    expect(sourceQueueArns).toHaveLength(10);
-    expect(deadLetterQueueArns).toHaveLength(10);
+    expect(sourceQueueArns).toHaveLength(11);
+    expect(deadLetterQueueArns).toHaveLength(11);
     for (const workerScope of Object.values(ROUTER_QUEUES)) {
       expect(JSON.stringify(sourceQueueArns)).toContain(`aura-worker-${workerScope}-${stage}`);
       expect(JSON.stringify(deadLetterQueueArns)).toContain(`aura-worker-${workerScope}-dlq-${stage}`);
@@ -285,5 +286,5 @@ test("ephemeral does not construct the DMS router, failure archive, or Kinesis m
   expect(JSON.stringify(template.toJSON())).not.toContain("cdc-router-lambda");
   template.resourceCountIs("AWS::S3::Bucket", 0);
   template.resourceCountIs("AWS::Kinesis::Stream", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 12);
+  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 13);
 });

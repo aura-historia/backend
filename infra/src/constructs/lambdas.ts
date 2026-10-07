@@ -32,6 +32,7 @@ interface LambdaDefinition {
   readonly timeoutSeconds: number;
   readonly skipEphemeral?: boolean;
   readonly postgres?: boolean;
+  readonly maxPostgresConnections?: number;
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
 }
 
@@ -211,6 +212,15 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
     environment: notificationDeliveryEnvironment,
   },
+  marketingConsentSync: {
+    id: "MarketingConsentSyncLambda",
+    binaryName: "marketing-consent-sync-lambda",
+    memorySize: 512,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+    environment: marketingConsentSyncEnvironment,
+  },
   searchFilterPercolator: {
     id: "SearchFilterPercolatorLambda",
     binaryName: "search-filter-percolator-lambda",
@@ -288,6 +298,7 @@ export class Lambdas extends Construct {
   readonly searchFilterMatchNotificationVersion: lambda.Version;
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
+  readonly marketingConsentSyncVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
 
@@ -407,6 +418,10 @@ export class Lambdas extends Construct {
       lambda: this.functions.notificationDelivery,
       description: `notification-delivery-${props.parameters.commitSha}`,
     });
+    this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
+      lambda: this.functions.marketingConsentSync,
+      description: `marketing-consent-sync-${props.parameters.commitSha}`,
+    });
     if (props.config.isEphemeral) {
       this.backendCleanupVersion = undefined;
       this.cdcRouterVersion = undefined;
@@ -521,7 +536,10 @@ function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironm
   if (!definition.postgres) {
     return env;
   }
-  return withPostgresEnvironment(context, env);
+  const postgresEnvironment = withPostgresEnvironment(context, env);
+  return definition.maxPostgresConnections === undefined
+    ? postgresEnvironment
+    : { ...postgresEnvironment, POSTGRES_MAX_CONNECTIONS: String(definition.maxPostgresConnections) };
 }
 
 function withPostgresEnvironment(
@@ -690,6 +708,25 @@ function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Rec
   };
 }
 
+function marketingConsentSyncEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return loopsNewsletterEnvironment(context.config);
+}
+
+function loopsNewsletterEnvironment(config: StageConfig): Record<string, string> {
+  if (config.isEphemeral) {
+    return {
+      LOOPS_API_BASE_URL: "https://loops.test/api",
+      LOOPS_API_KEY: "ephemeral-loops-api-key",
+      LOOPS_NEWSLETTER_LIST_ID: "ephemeral-newsletter-list",
+    };
+  }
+  return {
+    LOOPS_API_BASE_URL: "https://app.loops.so/api",
+    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
+    LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
+  };
+}
+
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   const { config, search } = context;
   const environment = {
@@ -713,9 +750,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
       STRIPE_API_KEY: "sk_test_ephemeral",
       VERTEX_AI_LOCATION: "eu",
       VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
-      LOOPS_API_BASE_URL: "https://loops.test/api",
-      LOOPS_API_KEY: "ephemeral-loops-api-key",
-      LOOPS_NEWSLETTER_LIST_ID: "ephemeral-newsletter-list",
+      ...loopsNewsletterEnvironment(config),
     };
   }
 
@@ -729,9 +764,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
-    LOOPS_API_BASE_URL: "https://app.loops.so/api",
-    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
-    LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
+    ...loopsNewsletterEnvironment(config),
   };
 }
 
