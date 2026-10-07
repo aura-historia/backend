@@ -1029,9 +1029,25 @@ async fn should_create_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    let fields = body
+        .as_object()
+        .unwrap_or_else(|| panic!("create response must be an object: {body}"))
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        std::collections::HashSet::from(["userId", "accessTokenId", "accessToken"]),
+        fields
+    );
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_id_prefix(&body["userId"], "usr_");
     assert_id_prefix(&body["accessTokenId"], "at_");
@@ -1057,9 +1073,15 @@ async fn should_list_access_tokens_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     let items = body
         .as_array()
         .unwrap_or_else(|| panic!("access-token response must be an array: {body}"));
@@ -1067,6 +1089,7 @@ async fn should_list_access_tokens_for_current_user() {
     for item in items {
         assert_id_prefix(&item["userId"], "usr_");
         assert_id_prefix(&item["accessTokenId"], "at_");
+        assert_secret_free_access_token_metadata(item);
     }
 }
 
@@ -1357,9 +1380,16 @@ async fn should_get_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_secret_free_access_token_metadata(&body);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(
         serde_json::json!(access_token_id.to_string()),
@@ -1391,9 +1421,16 @@ async fn should_update_access_token_for_current_user() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to patch access token API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_secret_free_access_token_metadata(&body);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(
         serde_json::json!(access_token_id.to_string()),
@@ -2587,4 +2624,187 @@ fn assert_id_prefix(value: &serde_json::Value, prefix: &str) {
         value.starts_with(prefix),
         "expected object ID prefix {prefix}, got {value}"
     );
+}
+
+fn assert_secret_free_access_token_metadata(value: &serde_json::Value) {
+    let object = value
+        .as_object()
+        .unwrap_or_else(|| panic!("access-token metadata must be an object: {value}"));
+    let mut expected_fields =
+        std::collections::HashSet::from(["userId", "accessTokenId", "name", "scopes", "origin"]);
+    if object.contains_key("expires") {
+        expected_fields.insert("expires");
+    }
+    let actual_fields = object
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        expected_fields, actual_fields,
+        "unexpected access-token metadata fields: {value}"
+    );
+}
+
+#[test]
+fn should_keep_own_access_token_openapi_contract_aligned() {
+    let swagger = include_str!("../../../../docs/swagger.yaml");
+    let collection_path = yaml_block(swagger, "/api/v1/me/access-tokens", 2);
+    let create = yaml_block(collection_path, "post", 4);
+    let list = yaml_block(collection_path, "get", 4);
+    let update = yaml_block(collection_path, "patch", 4);
+    let item_path = yaml_block(swagger, "/api/v1/me/access-tokens/{accessTokenId}", 2);
+    let get = yaml_block(item_path, "get", 4);
+    let delete = yaml_block(item_path, "delete", 4);
+
+    assert!(create.contains("#/components/schemas/PostAccessTokenData"));
+    assert!(create.contains("#/components/schemas/CreatedAccessTokenData"));
+    assert!(list.contains("#/components/schemas/OwnAccessTokenData"));
+    assert!(update.contains("#/components/schemas/PatchAccessTokenData"));
+    assert!(update.contains("#/components/schemas/OwnAccessTokenData"));
+    assert!(get.contains("#/components/schemas/OwnAccessTokenData"));
+
+    for (operation, capability) in [
+        (create, "access-tokens:write"),
+        (list, "access-tokens:read"),
+        (update, "access-tokens:write"),
+        (get, "access-tokens:read"),
+        (delete, "access-tokens:write"),
+    ] {
+        assert!(operation.contains("- BearerAuth: []"));
+        assert!(operation.contains("- AccessTokenAuth: []"));
+        assert!(operation.contains(capability));
+        assert!(operation.contains("error: INVALID_CREDENTIALS"));
+        assert!(operation.contains("field: Authorization"));
+        assert!(!operation.contains("error: UNAUTHORIZED"));
+        assert!(!operation.contains("Requires valid Cognito JWT authentication."));
+    }
+    assert!(create.contains("detail: Request body is required."));
+    assert!(update.contains("detail: Request body is required."));
+    assert!(!list.contains("non-expired"));
+    assert!(list.contains("including expired and current tokens"));
+    assert!(list.contains("summary: One persisted access token"));
+    assert!(list.contains("summary: No persisted access tokens exist"));
+    assert!(get.contains("including expired and"));
+    assert!(get.contains("current tokens"));
+    assert!(delete.contains("error: INVALID_CREDENTIALS"));
+    assert!(delete.contains("field: Authorization"));
+    assert!(!delete.contains("error: UNAUTHORIZED"));
+
+    let post_schema = yaml_block(swagger, "PostAccessTokenData", 4);
+    assert_eq!(
+        std::collections::HashSet::from(["name", "scopes", "expires"]),
+        yaml_mapping_keys(post_schema, "properties:")
+    );
+    assert_eq!(
+        std::collections::HashSet::from(["name", "scopes"]),
+        yaml_sequence_items(post_schema, "required:")
+    );
+
+    let patch_schema = yaml_block(swagger, "PatchAccessTokenData", 4);
+    assert_eq!(
+        std::collections::HashSet::from(["accessTokenId", "name", "scopes", "expires"]),
+        yaml_mapping_keys(patch_schema, "properties:")
+    );
+    assert_eq!(
+        std::collections::HashSet::from(["accessTokenId"]),
+        yaml_sequence_items(patch_schema, "required:")
+    );
+
+    let created_schema = yaml_block(swagger, "CreatedAccessTokenData", 4);
+    assert_eq!(
+        std::collections::HashSet::from(["userId", "accessTokenId", "accessToken"]),
+        yaml_mapping_keys(created_schema, "properties:")
+    );
+    assert_eq!(
+        std::collections::HashSet::from(["userId", "accessTokenId", "accessToken"]),
+        yaml_sequence_items(created_schema, "required:")
+    );
+
+    let own_schema = yaml_block(swagger, "OwnAccessTokenData", 4);
+    assert_eq!(
+        std::collections::HashSet::from([
+            "userId",
+            "accessTokenId",
+            "name",
+            "scopes",
+            "origin",
+            "expires",
+        ]),
+        yaml_mapping_keys(own_schema, "properties:")
+    );
+    assert_eq!(
+        std::collections::HashSet::from(["userId", "accessTokenId", "name", "scopes", "origin"]),
+        yaml_sequence_items(own_schema, "required:")
+    );
+}
+
+fn yaml_block<'a>(document: &'a str, key: &str, indent: usize) -> &'a str {
+    let marker = format!("{}{key}:\n", " ".repeat(indent));
+    let start = document
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing YAML key at indent {indent}: {key}"));
+    let mut cursor = start + marker.len();
+
+    for line in document[cursor..].split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        if !content.trim().is_empty() {
+            let line_indent = content.len() - content.trim_start().len();
+            if line_indent <= indent {
+                return &document[start..cursor];
+            }
+        }
+        cursor += line.len();
+    }
+
+    &document[start..]
+}
+
+fn yaml_mapping_keys<'a>(block: &'a str, section: &str) -> std::collections::HashSet<&'a str> {
+    yaml_child_values(block, section, false)
+}
+
+fn yaml_sequence_items<'a>(block: &'a str, section: &str) -> std::collections::HashSet<&'a str> {
+    yaml_child_values(block, section, true)
+}
+
+fn yaml_child_values<'a>(
+    block: &'a str,
+    section: &str,
+    sequence: bool,
+) -> std::collections::HashSet<&'a str> {
+    let mut section_indent = None;
+    let mut values = std::collections::HashSet::new();
+
+    for line in block.lines() {
+        let content = line.trim_start();
+        let indent = line.len() - content.len();
+        if section_indent.is_none() {
+            if content == section {
+                section_indent = Some(indent);
+            }
+            continue;
+        }
+
+        if content.is_empty() {
+            continue;
+        }
+        let parent_indent = section_indent.expect("section indent is set");
+        if indent <= parent_indent {
+            break;
+        }
+        if indent != parent_indent + 2 {
+            continue;
+        }
+
+        if sequence {
+            if let Some(value) = content.strip_prefix("- ") {
+                values.insert(value);
+            }
+        } else if let Some(value) = content.strip_suffix(':') {
+            values.insert(value);
+        }
+    }
+
+    assert!(section_indent.is_some(), "missing YAML section: {section}");
+    values
 }
