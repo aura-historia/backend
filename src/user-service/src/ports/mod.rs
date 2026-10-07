@@ -4,6 +4,7 @@ pub mod access_token_list_reader;
 pub mod access_token_repository;
 pub mod admin_access_token_list_reader;
 pub mod cognito_identity;
+pub mod loops_webhook_receipts;
 pub mod marketing_consent_intents;
 pub mod marketing_email_consent_writer;
 pub mod newsletter_confirmation_challenges;
@@ -40,6 +41,11 @@ pub use cognito_identity::{
     UserCognitoIdentityRegistryError, UserCognitoIdentityRegistryFactory,
 };
 
+pub use loops_webhook_receipts::{
+    LoopsPreferenceFence, LoopsWebhookReceiptDisposition, LoopsWebhookReceiptError,
+    LoopsWebhookReceiptInput, LoopsWebhookReceiptLookup, LoopsWebhookReceiptWriteOutcome,
+    LoopsWebhookReceipts, LoopsWebhookReceiptsFactory,
+};
 pub use marketing_consent_intents::{
     ConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser, GrantRaceRepairOutcome,
     MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,

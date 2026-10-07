@@ -395,6 +395,9 @@ mod tests {
             user_id: id,
             email: email("actor@example.com"),
             version: UserStorageVersion::INITIAL,
+            marketing_email_consent: false,
+            marketing_email_consent_revision: 0,
+            marketing_email_consent_changed_at: None,
         }
     }
 

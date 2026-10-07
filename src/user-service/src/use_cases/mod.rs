@@ -3,6 +3,11 @@ pub mod commands;
 pub mod queries;
 
 pub use crate::ports::UserDetailsView;
+pub use commands::apply_loops_preference_event::{
+    ApplyLoopsPreferenceEventCommand, ApplyLoopsPreferenceEventError,
+    ApplyLoopsPreferenceEventHandler, ApplyLoopsPreferenceEventOutcome,
+    ApplyLoopsPreferenceEventUseCase,
+};
 pub use commands::apply_stripe_subscription::{
     ApplyStripeSubscriptionCommand, ApplyStripeSubscriptionError, ApplyStripeSubscriptionHandler,
     ApplyStripeSubscriptionResult, ApplyStripeSubscriptionTarget, ApplyStripeSubscriptionUseCase,

@@ -705,6 +705,9 @@ mod tests {
                     user_id: user.id(),
                     email: user.email().clone(),
                     version: UserStorageVersion::INITIAL,
+                    marketing_email_consent: false,
+                    marketing_email_consent_revision: 0,
+                    marketing_email_consent_changed_at: None,
                 }))
         }
 
