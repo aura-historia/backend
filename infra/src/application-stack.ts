@@ -35,19 +35,17 @@ import { importWorkerQueueCatalog, WorkerQueues } from "./constructs/worker-queu
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
-  readonly localStackMappedPort?: string;
 }
 
 export interface ApplicationStageProps extends cdk.StackProps {
   readonly stage: StageName;
   readonly stackNamePrefix?: string;
-  readonly localStackMappedPort?: string;
 }
 
 export interface ApplicationStageStacks {
-  readonly network?: ApplicationNetworkStack;
+  readonly network: ApplicationNetworkStack;
   readonly data: ApplicationDataStack;
-  readonly initialization?: ApplicationInitializationStack;
+  readonly initialization: ApplicationInitializationStack;
   readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
   readonly observability?: ApplicationObservabilityStack;
@@ -56,65 +54,48 @@ export interface ApplicationStageStacks {
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
   const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
   const baseProps = stackBaseProps(props);
-  const network = props.stage === "ephemeral"
-    ? undefined
-    : new ApplicationNetworkStack(scope, `${stackNamePrefix}-network`, {
-        ...baseProps,
-        stage: props.stage,
-        localStackMappedPort: props.localStackMappedPort,
-        stackName: `${stackNamePrefix}-network`,
-      });
+  const network = new ApplicationNetworkStack(scope, `${stackNamePrefix}-network`, {
+    ...baseProps,
+    stage: props.stage,
+    stackName: `${stackNamePrefix}-network`,
+  });
 
   const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
     ...baseProps,
     stage: props.stage,
-    localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-data`,
-    network: network?.network,
+    network: network.network,
   });
-  if (network) {
-    data.addDependency(network);
-  }
+  data.addDependency(network);
 
-  const initialization = props.stage === "ephemeral"
-    ? undefined
-    : new ApplicationInitializationStack(scope, `${stackNamePrefix}-initialize`, {
-        ...baseProps,
-        stage: props.stage,
-        localStackMappedPort: props.localStackMappedPort,
-        stackName: `${stackNamePrefix}-initialize`,
-        storage: data.storage,
-        network: network?.network,
-      });
-  initialization?.addDependency(data);
-  if (network) {
-    initialization?.addDependency(network);
-  }
+  const initialization = new ApplicationInitializationStack(scope, `${stackNamePrefix}-initialize`, {
+    ...baseProps,
+    stage: props.stage,
+    stackName: `${stackNamePrefix}-initialize`,
+    storage: data.storage,
+    network: network.network,
+  });
+  initialization.addDependency(data);
+  initialization.addDependency(network);
 
   const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
     ...baseProps,
     stage: props.stage,
-    localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-compute`,
     storage: data.storage,
     queues: data.queues,
     search: data.search,
     dmsCdc: data.dmsCdc,
-    network: network?.network,
+    network: network.network,
   });
   compute.addDependency(data);
-  if (network) {
-    compute.addDependency(network);
-  }
-  if (initialization) {
-    // FX is addressed by its stable name, so no cross-stack reference enforces this deployment order.
-    compute.addDependency(initialization);
-  }
+  compute.addDependency(network);
+  // FX is addressed by its stable name, so no cross-stack reference enforces this deployment order.
+  compute.addDependency(initialization);
 
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
     ...baseProps,
     stage: props.stage,
-    localStackMappedPort: props.localStackMappedPort,
     stackName: `${stackNamePrefix}-api`,
     identity: compute.identity,
   });
@@ -124,7 +105,6 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
     ? new ApplicationObservabilityStack(scope, `${stackNamePrefix}-observability`, {
         ...baseProps,
         stage: props.stage,
-        localStackMappedPort: props.localStackMappedPort,
         stackName: `${stackNamePrefix}-observability`,
         api: api.api,
       })
@@ -149,9 +129,7 @@ export class ApplicationNetworkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
+    const config = stageConfig(props.stage);
     this.templateOptions.description = "Aura Historia private workload network stack";
     this.network = new Network(this, "Network", { config });
 
@@ -173,9 +151,7 @@ export class ApplicationDataStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
+    const config = stageConfig(props.stage);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia data stack";
@@ -194,13 +170,11 @@ export class ApplicationDataStack extends cdk.Stack {
     this.search = new Search(this, "Search", {
       config,
     });
-    this.dmsCdc = config.isEphemeral
-      ? undefined
-      : new DmsCdc(this, "DmsCdc", {
-          config,
-          network: props.network,
-          storage: this.storage,
-        });
+    this.dmsCdc = new DmsCdc(this, "DmsCdc", {
+      config,
+      network: props.network,
+      storage: this.storage,
+    });
 
     dataOutputs(this, {
       storage: this.storage,
@@ -222,10 +196,8 @@ export class ApplicationInitializationStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
-    if (config.isEphemeral || !props.network || !props.storage.migrationPostgres) {
+    const config = stageConfig(props.stage);
+    if (!props.network || !props.storage.migrationPostgres) {
       throw new Error("Initialization stack requires real PostgreSQL storage and private networking.");
     }
 
@@ -261,14 +233,8 @@ export class ApplicationComputeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
-    const parameters = applicationParameters(
-      this,
-      !config.isEphemeral,
-      config.searchFilterClassifier,
-    );
+    const config = stageConfig(props.stage);
+    const parameters = applicationParameters(this, config.searchFilterClassifier);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia compute stack";
@@ -286,7 +252,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       queues: importQueueCatalog(this, "LambdaQueues", stageName),
       network: props.network,
     });
-
 
     this.identity = new Identity(this, "Identity", {
       config,
@@ -325,34 +290,32 @@ export class ApplicationComputeStack extends cdk.Stack {
       dmsCdc: props.dmsCdc,
     });
 
-    if (!config.isEphemeral) {
-      if (!props.network) throw new Error("Periodic matcher requires the application network.");
-      this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
-        vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
-      });
-      // Preserve the deployed cluster when ownership moves from PeriodicMatcher to the compute stack.
-      // Removing this override requires a CloudFormation migration; new scheduled jobs must not copy it.
-      (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
-      const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
-        type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
-        description: "Verified immutable ECR image manifest digest for this release.",
-      });
-      const enabled = new cdk.CfnParameter(this, "PeriodicMatcherEnabled", {
-        type: "String", allowedValues: ["true", "false"], default: "false",
-      });
-      const activation = new cdk.CfnCondition(this, "PeriodicMatcherActivation", {
-        expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
-      });
-      this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
-        config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
-        imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
-        classifierModel: parameters.searchFilterClassifierModel,
-        shouldShowThresholdBps: parameters.searchFilterMatchShouldShowThresholdBps,
-      });
-      new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
-        value: this.periodicMatcher.taskDefinitionArn,
-      });
-    }
+    if (!props.network) throw new Error("Periodic matcher requires the application network.");
+    this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
+      vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
+    });
+    // Preserve the deployed cluster when ownership moves from PeriodicMatcher to the compute stack.
+    // Removing this override requires a CloudFormation migration; new scheduled jobs must not copy it.
+    (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
+    const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
+      type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
+      description: "Verified immutable ECR image manifest digest for this release.",
+    });
+    const enabled = new cdk.CfnParameter(this, "PeriodicMatcherEnabled", {
+      type: "String", allowedValues: ["true", "false"], default: "false",
+    });
+    const activation = new cdk.CfnCondition(this, "PeriodicMatcherActivation", {
+      expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
+    });
+    this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
+      config, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
+      imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
+      classifierModel: parameters.searchFilterClassifierModel,
+      shouldShowThresholdBps: parameters.searchFilterMatchShouldShowThresholdBps,
+    });
+    new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
+      value: this.periodicMatcher.taskDefinitionArn,
+    });
 
     computeOutputs(this, {
       identity: this.identity,
@@ -371,9 +334,7 @@ export class ApplicationApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationApiStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
+    const config = stageConfig(props.stage);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia API stack";
@@ -393,113 +354,6 @@ export class ApplicationApiStack extends cdk.Stack {
   }
 }
 
-export class ApplicationEphemeralStack extends cdk.Stack {
-  readonly storage: Storage;
-  readonly queues: Queues;
-  readonly workerQueues: WorkerQueues;
-  readonly search: Search;
-  readonly lambdas: Lambdas;
-  readonly identity: Identity;
-  readonly eventing: Eventing;
-  readonly api: BackendHttpApi;
-
-  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
-    super(scope, id, stackProps(props));
-
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
-    if (!config.isEphemeral) {
-      throw new Error("ApplicationEphemeralStack only supports the ephemeral stage.");
-    }
-
-    const parameters = applicationParameters(this, false, config.searchFilterClassifier);
-    const stageName = config.stage;
-
-    this.templateOptions.description = "Aura Historia ephemeral acceptance-test stack";
-
-    this.storage = new Storage(this, "Storage", {
-      config,
-    });
-    this.queues = new Queues(this, "Queues", {
-      config,
-      stageName,
-    });
-    this.workerQueues = new WorkerQueues(this, "WorkerQueues", { config });
-    this.search = new Search(this, "Search", {
-      config,
-    });
-
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
-    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
-
-    this.lambdas = new Lambdas(this, "Lambdas", {
-      config,
-      parameters,
-      artifactBucket,
-      mailTemplateBucket,
-      postgres: this.storage.postgres,
-      search: this.search,
-      queues: this.queues.catalog,
-    });
-
-
-    this.identity = new Identity(this, "Identity", {
-      config,
-      stageName,
-      postConfirmationLambda: this.lambdas.functions.postConfirmation,
-      preSignUpLambda: this.lambdas.functions.preSignUp,
-    });
-    addUserPoolEnvironment(
-      this.lambdas.functions,
-      this.identity.userPool.userPoolId,
-      this.identity.publicClient.userPoolClientId,
-    );
-    grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
-    grantCognitoFederatedLinkingAccess(this.lambdas.functions);
-
-    this.eventing = new Eventing(this, "Eventing", {
-      config,
-      queues: this.queues.catalog,
-      workerQueues: this.workerQueues.catalog,
-      functions: this.lambdas.functions,
-      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
-      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
-      productListingIngestionVersion: this.lambdas.productListingIngestionVersion,
-      productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
-      productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
-      productTranslationVersion: this.lambdas.productTranslationVersion,
-      searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
-      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
-      searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
-      watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
-      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
-      marketingConsentSyncVersion: this.lambdas.marketingConsentSyncVersion,
-      backendCleanupVersion: this.lambdas.backendCleanupVersion,
-      cdcRouterVersion: this.lambdas.cdcRouterVersion,
-      cdcRouterActivation: parameters.cdcRouterActivation,
-    });
-
-    this.api = new BackendHttpApi(this, "HttpApi", {
-      config,
-      stageName,
-      functions: this.lambdas.functions,
-    });
-
-    dataOutputs(this, {
-      storage: this.storage,
-      queues: this.queues,
-      workerQueues: this.workerQueues,
-      search: this.search,
-    });
-    computeOutputs(this, {
-      identity: this.identity,
-      eventing: this.eventing,
-    });
-    new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
-  }
-}
-
 export interface ApplicationObservabilityStackProps extends ApplicationStackProps {
   readonly api: BackendHttpApi;
 }
@@ -510,9 +364,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationObservabilityStackProps) {
     super(scope, id, stackProps(props));
 
-    const config = stageConfig(props.stage, {
-      localStackMappedPort: props.localStackMappedPort,
-    });
+    const config = stageConfig(props.stage);
     const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia observability stack";
@@ -542,7 +394,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
 }
 
 function stackBaseProps(props: ApplicationStageProps): cdk.StackProps {
-  const { localStackMappedPort: _localStackMappedPort, stackNamePrefix: _stackNamePrefix, stage: _stage, ...stackProps } = props;
+  const { stackNamePrefix: _stackNamePrefix, stage: _stage, ...stackProps } = props;
   return stackProps;
 }
 

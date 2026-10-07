@@ -7,11 +7,7 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
-/// The sender email address used by all notification Lambdas in the
-/// ephemeral LocalStack stack.
-///
-/// Must match the `SENDER_MAIL` environment variable synthesized by the
-/// CDK ephemeral stack.
+/// Sender identity verified for LocalStack SES integration tests.
 const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
 /// A lazily-initialized, globally shared SESv2 client for integration testing.
@@ -34,8 +30,7 @@ pub async fn get_ses_client() -> &'static Client {
 /// Implements [`IntegrationTestService`] for use with the `#[aura_integration_test]` macro.
 ///
 /// On [`set_up`](IntegrationTestService::set_up), verifies the sender email identity
-/// (`no-reply@notify.aura-historia.com`) so that Lambdas running inside LocalStack can
-/// send emails via SES without identity-not-verified errors.
+/// (`no-reply@notify.aura-historia.com`) for LocalStack tests.
 pub struct Ses();
 
 #[async_trait]

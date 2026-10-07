@@ -289,14 +289,3 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     });
   });
 });
-
-test("ephemeral declares no DMS, Kinesis, or interface-endpoint CDC resources", () => {
-  const template = dataTemplate("ephemeral");
-
-  template.resourceCountIs("AWS::DMS::ReplicationInstance", 0);
-  template.resourceCountIs("AWS::DMS::ReplicationSubnetGroup", 0);
-  template.resourceCountIs("AWS::DMS::Endpoint", 0);
-  template.resourceCountIs("AWS::DMS::ReplicationTask", 0);
-  template.resourceCountIs("AWS::Kinesis::Stream", 0);
-  template.resourceCountIs("AWS::EC2::VPCEndpoint", 0);
-});

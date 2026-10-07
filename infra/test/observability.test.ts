@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 
 const ROUTER_FUNCTION_NAME = "cdc-router-lambda-prod";
 const CONTENT_ASSESSMENT_FUNCTION_NAME = "product-content-assessment-lambda-prod";
@@ -211,7 +211,7 @@ test("production alarms DMS source/target lag, DMS and Kinesis capacity, and sou
   });
 });
 
-test("dev and ephemeral do not create router observability alarms", () => {
+test("dev does not create router observability alarms", () => {
   const devApp = new cdk.App({ analyticsReporting: false });
   const dev = createApplicationStacks(devApp, { stage: "dev" });
 
@@ -222,9 +222,4 @@ test("dev and ephemeral do not create router observability alarms", () => {
     }
   }
 
-  const ephemeralApp = new cdk.App({ analyticsReporting: false });
-  const ephemeral = Template.fromStack(
-    new ApplicationEphemeralStack(ephemeralApp, "application-ephemeral", { stage: "ephemeral" }),
-  );
-  ephemeral.resourceCountIs("AWS::CloudWatch::Alarm", 0);
 });

@@ -34,7 +34,7 @@ export interface EventingProps {
   readonly marketingConsentSyncVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
-  readonly cdcRouterActivation?: cdk.CfnCondition;
+  readonly cdcRouterActivation: cdk.CfnCondition;
   readonly dmsCdc?: DmsCdc;
 }
 
@@ -63,17 +63,8 @@ export class Eventing extends Construct {
   constructor(scope: Construct, id: string, props: EventingProps) {
     super(scope, id);
 
-    this.stripeEventBus = props.config.isEphemeral
-      ? new events.EventBus(this, "StripeEventBus", {
-          eventBusName: props.config.stripeEventBusName,
-        })
-      : events.EventBus.fromEventBusName(this, "StripeEventBus", props.config.stripeEventBusName);
-
-    this.shopifyEventBus = props.config.isEphemeral
-      ? new events.EventBus(this, "ShopifyEventBus", {
-          eventBusName: props.config.shopifyEventBusName,
-        })
-      : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
+    this.stripeEventBus = events.EventBus.fromEventBusName(this, "StripeEventBus", props.config.stripeEventBusName);
+    this.shopifyEventBus = events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
     createCloudWatchLogRetentionRule(this, props.functions);
     createPartnerEventRules(
@@ -84,25 +75,23 @@ export class Eventing extends Construct {
       props.queues,
     );
 
-    if (!props.config.isEphemeral) {
-      if (!props.backendCleanupVersion) {
-        throw new Error("Real eventing requires a cleanup Lambda version.");
-      }
-      createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
-
-      if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
-        throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
-      }
-      createDmsCdcRouterEventSource(
-        this,
-        props.config,
-        props.functions.cdcRouter,
-        props.cdcRouterVersion,
-        props.dmsCdc,
-        props.workerQueues,
-        props.cdcRouterActivation,
-      );
+    if (!props.backendCleanupVersion) {
+      throw new Error("Real eventing requires a cleanup Lambda version.");
     }
+    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
+
+    if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
+      throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
+    }
+    createDmsCdcRouterEventSource(
+      this,
+      props.config,
+      props.functions.cdcRouter,
+      props.cdcRouterVersion,
+      props.dmsCdc,
+      props.workerQueues,
+      props.cdcRouterActivation,
+    );
 
     createSqsEventSources(
       this,

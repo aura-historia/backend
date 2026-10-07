@@ -134,12 +134,10 @@ export class Identity extends Construct {
       });
     }
 
-    if (!props.config.isEphemeral) {
-      cfnUserPool.addPropertyOverride("UserPoolAddOns", {
-        AdvancedSecurityMode: "ENFORCED",
-      });
-      cfnUserPool.addPropertyOverride("UserPoolTier", "PLUS");
-    }
+    cfnUserPool.addPropertyOverride("UserPoolAddOns", {
+      AdvancedSecurityMode: "ENFORCED",
+    });
+    cfnUserPool.addPropertyOverride("UserPoolTier", "PLUS");
   }
 }
 

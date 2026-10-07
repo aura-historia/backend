@@ -51,7 +51,7 @@ function resolveCommitSha(value: unknown, sha: string): string {
   return join[1].map((part) => resolveCommitSha(part, sha)).join("");
 }
 
-function expectedApiEnvironmentKeys(stage: StageName): string[] {
+function expectedApiEnvironmentKeys(): string[] {
   const keys = [
     "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
     "AURA_HISTORIA_COGNITO_ISSUER",
@@ -82,26 +82,16 @@ function expectedApiEnvironmentKeys(stage: StageName): string[] {
     "LOOPS_NEWSLETTER_LIST_ID",
   ];
 
-  if (stage === "ephemeral") {
-    keys.push("POSTGRES_PASSWORD", "POSTGRES_USERNAME");
-  } else {
-    keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_SECRET_ARN");
-  }
+  keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_SECRET_ARN");
   return keys.sort();
 }
 
 function expectedVertexEnvironment(stage: StageName): Record<string, string> {
-  return stage === "ephemeral"
-    ? {
-        AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}",
-        VERTEX_AI_LOCATION: "eu",
-        VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
-      }
-    : {
-        AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
-        VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
-        VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
-      };
+  return {
+    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
+    VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
+    VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
+  };
 }
 
 describe.each(STAGES)("%s API Lambda", (stage) => {
@@ -126,24 +116,14 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
     expect(environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
-    expect(environment.Variables.POSTGRES_SECRET_ARN === undefined).toBe(stage === "ephemeral");
-    expect(environment.Variables.POSTGRES_USERNAME === undefined).toBe(stage !== "ephemeral");
-    expect(environment.Variables.POSTGRES_PASSWORD === undefined).toBe(stage !== "ephemeral");
-    expect(Object.keys(environment.Variables).sort()).toEqual(expectedApiEnvironmentKeys(stage));
+    expect(environment.Variables.POSTGRES_SECRET_ARN).toBeDefined();
+    expect(environment.Variables.POSTGRES_USERNAME).toBeUndefined();
+    expect(environment.Variables.POSTGRES_PASSWORD).toBeUndefined();
+    expect(Object.keys(environment.Variables).sort()).toEqual(expectedApiEnvironmentKeys());
     expect(environment.Variables).toMatchObject(expectedVertexEnvironment(stage));
-    expect(environment.Variables.LOOPS_API_BASE_URL).toBe(
-      stage === "ephemeral" ? "https://loops.test/api" : "https://app.loops.so/api",
-    );
-    if (stage === "ephemeral") {
-      expect(environment.Variables.LOOPS_API_KEY).toBe("ephemeral-loops-api-key");
-    } else {
-      expect(environment.Variables.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
-    }
-    expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(
-      stage === "ephemeral"
-        ? "ephemeral-newsletter-list"
-        : `{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`,
-    );
+    expect(environment.Variables.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
+    expect(environment.Variables.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
+    expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(`{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`);
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
@@ -234,7 +214,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     const aliases = Object.values(template.findResources("AWS::Lambda::Alias"));
 
     expect(apiFunctionLogicalId).toBeDefined();
-    expect(functionResource.Properties.VpcConfig === undefined).toBe(stage === "ephemeral");
+    expect(functionResource.Properties.VpcConfig).toBeDefined();
     expect(JSON.stringify(eventSourceMappings)).not.toContain(apiFunctionLogicalId);
     expect(aliases).toHaveLength(1);
     expect(JSON.stringify(aliases[0])).toContain(apiFunctionLogicalId);
@@ -260,19 +240,14 @@ describe.each(STAGES)("%s OpenSearch runtime credentials", (stage) => {
       };
       expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
 
-      if (stage === "ephemeral") {
-        expect(environment.Variables.OPENSEARCH_USERNAME).toBeUndefined();
-        expect(environment.Variables.OPENSEARCH_PASSWORD).toBeUndefined();
-      } else {
-        const username = `{{resolve:ssm:/opensearch/${stage}/${role}/username}}`;
-        const password = `{{resolve:ssm:/opensearch/${stage}/${role}/password}}`;
-        expect(environment.Variables.OPENSEARCH_USERNAME).toBe(username);
-        expect(environment.Variables.OPENSEARCH_PASSWORD).toBe(password);
-        paths.push(username, password);
-      }
+      const username = `{{resolve:ssm:/opensearch/${stage}/${role}/username}}`;
+      const password = `{{resolve:ssm:/opensearch/${stage}/${role}/password}}`;
+      expect(environment.Variables.OPENSEARCH_USERNAME).toBe(username);
+      expect(environment.Variables.OPENSEARCH_PASSWORD).toBe(password);
+      paths.push(username, password);
     }
 
-    expect(new Set(paths).size).toBe(stage === "ephemeral" ? 0 : 8);
+    expect(new Set(paths).size).toBe(8);
   });
 });
 

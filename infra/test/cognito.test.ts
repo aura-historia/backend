@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, type StageName } from "../src/config";
 
 type Resource = {
@@ -170,24 +170,4 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
 
     expect(JSON.stringify(rolePolicies)).not.toMatch(/ses:|sqs:|states:/i);
   });
-});
-
-test("ephemeral Cognito follows its empty provider catalog", () => {
-  const app = new cdk.App({ analyticsReporting: false });
-  const stack = new ApplicationEphemeralStack(app, "cognito-ephemeral", { stage: "ephemeral" });
-  const template = Template.fromStack(stack);
-  template.resourceCountIs("AWS::Cognito::UserPool", 1);
-  template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 0);
-
-  expect(
-    Object.values(template.findResources("AWS::Lambda::Function")).some(
-      (resource) => resource.Properties.FunctionName === "cognito-pre-sign-up-ephemeral",
-    ),
-  ).toBe(false);
-  const [[, pool]] = resourceByType(template, "AWS::Cognito::UserPool");
-  expect(pool.Properties.LambdaConfig.PostConfirmation).toBeDefined();
-  expect(pool.Properties.LambdaConfig.PreSignUp).toBeUndefined();
-  const [[, client]] = resourceByType(template, "AWS::Cognito::UserPoolClient");
-  expect(client.Properties.SupportedIdentityProviders).toEqual(["COGNITO"]);
-  expect(stageConfig("ephemeral").cognitoIdentityProviders).toEqual([]);
 });

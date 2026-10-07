@@ -7,7 +7,6 @@ import type { StageConfig } from "../config";
 import type { Network } from "./network";
 
 const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
-const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE = "/var/task/aura-historia/test-postgres-ca.pem";
 
 export interface StorageProps {
   readonly config: StageConfig;
@@ -21,8 +20,6 @@ export interface PostgresConnectionSettings {
   readonly maxConnections: string;
   readonly tlsRootCert: string;
   readonly secretArn?: string;
-  readonly username?: string;
-  readonly password?: string;
 }
 
 export interface PostgresMigrationConnectionSettings {
@@ -48,11 +45,6 @@ export class Storage extends Construct {
 
   constructor(scope: Construct, id: string, props: StorageProps) {
     super(scope, id);
-
-    if (props.config.isEphemeral) {
-      this.postgres = localPostgresConnectionSettings();
-      return;
-    }
 
     if (!props.config.rds || !props.network) {
       throw new Error("Real AWS stages require RDS and network configuration.");
@@ -202,16 +194,4 @@ function postgresEngine(version: "16.13"): rds.IInstanceEngine {
     case "16.13":
       return rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_13 });
   }
-}
-
-function localPostgresConnectionSettings(): PostgresConnectionSettings {
-  return {
-    host: "host.docker.internal",
-    port: "5432",
-    database: "postgres",
-    username: "postgres",
-    password: "postgres",
-    maxConnections: "1",
-    tlsRootCert: EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE,
-  };
 }

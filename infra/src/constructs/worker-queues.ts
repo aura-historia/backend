@@ -32,7 +32,7 @@ export class WorkerQueues extends Construct {
     for (const workerScope of settings.enabledScopes) {
       const definition = WORKER_QUEUE_DEFINITIONS[workerScope];
       const fifo = "fifo" in definition && definition.fifo === true;
-      const removalPolicy = fifo && !config.isEphemeral ? cdk.RemovalPolicy.RETAIN : config.removalPolicy;
+      const removalPolicy = fifo ? cdk.RemovalPolicy.RETAIN : config.removalPolicy;
       const queueName = workerQueueName(workerScope, config.stage);
       // A literal-name import avoids a source -> DLQ -> source CloudFormation cycle.
       const sourceForRedrive = importWorkerQueue(this, `${definition.id}RedriveSource`, queueName);
@@ -63,7 +63,7 @@ export class WorkerQueues extends Construct {
         redriveAllowPolicy: { redrivePermission: sqs.RedrivePermission.DENY_ALL },
         removalPolicy,
       });
-      if (fifo && !config.isEphemeral) {
+      if (fifo) {
         (queue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
         (deadLetterQueue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
       }

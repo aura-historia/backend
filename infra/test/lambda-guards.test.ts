@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, type StageName } from "../src/config";
 
 type CloudFormationResource = {
@@ -8,10 +8,6 @@ type CloudFormationResource = {
 };
 
 function templatesFor(stage: StageName): Template[] {
-  if (stage === "ephemeral") {
-    const app = new cdk.App({ analyticsReporting: false });
-    return [Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage }))];
-  }
 
   const app = new cdk.App({ analyticsReporting: false });
   const stacks = createApplicationStacks(app, { stage });

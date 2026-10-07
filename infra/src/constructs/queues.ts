@@ -65,7 +65,7 @@ export class Queues extends Construct {
           },
         } : {}),
         encryption: hasManagedSse(definition) ? sqs.QueueEncryption.SQS_MANAGED : undefined,
-        removalPolicy: "fifo" in definition && !props.config.isEphemeral ? cdk.RemovalPolicy.RETAIN : props.config.removalPolicy,
+        removalPolicy: "fifo" in definition ? cdk.RemovalPolicy.RETAIN : props.config.removalPolicy,
       });
 
       const queue = new sqs.Queue(this, `${definition.id}Queue`, {
@@ -83,9 +83,9 @@ export class Queues extends Construct {
           maxReceiveCount: definition.maxReceiveCount,
         },
         encryption: hasManagedSse(definition) ? sqs.QueueEncryption.SQS_MANAGED : undefined,
-        removalPolicy: "fifo" in definition && !props.config.isEphemeral ? cdk.RemovalPolicy.RETAIN : props.config.removalPolicy,
+        removalPolicy: "fifo" in definition ? cdk.RemovalPolicy.RETAIN : props.config.removalPolicy,
       });
-      if ("fifo" in definition && !props.config.isEphemeral) {
+      if ("fifo" in definition) {
         (queue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
         (deadLetterQueue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
       }

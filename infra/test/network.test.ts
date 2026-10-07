@@ -252,15 +252,3 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });
-
-test("ephemeral stacks do not create paid VPC, NAT, EIP, endpoint, or security group topology", () => {
-  const app = new cdk.App({ analyticsReporting: false });
-  const stacks = createApplicationStacks(app, { stage: "ephemeral" });
-
-  expect(stacks.network).toBeUndefined();
-  const compute = Template.fromStack(stacks.compute);
-  compute.resourceCountIs("AWS::EC2::NatGateway", 0);
-  compute.resourceCountIs("AWS::EC2::EIP", 0);
-  compute.resourceCountIs("AWS::EC2::VPCEndpoint", 0);
-  compute.resourceCountIs("AWS::EC2::SecurityGroup", 0);
-});

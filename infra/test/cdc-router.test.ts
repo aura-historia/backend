@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 
 const REAL_STAGES = ["dev", "prod"] as const;
 
@@ -277,14 +277,4 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     expect(JSON.stringify(statements)).not.toContain("secretsmanager:");
     expect(JSON.stringify(statements)).not.toContain("sqs:ReceiveMessage");
   });
-});
-
-test("ephemeral does not construct the DMS router, failure archive, or Kinesis mapping", () => {
-  const app = new cdk.App({ analyticsReporting: false });
-  const template = Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" }));
-
-  expect(JSON.stringify(template.toJSON())).not.toContain("cdc-router-lambda");
-  template.resourceCountIs("AWS::S3::Bucket", 0);
-  template.resourceCountIs("AWS::Kinesis::Stream", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 13);
 });

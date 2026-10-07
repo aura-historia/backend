@@ -3,12 +3,11 @@
 This directory contains the AWS CDK app for the Aura Historia backend.
 
 The application is split into small CDK/CloudFormation stacks with typed
-configuration objects instead of hand-written templates. The same stack code is
-synthesized for:
+configuration objects instead of hand-written templates. The stack code is
+synthesized for two AWS stages:
 
-- `prod` — real AWS production resources, production alarms enabled
-- `dev` — real AWS development resources, production alarms disabled
-- `ephemeral` — LocalStack resources, including a local OpenSearch domain
+- `prod` — production resources, production alarms enabled
+- `dev` — development resources, production alarms disabled
 
 ## Migration baseline
 
@@ -32,7 +31,7 @@ src/constructs/            # focused infrastructure modules
   network.ts               # two-AZ VPC, one NAT/EIP, S3 endpoint, workload security groups
   observability.ts         # prod-only alarms and alarm topic
   periodic-matcher.ts      # one-shot saved-filter matching task, Scheduler, DLQ, lifecycle evidence
-  opensearch.ts            # external dev/prod endpoint or LocalStack domain
+  opensearch.ts            # external dev/prod OpenSearch endpoint
   queues.ts                # Shopify queue/DLQ and separate FIFO command ingress
   worker-queues.ts         # scoped worker queue ownership, unbound IAM policies, handoff outputs
   storage.ts               # private RDS PostgreSQL, generated role secrets, connection settings
@@ -57,7 +56,7 @@ DmsCdc (real stages only)
 └── Secrets Manager interface endpoint with private DNS
 ```
 
-It composes in the data stack after network and storage. It does not exist for `ephemeral`, full-load tables, an outbox, a custom CDC target, or a Sequin redesign. See [DMS declaration and evidence](#dms-cdc-declaration-and-evidence-1781) for checked-in slot, start-position, test and cost boundaries. DMS first start requires a separately approved operator plan.
+It composes in the data stack after network and storage. It does not provide full-load tables, an outbox, a custom CDC target, or a Sequin redesign. See [DMS declaration and evidence](#dms-cdc-declaration-and-evidence-1781) for checked-in slot, start-position, test and cost boundaries. DMS first start requires a separately approved operator plan.
 
 The real-stage compute stack additionally declares the disabled-by-default `cdc-router-lambda`. It is an `x86_64`/`provided.al2023` artifact outside the VPC with no PostgreSQL or Secrets Manager configuration. Its Kinesis mapping begins at `TRIM_HORIZON`, reports partial failures, limits retries/record age, and has a private retained S3 on-failure archive. It validates all eleven destination SQS queue pairs at cold start and has only Kinesis-read, source-queue publish/attribute, DLQ-attribute, and failure-archive write/list grants. `CdcRouterEnabled` independently controls only that mapping; it does not activate DMS or another consumer. The consent destination is a retained FIFO source/DLQ pair, consumed by the versioned `marketing-consent-sync-lambda`; it has no direct API or Cognito publisher. R6 selects the journal plus raw revisions, saved filters, matches, delivery intents, and consent intents, with explicit trigger operations enforced by the router. The consent DMS mapping exposes only renamed `sync_intent_id` and `recipient_key`. #1788 owns AWS evidence and controlled replay proof.
 
@@ -72,7 +71,6 @@ npm run build
 npm test
 npm run synth -- --context stage=dev
 npm run synth -- --context stage=prod
-npm run synth -- --context stage=ephemeral
 npm run synth:all
 npm run cdk -- synth aura-historia-container-artifacts \
   --app 'npx ts-node --prefer-ts-exts bin/artifacts.ts'
@@ -156,15 +154,15 @@ always-running fallback check, since skipped workflows leave required checks pen
 
 Synth creates these stacks per stage:
 
-- `application-{stage}-network` — real-stage two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
-- `application-{stage}-data` — private RDS PostgreSQL and DMS/Kinesis CDC in real stages, Shopify/worker SQS, unbound worker IAM policies, and LocalStack OpenSearch
-- `application-{stage}-initialize` — real-stage private PostgreSQL migrator and FX Lambdas; deployment does not invoke them
-- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and (real stages only) the periodic matcher task
+- `application-{stage}-network` — two-AZ VPC, one NAT/EIP, S3 gateway endpoint, and database/workload security groups
+- `application-{stage}-data` — private RDS PostgreSQL, DMS/Kinesis CDC, Shopify/worker SQS, and unbound worker IAM policies
+- `application-{stage}-initialize` — private PostgreSQL migrator and FX Lambdas; deployment does not invoke them
+- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules, and the periodic matcher task
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
 - `aura-historia-container-artifacts` — stage-neutral retained ECR setup stack for the image catalog, synthesized separately by `bin/artifacts.ts`; not part of normal Deploy
 
-The network stack is absent for `ephemeral`: LocalStack synthesis does not declare a VPC, NAT, EIP, gateway endpoint, or workload security groups. Real-stage stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
+Dev and prod stacks use `eu-central-1`; synth may omit an account only for template validation. A deployment must select the approved account explicitly:
 
 ```bash
 npm run cdk -- deploy application-prod-network -c stage=prod -c account=123456789012 -c region=eu-central-1
@@ -175,7 +173,7 @@ The app rejects a non-12-digit account context and an explicitly selected real-s
 The `dev` AWS environment is configured to serve the staging API at `https://api.stage.aura-historia.com`
 with only the exact CloudFront alias `api.stage.aura-historia.com`; it does not own
 `*.stage.aura-historia.com` (including the independently hosted OpenSearch endpoint).
-Prod retains the exact alias `api.aura-historia.com`; ephemeral has no custom domain.
+Prod retains the exact alias `api.aura-historia.com`.
 This is not an AWS stage rename: stack names, artifact prefixes, and `/.../dev/...`
 SSM paths remain `dev`. Both dev certificate references remain under
 `/certificates/dev/`: the regional API Gateway certificate must cover the new host
@@ -308,9 +306,9 @@ Real PostgreSQL Lambdas receive the committed public AWS RDS bundle from the
 `POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`. The asset is
 sourced from `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`
 and pinned in git (SHA-256 `e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3`);
-refresh it deliberately when AWS changes its trust set. Isolated PostgreSQL
-tests use a process-generated fixture **public** CA; no private CA, database
-password, provider token, or signed event body is packaged or logged.
+refresh it deliberately when AWS changes its trust set. Independent PostgreSQL
+tests use a generated test CA; no private CA, database password, provider
+token, or signed event body is packaged or logged.
 
 CI installs `cargo-lambda 1.9.0` with `--locked` and builds each catalog
 binary from `src/<binary>/` (not the workspace root, whose default-run package
@@ -365,14 +363,13 @@ The Lambda role has only `cognito-idp:ListUsers` and
 use the execution-role credential chain. Every PostgreSQL Lambda reads that exact ARN at
 `AWSCURRENT` before an invocation; same-version composed handlers reuse their warm pool,
 and a changed version builds one new full composition while an active invocation keeps its
-old pool lease. Real-stage templates never inject PostgreSQL username or password. Ephemeral
-uses only fixture username/password and has no Secrets Manager dependency.
+old pool lease. Dev and prod templates never inject PostgreSQL username or password.
 
 ### Loops newsletter integration
 
 For the development cut-off, configure the existing dev Loops workspace only; no production workspace setup or audience transfer is required. In that workspace, an operator must create the public mailing list **Aura Historia Newsletter**, record its actual ID, and create the exact string contact properties `language`, `currency`, and `auraUserId`. Set **Settings → Sending → Double opt-in** to **OFF**. Verify the account's sending domain, sender/reply-to, branding, company/contact details, and preference-center/unsubscribe footer before any separately authorized marketing send. Keep workflows paused during setup and controlled acceptance checks. CDK never creates lists/properties, validates credentials, changes account settings, or sends mail.
 
-The API Lambda requires plain SSM `String` parameters for the list ID at `/loops/<stage>/newsletter-list-id` and the raw API key at `/loops/<stage>/api-key`. Provision `/loops/dev/newsletter-list-id` and `/loops/dev/api-key` for the intended dev workspace; the API key is sensitive even though its SSM value is plain text. Restrict parameter reads and do not put credentials in source, command transcripts, tests, or synthesized plaintext. The app's trusted endpoint base is `https://app.loops.so/api`; the adapter appends `/v1/contacts/update`. `ephemeral` uses `https://loops.test/api`, `ephemeral-newsletter-list`, and `ephemeral-loops-api-key`; these are isolated test values, not real credentials. The API Lambda alone receives Loops settings.
+The API Lambda requires plain SSM `String` parameters for the list ID at `/loops/<stage>/newsletter-list-id` and the raw API key at `/loops/<stage>/api-key`. Provision `/loops/dev/newsletter-list-id` and `/loops/dev/api-key` for the intended dev workspace; the API key is sensitive even though its SSM value is plain text. Restrict parameter reads and do not put credentials in source, command transcripts, tests, or synthesized plaintext. The app's trusted endpoint base is `https://app.loops.so/api`; the adapter appends `/v1/contacts/update`. The API Lambda alone receives Loops settings.
 
 The application endpoint `PUT /api/v1/newsletter-subscriptions` remains the website's integration surface. Never send a Loops API key to frontend code or call the authenticated Loops API directly from the browser. This integration writes only contacts submitted through that endpoint; it does not auto-subscribe account creation, profile changes, paying customers, watchlist/search notification preferences, or other application users. It adds no confirmation email or second consent step, and it does not use Loops for transactional messages. Loops owns marketing list membership and opt-outs; a successful `204` means the provider accepted the write, not that a campaign will be sent or delivered. Ordinary repeats omit global subscription state and do not clear an opt-out. For campaigns, use the Loops dashboard, explicitly choose **Aura Historia Newsletter** as the audience, and use language segments rather than separate lists. Review contacts with missing/unsupported language rather than excluding them by default or sending them multiple variants; do not target the whole workspace audience by default. Account email/profile changes do not constitute renewed marketing consent. Process marketing-data deletion through Loops' supported deletion process; deleting an application account does not authorize recreating or resubscribing its marketing contact.
 
@@ -409,7 +406,7 @@ Both stages use backup window `02:00-02:30 UTC`, maintenance window `sun:03:00-s
 
 The PostgreSQL 16 parameter group requires TLS (`rds.force_ssl=1`) and enables logical replication (`rds.logical_replication=1`, five slots/senders, `max_slot_wal_keep_size=10240`). `rds.logical_replication` is static and requires a reboot before it takes effect. A stalled replication slot retains WAL; the 10 GiB per-slot cap can require consumer recovery or reload and does not make storage exhaustion impossible. Monitor `pg_replication_slots`, replication lag/WAL, and `FreeStorageSpace`. The F7 operator verifies the separately approved existing `test_decoding` slot; CDK and DMS never create or replace it. Full restore/recovery evidence belongs to #1805.
 
-RDS enforces TLS. PostgreSQL Lambdas use the committed public RDS bundle layer at `POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`; migrated Rust roots require SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. Bundle rotation is an explicit reviewed asset-and-layer release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Local and isolated tests use a TLS-enabled PostgreSQL fixture with a separately packaged, generated public test CA at `/var/task/aura-historia/test-postgres-ca.pem`; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
+RDS enforces TLS. PostgreSQL Lambdas use the committed public RDS bundle layer at `POSTGRES_TLS_ROOT_CERT=/opt/aura-historia/rds-ca/global-bundle.pem`; migrated Rust roots require SQLx `VerifyFull`, which validates both the trusted CA and RDS hostname. Bundle rotation is an explicit reviewed asset-and-layer release; a missing, wrong, or stale bundle fails closed. Lambda pools are lazy with min zero and max one, never a global RDS connection cap. Independent tests use a TLS-enabled PostgreSQL fixture with a generated test CA; plaintext is intentionally rejected. No automatic startup migration or SQL-running CloudFormation custom resource is included.
 
 ### SQLx pool and TLS validation (F5)
 
@@ -466,8 +463,7 @@ input/DLQ or any CDC Standard worker queue. Both require TLS, use SQS-managed en
 and disable content-based deduplication: the command publisher supplies explicit group and
 deduplication IDs. Source retention is seven days, DLQ retention 14 days, five receives
 before redrive, source visibility 270 seconds, and only the named source may redrive into
-the DLQ. Real-stage source and DLQ retain on deletion **and replacement**; ephemeral
-deletes. Data outputs expose both URLs. Never rename or purge queues to clear an alarm.
+the DLQ. Dev and prod source and DLQ retain on deletion **and replacement**. Data outputs expose both URLs. Never rename or purge queues to clear an alarm.
 
 Compute imports the source by stage-local name and supplies
 `PRODUCT_LISTING_INGESTION_QUEUE_URL` to **only** the API and Shopify producers. Each
@@ -525,7 +521,7 @@ The Shopify producer code now forwards mapped observations. This does not change
 old Shopify mapping or verify live AWS deployment. The separately declared async
 HTTP verbs and WooCommerce forwarding also require staged producer cutovers; neither
 synth nor CloudFormation resource ordering proves consumer readiness. Follow the
-[ingestion rollout, bounded ephemeral smoke, and redrive gate](../docs/durable-worker-runbook.md#productlisting-ingestion-rollout-and-acceptance-gate)
+[ingestion rollout, bounded disposable AWS smoke, and redrive gate](../docs/durable-worker-runbook.md#productlisting-ingestion-rollout-and-acceptance-gate)
 before enabling each producer. Review a stage-specific CDK change set/diff for
 unintended legacy queue replacements and establish custody of both source/DLQ
 pairs and authoritative PostgreSQL state before any cutover.
@@ -533,7 +529,7 @@ pairs and authoritative PostgreSQL state before any cutover.
 ## Worker queue contract
 
 `src/worker-queue-config.ts` owns the typed catalog and shared settings. All eleven
-queue pairs are declared in `prod`, `dev`, and `ephemeral`. The
+queue pairs are declared in `prod` and `dev`. The
 `product-listing-opensearch`, `product-listing-normalization`, `product-content-assessment`,
 `product-embedding`, `product-translation`, `search-filter-projection`,
 `search-filter-percolator`, `search-filter-match-notification`, `watchlist-notification`, and
@@ -551,7 +547,7 @@ remain Standard; only `marketing-consent-sync` uses FIFO:
   `aura-worker-marketing-consent-sync-dlq-<stage>.fifo`.
 - FIFO explicitly disables content-based deduplication; the router supplies stable
   message-group and deduplication IDs.
-- Stage is exactly CDK's `prod`, `dev`, or `ephemeral`, not a stack-name prefix or
+- Stage is exactly CDK's `prod` or `dev`, not a stack-name prefix or
   the frontend's `stage` label. Names are validated against SQS's 80-character
   limit; they are never truncated. Runtime `STAGE` must match the queue suffix.
 - Source retention: **7 days** (604800s). DLQ retention: **14 days** (1209600s).
@@ -562,9 +558,9 @@ remain Standard; only `marketing-consent-sync` uses FIFO:
 - DLQ `redrivePermission=byQueue` allows only its named source ARN. Source queues
   use `denyAll` so they cannot become another queue's DLQ. This is not permission
   for a runtime to perform operator replay/redrive.
-- Existing Standard queues retain in prod and delete in dev/ephemeral, preserving
-  their current lifecycle. The consent FIFO pair retains in both real stages on
-  **deletion and replacement** and is disposable only in isolated ephemeral.
+- Existing Standard queues retain in prod and delete in dev, preserving
+  their current lifecycle. The consent FIFO pair retains in both stages on
+  **deletion and replacement**.
   Retained old queues need explicit operator inventory/recovery; renaming a queue
   does not migrate its messages or consumers.
 
@@ -624,7 +620,7 @@ both accepts CDC and polls its scoped queue needs **both** policies for that
 scope. Existing S3 template-read and SES-send permissions remain separate and
 unchanged; attaching queue policies is additive, not a replacement.
 
-The data stack (or single ephemeral stack) outputs:
+The data stack outputs:
 
 - `WorkerQueueAwsRegion` — effective CloudFormation region; set `AWS_REGION`
   explicitly to this value. `AWS_DEFAULT_REGION` alone is not this runtime's
@@ -639,8 +635,7 @@ The data stack (or single ephemeral stack) outputs:
 These outputs and unbound policies remain for an externally managed native
 consumer during a controlled handoff; they are not native process deployment,
 credentials, or environment injection by CDK. Use the source queue URL, never
-the DLQ, and keep stage and AWS region consistent with the outputs. For LocalStack,
-`singleStack=true` still produces `...-ephemeral` names.
+the DLQ, and keep stage and AWS region consistent with the outputs.
 
 ### Operations and rollout boundary
 
@@ -955,9 +950,6 @@ The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 - `aura-historia-binary-artifacts-eu-central-1`
 - `aura-historia-mail-templates-eu-central-1`
 
-LocalStack acceptance tests synthesize one ephemeral stack with CDK context
-`singleStack=true` and pass the host-mapped edge port as `localStackMappedPort`.
-These values are synth-time context, not CloudFormation parameters.
 
 ## Stage-specific SSM parameters
 
@@ -1009,6 +1001,4 @@ CloudFormation cannot remove an in-use export.
 Environment-gated manual `Initialize (CD)` invokes only FX after database migration
 and before a separate manual Deploy `scope=all` creates active compute, with stable source ID
 `deployment:fxrate:initial:{stage}:v1`. This is not a CloudFormation custom resource;
-later normal deployments do not recapture it. `ephemeral` has no real FX initialization
-flow. The ephemeral stage uses local/mock values for third-party integrations where
-possible.
+later normal deployments do not recapture it.

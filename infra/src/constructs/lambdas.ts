@@ -30,7 +30,6 @@ interface LambdaDefinition {
   readonly binaryName: string;
   readonly memorySize: number;
   readonly timeoutSeconds: number;
-  readonly skipEphemeral?: boolean;
   readonly postgres?: boolean;
   readonly maxPostgresConnections?: number;
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
@@ -59,7 +58,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "CdcRouterLambda",
     binaryName: "cdc-router-lambda",
     memorySize: 256,
-    skipEphemeral: true,
     timeoutSeconds: 30,
   },
 
@@ -68,7 +66,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
     postgres: true,
-    skipEphemeral: true,
     timeoutSeconds: 10,
     environment: () => ({
       EXPIRY_CLEANUP_BATCH_SIZE: "100",
@@ -86,7 +83,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PrimaryUserPoolPreSignUpLambda",
     binaryName: "cognito-pre-sign-up",
     memorySize: 256,
-    skipEphemeral: true,
     timeoutSeconds: 5,
     environment: identityProviderLinkingEnvironment,
   },
@@ -119,12 +115,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({
       STAGE: context.config.stage,
       OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      ...(context.config.isEphemeral
-        ? {}
-        : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/product-projector/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/product-projector/password`),
-          }),
+      OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/product-projector/username`),
+      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/product-projector/password`),
     }),
   },
   productListingIngestion: {
@@ -155,15 +147,9 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 60,
     environment: (context) => ({
-      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
-        ? "aura-historia-ephemeral-test"
-        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: context.config.isEphemeral
-        ? "eu"
-        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
-        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
-        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
     }),
   },
   productTranslation: {
@@ -173,18 +159,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
     environment: (context) => ({
-      VERTEX_AI_PROJECT_ID: context.config.isEphemeral
-        ? "aura-historia-ephemeral-test"
-        : ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
-      VERTEX_AI_LOCATION: context.config.isEphemeral
-        ? "eu"
-        : ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      VERTEX_AI_MODEL: context.config.isEphemeral
-        ? "gemini-3.1-flash-lite"
-        : ssmValue(`/vertex-ai/${context.config.stage}/model`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.config.isEphemeral
-        ? "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}"
-        : ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
+      VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
+      VERTEX_AI_MODEL: ssmValue(`/vertex-ai/${context.config.stage}/model`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
     }),
   },
   searchFilterProjection: {
@@ -196,12 +174,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({
       STAGE: context.config.stage,
       OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      ...(context.config.isEphemeral
-        ? {}
-        : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/filter-projector/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/filter-projector/password`),
-          }),
+      OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/filter-projector/username`),
+      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/filter-projector/password`),
     }),
   },
   notificationDelivery: {
@@ -233,20 +207,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       CLASSIFIER_MODEL_PROVIDER: context.config.searchFilterClassifier.provider,
       CLASSIFIER_MODEL: context.searchFilterClassifierModel,
       SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: context.searchFilterMatchShouldShowThresholdBps,
-      CLOUDFLARE_ACCOUNT_ID: context.config.isEphemeral
-        ? "aura-historia-ephemeral-test"
-        : ssmValue(`/cloudflare/${context.config.stage}/account-id`),
-      ...(context.config.isEphemeral
-        ? { CLOUDFLARE_API_TOKEN: "ephemeral-cloudflare-test-token" }
-        : {
-            CLOUDFLARE_API_TOKEN_SSM_PARAMETER: `/secrets/${context.config.stage}/cloudflare-workers-ai-api-token`,
-          }),
-      ...(context.config.isEphemeral
-        ? {}
-        : {
-            OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/percolator/username`),
-            OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/percolator/password`),
-          }),
+      CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${context.config.stage}/account-id`),
+      CLOUDFLARE_API_TOKEN_SSM_PARAMETER: `/secrets/${context.config.stage}/cloudflare-workers-ai-api-token`,
+      OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/percolator/username`),
+      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/percolator/password`),
     }),
   },
   searchFilterMatchNotification: {
@@ -267,11 +231,8 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
-type EphemeralOptionalLambdaKey = "backendCleanup" | "cdcRouter" | "preSignUp";
-export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
-  Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.IFunction>;
-export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
-  Record<Exclude<LambdaKey, EphemeralOptionalLambdaKey>, lambda.Function>;
+export type LambdaCatalog = Record<LambdaKey, lambda.IFunction>;
+export type LambdaFunctions = Record<LambdaKey, lambda.Function>;
 
 export interface LambdasProps {
   readonly config: StageConfig;
@@ -306,18 +267,16 @@ export class Lambdas extends Construct {
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
 
-    const postgresTlsRootCertificateLayer = props.config.isEphemeral
-      ? undefined
-      : new lambda.LayerVersion(this, "PostgresTlsRootCertificateLayer", {
-          code: lambda.Code.fromAsset(path.join(__dirname, "../../assets/rds-ca-layer")),
-          compatibleRuntimes: [lambda.Runtime.PROVIDED_AL2023],
-          description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
-        });
+    const postgresTlsRootCertificateLayer = new lambda.LayerVersion(this, "PostgresTlsRootCertificateLayer", {
+      code: lambda.Code.fromAsset(path.join(__dirname, "../../assets/rds-ca-layer")),
+      compatibleRuntimes: [lambda.Runtime.PROVIDED_AL2023],
+      description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
+    });
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const ingestionLogGroup = new logs.LogGroup(this, "ProductListingIngestionLogGroup", {
       logGroupName: `/aws/lambda/product-listing-ingestion-lambda-${props.config.stage}`,
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: props.config.isEphemeral ? cdk.RemovalPolicy.DESTROY : cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
@@ -331,10 +290,6 @@ export class Lambdas extends Construct {
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-      if (props.config.isEphemeral && definition.skipEphemeral) {
-        continue;
-      }
-
       const networkProps = definition.postgres && props.network
         ? {
             vpc: props.network.vpc,
@@ -422,26 +377,19 @@ export class Lambdas extends Construct {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
     });
-    if (props.config.isEphemeral) {
-      this.backendCleanupVersion = undefined;
-      this.cdcRouterVersion = undefined;
-
-    } else {
-      const backendCleanup = this.functions.backendCleanup;
-      const cdcRouter = this.functions.cdcRouter;
-      if (!backendCleanup || !cdcRouter) {
-        throw new Error("Real stages require backend cleanup and CDC router Lambdas.");
-      }
-      this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
-        lambda: backendCleanup,
-        description: `backend-cleanup-${props.parameters.commitSha}`,
-      });
-      this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
-        lambda: cdcRouter,
-        description: `cdc-router-${props.parameters.commitSha}`,
-      });
-
+    const backendCleanup = this.functions.backendCleanup;
+    const cdcRouter = this.functions.cdcRouter;
+    if (!backendCleanup || !cdcRouter) {
+      throw new Error("Real stages require backend cleanup and CDC router Lambdas.");
     }
+    this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
+      lambda: backendCleanup,
+      description: `backend-cleanup-${props.parameters.commitSha}`,
+    });
+    this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
+      lambda: cdcRouter,
+      description: `cdc-router-${props.parameters.commitSha}`,
+    });
     grantRuntimeAccess(props, this.functions);
   }
 }
@@ -461,10 +409,6 @@ export class InitializationLambdas extends Construct {
 
   constructor(scope: Construct, id: string, props: InitializationLambdasProps) {
     super(scope, id);
-
-    if (props.config.isEphemeral) {
-      throw new Error("Initialization Lambdas are only available in real AWS stages.");
-    }
 
     const postgresTlsRootCertificateLayer = new lambda.LayerVersion(this, "PostgresTlsRootCertificateLayer", {
       code: lambda.Code.fromAsset(path.join(__dirname, "../../assets/rds-ca-layer")),
@@ -560,14 +504,7 @@ function withPostgresEnvironment(
       POSTGRES_SECRET_ARN: context.postgres.secretArn,
     };
   }
-  if (context.postgres.username && context.postgres.password) {
-    return {
-      ...connection,
-      POSTGRES_PASSWORD: context.postgres.password,
-      POSTGRES_USERNAME: context.postgres.username,
-    };
-  }
-  throw new Error("PostgreSQL Lambda environment requires either a runtime secret ARN or fixture credentials.");
+  throw new Error("PostgreSQL Lambda environment requires a runtime secret ARN.");
 }
 
 function withMigrationPostgresEnvironment(
@@ -608,17 +545,15 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
   props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
-  if (!props.config.isEphemeral) {
-    functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["ssm:GetParameter"],
-      resources: [cdk.Stack.of(functions.searchFilterPercolator).formatArn({
-        service: "ssm",
-        resource: "parameter",
-        resourceName: `secrets/${props.config.stage}/cloudflare-workers-ai-api-token`,
-        arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
-      })],
-    }));
-  }
+  functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["ssm:GetParameter"],
+    resources: [cdk.Stack.of(functions.searchFilterPercolator).formatArn({
+      service: "ssm",
+      resource: "parameter",
+      resourceName: `secrets/${props.config.stage}/cloudflare-workers-ai-api-token`,
+      arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
+    })],
+  }));
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],
@@ -713,13 +648,6 @@ function marketingConsentSyncEnvironment(context: LambdaEnvironmentContext): Rec
 }
 
 function loopsNewsletterEnvironment(config: StageConfig): Record<string, string> {
-  if (config.isEphemeral) {
-    return {
-      LOOPS_API_BASE_URL: "https://loops.test/api",
-      LOOPS_API_KEY: "ephemeral-loops-api-key",
-      LOOPS_NEWSLETTER_LIST_ID: "ephemeral-newsletter-list",
-    };
-  }
   return {
     LOOPS_API_BASE_URL: "https://app.loops.so/api",
     LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
@@ -743,17 +671,6 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     STRIPE_ULTIMATE_YEARLY_PRICE_ID: config.stripeUltimateYearlyPriceId,
   };
 
-  if (config.isEphemeral) {
-    return {
-      ...environment,
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: "{\"type\":\"service_account\",\"project_id\":\"aura-historia-ephemeral-test\"}",
-      STRIPE_API_KEY: "sk_test_ephemeral",
-      VERTEX_AI_LOCATION: "eu",
-      VERTEX_AI_PROJECT_ID: "aura-historia-ephemeral-test",
-      ...loopsNewsletterEnvironment(config),
-    };
-  }
-
   return {
     ...environment,
     OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
@@ -773,10 +690,6 @@ export function importLambdaCatalog(scope: Construct, id: string, config: StageC
   const importScope = new Construct(scope, id);
 
   for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-    if (config.isEphemeral && definition.skipEphemeral) {
-      continue;
-    }
-
     if (key === "auraHistoriaApi") {
       catalog[key] = lambda.Function.fromFunctionAttributes(
         importScope,
