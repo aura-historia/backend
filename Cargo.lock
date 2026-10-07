@@ -9189,7 +9189,7 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "localization",
  "money",
  "serde",
