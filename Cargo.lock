@@ -9131,6 +9131,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "user-email-aws"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "handlebars",
+ "html-escape",
+ "http 1.5.0",
+ "localization",
+ "mrml",
+ "serde-email",
+ "serde_json",
+ "tokio",
+ "url",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
 name = "user-loops"
 version = "0.1.0"
 dependencies = [
