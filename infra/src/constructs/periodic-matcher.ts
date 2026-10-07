@@ -28,7 +28,7 @@ export class PeriodicMatcher extends ScheduledEcsJob {
   constructor(scope: Construct, id: string, props: PeriodicMatcherProps) {
     const { config, network, postgres } = props;
     const secretArn = postgres.secretArn;
-    if (config.isEphemeral || !secretArn || !config.network) throw new Error("Matcher needs real-stage private PostgreSQL credentials and network.");
+    if (!secretArn || !config.network) throw new Error("Matcher needs real-stage private PostgreSQL credentials and network.");
     const names = periodicMatcherNames(config.stage);
     super(scope, id, {
       network,

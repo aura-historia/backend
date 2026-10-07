@@ -31,12 +31,15 @@ export class WorkerQueues extends Construct {
     const settings = config.workerQueues;
     for (const workerScope of settings.enabledScopes) {
       const definition = WORKER_QUEUE_DEFINITIONS[workerScope];
+      const fifo = "fifo" in definition && definition.fifo === true;
+      const removalPolicy = fifo ? cdk.RemovalPolicy.RETAIN : config.removalPolicy;
       const queueName = workerQueueName(workerScope, config.stage);
       // A literal-name import avoids a source -> DLQ -> source CloudFormation cycle.
       const sourceForRedrive = importWorkerQueue(this, `${definition.id}RedriveSource`, queueName);
       const deadLetterQueue = new sqs.Queue(this, `${definition.id}DeadLetterQueue`, {
         queueName: workerQueueName(workerScope, config.stage, true),
-        fifo: false,
+        fifo,
+        contentBasedDeduplication: fifo ? false : undefined,
         retentionPeriod: cdk.Duration.days(settings.deadLetterRetentionDays),
         receiveMessageWaitTime: cdk.Duration.seconds(settings.receiveWaitTimeSeconds),
         encryption: sqs.QueueEncryption.SQS_MANAGED,
@@ -45,11 +48,12 @@ export class WorkerQueues extends Construct {
           redrivePermission: sqs.RedrivePermission.BY_QUEUE,
           sourceQueues: [sourceForRedrive],
         },
-        removalPolicy: config.removalPolicy,
+        removalPolicy,
       });
       const queue = new sqs.Queue(this, `${definition.id}Queue`, {
         queueName,
-        fifo: false,
+        fifo,
+        contentBasedDeduplication: fifo ? false : undefined,
         retentionPeriod: cdk.Duration.days(settings.sourceRetentionDays),
         visibilityTimeout: cdk.Duration.seconds(definition.visibilityTimeoutSeconds),
         receiveMessageWaitTime: cdk.Duration.seconds(settings.receiveWaitTimeSeconds),
@@ -57,8 +61,12 @@ export class WorkerQueues extends Construct {
         enforceSSL: true,
         deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: settings.maxReceiveCount },
         redriveAllowPolicy: { redrivePermission: sqs.RedrivePermission.DENY_ALL },
-        removalPolicy: config.removalPolicy,
+        removalPolicy,
       });
+      if (fifo) {
+        (queue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
+        (deadLetterQueue.node.defaultChild as sqs.CfnQueue).applyRemovalPolicy(cdk.RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
+      }
 
       // The bare-metal identity is externally owned. Export policies, never create credentials
       // or bind them to an unrelated Lambda/CI role. Startup inspects the paired DLQ as well.

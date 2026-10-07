@@ -11,14 +11,15 @@ export const WORKER_SCOPES = [
   "product-translation",
   "product-listing-normalization",
   "notification-delivery",
+  "marketing-consent-sync",
 ] as const;
 
 export type WorkerScope = (typeof WORKER_SCOPES)[number];
 
-
 interface WorkerQueueDefinition {
   readonly id: string;
   readonly visibilityTimeoutSeconds: number;
+  readonly fifo?: true;
 }
 
 // Lambda-backed scopes use visibility that covers six bounded 45-second invocations.
@@ -38,6 +39,7 @@ export const WORKER_QUEUE_DEFINITIONS = {
   "product-listing-normalization": { id: "ProductListingNormalization", visibilityTimeoutSeconds: 270 },
   // The 45s Lambda leaves a five-minute delivery lease plus 30s recovery margin before retry.
   "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 330 },
+  "marketing-consent-sync": { id: "MarketingConsentSync", visibilityTimeoutSeconds: 330, fifo: true },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 
 export interface WorkerQueueSettings {
@@ -69,9 +71,15 @@ export const WORKER_QUEUE_SETTINGS = {
 } as const satisfies WorkerQueueSettings;
 
 export function workerQueueName(scope: WorkerScope, stage: StageName, deadLetter = false): string {
-  const name = `aura-worker-${scope}${deadLetter ? "-dlq" : ""}-${stage}`;
-  if (name.length > 80 || !/^[a-z0-9-]+$/.test(name)) {
-    throw new Error(`Invalid Standard worker queue name: '${name}'. Expected at most 80 lowercase letters, digits, or hyphens.`);
+  const definition = WORKER_QUEUE_DEFINITIONS[scope];
+  const fifo = "fifo" in definition && definition.fifo === true;
+  const suffix = fifo ? ".fifo" : "";
+  const name = `aura-worker-${scope}${deadLetter ? "-dlq" : ""}-${stage}${suffix}`;
+  const validName = fifo ? /^[a-z0-9-]+\.fifo$/.test(name) : /^[a-z0-9-]+$/.test(name);
+  if (name.length > 80 || !validName) {
+    const queueType = fifo ? "FIFO" : "Standard";
+    const characterSet = fifo ? "lowercase letters, digits, hyphens, or a .fifo suffix" : "lowercase letters, digits, or hyphens";
+    throw new Error(`Invalid ${queueType} worker queue name: '${name}'. Expected at most 80 ${characterSet}.`);
   }
   return name;
 }

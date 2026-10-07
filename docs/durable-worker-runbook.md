@@ -1,6 +1,6 @@
 # Durable CDC and worker operations
 
-**Target, not verified live state.** PostgreSQL is business truth; the intended path is DMS CDC → seven-day Kinesis → router Lambda → ten scoped Standard SQS source/DLQ pairs → workers. `CdcRouterEnabled` is separate from compute creation (which activates worker mappings). [Architecture §12](arch.md#12-cdc-and-projection-architecture) owns invariants, [event flow](events/flow.md) owns routing, and [infrastructure](../infra/README.md#first-time-stage) owns deployment order. DMS slot/LSN, first-start/capture evidence and external source decommissioning require a separately approved migration plan; code and CDK do not prove live activation.
+**Target, not verified live state.** PostgreSQL is business truth; the intended path is DMS CDC → seven-day Kinesis → router Lambda → ten scoped Standard pairs plus one marketing-consent FIFO SQS source/DLQ pair → workers. `CdcRouterEnabled` is separate from compute creation (which activates worker mappings). [Architecture §12](arch.md#12-cdc-and-projection-architecture) owns invariants, [event flow](events/flow.md) owns routing, and [infrastructure](../infra/README.md#first-time-stage) owns deployment order. Applying the data stack carries declared DMS table-selection changes into task configuration, subject to DMS update constraints and task state; it does not start or restart DMS. Approval and coordination before that deployment, first-start/restart handling, slot/LSN and capture evidence, and external source decommissioning require an operator plan. Code and CDK do not prove live activation.
 
 ## Marketing consent evidence logs
 
@@ -35,9 +35,25 @@ Review access and retention regularly under the organization's privacy and secur
 
 ## Failure custody and controlled redrive
 
-The router validates each whole-record route and confirms every required SQS send before checkpoint; on failure it returns the earliest unconfirmed sequence and stops. Partial/lost sends may duplicate jobs. After three retries or one hour the **original invocation** is sent to private retained S3 (90-day object expiry), **not** a worker DLQ. Check mapping-specific archive-delivered/dropped and destination-failure signals; failed delivery does not prove an object exists. Preserve source ARN, sequence and envelope. Repair the cause, use the fail-closed decoder, test isolated replay and obtain separate approval; never silently skip poison CDC.
+The router validates each whole-record route and confirms every required SQS send before checkpoint; on failure it returns the earliest unconfirmed sequence and stops. Partial/lost sends may duplicate jobs. After three retries or one hour the **original invocation** is sent to private retained S3 (90-day object expiry), **not** a worker DLQ, and is not replayed automatically. Check mapping-specific archive-delivered/dropped and destination-failure signals; failed delivery does not prove an object exists. Preserve source ARN, sequence and envelope. Repair the cause, use the fail-closed decoder, test isolated replay and obtain separate approval; never silently skip poison CDC.
 
-Standard worker source queues retain seven days, paired DLQs 14; transfer preserves original enqueue age, so these windows are **not additive**. Workers acknowledge only completed service outcomes; failures, malformed jobs, timeout, panic and uncertain effects retry (five receives) with `ReportBatchItemFailures`. Normalization batches ten; other worker scopes batch one. Distinguish router S3, worker SQS DLQs, provider ingress DLQs and Lambda async DLQs. Monitor DMS lag/slot WAL, router iterator age/archive failures, queue oldest age/depth/DLQs and Lambda errors. For a small authorized redrive, inspect domain keys and PostgreSQL state, retention and duplicate effects; repair first and use operator access. Runtime roles cannot purge/replay/redrive; never purge to clear alarms.
+Worker source queues retain seven days and paired DLQs 14; transfer preserves original enqueue age, so these windows are **not additive**. The consent FIFO pair moves messages after five receives; neither it nor Standard worker DLQs redrives itself indefinitely. Workers acknowledge only completed service outcomes; failures, malformed jobs, timeout, panic and uncertain effects retry with `ReportBatchItemFailures`. Normalization batches ten; other worker scopes batch one. Distinguish router S3, worker SQS DLQs, provider ingress DLQs and Lambda async DLQs. Monitor DMS lag/slot WAL, router iterator age/archive failures, queue oldest age/depth/DLQs and Lambda errors. For a small authorized redrive, inspect domain keys and PostgreSQL state, retention and duplicate effects; repair first and use operator access. Runtime roles cannot purge/replay/redrive; never purge to clear alarms.
+
+## Marketing consent FIFO custody
+
+Deploy the applied consent schema and selected-release `marketing-consent-sync-lambda`
+before creating its active batch-one mapping. Its source and DLQ are retained in
+both real stages; the router mapping stays disabled until separately approved.
+The data-stack deployment delivers the declared DMS source-selection change to
+the task configuration, subject to DMS update constraints and task state; it
+does not start or restart DMS. Approve and coordinate that deployment, and keep
+first start or any required restart as operator actions. The source retries five receives and then
+stops in its DLQ; router failures can stop in the retained S3 archive after the
+mapping retry/age limits. Neither location retries forever or replays itself.
+Before a controlled replay, inspect the intent's PostgreSQL status, source/DLQ
+age and Loops result, repair the cause and obtain operator approval. Preserve the
+message and FIFO identifiers; do not infer provider acceptance from a timeout or
+queue transfer. Keep API writer cutover for its later task.
 
 Raw-revision inserts only wake `product-listing-normalization-lambda`: it drains PostgreSQL stream heads and atomically persists terminal progress with zero or one canonical write/event. Unfinished/capped drains fail for retry. **No scheduled raw-backlog reconciliation exists.** Inspect pending heads, queue age/DLQ and CDC gaps; missing/expired wake-ups need an approved recovery plan, not fabricated completion. Crawler capture success is not normalization completion.
 

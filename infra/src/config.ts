@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { WORKER_QUEUE_SETTINGS, type WorkerQueueSettings } from "./worker-queue-config";
 
-export const STAGES = ["prod", "dev", "ephemeral"] as const;
+export const STAGES = ["prod", "dev"] as const;
 export type StageName = (typeof STAGES)[number];
 
 export const ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
@@ -12,7 +12,6 @@ export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID = "InitialCdcStartPosit
 export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID = "DmsCdcInitialCdcStartPosition";
 export const DMS_CDC_INITIAL_START_POSITION_PATTERN = "^$|^[0-9A-F]{1,8}/[0-9A-F]{1,8}$";
 export const DMS_CDC_INITIAL_START_POSITION_CONSTRAINT = "must be empty or an uppercase PostgreSQL LSN in X/Y hexadecimal format";
-
 
 const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";
@@ -85,13 +84,11 @@ export interface SearchFilterClassifierConfig {
 const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierConfig> = {
   prod: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
   dev: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
-  ephemeral: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
 };
 
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
-  readonly isEphemeral: boolean;
   readonly network: NetworkConfig | undefined;
   readonly rds: RdsConfig | undefined;
   readonly dms: DmsConfig | undefined;
@@ -123,111 +120,78 @@ export interface StageConfig {
   readonly stripeProYearlyPriceId: string;
   readonly stripeUltimateMonthlyPriceId: string;
   readonly stripeUltimateYearlyPriceId: string;
-  readonly localStackMappedPort: string;
-}
-
-export interface StageConfigOptions {
-  readonly localStackMappedPort?: string;
 }
 
 export function isStageName(value: string): value is StageName {
   return (STAGES as readonly string[]).includes(value);
 }
 
-export function stageConfig(stage: StageName, options: StageConfigOptions = {}): StageConfig {
+export function stageConfig(stage: StageName): StageConfig {
+  if (!isStageName(stage)) throw new Error(`Unsupported CDK stage '${stage}'.`);
   const isProd = stage === "prod";
-  const isEphemeral = stage === "ephemeral";
 
-  const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.stage.aura-historia.com" : undefined;
-  const apiCloudFrontAliases = apiDomainName ? [apiDomainName] : [];
+  const apiDomainName = isProd ? "api.aura-historia.com" : "api.stage.aura-historia.com";
+  const apiCloudFrontAliases = [apiDomainName];
 
   return {
     stage,
     isProd,
-    isEphemeral,
-    network: isEphemeral
-      ? undefined
-      : {
-          cidr: stage === "prod" ? "10.64.0.0/16" : "10.65.0.0/16",
-          region: WORKLOAD_REGION,
-          // Reviewed stage host A record; confirm ownership and DNS before deploying changes.
-          stageOpenSearchEgressCidrs: stage === "dev" ? ["148.251.91.20/32"] : [],
-        },
-    rds: isEphemeral
-      ? undefined
-      : {
-          databaseName: "aura_historia",
-          engineVersion: "16.13",
-          instanceType: isProd ? "t4g.medium" : "t4g.small",
-          allocatedStorageGiB: isProd ? 50 : 30,
-          maxAllocatedStorageGiB: isProd ? 100 : 60,
-          backupRetentionDays: isProd ? 14 : 7,
-        },
-    dms: isEphemeral
-      ? undefined
-      : {
-          engineVersion: "3.6.1",
-          replicationInstanceClass: "dms.t3.small",
-          initialCdcStartPositionParameterId: DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID,
-
-          lobMaxSizeKiB: 512,
-          kinesisRetentionDays: 7,
-        },
+    network: {
+      cidr: isProd ? "10.64.0.0/16" : "10.65.0.0/16",
+      region: WORKLOAD_REGION,
+      // Reviewed stage host A record; confirm ownership and DNS before deploying changes.
+      stageOpenSearchEgressCidrs: stage === "dev" ? ["148.251.91.20/32"] : [],
+    },
+    rds: {
+      databaseName: "aura_historia",
+      engineVersion: "16.13",
+      instanceType: isProd ? "t4g.medium" : "t4g.small",
+      allocatedStorageGiB: isProd ? 50 : 30,
+      maxAllocatedStorageGiB: isProd ? 100 : 60,
+      backupRetentionDays: isProd ? 14 : 7,
+    },
+    dms: {
+      engineVersion: "3.6.1",
+      replicationInstanceClass: "dms.t3.small",
+      initialCdcStartPositionParameterId: DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID,
+      lobMaxSizeKiB: 512,
+      kinesisRetentionDays: 7,
+    },
     searchFilterClassifier: SEARCH_FILTER_CLASSIFIER_CONFIG[stage],
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,
-    apiEndpointUrl: apiDomainName ? `https://${apiDomainName}` : undefined,
+    apiEndpointUrl: `https://${apiDomainName}`,
     apiDomainName,
-    apiGatewayCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
-    apiCloudFrontCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
+    apiGatewayCertificateArn: ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
+    apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
     apiCloudFrontAliases,
     apiCorsAllowOrigins: isProd ? [...PROD_API_CORS_ALLOW_ORIGINS] : ["*"],
-    cognitoCallbackUrls:
-      stage === "prod"
-        ? [PROD_FRONTEND_URL]
-        : stage === "dev"
-          ? [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL]
-          : [LOCALHOST_CALLBACK_URL],
-    cognitoLogoutUrls:
-      stage === "prod"
-        ? [PROD_FRONTEND_URL]
-        : stage === "dev"
-          ? [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL]
-          : [LOCALHOST_CALLBACK_URL],
-    cognitoIdentityProviders: isEphemeral
-      ? []
-      : [
-          {
-            kind: "google",
-            providerName: "Google",
-            clientIdParameterName: `/cognito/${stage}/identity-providers/google/client-id`,
-            clientSecretParameterName: `/cognito/${stage}/identity-providers/google/client-secret`,
-            scopes: ["openid", "email", "profile"],
-            autoLinkVerifiedEmail: true,
-            linkSourceAttributeName: "Cognito_Subject",
-          },
-        ],
-    cognitoEmail: isEphemeral
-      ? undefined
-      : {
-          configurationSet: "my-first-configuration-set",
-          from: "Aura Historia <auth@notify.aura-historia.com>",
-          identityDomain: "notify.aura-historia.com",
-          replyTo: "contact@aura-historia.com",
-        },
-    notificationEmail: isEphemeral
-      ? {
-          from: "Aura Historia <notifications@example.test>",
-          identityDomain: "example.test",
-          replyTo: "support@example.test",
-        }
-      : {
-          from: ssmValue(`/notifications/${stage}/email-from`),
-          identityDomain: "notify.aura-historia.com",
-          replyTo: ssmValue(`/notifications/${stage}/email-reply-to`),
-        },
-    opensearchDomainName: isEphemeral ? "test-domain" : `aura-historia-${stage}`,
-    opensearchEndpointUrl: isEphemeral ? "" : ssmValue(`/opensearch/${stage}/endpoint-url`),
+    cognitoCallbackUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
+    cognitoLogoutUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
+    cognitoIdentityProviders: [
+      {
+        kind: "google",
+        providerName: "Google",
+        clientIdParameterName: `/cognito/${stage}/identity-providers/google/client-id`,
+        clientSecretParameterName: `/cognito/${stage}/identity-providers/google/client-secret`,
+        scopes: ["openid", "email", "profile"],
+        autoLinkVerifiedEmail: true,
+        linkSourceAttributeName: "Cognito_Subject",
+      },
+    ],
+    cognitoEmail: {
+      configurationSet: "my-first-configuration-set",
+      from: "Aura Historia <auth@notify.aura-historia.com>",
+      identityDomain: "notify.aura-historia.com",
+      replyTo: "contact@aura-historia.com",
+    },
+    notificationEmail: {
+      from: ssmValue(`/notifications/${stage}/email-from`),
+      identityDomain: "notify.aura-historia.com",
+      replyTo: ssmValue(`/notifications/${stage}/email-reply-to`),
+    },
+    opensearchDomainName: `aura-historia-${stage}`,
+    opensearchEndpointUrl: ssmValue(`/opensearch/${stage}/endpoint-url`),
     enableProductionObservability: isProd,
     stripeCheckoutCancelUrl: isProd ? "https://aura-historia.com" : "https://stage.aura-historia.com",
     stripeCheckoutSuccessUrl: isProd
@@ -236,23 +200,14 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
     stripePortalReturnUrl: isProd
       ? "https://aura-historia.com/me/account"
       : "https://stage.aura-historia.com/me/account",
-    stripeEventBusName: isEphemeral
-      ? "stripe-event-bus-ephemeral"
-      : ssmValue(`/eventbridge/${stage}/stripe-event-bus-name`),
-    shopifyEventBusName: isEphemeral
-      ? "shopify-event-bus-ephemeral"
-      : ssmValue(`/eventbridge/${stage}/shopify-event-bus-name`),
-    stripeProProductId: isEphemeral ? "prod_test_pro" : ssmValue(`/stripe/${stage}/pro-product-id`),
-    stripeUltimateProductId: isEphemeral ? "prod_test_ultimate" : ssmValue(`/stripe/${stage}/ultimate-product-id`),
-    stripeProMonthlyPriceId: isEphemeral ? "price_pro_monthly_mock" : ssmValue(`/stripe/${stage}/pro-monthly-price-id`),
-    stripeProYearlyPriceId: isEphemeral ? "price_pro_yearly_mock" : ssmValue(`/stripe/${stage}/pro-yearly-price-id`),
-    stripeUltimateMonthlyPriceId: isEphemeral
-      ? "price_ultimate_monthly_mock"
-      : ssmValue(`/stripe/${stage}/ultimate-monthly-price-id`),
-    stripeUltimateYearlyPriceId: isEphemeral
-      ? "price_ultimate_yearly_mock"
-      : ssmValue(`/stripe/${stage}/ultimate-yearly-price-id`),
-    localStackMappedPort: options.localStackMappedPort ?? "4566",
+    stripeEventBusName: ssmValue(`/eventbridge/${stage}/stripe-event-bus-name`),
+    shopifyEventBusName: ssmValue(`/eventbridge/${stage}/shopify-event-bus-name`),
+    stripeProProductId: ssmValue(`/stripe/${stage}/pro-product-id`),
+    stripeUltimateProductId: ssmValue(`/stripe/${stage}/ultimate-product-id`),
+    stripeProMonthlyPriceId: ssmValue(`/stripe/${stage}/pro-monthly-price-id`),
+    stripeProYearlyPriceId: ssmValue(`/stripe/${stage}/pro-yearly-price-id`),
+    stripeUltimateMonthlyPriceId: ssmValue(`/stripe/${stage}/ultimate-monthly-price-id`),
+    stripeUltimateYearlyPriceId: ssmValue(`/stripe/${stage}/ultimate-yearly-price-id`),
   };
 }
 

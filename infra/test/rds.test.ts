@@ -8,7 +8,7 @@ import type { StageName } from "../src/config";
 
 const REAL_STAGES = ["dev", "prod"] as const;
 const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
-const EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE = "/var/task/aura-historia/test-postgres-ca.pem";
+
 const PUBLIC_RDS_CA_ASSET = path.join(
   __dirname,
   "../assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem",
@@ -126,8 +126,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(18);
-    expect(runtimeFunctions).toHaveLength(17);
+    expect(functions).toHaveLength(19);
+    expect(runtimeFunctions).toHaveLength(18);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
@@ -368,60 +368,4 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     expect(publicBundle.toString("utf8")).not.toMatch(/PRIVATE KEY|ENCRYPTED/);
     expect(createHash("sha256").update(publicBundle).digest("hex")).toBe(PUBLIC_RDS_CA_ASSET_SHA256);
   });
-});
-
-test("ephemeral packages PostgreSQL Lambdas for the generated test CA without a production layer", () => {
-  const stacks = createStacks("ephemeral");
-  const compute = Template.fromStack(stacks.compute);
-  const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
-    .filter((resource) => resource.Properties.Environment?.Variables?.POSTGRES_HOST !== undefined);
-
-  expect(functions).toHaveLength(15);
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "product-embedding-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "product-translation-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "product-listing-normalization-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "product-content-assessment-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "notification-delivery-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "search-filter-projection-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "search-filter-percolator-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "search-filter-match-notification-lambda-ephemeral",
-  )).toBeDefined();
-  expect(functions.find((resource) =>
-    resource.Properties.FunctionName === "watchlist-notification-lambda-ephemeral",
-  )).toBeDefined();
-  for (const functionResource of functions) {
-    const environment = functionResource.Properties.Environment.Variables;
-    expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(EPHEMERAL_POSTGRES_TLS_ROOT_CERTIFICATE);
-    expect(environment.POSTGRES_SECRET_ARN).toBeUndefined();
-    expect(environment.POSTGRES_USERNAME).toBe("postgres");
-    expect(environment.POSTGRES_PASSWORD).toBe("postgres");
-    expect(functionResource.Properties.Layers).toBeUndefined();
-  }
-  expect(Object.values(compute.findResources("AWS::Lambda::LayerVersion"))).toHaveLength(0);
-  expect(JSON.stringify(compute.toJSON())).not.toContain(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
-});
-
-test("ephemeral creates no RDS or generated database credentials", () => {
-  const stacks = createStacks("ephemeral");
-  const template = Template.fromStack(stacks.data);
-
-  template.resourceCountIs("AWS::RDS::DBInstance", 0);
-  template.resourceCountIs("AWS::RDS::DBSubnetGroup", 0);
-  template.resourceCountIs("AWS::RDS::DBParameterGroup", 0);
-  template.resourceCountIs("AWS::SecretsManager::Secret", 0);
 });

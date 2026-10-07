@@ -346,7 +346,12 @@ function apiAlarm(
   });
 }
 
-const throttleAlarmLambdaKeys = new Set<LambdaKey>(["auraHistoriaApi", "cdcRouter", "productListingIngestion"]);
+const throttleAlarmLambdaKeys = new Set<LambdaKey>([
+  "auraHistoriaApi",
+  "cdcRouter",
+  "productListingIngestion",
+  "marketingConsentSync",
+]);
 
 const queueWorkerKeys = new Set<LambdaKey>([
   "shopify",
@@ -359,6 +364,7 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "searchFilterMatchNotification",
   "watchlistNotification",
   "notificationDelivery",
+  "marketingConsentSync",
 ]);
 
 const CDC_ROUTER_ITERATOR_AGE_THRESHOLD_MILLISECONDS = 900_000;

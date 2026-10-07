@@ -3,7 +3,7 @@ import { Construct } from "constructs";
 
 export interface ApplicationParameters {
   readonly commitSha: string;
-  readonly cdcRouterActivation?: cdk.CfnCondition;
+  readonly cdcRouterActivation: cdk.CfnCondition;
   readonly searchFilterClassifierModel: string;
   readonly searchFilterMatchShouldShowThresholdBps: string;
 }
@@ -17,7 +17,6 @@ export function artifactCommitShaParameter(scope: Construct): string {
 
 export function applicationParameters(
   scope: Construct,
-  includeCdcRouterActivation = false,
   searchFilterClassifierDefaults: {
     readonly model: "clef-flash" | "clef";
     readonly shouldShowThresholdBps: number;
@@ -41,9 +40,7 @@ export function applicationParameters(
       description: "Inclusive should_show acceptance threshold in basis points for enhanced saved-search matching.",
     },
   ).valueAsString;
-  const cdcRouterActivation = includeCdcRouterActivation
-    ? cdcRouterCondition(scope)
-    : undefined;
+  const cdcRouterActivation = cdcRouterCondition(scope);
 
   return {
     commitSha,

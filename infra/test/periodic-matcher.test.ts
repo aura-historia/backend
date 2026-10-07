@@ -8,7 +8,7 @@ import { ecsTaskEventPattern, ecsTaskL2EventPattern } from "../src/constructs/ec
 import { matcherTaskEventPattern, periodicMatcherNames, PERIODIC_MATCHER_IMAGE } from "../src/periodic-matcher-config";
 import { scheduledEcsClusterName } from "../src/scheduled-ecs-config";
 
-function stacks(stage: "dev" | "prod" | "ephemeral") {
+function stacks(stage: "dev" | "prod") {
   return createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage });
 }
 
@@ -381,11 +381,6 @@ test("scheduled ECS platform conversion rejects unsupported platforms", () => {
     .toThrow("Unsupported scheduled ECS image platform: linux/s390x");
 });
 
-test("ephemeral stages do not create the matcher or digest parameters", () => {
-  const template = Template.fromStack(stacks("ephemeral").compute);
-  template.resourceCountIs("AWS::ECS::TaskDefinition", 0);
-  expect(template.toJSON().Parameters.PeriodicMatcherImageDigest).toBeUndefined();
-});
 
 // Offline check of the EventBridge pattern operators used here; not a substitute for AWS test-event-pattern.
 function patternMatches(pattern: unknown, event: unknown): boolean {

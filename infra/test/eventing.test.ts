@@ -1,15 +1,12 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, type StageName } from "../src/config";
 
 type Resource = { Properties: Record<string, any> };
 
 function templates(stage: StageName, sha?: string) {
   const app = new cdk.App({ analyticsReporting: false });
-  if (stage === "ephemeral") {
-    return { compute: Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage })) };
-  }
   const stacks = createApplicationStacks(app, { stage });
   if (sha) {
     (stacks.initialization!.node.findChild("CommitSHA") as cdk.CfnParameter).default = sha;
@@ -29,47 +26,31 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   test("activates partner and SQS consumers by default; only the external DMS router requires approval", () => {
     const { compute } = templates(stage);
     const json = compute.toJSON();
-    if (stage === "ephemeral") {
-      expect(Object.keys(json.Parameters)).toEqual([
-        "CommitSHA",
-        "SearchFilterClassifierModel",
-        "SearchFilterMatchShouldShowThresholdBps",
-      ]);
-    } else {
-      expect(Object.keys(json.Parameters)).toEqual(expect.arrayContaining([
-        "CommitSHA",
-        "SearchFilterClassifierModel",
-        "SearchFilterMatchShouldShowThresholdBps",
-        "CdcRouterEnabled",
-        "PeriodicMatcherImageDigest",
-        "PeriodicMatcherEnabled",
-      ]));
-    }
-    expect(json.Conditions ?? {}).toEqual(stage === "ephemeral" ? {} : {
+    expect(Object.keys(json.Parameters)).toEqual(expect.arrayContaining([
+      "CommitSHA",
+      "SearchFilterClassifierModel",
+      "SearchFilterMatchShouldShowThresholdBps",
+      "CdcRouterEnabled",
+      "PeriodicMatcherImageDigest",
+      "PeriodicMatcherEnabled",
+    ]));
+    expect(json.Conditions ?? {}).toEqual({
       CdcRouterActivation: { "Fn::Equals": [{ Ref: "CdcRouterEnabled" }, "true"] },
       PeriodicMatcherActivation: { "Fn::Equals": [{ Ref: "PeriodicMatcherEnabled" }, "true"] },
     });
-    if (stage !== "ephemeral") {
-      expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
-    }
+    expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
+    expect(mappings).toHaveLength(14);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
-    if (stage === "ephemeral") {
-      expect(router).toBeUndefined();
-    } else {
-      expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
-    }
+    expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
     for (const mapping of mappings.filter((candidate) => candidate !== router)) {
       expect(mapping.Properties.Enabled === undefined || mapping.Properties.Enabled === true).toBe(true);
       expect(mapping.Properties.FunctionResponseTypes).toEqual(["ReportBatchItemFailures"]);
     }
     const normalization = mappings.find((mapping) => JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"));
     expect(normalization?.Properties.BatchSize).toBe(10);
-    expect(JSON.stringify(normalization?.Properties.EventSourceArn)).toContain(
-      stage === "ephemeral" ? "WorkerQueuesProductListingNormalizationQueue" : `aura-worker-product-listing-normalization-${stage}`,
-    );
+    expect(JSON.stringify(normalization?.Properties.EventSourceArn)).toContain(`aura-worker-product-listing-normalization-${stage}`);
     const shopify = mappings.find((mapping) => JSON.stringify(mapping.Properties.FunctionName).includes("ShopifyLambda"));
     expect(shopify?.Properties).toMatchObject({ BatchSize: 10, MaximumBatchingWindowInSeconds: 1 });
 
@@ -82,14 +63,9 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(resources(compute, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
   });
 
-  test("schedules cleanup version and the unqualified initialization FX function for real stages only", () => {
+  test("schedules cleanup version and the unqualified initialization FX function", () => {
     const { compute, initialize } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
-    if (stage === "ephemeral") {
-      expect(schedules).toHaveLength(0);
-      expect(JSON.stringify(compute.toJSON())).not.toContain("fxrate-lambda-ephemeral");
-      return;
-    }
     expect(schedules).toHaveLength(3);
     const fx = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)");
     const cleanup = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 * * * ? *)");

@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
+import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
@@ -18,6 +18,7 @@ const EXPECTED_WORKERS = {
   "product-translation": { id: "ProductTranslation", visibility: 300 },
   "product-listing-normalization": { id: "ProductListingNormalization", visibility: 270 },
   "notification-delivery": { id: "NotificationDelivery", visibility: 330 },
+  "marketing-consent-sync": { id: "MarketingConsentSync", visibility: 330, fifo: true },
 } as const;
 const EXPECTED_SCOPES = Object.keys(EXPECTED_WORKERS) as WorkerScope[];
 
@@ -57,16 +58,19 @@ function expectedWorkerPolicyNames(stage: StageName, scopes: readonly WorkerScop
 
 function expectWorkerPair(stack: cdk.Stack, template: Template, stage: StageName, workerScope: WorkerScope) {
   const definition = EXPECTED_WORKERS[workerScope];
-  const sourceName = `aura-worker-${workerScope}-${stage}`;
-  const dlqName = `aura-worker-${workerScope}-dlq-${stage}`;
+  const fifo = "fifo" in definition;
+  const sourceName = workerQueueName(workerScope, stage);
+  const dlqName = workerQueueName(workerScope, stage, true);
   const source = queueResource(template, sourceName);
   const dlq = queueResource(template, dlqName);
-  const lifecycle = stage === "prod" ? "Retain" : "Delete";
+  const lifecycle = fifo ? "Retain" : stage === "prod" ? "Retain" : "Delete";
   const sharedProperties = { ReceiveMessageWaitTimeSeconds: 20, SqsManagedSseEnabled: true };
+  const fifoProperties = fifo ? { FifoQueue: true, ContentBasedDeduplication: false } : {};
   expect(source.resource).toEqual({
     Type: "AWS::SQS::Queue",
     Properties: {
       ...sharedProperties,
+      ...fifoProperties,
       QueueName: sourceName,
       MessageRetentionPeriod: 604800,
       VisibilityTimeout: definition.visibility,
@@ -80,6 +84,7 @@ function expectWorkerPair(stack: cdk.Stack, template: Template, stage: StageName
     Type: "AWS::SQS::Queue",
     Properties: {
       ...sharedProperties,
+      ...fifoProperties,
       QueueName: dlqName,
       MessageRetentionPeriod: 1209600,
       RedriveAllowPolicy: {
@@ -92,9 +97,15 @@ function expectWorkerPair(stack: cdk.Stack, template: Template, stage: StageName
   });
 
   for (const queue of [source, dlq]) {
-    // CDK omits FifoQueue=false; absent is Standard in CloudFormation and GetQueueAttributes.
-    expect(queue.resource.Properties.FifoQueue).toBeUndefined();
-    expect(queue.resource.Properties.QueueName).not.toMatch(/\.fifo$/);
+    if (fifo) {
+      expect(queue.resource.Properties.FifoQueue).toBe(true);
+      expect(queue.resource.Properties.ContentBasedDeduplication).toBe(false);
+      expect(queue.resource.Properties.QueueName).toMatch(/\.fifo$/);
+    } else {
+      // CDK omits FifoQueue=false; absent is Standard in CloudFormation and GetQueueAttributes.
+      expect(queue.resource.Properties.FifoQueue).toBeUndefined();
+      expect(queue.resource.Properties.QueueName).not.toMatch(/\.fifo$/);
+    }
     expect(queue.resource.Properties.QueueName.length).toBeLessThanOrEqual(80);
     const policies = Object.values(template.findResources("AWS::SQS::QueuePolicy"))
       .filter((policy) => JSON.stringify(policy.Properties.Queues) === JSON.stringify([queue.url]));
@@ -156,7 +167,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     compute = Template.fromStack(stacks.compute);
   });
 
-  test("enables exactly ten scopes, separate from the Shopify catalog", () => {
+  test("enables exactly eleven scopes, separate from the Shopify catalog", () => {
     expect(WORKER_SCOPES).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
@@ -178,11 +189,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     } });
     const names = Object.values(data.findResources("AWS::SQS::Queue")).map((resource) => resource.Properties.QueueName);
     expect(names.sort()).toEqual([
-      ...EXPECTED_SCOPES.flatMap((scope) => [`aura-worker-${scope}-${stage}`, `aura-worker-${scope}-dlq-${stage}`]),
+      ...EXPECTED_SCOPES.flatMap((scope) => [workerQueueName(scope, stage), workerQueueName(scope, stage, true)]),
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
       `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(24);
+    expect(new Set(names).size).toBe(26);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -222,7 +233,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const dlqName = `product-listing-ingestion-dlq-${stage}.fifo`;
     const source = queueResource(data, sourceName);
     const dlq = queueResource(data, dlqName);
-    const lifecycle = stage === "ephemeral" ? "Delete" : "Retain";
+    const lifecycle = "Retain";
     expect(source.resource).toEqual({
       Type: "AWS::SQS::Queue",
       Properties: {
@@ -296,20 +307,16 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
     ]));
     expect(consumer.statements).toEqual([
-      ...(stage === "ephemeral" ? [] : [{
+      {
         Action: "secretsmanager:GetSecretValue", Effect: "Allow",
         Resource: consumer.resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN,
-      }]),
+      },
       { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
     ]);
-    if (stage !== "ephemeral") {
-      expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.initialization]));
-    }
+    expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.initialization]));
     expect(consumer.resource.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(Object.keys(consumer.resource.Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
   });
 
@@ -381,23 +388,19 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
     );
     expect(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual({ "Fn::Sub": [
       "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
       { QueueName: `product-listing-ingestion-queue-${stage}.fifo` },
     ] });
-    if (stage !== "ephemeral") {
-      const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
-      expect(lambda.Properties.VpcConfig).toBeDefined();
-      expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
-        .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
-          Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
-    }
+    const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
+    expect(lambda.Properties.VpcConfig).toBeDefined();
+    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+      .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
+        Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
+    expect(mappings).toHaveLength(14);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -412,7 +415,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
+    expect(mappings).toHaveLength(14);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -436,13 +439,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(projectionFunctions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
-        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
+      ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
-    // The API's stable HTTP integration, real-stage CDC router and cleanup target,
-    // and all ten queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(stage === "ephemeral" ? 12 : 14);
+    // The API's stable HTTP integration, CDC router and cleanup target,
+    // and all eleven queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(15);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -483,15 +484,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"]
-        : ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
+      ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
   });
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(stage === "ephemeral" ? 12 : 13);
+    expect(mappings).toHaveLength(14);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -514,9 +513,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
   });
 
@@ -543,9 +540,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-        : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
@@ -587,9 +582,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"]
-        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
+      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX_AI_MODEL|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
@@ -632,9 +625,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"]
-        : ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
+      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_MODEL", "VERTEX_AI_PROJECT_ID"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
@@ -677,9 +668,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "S3_BUCKET_NAME_TEMPLATES", "STAGE"]
-        : ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+      ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
     const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));
@@ -738,9 +727,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      stage === "ephemeral"
-        ? ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "OPENSEARCH_ENDPOINT_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"]
-        : ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN_SSM_PARAMETER", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"],
+      ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN_SSM_PARAMETER", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("S3_BUCKET_NAME_TEMPLATES");
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("NOTIFICATION_EMAIL");
@@ -753,24 +740,22 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(percolatorSearchStatements[0].Action).toEqual([
       "es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
     ]);
-    if (stage !== "ephemeral") {
-      const percolatorSsmStatements = policies
-        .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-        .filter((statement) => {
-          const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
-          return actions.includes("ssm:GetParameter");
-        });
-      expect(percolatorSsmStatements).toHaveLength(1);
-      expect(JSON.stringify(percolatorSsmStatements[0])).toContain(
-        `parameter/secrets/${stage}/cloudflare-workers-ai-api-token`,
-      );
-      expect(JSON.stringify(functions[0].Properties.Environment.Variables)).toContain(
-        `/secrets/${stage}/cloudflare-workers-ai-api-token`,
-      );
-      expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain(
-        "resolve:ssm-secure",
-      );
-    }
+    const percolatorSsmStatements = policies
+      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
+      .filter((statement) => {
+        const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+        return actions.includes("ssm:GetParameter");
+      });
+    expect(percolatorSsmStatements).toHaveLength(1);
+    expect(JSON.stringify(percolatorSsmStatements[0])).toContain(
+      `parameter/secrets/${stage}/cloudflare-workers-ai-api-token`,
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).toContain(
+      `/secrets/${stage}/cloudflare-workers-ai-api-token`,
+    );
+    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain(
+      "resolve:ssm-secure",
+    );
   });
 
   test("deploys separate PostgreSQL-only notification generators with active mappings", () => {
@@ -798,12 +783,65 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       });
       expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
       expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-        stage === "ephemeral"
-          ? ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"]
-          : ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+        ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
       );
       expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
     }
+  });
+
+  test("deploys the real consent consumer against its FIFO source with scoped access and Loops settings", () => {
+    const sourceName = workerQueueName("marketing-consent-sync", stage);
+    const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
+    const consumer = ingressFunction(compute, `marketing-consent-sync-lambda-${stage}`);
+    const environment = consumer.resource.Properties.Environment.Variables;
+    expect(consumer.resource.Properties).toMatchObject({
+      Code: {
+        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
+        S3Key: { "Fn::Join": ["", [`marketing-consent-sync-lambda-${stage}-`, { Ref: "CommitSHA" }, ".zip"]] },
+      },
+      Handler: "lib.handler",
+      MemorySize: 512,
+      Runtime: "provided.al2023",
+      Timeout: 45,
+    });
+    expect(consumer.resource.Properties.ReservedConcurrentExecutions).toBeUndefined();
+    expect(Object.keys(environment).sort()).toEqual(
+      ["LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+    );
+    expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    expect(environment.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
+    expect(JSON.stringify(environment)).not.toMatch(/SES|OPENSEARCH|COGNITO|S3_BUCKET/);
+    expect(consumer.resource.Properties.VpcConfig).toBeDefined();
+    expect(environment.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
+    expect(environment.LOOPS_NEWSLETTER_LIST_ID).toBe(`{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`);
+
+    const versions = Object.entries(compute.findResources("AWS::Lambda::Version"))
+      .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
+    expect(versions).toHaveLength(1);
+    const [versionId, version] = versions[0];
+    expect(version.Properties.Description).toEqual({ "Fn::Join": ["", ["marketing-consent-sync-", { Ref: "CommitSHA" }]] });
+    const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
+      .filter(([, mapping]) => mapping.Properties.FunctionName?.Ref === versionId);
+    expect(mappings).toHaveLength(1);
+    expect(mappings[0][1].Properties).toEqual({
+      BatchSize: 1,
+      Enabled: true,
+      EventSourceArn: sourceArn,
+      FunctionName: { Ref: versionId },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+    expect(mappings[0][1].DependsOn).toContain(consumer.policyId);
+    const queueStatements = consumer.statements.filter((statement) =>
+      (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).some((action) => action.startsWith("sqs:")),
+    );
+    expect(queueStatements).toEqual([{
+      Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"],
+      Effect: "Allow",
+      Resource: sourceArn,
+    }]);
+    expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+      .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow", Resource: environment.POSTGRES_SECRET_ARN }]);
+    expect(JSON.stringify(consumer.statements)).not.toMatch(/sqs:SendMessage|sqs:PurgeQueue|ses:|s3:|es:|cognito-idp:/);
   });
 
   test("publishes prod-only command ingress alarms and per-record outcome filters", () => {
@@ -866,13 +904,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => resource.Properties.Namespace === "AWS/SQS")
       .filter((resource) => String(resource.Properties.AlarmName).startsWith("prod-worker-"));
-    expect(alarms).toHaveLength(20);
+    expect(alarms).toHaveLength(22);
     const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
     expect(topicIds).toHaveLength(1);
     for (const scope of EXPECTED_SCOPES) {
       for (const [suffix, metricName, queueName, threshold] of [
-        ["source-age", "ApproximateAgeOfOldestMessage", `aura-worker-${scope}-prod`, 900],
-        ["dlq-visible", "ApproximateNumberOfMessagesVisible", `aura-worker-${scope}-dlq-prod`, 1],
+        ["source-age", "ApproximateAgeOfOldestMessage", workerQueueName(scope, "prod"), 900],
+        ["dlq-visible", "ApproximateNumberOfMessagesVisible", workerQueueName(scope, "prod", true), 1],
       ] as const) {
         template.hasResourceProperties("AWS::CloudWatch::Alarm", {
           AlarmName: `prod-worker-${scope}-${suffix}`, Namespace: "AWS/SQS", MetricName: metricName,
@@ -883,47 +921,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       }
     }
   });
-});
-
-test("single-stack ephemeral has the same queue and consumer contract", () => {
-  const app = new cdk.App({ analyticsReporting: false });
-  const stack = new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" });
-  const template = Template.fromStack(stack);
-  for (const scope of EXPECTED_SCOPES) {
-    expectWorkerPair(stack, template, "ephemeral", scope);
-  }
-  template.resourceCountIs("AWS::SQS::Queue", 24);
-  expect(workerPolicyNames(template)).toEqual(expectedWorkerPolicyNames("ephemeral", EXPECTED_SCOPES));
-  template.resourceCountIs("AWS::IAM::User", 0);
-  template.resourceCountIs("AWS::IAM::AccessKey", 0);
-  template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-  template.resourceCountIs("AWS::Lambda::EventSourceMapping", 12);
-  expect(template.toJSON().Outputs.WorkerQueueStage.Value).toBe("ephemeral");
-
-  const source = queueResource(template, "product-listing-ingestion-queue-ephemeral.fifo");
-  const dlq = queueResource(template, "product-listing-ingestion-dlq-ephemeral.fifo");
-  expect(source.resource.Properties.RedrivePolicy.deadLetterTargetArn).toEqual(dlq.arn);
-  expect(template.toJSON().Outputs.ProductListingIngestionQueueUrl).toEqual({ Value: source.url });
-  expect(template.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
-  const consumer = ingressFunction(template, "product-listing-ingestion-lambda-ephemeral");
-  const versions = Object.entries(template.findResources("AWS::Lambda::Version"))
-    .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
-  expect(versions).toHaveLength(1);
-  const mappings = Object.entries(template.findResources("AWS::Lambda::EventSourceMapping"))
-    .filter(([, resource]) => resource.Properties.FunctionName?.Ref === versions[0][0]);
-  expect(mappings).toHaveLength(1);
-  expect(mappings[0][1].Properties.EventSourceArn).toEqual(source.arn);
-  expect(mappings[0][1].DependsOn).toContain(consumer.policyId);
-  for (const name of ["aura-historia-api-ephemeral", "shopify-lambda-ephemeral"]) {
-    const producer = ingressFunction(template, name);
-    expect(producer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual(source.url);
-    expect(producer.statements).toContainEqual({ Action: "sqs:SendMessage", Effect: "Allow", Resource: source.arn });
-    expect(producer.resource.DependsOn).toContain(mappings[0][0]);
-  }
-  expect(consumer.statements).toEqual([{
-    Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
-    Effect: "Allow", Resource: source.arn,
-  }]);
 });
 
 test.each<{ enabledScopes: WorkerScope[] }>([
@@ -959,8 +956,9 @@ test("queue names use stage, never a custom stack prefix, and reject names over 
   expect(template.toJSON().Outputs.WorkerQueueAwsRegion.Value).toBe("eu-central-1");
   for (const stage of STAGES) {
     for (const scope of EXPECTED_SCOPES) {
-      expect(workerQueueName(scope, stage)).toBe(`aura-worker-${scope}-${stage}`);
-      expect(workerQueueName(scope, stage, true)).toBe(`aura-worker-${scope}-dlq-${stage}`);
+      const suffix = "fifo" in WORKER_QUEUE_DEFINITIONS[scope] ? ".fifo" : "";
+      expect(workerQueueName(scope, stage)).toBe(`aura-worker-${scope}-${stage}${suffix}`);
+      expect(workerQueueName(scope, stage, true)).toBe(`aura-worker-${scope}-dlq-${stage}${suffix}`);
       expect(workerQueueName(scope, stage, true).length).toBeLessThanOrEqual(80);
     }
   }

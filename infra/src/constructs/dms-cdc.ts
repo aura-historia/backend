@@ -276,6 +276,34 @@ function tableMappings(): Record<string, unknown> {
         "updated",
       ],
     },
+    {
+      table: "marketing_email_consent_sync_intents",
+      // Only the intent ID and opaque recipient key may enter Kinesis.
+      removedColumns: [
+        "intent_sequence",
+        "source_key",
+        "subject_type",
+        "source",
+        "user_id",
+        "email",
+        "desired",
+        "consent_revision",
+        "changed_at",
+        "profile_snapshot",
+        "status",
+        "attempt_count",
+        "lease_token",
+        "lease_expires_at",
+        "completed_lease_token",
+        "completed_at",
+        "completion_status",
+        "provider_contact_id",
+        "last_error_code",
+        "not_after",
+        "created",
+        "updated",
+      ],
+    },
   ];
 
   let ruleId = 1;
@@ -307,6 +335,7 @@ function tableMappings(): Record<string, unknown> {
       });
     }
   }
+
 
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },

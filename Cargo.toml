@@ -131,7 +131,6 @@ getrandom = "0.4.3"
 axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
-aws-sdk-cloudformation = "1.115.0"
 aws-sdk-eventbridge = "1.108.0"
 aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
@@ -260,7 +259,6 @@ percent-encoding = "2.3.2"
 url = { version = "2.5.8", features = ["serde"] }
 unicode-normalization = "0.1.25"
 uuid = { version = "1.23.3", features = ["serde"] }
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 user-core = { path = "src/user-core" }

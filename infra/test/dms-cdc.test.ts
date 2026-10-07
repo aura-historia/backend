@@ -193,11 +193,57 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .map((rule) => (rule["object-locator"] as Record<string, string>)["table-name"])
       .sort();
     expect(includedTables).toEqual([
+      "marketing_email_consent_sync_intents",
       "notification_deliveries",
       "product_listing_events",
       "product_listing_raw_revisions",
       "search_filter_matches",
       "search_filters",
+    ]);
+    for (const excludedTable of [
+      "users",
+      "newsletter_subscription_confirmations",
+      "loops_webhook_receipts",
+      "loops_webhook_preference_fences",
+    ]) {
+      expect(includedTables).not.toContain(excludedTable);
+    }
+
+    const consentColumnRules = mappings.rules.filter((rule) => {
+      const locator = rule["object-locator"] as Record<string, string>;
+      return rule["rule-type"] === "transformation" && locator["table-name"] === "marketing_email_consent_sync_intents";
+    });
+    const consentColumnTransforms = consentColumnRules.map((rule) => {
+      const locator = rule["object-locator"] as Record<string, string>;
+      return { column: locator["column-name"], action: rule["rule-action"] };
+    });
+    expect(consentColumnTransforms.some(({ action }) => action === "include-column")).toBe(false);
+    expect(new Set(consentColumnTransforms.map(({ column }) => column)).size).toBe(consentColumnTransforms.length);
+    expect(consentColumnTransforms.every(({ action }) => action === "remove-column")).toBe(true);
+    expect(consentColumnTransforms.some(({ column }) => column === "intent_id" || column === "recipient_key")).toBe(false);
+    expect(consentColumnTransforms.filter(({ action }) => action === "remove-column").map(({ column }) => column).sort()).toEqual([
+      "attempt_count",
+      "changed_at",
+      "completed_at",
+      "completed_lease_token",
+      "completion_status",
+      "consent_revision",
+      "created",
+      "desired",
+      "email",
+      "intent_sequence",
+      "last_error_code",
+      "lease_expires_at",
+      "lease_token",
+      "not_after",
+      "profile_snapshot",
+      "provider_contact_id",
+      "source",
+      "source_key",
+      "status",
+      "subject_type",
+      "updated",
+      "user_id",
     ]);
 
     const removedColumns = mappings.rules
@@ -233,15 +279,4 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       LobMaxSize: 512,
     });
   });
-});
-
-test("ephemeral declares no DMS, Kinesis, or interface-endpoint CDC resources", () => {
-  const template = dataTemplate("ephemeral");
-
-  template.resourceCountIs("AWS::DMS::ReplicationInstance", 0);
-  template.resourceCountIs("AWS::DMS::ReplicationSubnetGroup", 0);
-  template.resourceCountIs("AWS::DMS::Endpoint", 0);
-  template.resourceCountIs("AWS::DMS::ReplicationTask", 0);
-  template.resourceCountIs("AWS::Kinesis::Stream", 0);
-  template.resourceCountIs("AWS::EC2::VPCEndpoint", 0);
 });

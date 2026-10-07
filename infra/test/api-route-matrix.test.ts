@@ -528,19 +528,6 @@ describe("HTTP API route policy matrix", () => {
     }));
   });
 
-  test("keeps ephemeral without a custom domain or CloudFront alias", () => {
-    const config = stageConfig("ephemeral");
-    const template = apiTemplate("ephemeral");
-    expect(config.apiDomainName).toBeUndefined();
-    expect(config.apiEndpointUrl).toBeUndefined();
-    expect(config.apiCloudFrontAliases).toEqual([]);
-    expect(config.apiGatewayCertificateArn).toBeUndefined();
-    expect(config.apiCloudFrontCertificateArn).toBeUndefined();
-    expect(Object.values(template.findResources("AWS::ApiGatewayV2::DomainName"))).toHaveLength(0);
-    expect(Object.values(template.findResources("AWS::CloudFront::Distribution"))).toHaveLength(0);
-    expect(Object.values(template.findResources("AWS::CloudFront::CachePolicy"))).toHaveLength(0);
-    expect(Object.values(template.findResources("AWS::CloudFront::ResponseHeadersPolicy"))).toHaveLength(0);
-  });
 
   test("OpenAPI advertises the stage API host without changing production", () => {
     const swagger = fs.readFileSync(path.join(__dirname, "../../docs/swagger.yaml"), "utf8");

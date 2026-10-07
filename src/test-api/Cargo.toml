@@ -32,12 +32,6 @@ opensearch = { workspace = true, optional = true, features = ["aws-auth"] }
 aws-sdk-opensearch = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-eventbridge = { workspace = true, optional = true }
-aws-sdk-cloudformation = { workspace = true, optional = true }
-aws-sdk-s3 = { workspace = true, optional = true }
-mrml = { workspace = true, optional = true }
-aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
-zip = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
 futures-util = { workspace = true }
 
 reqwest = { workspace = true, optional = true, features = ["json"] }
@@ -46,12 +40,10 @@ aws-sdk-sesv2 = { workspace = true, optional = true }
 [dev-dependencies]
 test-api = { workspace = true, features = [
     "api-gateway",
-    "cloudformation",
     "opensearch",
     "postgres",
     "ses",
     "sqs",
-    "cognito",
 ]}
 rstest = { workspace = true }
 product-listing-core = { workspace = true }
@@ -64,6 +56,4 @@ opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 postgres = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
-cognito = ["dep:aws-sdk-cognitoidentityprovider"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:zip", "dep:futures", "dep:mrml", "cognito", "opensearch", "postgres", "sqs", "ses", "eventbridge"]

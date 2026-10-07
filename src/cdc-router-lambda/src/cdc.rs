@@ -835,6 +835,7 @@ mod tests {
         for (field, value) in [
             ("intent_id", "usr_01h455vb4pex5vy7enb1p677vn"),
             ("intent_id", "01890a5d-ac96-474b-bf1d-d5586c639f75"),
+            ("sync_intent_id", "01890a5d-ac96-774b-bf1d-d5586c639f75"),
             ("recipient_key", "short"),
             (
                 "recipient_key",
