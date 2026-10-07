@@ -275,8 +275,8 @@ mod tests {
     use super::*;
     use crate::ports::{
         CognitoIssuer, CognitoSubject, ConsentIntent, ConsentIntentSource, ConsentSubject,
-        ConsentUser, MarketingConsentIntentError, MarketingConsentIntents, UserInsertOutcome,
-        UserStorageVersion, VersionedUser,
+        ConsentUser, MarketingConsentIntentError, MarketingConsentIntents, NewsletterProfile,
+        UserInsertOutcome, UserStorageVersion, VersionedUser,
     };
     use application::error::box_error;
     use application::operation_context::{CorrelationId, RequestId};
@@ -676,6 +676,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MarketingConsentIntents for FakeConsentPort {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+
         async fn find_by_source_key(
             &mut self,
             _: &str,
@@ -713,6 +721,7 @@ mod tests {
             desired: bool,
             source: ConsentIntentSource,
             source_key: &str,
+            profile_snapshot: Option<NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             record(&self.state, "record_consent_intent", self.tx_id);
@@ -730,6 +739,7 @@ mod tests {
                 subject: ConsentSubject::User(user.user_id),
                 source,
                 email: user.email.clone(),
+                profile_snapshot: profile_snapshot.map(Box::new),
                 desired,
             })
         }
@@ -740,6 +750,7 @@ mod tests {
             _: bool,
             _: ConsentIntentSource,
             _: &str,
+            _: Option<NewsletterProfile>,
             _: OffsetDateTime,
         ) -> Result<ConsentIntent, MarketingConsentIntentError> {
             Err(MarketingConsentIntentError::InvalidInput)
@@ -756,6 +767,14 @@ mod tests {
         async fn cancel_provider_backsync(
             &mut self,
             _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Err(MarketingConsentIntentError::InvalidInput)
+        }
+
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
         ) -> Result<(), MarketingConsentIntentError> {
             Err(MarketingConsentIntentError::InvalidInput)
         }

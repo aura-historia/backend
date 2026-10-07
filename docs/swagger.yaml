@@ -7303,9 +7303,11 @@ paths:
       description:
         "Creates a new Aura Historia access token for the authenticated user.
 
-        The plaintext bearer token is returned only in this create response; later reads return a masked token value.
+        The response includes the plaintext bearer token once. List, get, and update responses contain only
+        secret-free metadata and never return the bearer token again.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:write` capability.
 
         "
       operationId: postMyAccessToken
@@ -7313,6 +7315,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Access-token creation payload.
@@ -7322,9 +7325,9 @@ paths:
               $ref: "#/components/schemas/PostAccessTokenData"
             example:
               name: Partner product sync
-              scope:
+              scopes:
                 - product-listings:write
-              expiresAt: "2026-06-30T00:00:00Z"
+              expires: "2026-06-30T00:00:00Z"
       responses:
         "201":
           description: Access token created successfully
@@ -7342,18 +7345,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetAccessTokenData"
+                $ref: "#/components/schemas/CreatedAccessTokenData"
               example:
+                userId: usr_5pvhvpxyhve6ts31n9x8c2y513
                 accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
-                name: Partner product sync
-                scope:
-                  - product-listings:write
-                token: aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
-                tokenType: BEARER
-                expiresAt: "2026-06-30T00:00:00Z"
-                expiresIn: 2851200
-                created: "2026-05-28T06:30:00Z"
-                updated: "2026-05-28T06:30:00Z"
+                accessToken: aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
         "400":
           description: Bad request - missing, empty, or invalid JSON body
           content:
@@ -7367,16 +7363,16 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
+                    detail: Request body is required.
                 invalid_scope:
                   summary: Unsupported access-token scope value
                   value:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: "unknown scope `product-listings_write`, expected one of: product-listings:write, listing-sources:write, users:read, users:write, access-tokens:read, access-tokens:write, search-filters:write, watchlist:read, watchlist:write"
+                    detail: "Unsupported scope 'unsupported:scope'."
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7384,7 +7380,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: User not found
           content:
@@ -7408,11 +7408,12 @@ paths:
     get:
       summary: List Aura Historia access tokens
       description:
-        "Lists the authenticated user's non-expired Aura Historia access tokens.
+        "Lists all of the authenticated user's persisted Aura Historia access tokens, including expired and current tokens.
 
-        The `token` field is masked on this endpoint and does not reveal the plaintext bearer token again.
+        The response contains secret-free metadata only. It does not return plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:read` capability.
 
         "
       operationId: getMyAccessTokens
@@ -7420,6 +7421,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Access tokens retrieved successfully
@@ -7439,26 +7441,23 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetAccessTokenData"
+                  $ref: "#/components/schemas/OwnAccessTokenData"
               examples:
                 one_token:
-                  summary: One non-expired access token
+                  summary: One persisted access token
                   value:
-                    - accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
+                    - userId: usr_5pvhvpxyhve6ts31n9x8c2y513
+                      accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
                       name: Partner product sync
-                      scope:
+                      scopes:
                         - product-listings:write
-                      token: aurahistoria_abcdefghijk_****
-                      tokenType: BEARER
-                      expiresAt: "2026-06-30T00:00:00Z"
-                      expiresIn: 2851200
-                      created: "2026-05-28T06:30:00Z"
-                      updated: "2026-05-28T06:30:00Z"
+                      origin: User
+                      expires: "2026-06-30T00:00:00Z"
                 no_tokens:
-                  summary: No non-expired access tokens exist
+                  summary: No persisted access tokens exist
                   value: []
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7466,7 +7465,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: User not found
           content:
@@ -7494,9 +7497,11 @@ paths:
 
         remain unchanged; `expires: null` clears expiry. `name` and `scopes` reject `null`; use
 
-        `scopes: []` to clear scopes.
+        `scopes: []` to clear scopes. The response contains secret-free metadata only and never returns
+        plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:write` capability.
 
         "
       operationId: patchMyAccessToken
@@ -7504,6 +7509,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Partial access-token update payload.
@@ -7534,18 +7540,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetAccessTokenData"
+                $ref: "#/components/schemas/OwnAccessTokenData"
               example:
+                userId: usr_5pvhvpxyhve6ts31n9x8c2y513
                 accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
                 name: Renamed partner sync token
-                scope:
+                scopes:
                   - product-listings:write
-                token: aurahistoria_abcdefghijk_****
-                tokenType: BEARER
-                expiresAt: "2026-07-31T00:00:00Z"
-                expiresIn: 5529600
-                created: "2026-05-28T06:30:00Z"
-                updated: "2026-05-28T07:00:00Z"
+                origin: User
+                expires: "2026-07-31T00:00:00Z"
         "400":
           description: Bad request - missing, empty, or invalid JSON body
           content:
@@ -7559,7 +7562,7 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
+                    detail: Request body is required.
                 invalid_access_token_id:
                   summary: Invalid access token identifier in request body
                   value:
@@ -7571,7 +7574,7 @@ paths:
                       type: BODY
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7579,7 +7582,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: Access token not found
           content:
@@ -7604,11 +7611,13 @@ paths:
     get:
       summary: Get one Aura Historia access token
       description:
-        "Retrieves one non-expired Aura Historia access token owned by the authenticated user.
+        "Retrieves one persisted Aura Historia access token owned by the authenticated user, including expired and
+        current tokens.
 
-        The `token` field is masked on this endpoint and does not reveal the plaintext bearer token again.
+        The response contains secret-free metadata only. It does not return plaintext or masked token values.
 
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito access JWTs or Aura Historia opaque bearer access tokens. Aura Historia access tokens require
+        the delegated `access-tokens:read` capability.
 
         "
       operationId: getMyAccessToken
@@ -7616,6 +7625,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: accessTokenId
           in: path
@@ -7641,18 +7651,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetAccessTokenData"
+                $ref: "#/components/schemas/OwnAccessTokenData"
               example:
+                userId: usr_5pvhvpxyhve6ts31n9x8c2y513
                 accessTokenId: at_4ck23tcv0meqqrbyjaka24ra6g
                 name: Partner product sync
-                scope:
+                scopes:
                   - product-listings:write
-                token: aurahistoria_abcdefghijk_****
-                tokenType: BEARER
-                expiresAt: "2026-06-30T00:00:00Z"
-                expiresIn: 2851200
-                created: "2026-05-28T06:30:00Z"
-                updated: "2026-05-28T06:30:00Z"
+                origin: User
+                expires: "2026-06-30T00:00:00Z"
         "400":
           description: Bad request - invalid or missing access-token path parameter
           content:
@@ -7681,7 +7688,7 @@ paths:
                       type: PATH
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7689,7 +7696,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "404":
           description: Access token not found
           content:
@@ -7772,7 +7783,7 @@ paths:
                       type: PATH
                     detail: must be a valid AccessToken ID
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -7780,7 +7791,11 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
         "500":
           description: Internal server error
           content:
@@ -14779,25 +14794,25 @@ components:
           description: Optional RFC3339 expiration timestamp; expired and current tokens are both listed.
           nullable: true
           example: "2026-09-30T00:00:00Z"
-    GetAccessTokenData:
+    OwnAccessTokenData:
       type: object
-      description: "Access-token read model.
+      description: "Secret-free metadata for an access token owned by the authenticated user.
 
-        `POST /api/v1/me/access-tokens` returns the plaintext bearer token once;
-
-        list/get/update endpoints return the masked display value instead.
+        List, get, and update responses omit the bearer token entirely; the plaintext is only returned by
+        the create operation.
 
         "
       required:
+        - userId
         - accessTokenId
         - name
-        - token
-        - tokenType
-        - createdBy
-        - updatedBy
-        - created
-        - updated
+        - scopes
+        - origin
       properties:
+        userId:
+          type: string
+          description: User who owns the access token.
+          example: usr_5pvhvpxyhve6ts31n9x8c2y513
         accessTokenId:
           type: string
           description: Unique identifier of the access token.
@@ -14807,76 +14822,76 @@ components:
           maxLength: 128
           description: User-defined display name of the access token.
           example: Partner product sync
-        scope:
+        scopes:
           type: array
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
-          description: Granted access-token scopes. Omitted when the token has no scopes.
+          description: Granted access-token scopes. An empty scope set is returned as an empty array.
           example:
             - product-listings:write
-        token:
+        origin:
           type: string
-          description: "Plaintext or masked bearer token value.
-
-            Create responses return the full token once; subsequent reads return a masked value such as `aurahistoria_abcdefghijk_****`.
-
-            "
-          example: aurahistoria_abcdefghijk_****
-        tokenType:
-          $ref: "#/components/schemas/AccessTokenTypeData"
-        expiresAt:
+          description: Origin recorded by the access-token model.
+          example: User
+        expires:
           type: string
           format: date-time
-          nullable: true
-          description: Optional absolute expiration timestamp in RFC 3339 format.
+          description: Optional RFC3339 expiration timestamp; omitted when the token does not expire and returned for expired and current tokens.
           example: "2026-06-30T00:00:00Z"
-        expiresIn:
-          type: integer
-          minimum: 0
-          nullable: true
-          description: Optional non-negative number of seconds remaining until expiry.
-          example: 2851200
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who created this access token
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who last updated this access token
-        created:
+    CreatedAccessTokenData:
+      type: object
+      description: "Minimal access-token creation result. The plaintext bearer token is returned only once.
+
+        Subsequent list, get, and update operations return secret-free metadata without any token value.
+
+        "
+      required:
+        - userId
+        - accessTokenId
+        - accessToken
+      properties:
+        userId:
           type: string
-          format: date-time
-          description: Timestamp when the access token was created.
-          example: "2026-05-28T06:30:00Z"
-        updated:
+          description: User who owns the access token.
+          example: usr_5pvhvpxyhve6ts31n9x8c2y513
+        accessTokenId:
           type: string
-          format: date-time
-          description: Timestamp when the access token metadata was last updated.
-          example: "2026-05-28T07:00:00Z"
+          description: Unique identifier of the created access token.
+          example: at_4ck23tcv0meqqrbyjaka24ra6g
+        accessToken:
+          type: string
+          description: Plaintext bearer token. Store it securely; it cannot be retrieved again.
+          example: aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
     PostAccessTokenData:
       type: object
-      description: Request body for creating an Aura Historia access token.
+      description: "Request body for creating an Aura Historia access token. `scopes` is required, including
+
+        when the requested scope set is empty. `expires` is optional.
+
+        "
       required:
         - name
+        - scopes
       properties:
         name:
           type: string
           maxLength: 128
           description: User-defined display name of the new access token.
           example: Partner product sync
-        scope:
+        scopes:
           type: array
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
-          description: Optional scopes granted to the access token. Defaults to an empty set.
+          description: Required scopes granted to the access token. Send an empty array for no scopes.
           example:
             - product-listings:write
-        expiresAt:
+        expires:
           type: string
           format: date-time
           nullable: true
-          description: Optional expiration timestamp in RFC 3339 format.
+          description: Optional RFC3339 expiration timestamp.
           example: "2026-06-30T00:00:00Z"
     PatchAccessTokenData:
       type: object
