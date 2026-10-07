@@ -158,7 +158,7 @@ impl LoopsMarketingEmailConsentWriter {
             .await
             .map_err(|error| {
                 if error.is_builder() {
-                    Error::Protocol { status: None }
+                    Error::PreWriteProtocol { status: None }
                 } else if error.is_connect() && !error.is_timeout() {
                     Error::NotSent
                 } else {
@@ -356,8 +356,17 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
         if !intent.desired || intent.source == ConsentIntentSource::ProviderRaceRepair {
             return Err(Error::IneligibleIntent);
         }
-        let before = self.find_contact(&intent.email).await?;
-        let suppression = self.suppression(&intent.email).await?;
+        // Protocol failures from either read are known to precede the state-changing PUT.
+        // Keep them distinct from malformed or unexpected PUT responses, whose acceptance
+        // may be uncertain and must be reconciled by C04.
+        let before = self
+            .find_contact(&intent.email)
+            .await
+            .map_err(prewrite_protocol)?;
+        let suppression = self
+            .suppression(&intent.email)
+            .await
+            .map_err(prewrite_protocol)?;
         match (&before, suppression) {
             (None, SuppressionObservation::ContactMissing) => {}
             (
@@ -371,7 +380,7 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
                     return Ok(Outcome::BlockedByProviderPreferences);
                 }
             }
-            _ => return Err(Error::Protocol { status: None }),
+            _ => return Err(Error::PreWriteProtocol { status: None }),
         }
         if let Some(contact) = before
             && contact.subscribed
@@ -415,7 +424,11 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
         if intent.desired {
             return Err(Error::IneligibleIntent);
         }
-        match self.find_contact(&intent.email).await? {
+        match self
+            .find_contact(&intent.email)
+            .await
+            .map_err(prewrite_protocol)?
+        {
             None => return Ok(Outcome::AlreadyApplied { contact_id: None }),
             Some(contact) if !contact.subscribed && !contact.on_target_list => {
                 return Ok(Outcome::AlreadyApplied {
@@ -438,6 +451,13 @@ impl MarketingEmailConsentWriter for LoopsMarketingEmailConsentWriter {
             }
             _ => Err(Error::AcceptanceUnknown),
         }
+    }
+}
+
+fn prewrite_protocol(error: Error) -> Error {
+    match error {
+        Error::Protocol { status } => Error::PreWriteProtocol { status },
+        other => other,
     }
 }
 
@@ -683,12 +703,30 @@ mod tests {
         suppression_mock(&server, false).await;
         assert_eq!(
             writer(&server).grant(&intent(true)).await.unwrap_err(),
-            Error::Protocol { status: None }
+            Error::PreWriteProtocol { status: None }
         );
         assert_eq!(requests_to(&server, "/api/v1/contacts/find").await, 1);
         assert_eq!(
             requests_to(&server, "/api/v1/contacts/suppression").await,
             1
+        );
+        assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
+    }
+
+    #[tokio::test]
+    async fn preflight_auth_protocol_failure_is_marked_definite_no_write() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/contacts/find"))
+            .and(query_param("email", EMAIL))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            writer(&server).grant(&intent(true)).await.unwrap_err(),
+            Error::PreWriteProtocol { status: Some(401) }
         );
         assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
     }
@@ -700,7 +738,7 @@ mod tests {
         missing_suppression_mock(&server).await;
         assert_eq!(
             writer(&server).grant(&intent(true)).await.unwrap_err(),
-            Error::Protocol { status: None }
+            Error::PreWriteProtocol { status: None }
         );
         assert_eq!(
             writer(&server)
@@ -753,7 +791,7 @@ mod tests {
                 .await;
             assert!(matches!(
                 writer(&server).grant(&intent(true)).await,
-                Err(Error::ReadUnavailable | Error::Protocol { .. })
+                Err(Error::ReadUnavailable | Error::PreWriteProtocol { .. })
             ));
             assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
         }
@@ -773,7 +811,7 @@ mod tests {
             .await;
         assert_eq!(
             writer(&server).grant(&intent(true)).await.unwrap_err(),
-            Error::Protocol { status: None }
+            Error::PreWriteProtocol { status: None }
         );
         assert!(
             server
@@ -1125,7 +1163,7 @@ mod tests {
                 .await;
             assert_eq!(
                 writer(&server).grant(&intent(true)).await.unwrap_err(),
-                Error::Protocol { status: Some(400) }
+                Error::PreWriteProtocol { status: Some(400) }
             );
             assert_eq!(requests_to(&server, "/api/v1/contacts/update").await, 0);
         }

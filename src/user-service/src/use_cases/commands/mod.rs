@@ -16,6 +16,7 @@ pub mod request_newsletter_subscription;
 pub mod revoke_user_sessions;
 pub mod set_user_stripe_customer_id;
 pub mod suspend_user;
+pub mod sync_marketing_consent_intent;
 pub mod unsuspend_user;
 pub mod update_access_token;
 pub mod update_user_profile;

@@ -21,7 +21,24 @@ use user_service::ports::{
 use uuid::Uuid;
 
 const TABLE: &str = "marketing_email_consent_sync_intents";
-const COLUMNS: &str = "intent_id, intent_sequence, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, profile_snapshot, status, not_after, lease_token, lease_expires_at, attempt_count, completed_lease_token, completed_at, completion_status";
+const COLUMNS: &str = "intent_id, intent_sequence, source_key, subject_type, source, user_id, email, recipient_key, desired, consent_revision, changed_at, profile_snapshot, status, not_after, lease_token, lease_expires_at, attempt_count, completed_lease_token, completed_at, completion_status, last_error_code";
+const RETRY_NO_WRITE_PREFIX: &str = "RETRY_NO_WRITE:";
+
+fn is_retry_no_write_marker(value: &str) -> bool {
+    value
+        .strip_prefix(RETRY_NO_WRITE_PREFIX)
+        .is_some_and(|reason| {
+            matches!(
+                reason,
+                "NOT_SENT"
+                    | "PROVIDER_REJECTED"
+                    | "THROTTLED"
+                    | "PREWRITE_READ_UNAVAILABLE"
+                    | "PREWRITE_PROTOCOL"
+                    | "INVALID_EMAIL"
+            )
+        })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConsentIntentSource {
@@ -141,6 +158,7 @@ pub struct MarketingConsentIntentClaim {
     pub lease_token: Uuid,
     pub lease_expires_at: OffsetDateTime,
     pub attempt_count: i32,
+    pub prior_attempt_write_ambiguous: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -326,6 +344,7 @@ struct IntentRow {
     completed_lease_token: Option<Uuid>,
     completed_at: Option<OffsetDateTime>,
     completion_status: Option<String>,
+    last_error_code: Option<String>,
 }
 
 impl IntentRow {
@@ -346,6 +365,10 @@ impl IntentRow {
         };
         let source = ConsentIntentSource::parse(&self.source)?;
         let status = ConsentIntentStatus::parse(&self.status)?;
+        let retry_no_write = self
+            .last_error_code
+            .as_deref()
+            .is_some_and(is_retry_no_write_marker);
         if !source.accepts(subject, self.desired)
             || self.intent_sequence < 1
             || self.attempt_count < 0
@@ -358,6 +381,14 @@ impl IntentRow {
                 && (self.lease_token.is_some() || self.lease_expires_at.is_some()))
             || self.completed_lease_token.is_some() != self.completed_at.is_some()
             || self.completed_at.is_some() != self.completion_status.is_some()
+            || self
+                .last_error_code
+                .as_deref()
+                .is_some_and(|value| value.is_empty() || value.len() > 128)
+            || (retry_no_write
+                && (status != ConsentIntentStatus::Pending || self.attempt_count == 0))
+            || (status == ConsentIntentStatus::Pending
+                && (self.attempt_count > 0) != retry_no_write)
             || self.completion_status.as_deref().is_some_and(|value| {
                 value != self.status
                     || !matches!(
@@ -446,7 +477,7 @@ async fn append(
     // A later decision invalidates earlier unsent or leased grants. Terminal
     // history and revokes are retained, never changed into permission to send.
     let sql = format!(
-        "UPDATE {TABLE} SET status = 'SUPERSEDED', lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $3 AND intent_sequence < $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
+        "UPDATE {TABLE} SET status = 'SUPERSEDED', last_error_code = NULL, lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $3 AND intent_sequence < $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
     );
     sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(&key)
@@ -1196,6 +1227,7 @@ impl SqlxMarketingConsentIntentWorker {
         }
         let status = ConsentIntentStatus::parse(&row.status)?;
         let expires = row.lease_expires_at;
+        let prior_attempt_write_ambiguous = status == ConsentIntentStatus::InProgress;
         row.into_intent()?;
         match status {
             ConsentIntentStatus::Applied => {
@@ -1264,6 +1296,7 @@ impl SqlxMarketingConsentIntentWorker {
                 .lease_expires_at
                 .ok_or(MarketingConsentPersistenceError::InvalidPersistedState)?,
             attempt_count: row.attempt_count,
+            prior_attempt_write_ambiguous,
             intent: row.into_intent()?,
         };
         if self.read_claim(tx, &claim).await?.is_none() {
@@ -1485,6 +1518,73 @@ impl SqlxMarketingConsentIntentWorker {
             .map_err(db)?;
         Ok(updated.rows_affected() == 1)
     }
+
+    /// Release only a known non-writing attempt. The durable marker lets the next exact-ID
+    /// claim distinguish this retry from an abandoned lease with an ambiguous provider write.
+    pub async fn release_for_retry(
+        &self,
+        tx: &mut SqlxTransaction,
+        claim: &MarketingConsentIntentClaim,
+        reason_code: &str,
+    ) -> Result<bool, MarketingConsentPersistenceError> {
+        if !matches!(
+            reason_code,
+            "NOT_SENT"
+                | "PROVIDER_REJECTED"
+                | "THROTTLED"
+                | "PREWRITE_READ_UNAVAILABLE"
+                | "PREWRITE_PROTOCOL"
+                | "INVALID_EMAIL"
+        ) {
+            return Err(MarketingConsentPersistenceError::InvalidInput);
+        }
+        let marker = format!("{RETRY_NO_WRITE_PREFIX}{reason_code}");
+        let conn = tx.connection();
+        lock_recipient(&mut *conn, &claim.intent.recipient_key).await?;
+        // A release commit can succeed while its response is lost. Treat the exact
+        // pending marker for this attempt as an idempotent confirmation; attempt_count
+        // prevents an old claim from confirming a later retry's release.
+        let sql = format!(
+            "SELECT EXISTS (SELECT 1 FROM {TABLE} WHERE intent_id = $1 AND status = 'PENDING' AND last_error_code = $2 AND attempt_count = $3 AND completed_lease_token IS NULL AND completed_at IS NULL AND completion_status IS NULL AND provider_contact_id IS NULL AND email = $4 AND recipient_key = $5 AND desired = $6 AND source = $7 AND subject_type = $8 AND user_id IS NOT DISTINCT FROM $9 AND source_key = $10 AND consent_revision IS NOT DISTINCT FROM $11 AND changed_at = $12 AND not_after IS NOT DISTINCT FROM $13)"
+        );
+        let replay: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+            .bind(claim.intent.intent_id.as_uuid())
+            .bind(&marker)
+            .bind(claim.attempt_count)
+            .bind::<&str>(claim.intent.email.as_ref())
+            .bind(&claim.intent.recipient_key)
+            .bind(claim.intent.desired)
+            .bind(claim.intent.source.as_str())
+            .bind(match claim.intent.subject {
+                ConsentSubject::User(_) => "USER",
+                ConsentSubject::EmailOnly => "EMAIL_ONLY",
+            })
+            .bind(match claim.intent.subject {
+                ConsentSubject::User(id) => Some(*id.as_uuid()),
+                ConsentSubject::EmailOnly => None,
+            })
+            .bind(&claim.intent.source_key)
+            .bind(claim.intent.consent_revision)
+            .bind(claim.intent.changed_at)
+            .bind(claim.intent.not_after)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+        if replay {
+            return Ok(true);
+        }
+        let sql = format!(
+            "UPDATE {TABLE} SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = clock_timestamp() WHERE intent_id = $1 AND status = 'IN_PROGRESS' AND lease_token = $2 AND lease_expires_at > clock_timestamp()"
+        );
+        let updated = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(claim.intent.intent_id.as_uuid())
+            .bind(claim.lease_token)
+            .bind(marker)
+            .execute(tx.connection())
+            .await
+            .map_err(db)?;
+        Ok(updated.rows_affected() == 1)
+    }
 }
 
 impl From<MarketingConsentIntentClaim> for ConsentWorkerClaim {
@@ -1500,6 +1600,7 @@ impl From<MarketingConsentIntentClaim> for ConsentWorkerClaim {
             lease_expires_at: claim.lease_expires_at,
             attempt_count: u32::try_from(claim.attempt_count)
                 .expect("validated persisted attempt count"),
+            prior_attempt_write_ambiguous: claim.prior_attempt_write_ambiguous,
         }
     }
 }
@@ -1532,6 +1633,7 @@ fn worker_claim_from_port(
         lease_expires_at: claim.lease_expires_at,
         attempt_count: i32::try_from(claim.attempt_count)
             .map_err(|_| MarketingConsentPersistenceError::InvalidInput)?,
+        prior_attempt_write_ambiguous: claim.prior_attempt_write_ambiguous,
     })
 }
 
@@ -1606,6 +1708,19 @@ impl MarketingConsentIntentWorker<SqlxTransaction> for SqlxMarketingConsentInten
             }
         };
         Ok(self.finalize(tx, &local, result, completed_at).await?)
+    }
+
+    async fn release_for_retry(
+        &self,
+        tx: &mut SqlxTransaction,
+        claim: &ConsentWorkerClaim,
+        reason_code: &str,
+    ) -> Result<bool, MarketingConsentIntentError> {
+        let local = worker_claim_from_port(claim)?;
+        Ok(
+            SqlxMarketingConsentIntentWorker::release_for_retry(self, tx, &local, reason_code)
+                .await?,
+        )
     }
 }
 

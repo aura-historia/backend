@@ -196,6 +196,9 @@ pub struct ConsentWorkerClaim {
     pub lease_token: String,
     pub lease_expires_at: OffsetDateTime,
     pub attempt_count: u32,
+    /// `true` only when this lease recovered an expired IN_PROGRESS attempt whose provider
+    /// outcome was never durably classified. The worker must reconcile before any new grant.
+    pub prior_attempt_write_ambiguous: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -259,6 +262,18 @@ pub trait MarketingConsentIntentWorker<Tx>: Send + Sync {
         claim: &ConsentWorkerClaim,
         result: ConsentWorkerFinalization<'_>,
         completed_at: OffsetDateTime,
+    ) -> Result<bool, MarketingConsentIntentError>;
+
+    /// Return a definitively non-writing attempt to PENDING so its exact wake-up can retry.
+    /// The implementation records a retry marker which distinguishes this case from an
+    /// abandoned lease when the next claim is made. Repeating the same lease/reason after an
+    /// unconfirmed commit must confirm the matching marker or reapply the release if it rolled
+    /// back; an older claim must not confirm a later attempt's marker.
+    async fn release_for_retry(
+        &self,
+        tx: &mut Tx,
+        claim: &ConsentWorkerClaim,
+        reason_code: &str,
     ) -> Result<bool, MarketingConsentIntentError>;
 }
 

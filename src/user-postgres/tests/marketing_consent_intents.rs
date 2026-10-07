@@ -58,7 +58,171 @@ async fn claim(
         lease_token: uuid::Uuid::parse_str(&claimed.lease_token).unwrap(),
         lease_expires_at: claimed.lease_expires_at,
         attempt_count: i32::try_from(claimed.attempt_count).unwrap(),
+        prior_attempt_write_ambiguous: claimed.prior_attempt_write_ambiguous,
     }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
+    let pool = get_postgres_client().await;
+    let address = email(&format!("retry-{}@example.test", uuid::Uuid::now_v7()));
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+    let mut tx = uow.begin().await.unwrap();
+    let id = MarketingConsentCoordinator::new(&mut tx, &repository)
+        .accepted_double_opt_in(
+            format!("retry-proof-{}", uuid::Uuid::now_v7()),
+            address,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, id)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("pending intent was not claimed"),
+    };
+    assert!(!claim.prior_attempt_write_ambiguous);
+    assert!(
+        MarketingConsentIntentWorker::release_for_retry(&worker, &mut tx, &claim, "THROTTLED",)
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+
+    // The caller retries this exact release after an unconfirmed commit response.
+    // The persisted marker is confirmation, even though the live lease is gone.
+    let mut replay_tx = uow.begin().await.unwrap();
+    assert!(
+        MarketingConsentIntentWorker::release_for_retry(
+            &worker,
+            &mut replay_tx,
+            &claim,
+            "THROTTLED"
+        )
+        .await
+        .unwrap()
+    );
+    replay_tx.commit().await.unwrap();
+
+    let persisted: (String, Option<String>, i32) = sqlx::query_as(
+        "SELECT status, last_error_code, attempt_count FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!("PENDING", persisted.0);
+    assert_eq!(Some("RETRY_NO_WRITE:THROTTLED".to_owned()), persisted.1);
+    assert_eq!(1, persisted.2);
+
+    let mut tx = uow.begin().await.unwrap();
+    let retried = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, id)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("released intent was not claimed again"),
+    };
+    assert_eq!(2, retried.attempt_count);
+    assert!(!retried.prior_attempt_write_ambiguous);
+    tx.commit().await.unwrap();
+
+    let mut stale_release_tx = uow.begin().await.unwrap();
+    assert!(
+        !MarketingConsentIntentWorker::release_for_retry(
+            &worker,
+            &mut stale_release_tx,
+            &claim,
+            "THROTTLED"
+        )
+        .await
+        .unwrap()
+    );
+    stale_release_tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn released_grant_superseded_by_withdrawal_remains_a_valid_terminal_intent() {
+    let pool = get_postgres_client().await;
+    let address = email(&format!(
+        "retry-withdrawal-{}@example.test",
+        uuid::Uuid::now_v7()
+    ));
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+
+    let mut tx = uow.begin().await.unwrap();
+    let grant = MarketingConsentCoordinator::new(&mut tx, &repository)
+        .accepted_double_opt_in(
+            format!("retry-withdrawal-proof-{}", uuid::Uuid::now_v7()),
+            address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, grant)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("grant was not claimed"),
+    };
+    assert!(
+        MarketingConsentIntentWorker::release_for_retry(&worker, &mut tx, &claim, "THROTTLED")
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let revoke = MarketingConsentCoordinator::new(&mut tx, &repository)
+        .email_only_withdrawal(
+            address,
+            format!("retry-withdrawal-action-{}", uuid::Uuid::now_v7()),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, grant)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Superseded)
+    ));
+    tx.commit().await.unwrap();
+    let old_row: (String, Option<String>) = sqlx::query_as(
+        "SELECT status, last_error_code FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
+    )
+    .bind(grant.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(("SUPERSEDED".to_owned(), None), old_row);
+
+    let mut tx = uow.begin().await.unwrap();
+    let revoke_claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, revoke)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("newer withdrawal was not processable"),
+    };
+    assert!(!revoke_claim.intent.desired);
+    tx.commit().await.unwrap();
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
