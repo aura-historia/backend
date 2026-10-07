@@ -714,21 +714,18 @@ where
                 let intent = port.record_user_deletion(&user, key, now).await?;
                 Some(MarketingConsentDecisionResult {
                     intent_id: intent.intent_id,
-                    evidence: Some(
-                        MarketingConsentEvidence::user_transition(
-                            ConsentEvidenceSource::AccountDeleted,
-                            ConsentEvidenceAction::Revoke,
-                            user_id,
-                            &user.email,
-                            user.marketing_email_consent,
-                            false,
-                            intent.intent_id.to_string(),
-                            revision,
-                            now,
-                            "und",
-                        )
-                        .with_wording_reference("account-deletion-flow:v1"),
-                    ),
+                    evidence: Some(MarketingConsentEvidence::user_transition(
+                        ConsentEvidenceSource::AccountDeleted,
+                        ConsentEvidenceAction::Revoke,
+                        user_id,
+                        &user.email,
+                        user.marketing_email_consent,
+                        false,
+                        intent.intent_id.to_string(),
+                        revision,
+                        now,
+                        "und",
+                    )),
                 })
             }
         }
@@ -1743,6 +1740,47 @@ mod tests {
             locked(&state).intent.as_ref().unwrap().source_key,
             user_deletion_source_key(id)
         );
+    }
+
+    #[test]
+    fn committed_deletion_logs_no_unobserved_wording() {
+        let (state, id) = with_user();
+        locked(&state)
+            .user
+            .as_mut()
+            .unwrap()
+            .marketing_email_consent = true;
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommitAwareMakeWriter {
+                state: state.clone(),
+                output: output.clone(),
+            })
+            .finish();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(handler(&state).execute(
+                &context(Principal::System),
+                MarketingConsentDecision::UserDeletion { user_id: id },
+            ))
+        })
+        .unwrap();
+
+        let line = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let record: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let fields = &record["fields"];
+        assert_eq!(fields["event"], "marketing_consent.evidence.v1");
+        assert_eq!(fields["consent_source"], "ACCOUNT_DELETED");
+        assert_eq!(fields["consent_action"], "REVOKE");
+        assert_eq!(fields["previous_consent"], true);
+        assert_eq!(fields["current_consent"], false);
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(fields["consent_wording_locale"], "und");
+        assert!(locked(&state).calls.ends_with(&["deletion", "commit"]));
     }
 
     #[tokio::test]

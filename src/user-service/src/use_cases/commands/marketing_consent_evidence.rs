@@ -158,11 +158,6 @@ impl MarketingConsentEvidence {
         self
     }
 
-    pub(crate) fn with_wording_reference(mut self, reference: &'static str) -> Self {
-        self.wording_reference = reference;
-        self
-    }
-
     pub(crate) fn emit_after_commit(&self, context: Option<&OperationContext>) {
         let recorded_at = OffsetDateTime::now_utc();
         let effective_at = format_utc(self.effective_at);

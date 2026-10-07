@@ -613,21 +613,18 @@ where
                         .checked_add(1)
                         .ok_or(ApplyLoopsPreferenceEventError::Retryable)?
                 };
-                evidence = Some(
-                    MarketingConsentEvidence::user_transition(
-                        ConsentEvidenceSource::LoopsUserPreference,
-                        ConsentEvidenceAction::Resubscribe,
-                        user.user_id,
-                        &event.email,
-                        user.marketing_email_consent,
-                        true,
-                        event.delivery_id.clone(),
-                        revision,
-                        event.event_time,
-                        "und",
-                    )
-                    .with_wording_reference("provider-native-preference-event"),
-                );
+                evidence = Some(MarketingConsentEvidence::user_transition(
+                    ConsentEvidenceSource::LoopsUserPreference,
+                    ConsentEvidenceAction::Resubscribe,
+                    user.user_id,
+                    &event.email,
+                    user.marketing_email_consent,
+                    true,
+                    event.delivery_id.clone(),
+                    revision,
+                    event.event_time,
+                    "und",
+                ));
                 self.advance_fence(
                     &mut tx,
                     &event.email,
@@ -739,9 +736,7 @@ fn provider_withdrawal_evidence(
             "und",
         ),
     };
-    Ok(Some(evidence.with_wording_reference(
-        "provider-native-preference-event",
-    )))
+    Ok(Some(evidence))
 }
 
 #[derive(Clone, Copy)]
@@ -1247,10 +1242,7 @@ mod handler_evidence_tests {
             OffsetDateTime::parse(recorded, &time::format_description::well_known::Rfc3339).is_ok()
         );
         assert!(recorded.ends_with('Z'));
-        assert_eq!(
-            fields["consent_wording_reference"],
-            "provider-native-preference-event"
-        );
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
         assert_eq!(fields["consent_wording_locale"], "und");
 
         assert_eq!(fields["request_id"], "");
@@ -1328,6 +1320,8 @@ mod handler_evidence_tests {
         assert_eq!(fields["consent_source"], "LOOPS_USER_PREFERENCE");
         assert_eq!(fields["consent_action"], "REVOKE");
         assert_eq!(fields["subject_kind"], "EMAIL_ONLY");
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(fields["consent_wording_locale"], "und");
         assert_eq!(fields["consent_decision_id"], "delivery-1");
         assert_eq!(
             fields["recipient_fingerprint"],
