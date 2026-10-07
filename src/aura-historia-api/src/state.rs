@@ -75,6 +75,7 @@ use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenUseCase;
@@ -132,6 +133,7 @@ pub struct AppState {
     pub(crate) newsletter: Option<NewsletterState>,
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
+    pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
 }
@@ -162,6 +164,7 @@ impl AppState {
             newsletter: None,
             notifications: None,
             webhooks: None,
+            loops_webhooks: None,
             auctions: None,
             public_auctions: None,
         }
@@ -253,6 +256,11 @@ impl AppState {
 
     pub fn with_webhooks(mut self, webhooks: WebhooksState) -> Self {
         self.webhooks = Some(webhooks);
+        self
+    }
+
+    pub fn with_loops_webhooks(mut self, webhooks: LoopsWebhooksState) -> Self {
+        self.loops_webhooks = Some(webhooks);
         self
     }
 
@@ -386,6 +394,27 @@ impl WebhooksState {
         Self {
             intake,
             authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LoopsWebhooksState {
+    pub(crate) signing_secret: Arc<str>,
+    pub(crate) verifier: Arc<dyn user_service::ports::NewsletterWebhookVerifier>,
+    pub(crate) apply_preference_event: Arc<dyn ApplyLoopsPreferenceEventUseCase>,
+}
+
+impl LoopsWebhooksState {
+    pub fn new(
+        signing_secret: impl Into<String>,
+        verifier: Arc<dyn user_service::ports::NewsletterWebhookVerifier>,
+        apply_preference_event: Arc<dyn ApplyLoopsPreferenceEventUseCase>,
+    ) -> Self {
+        Self {
+            signing_secret: Arc::from(signing_secret.into()),
+            verifier,
+            apply_preference_event,
         }
     }
 }

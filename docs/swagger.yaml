@@ -31,7 +31,7 @@ info:
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Origin API responses include\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
-    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `GET /api/v1/health` is a\
+    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Requests are limited to 1 MiB and time out after 30 seconds.\n- `POST /api/v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /api/v1/health` is a\
     \ process liveness check. `GET /api/v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
@@ -2253,6 +2253,118 @@ paths:
                     status: 500
                     title: Internal Server Error
                     error: PRODUCT_LISTING_INTERNAL_ERROR
+  /api/v1/webhooks/loops:
+    post:
+      summary: Apply a signed Loops preference webhook
+      description: >-
+        Accepts one Loops webhook signed over the exact received body bytes. No Aura/Cognito bearer is required;
+        `webhook-id`, `webhook-timestamp`, and `webhook-signature` must form a valid, recent Loops proof. The
+        request body is limited to 64 KiB. The currently supported `webhookSchemaVersion` is `1.0.0`. Supported
+        `eventName` values are `contact.unsubscribed`, `contact.deleted`, `email.unsubscribed`,
+        `contact.mailingList.subscribed`, `contact.mailingList.unsubscribed`, `email.resubscribed`,
+        `email.hardBounced`, and `email.spamReported`. A verified unknown event name is receipted as ignored;
+        malformed events and unsupported payload schema versions return an error for provider retry.
+
+        `204` means the receipt and any local preference effects committed, or the authenticated delivery was an
+        identical duplicate or a safely ignored event. It does not mean a marketing message was sent or delivered.
+        Conflicting delivery identity returns `409`; temporary database/provider-reader failure or the 10-second
+        processing budget returns retryable `503`. All responses are `no-store`.
+      operationId: postLoopsPreferenceWebhook
+      tags: [Newsletter]
+      security: []
+      parameters:
+        - name: webhook-id
+          in: header
+          required: true
+          description: Loops delivery identifier used for committed receipt deduplication.
+          schema: { type: string, minLength: 1, maxLength: 256 }
+        - name: webhook-timestamp
+          in: header
+          required: true
+          description: Unix timestamp covered by the Loops signature; stale proofs are rejected.
+          schema: { type: string, pattern: '^[0-9]{1,20}$' }
+        - name: webhook-signature
+          in: header
+          required: true
+          description: Loops HMAC-SHA256 signature over delivery ID, timestamp, and exact raw body bytes.
+          schema: { type: string, maxLength: 8192 }
+      requestBody:
+        required: true
+        description: Loops webhook payload. The service verifies the signature before parsing or mapping the selected event.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhookSchemaVersion, eventName, eventTime]
+              properties:
+                webhookSchemaVersion: { type: string, example: "1.0.0" }
+                eventName:
+                  type: string
+                  description: Supported event names are listed in the operation description; verified unknown names are ignored and receipted.
+                eventTime: { type: integer, format: int64, description: Provider event time in Unix seconds. }
+                contactIdentity:
+                  type: object
+                  description: Required for supported contact and email events; verified unknown event names may be safely ignored without it.
+                  required: [id, email]
+                  properties:
+                    id: { type: string }
+                    email: { type: string }
+                mailingList:
+                  type: object
+                  description: Required for supported contact.mailingList events; only the configured marketing list affects consent.
+                  required: [id]
+                  properties:
+                    id: { type: string }
+              additionalProperties: true
+            example:
+              webhookSchemaVersion: "1.0.0"
+              eventName: email.unsubscribed
+              eventTime: 1791373200
+              contactIdentity:
+                id: contact_fixture
+                email: person@example.test
+      responses:
+        "204":
+          description: Authenticated event receipt and required local effects committed, or identical duplicate/safe ignore. No response body.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store" }
+        "400":
+          description: Malformed body/event, unsupported payload schema version, or invalid authenticated event time. Uses `LOOPS_WEBHOOK_INVALID_BODY`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 400, title: Bad Request, error: LOOPS_WEBHOOK_INVALID_BODY }
+        "401":
+          description: Missing, invalid, stale, or ambiguous Loops proof. The response does not distinguish authentication failures. Uses `LOOPS_WEBHOOK_UNAUTHORIZED`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 401, title: Unauthorized, error: LOOPS_WEBHOOK_UNAUTHORIZED }
+        "409":
+          description: A verified delivery identifier was previously committed with different body bytes. Uses `LOOPS_WEBHOOK_CONFLICT`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 409, title: Conflict, error: LOOPS_WEBHOOK_CONFLICT }
+        "413":
+          description: Request body exceeds 64 KiB. Uses `LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 413, title: Payload Too Large, error: LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE }
+        "500":
+          description: Redacted internal signing-secret or cryptographic configuration failure. Uses `LOOPS_WEBHOOK_INTERNAL_ERROR`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 500, title: Internal Server Error, error: LOOPS_WEBHOOK_INTERNAL_ERROR }
+        "503":
+          description: Temporary persistence/provider-reader failure or exceeded processing budget. Retry the delivery. Uses `LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example: { status: 503, title: Service Unavailable, error: LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE }
   /api/v1/product-listings/by-slug/{productListingTitleSlugId}:
     get:
       summary: Get a single product by title slug

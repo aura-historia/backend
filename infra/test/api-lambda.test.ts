@@ -82,6 +82,7 @@ function expectedApiEnvironmentKeys(stage: StageName): string[] {
     "LOOPS_API_BASE_URL",
     "LOOPS_API_KEY",
     "LOOPS_NEWSLETTER_LIST_ID",
+    "LOOPS_WEBHOOK_SIGNING_SECRET",
   ];
 
   if (stage === "ephemeral") {
@@ -145,6 +146,11 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       stage === "ephemeral"
         ? "ephemeral-newsletter-list"
         : `{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`,
+    );
+    expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET).toBe(
+      stage === "ephemeral"
+        ? "whsec_ZXBoZW1lcmFsLWxvb3BzLXdlYmhvb2stc2VjcmV0"
+        : `{{resolve:ssm:/loops/${stage}/webhook-signing-secret}}`,
     );
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();

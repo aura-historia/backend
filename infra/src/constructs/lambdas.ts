@@ -772,6 +772,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
       LOOPS_API_BASE_URL: "https://loops.test/api",
       LOOPS_API_KEY: "ephemeral-loops-api-key",
       LOOPS_NEWSLETTER_LIST_ID: "ephemeral-newsletter-list",
+      LOOPS_WEBHOOK_SIGNING_SECRET: "whsec_ZXBoZW1lcmFsLWxvb3BzLXdlYmhvb2stc2VjcmV0",
     };
   }
 
@@ -788,6 +789,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     LOOPS_API_BASE_URL: "https://app.loops.so/api",
     LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
     LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
+    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
   };
 }
 

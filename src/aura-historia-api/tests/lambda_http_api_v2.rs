@@ -23,6 +23,7 @@ use user_core::access_token::Scope;
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const OPENSEARCH: OpenSearch = OpenSearch();
 const WOOCOMMERCE_WEBHOOK_SECRET: &str = "lambda-http-api-v2-webhook-secret";
+const LOOPS_WEBHOOK_SIGNING_SECRET: &str = "whsec_bG9vcHMta2V5LWN1cnJlbnQ=";
 
 #[test_api::aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH])]
 async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() {
@@ -383,6 +384,7 @@ async fn should_serve_health_through_full_lambda_composition_when_google_and_ope
         assert_eq!(serde_json::json!(200), response["statusCode"]);
         assert_eq!(serde_json::json!("ok\n"), response["body"]);
         assert_eq!(serde_json::json!(false), response["isBase64Encoded"]);
+
         Ok(())
     }
     .await;
@@ -585,6 +587,10 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
         (
             aura_historia_api::LOOPS_NEWSLETTER_LIST_ID_ENV,
             "lambda-test-newsletter-list",
+        ),
+        (
+            aura_historia_api::LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
+            LOOPS_WEBHOOK_SIGNING_SECRET,
         ),
     ]);
     ApiConfig::from_getter(|name| values.get(name).map(ToString::to_string))
