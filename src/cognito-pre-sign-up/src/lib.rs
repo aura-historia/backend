@@ -3,26 +3,35 @@ use aws_lambda_events::cognito::{
 };
 use lambda_runtime::LambdaEvent;
 use serde_email::Email;
-use std::collections::HashSet;
-use user_cognito::{CognitoAccountLinkError, CognitoAccountLinkOutcome, CognitoAccountLinker};
+use std::{collections::HashSet, time::Instant};
+use user_cognito::{CognitoAccountLinkError, CognitoAccountLinker};
+use user_service::{
+    ports::{CognitoIssuer, CognitoSubject},
+    use_cases::{
+        ExistingEmailAction, FederatedAccountDecision, ResolveFederatedAccountCommand,
+        ResolveFederatedAccountError, ResolveFederatedAccountUseCase,
+    },
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CognitoIdentityProviderLinkingPolicy {
+pub struct CognitoIdentityProviderPreSignUpPolicy {
     pub provider_name: String,
-    pub auto_link_verified_email: bool,
-    pub link_source_attribute_name: String,
+    pub existing_email_action: ExistingEmailAction,
+    pub link_source_attribute_name: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PreSignUpError {
-    #[error("invalid Cognito identity-provider linking policy")]
+    #[error("invalid Cognito pre-sign-up policy")]
     InvalidPolicy,
     #[error("invalid external-provider sign-up event")]
     InvalidEvent,
-    #[error("Cognito account linking is temporarily unavailable")]
+    #[error("Cognito account lookup is temporarily unavailable")]
     TemporarilyUnavailable,
     #[error("invalid Cognito account-link state")]
     InvalidIdentityState,
+    #[error("an account already exists for this email")]
+    ExistingAccount,
 }
 
 impl PreSignUpError {
@@ -32,6 +41,7 @@ impl PreSignUpError {
             Self::InvalidEvent => "invalid_event",
             Self::TemporarilyUnavailable => "temporarily_unavailable",
             Self::InvalidIdentityState => "invalid_identity_state",
+            Self::ExistingAccount => "existing_account",
         }
     }
 }
@@ -44,8 +54,9 @@ pub trait FederatedIdentityLinker: Send + Sync {
         source_provider_name: &str,
         source_provider_attribute_name: &str,
         source_subject: &str,
-        verified_email: &str,
-    ) -> Result<CognitoAccountLinkOutcome, CognitoAccountLinkError>;
+        destination_subject: &CognitoSubject,
+        canonical_email: &str,
+    ) -> Result<(), CognitoAccountLinkError>;
 }
 
 #[async_trait::async_trait]
@@ -56,23 +67,25 @@ impl FederatedIdentityLinker for CognitoAccountLinker {
         source_provider_name: &str,
         source_provider_attribute_name: &str,
         source_subject: &str,
-        verified_email: &str,
-    ) -> Result<CognitoAccountLinkOutcome, CognitoAccountLinkError> {
+        destination_subject: &CognitoSubject,
+        canonical_email: &str,
+    ) -> Result<(), CognitoAccountLinkError> {
         CognitoAccountLinker::link_account(
             self,
             user_pool_id,
             source_provider_name,
             source_provider_attribute_name,
             source_subject,
-            verified_email,
+            destination_subject,
+            canonical_email,
         )
         .await
     }
 }
 
-pub fn parse_linking_policy(
+pub fn parse_provider_signup_policy(
     value: &str,
-) -> Result<Vec<CognitoIdentityProviderLinkingPolicy>, PreSignUpError> {
+) -> Result<Vec<CognitoIdentityProviderPreSignUpPolicy>, PreSignUpError> {
     let value: serde_json::Value =
         serde_json::from_str(value).map_err(|_| PreSignUpError::InvalidPolicy)?;
     let entries = value.as_array().ok_or(PreSignUpError::InvalidPolicy)?;
@@ -80,49 +93,82 @@ pub fn parse_linking_policy(
     let mut policies = Vec::with_capacity(entries.len());
 
     for entry in entries {
+        let object = entry.as_object().ok_or(PreSignUpError::InvalidPolicy)?;
         let provider_name = entry
             .get("providerName")
             .and_then(serde_json::Value::as_str)
             .filter(|name| !name.trim().is_empty() && name.trim() == *name)
             .ok_or(PreSignUpError::InvalidPolicy)?;
-        let auto_link_verified_email = entry
-            .get("autoLinkVerifiedEmail")
-            .and_then(serde_json::Value::as_bool)
-            .ok_or(PreSignUpError::InvalidPolicy)?;
-        let link_source_attribute_name = entry
-            .get("linkSourceAttributeName")
-            .and_then(serde_json::Value::as_str)
-            .filter(|attribute| !attribute.trim().is_empty() && attribute.trim() == *attribute)
-            .ok_or(PreSignUpError::InvalidPolicy)?;
         if !names.insert(provider_name.to_owned()) {
             return Err(PreSignUpError::InvalidPolicy);
         }
-        policies.push(CognitoIdentityProviderLinkingPolicy {
+
+        let action = entry
+            .get("existingEmailAction")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(PreSignUpError::InvalidPolicy)?;
+        let (existing_email_action, link_source_attribute_name) = match action {
+            "LINK_VERIFIED" => {
+                let attribute = entry
+                    .get("linkSourceAttributeName")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|attribute| *attribute == "Cognito_Subject")
+                    .ok_or(PreSignUpError::InvalidPolicy)?;
+                (
+                    ExistingEmailAction::LinkVerified,
+                    Some(attribute.to_owned()),
+                )
+            }
+            "REJECT" => {
+                if entry.get("linkSourceAttributeName").is_some() {
+                    return Err(PreSignUpError::InvalidPolicy);
+                }
+                (ExistingEmailAction::Reject, None)
+            }
+            _ => return Err(PreSignUpError::InvalidPolicy),
+        };
+
+        let allowed_keys = [
+            "providerName",
+            "existingEmailAction",
+            "linkSourceAttributeName",
+        ];
+        if object
+            .keys()
+            .any(|key| !allowed_keys.contains(&key.as_str()))
+        {
+            return Err(PreSignUpError::InvalidPolicy);
+        }
+        policies.push(CognitoIdentityProviderPreSignUpPolicy {
             provider_name: provider_name.to_owned(),
-            auto_link_verified_email,
-            link_source_attribute_name: link_source_attribute_name.to_owned(),
+            existing_email_action,
+            link_source_attribute_name,
         });
     }
     Ok(policies)
 }
 
-#[tracing::instrument(skip(event, providers, linker), fields(request_id = %event.context.request_id))]
-pub async fn handler<L: FederatedIdentityLinker>(
+pub fn is_external_provider_signup(event: &CognitoEventUserPoolsPreSignup) -> bool {
+    matches!(
+        event
+            .cognito_event_user_pools_header
+            .trigger_source
+            .as_ref(),
+        Some(CognitoEventUserPoolsPreSignupTriggerSource::ExternalProvider)
+    )
+}
+
+#[tracing::instrument(skip(event, providers, resolver, linker), fields(request_id = %event.context.request_id))]
+pub async fn handler<R: ResolveFederatedAccountUseCase, L: FederatedIdentityLinker>(
     event: LambdaEvent<CognitoEventUserPoolsPreSignup>,
-    providers: &[CognitoIdentityProviderLinkingPolicy],
+    providers: &[CognitoIdentityProviderPreSignUpPolicy],
+    resolver: &R,
     linker: &L,
 ) -> Result<CognitoEventUserPoolsPreSignup, PreSignUpError> {
+    let started_at = Instant::now();
     let request_id = event.context.request_id.clone();
     let payload = event.payload;
-    let trigger_source = payload
-        .cognito_event_user_pools_header
-        .trigger_source
-        .as_ref();
-
-    if !matches!(
-        trigger_source,
-        Some(CognitoEventUserPoolsPreSignupTriggerSource::ExternalProvider)
-    ) {
+    if !is_external_provider_signup(&payload) {
         tracing::info!(
             request_id,
             trigger_kind = "non_external",
@@ -131,22 +177,12 @@ pub async fn handler<L: FederatedIdentityLinker>(
         return Ok(payload);
     }
 
-    let username = payload
-        .cognito_event_user_pools_header
+    let header = &payload.cognito_event_user_pools_header;
+    let username = header
         .user_name
         .as_deref()
         .ok_or(PreSignUpError::InvalidEvent)?;
     let (provider, source_subject) = resolve_provider(username, providers)?;
-
-    if !provider.auto_link_verified_email {
-        tracing::info!(
-            request_id,
-            trigger_kind = "external_provider",
-            provider_name = %provider.provider_name,
-            result_category = "linking_not_enabled",
-        );
-        return Ok(payload);
-    }
 
     let email_value = payload
         .request
@@ -157,56 +193,115 @@ pub async fn handler<L: FederatedIdentityLinker>(
         .as_str()
         .try_into()
         .map_err(|_| PreSignUpError::InvalidEvent)?;
-    let email = email.to_string();
-
-    if payload
+    let email_verified = payload
         .request
         .user_attributes
         .get("email_verified")
-        .is_none_or(|verified| verified != "true")
-    {
-        return Err(PreSignUpError::InvalidEvent);
-    }
-    let user_pool_id = payload
-        .cognito_event_user_pools_header
+        .is_some_and(|verified| verified == "true");
+
+    let user_pool_id = header
         .user_pool_id
         .as_deref()
-        .filter(|id| !id.trim().is_empty())
+        .filter(|id| !id.trim().is_empty() && id.trim() == *id)
         .ok_or(PreSignUpError::InvalidEvent)?;
+    let region = header
+        .region
+        .as_deref()
+        .filter(|region| !region.trim().is_empty() && region.trim() == *region)
+        .ok_or(PreSignUpError::InvalidEvent)?;
+    let issuer = CognitoIssuer::try_from(format!(
+        "https://cognito-idp.{region}.amazonaws.com/{user_pool_id}"
+    ))
+    .map_err(|_| PreSignUpError::InvalidEvent)?;
 
-    let outcome = linker
-        .link_account(
-            user_pool_id,
-            &provider.provider_name,
-            &provider.link_source_attribute_name,
-            source_subject,
-            &email,
-        )
+    let decision = resolver
+        .execute(ResolveFederatedAccountCommand {
+            email: email.clone(),
+            email_verified,
+            current_issuer: issuer.clone(),
+            existing_email_action: provider.existing_email_action,
+        })
         .await
-        .map_err(|error| match error {
-            CognitoAccountLinkError::TemporarilyUnavailable => {
-                PreSignUpError::TemporarilyUnavailable
-            }
-            CognitoAccountLinkError::InvalidState => PreSignUpError::InvalidIdentityState,
-        })?;
+        .map_err(map_resolver_error)?;
 
-    let result_category = match outcome {
-        CognitoAccountLinkOutcome::NoExistingAccount => "no_existing_account",
-        CognitoAccountLinkOutcome::Linked => "linked",
-    };
-    tracing::info!(
-        request_id,
-        trigger_kind = "external_provider",
-        provider_name = %provider.provider_name,
-        result_category,
-    );
-    Ok(payload)
+    match decision {
+        FederatedAccountDecision::AllowNewAccount => {
+            tracing::info!(
+                request_id,
+                trigger_kind = "external_provider",
+                provider_name = %provider.provider_name,
+                result_category = "no_email_collision",
+                duration_ms = started_at.elapsed().as_millis() as u64,
+            );
+            Ok(payload)
+        }
+        FederatedAccountDecision::RejectExistingAccount => {
+            tracing::info!(
+                request_id,
+                trigger_kind = "external_provider",
+                provider_name = %provider.provider_name,
+                result_category = "existing_email_rejected",
+                duration_ms = started_at.elapsed().as_millis() as u64,
+            );
+            Err(PreSignUpError::ExistingAccount)
+        }
+        FederatedAccountDecision::LinkExistingAccount {
+            identity,
+            canonical_email,
+        } => {
+            if provider.existing_email_action != ExistingEmailAction::LinkVerified
+                || !email_verified
+                || identity.issuer != issuer
+            {
+                return Err(PreSignUpError::InvalidIdentityState);
+            }
+            let source_attribute_name = provider
+                .link_source_attribute_name
+                .as_deref()
+                .ok_or(PreSignUpError::InvalidPolicy)?;
+            linker
+                .link_account(
+                    user_pool_id,
+                    &provider.provider_name,
+                    source_attribute_name,
+                    source_subject,
+                    &identity.subject,
+                    canonical_email.as_ref(),
+                )
+                .await
+                .map_err(map_link_error)?;
+            tracing::info!(
+                request_id,
+                trigger_kind = "external_provider",
+                provider_name = %provider.provider_name,
+                result_category = "linked_to_postgres_identity",
+                duration_ms = started_at.elapsed().as_millis() as u64,
+            );
+            Ok(payload)
+        }
+    }
+}
+
+fn map_resolver_error(error: ResolveFederatedAccountError) -> PreSignUpError {
+    match error {
+        ResolveFederatedAccountError::TemporarilyUnavailable => {
+            PreSignUpError::TemporarilyUnavailable
+        }
+        ResolveFederatedAccountError::InvalidPersistedState => PreSignUpError::InvalidIdentityState,
+    }
+}
+
+fn map_link_error(error: CognitoAccountLinkError) -> PreSignUpError {
+    match error {
+        CognitoAccountLinkError::TemporarilyUnavailable => PreSignUpError::TemporarilyUnavailable,
+        CognitoAccountLinkError::InvalidState => PreSignUpError::InvalidIdentityState,
+    }
 }
 
 fn resolve_provider<'a>(
     username: &'a str,
-    providers: &'a [CognitoIdentityProviderLinkingPolicy],
-) -> Result<(&'a CognitoIdentityProviderLinkingPolicy, &'a str), PreSignUpError> {
+    providers: &'a [CognitoIdentityProviderPreSignUpPolicy],
+) -> Result<(&'a CognitoIdentityProviderPreSignUpPolicy, &'a str), PreSignUpError> {
     let matches: Vec<_> = providers
         .iter()
         .filter_map(|provider| {
@@ -228,7 +323,11 @@ fn resolve_provider<'a>(
         .into_iter()
         .filter(|(provider, _)| provider.provider_name.len() == longest_length);
     let matched = longest_matches.next().ok_or(PreSignUpError::InvalidEvent)?;
-    if longest_matches.next().is_some() || matched.1.is_empty() {
+    if longest_matches.next().is_some()
+        || matched.1.trim().is_empty()
+        || matched.1.chars().any(char::is_control)
+        || matched.1.len() > 2_048
+    {
         return Err(PreSignUpError::InvalidEvent);
     }
     Ok(matched)
@@ -239,6 +338,12 @@ mod tests {
     use super::*;
     use lambda_runtime::{Context, LambdaEvent};
     use std::sync::Mutex;
+    use user_service::{
+        ports::{CognitoIdentity, CognitoSubject},
+        use_cases::{
+            FederatedAccountDecision, ResolveFederatedAccountCommand, ResolveFederatedAccountError,
+        },
+    };
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct LinkRequest {
@@ -246,12 +351,12 @@ mod tests {
         source_provider_name: String,
         source_provider_attribute_name: String,
         source_subject: String,
-        verified_email: String,
+        destination_subject: String,
+        canonical_email: String,
     }
 
     struct FakeLinker {
         calls: Mutex<Vec<LinkRequest>>,
-        outcome: CognitoAccountLinkOutcome,
         failure: Option<CognitoAccountLinkError>,
     }
 
@@ -259,7 +364,6 @@ mod tests {
         fn default() -> Self {
             Self {
                 calls: Mutex::new(Vec::new()),
-                outcome: CognitoAccountLinkOutcome::NoExistingAccount,
                 failure: None,
             }
         }
@@ -273,8 +377,9 @@ mod tests {
             source_provider_name: &str,
             source_provider_attribute_name: &str,
             source_subject: &str,
-            verified_email: &str,
-        ) -> Result<CognitoAccountLinkOutcome, CognitoAccountLinkError> {
+            destination_subject: &CognitoSubject,
+            canonical_email: &str,
+        ) -> Result<(), CognitoAccountLinkError> {
             self.calls
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -283,21 +388,62 @@ mod tests {
                     source_provider_name: source_provider_name.to_owned(),
                     source_provider_attribute_name: source_provider_attribute_name.to_owned(),
                     source_subject: source_subject.to_owned(),
-                    verified_email: verified_email.to_owned(),
+                    destination_subject: destination_subject.as_str().to_owned(),
+                    canonical_email: canonical_email.to_owned(),
                 });
-            self.failure.map_or(Ok(self.outcome), Err)
+            self.failure.map_or(Ok(()), Err)
+        }
+    }
+
+    struct FakeResolver {
+        decisions: Mutex<Vec<FederatedAccountDecision>>,
+        commands: Mutex<Vec<ResolveFederatedAccountCommand>>,
+        failure: Option<ResolveFederatedAccountError>,
+    }
+
+    impl FakeResolver {
+        fn new(decision: FederatedAccountDecision) -> Self {
+            Self {
+                decisions: Mutex::new(vec![decision]),
+                commands: Mutex::new(Vec::new()),
+                failure: None,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ResolveFederatedAccountUseCase for FakeResolver {
+        async fn execute(
+            &self,
+            command: ResolveFederatedAccountCommand,
+        ) -> Result<FederatedAccountDecision, ResolveFederatedAccountError> {
+            self.commands
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(command);
+            if let Some(error) = &self.failure {
+                return Err(error.clone());
+            }
+            let mut decisions = self
+                .decisions
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if decisions.is_empty() {
+                return Err(ResolveFederatedAccountError::InvalidPersistedState);
+            }
+            Ok(decisions.remove(0))
         }
     }
 
     fn policy(
         name: &str,
-        enabled: bool,
-        source_attribute: &str,
-    ) -> CognitoIdentityProviderLinkingPolicy {
-        CognitoIdentityProviderLinkingPolicy {
+        action: ExistingEmailAction,
+        source_attribute: Option<&str>,
+    ) -> CognitoIdentityProviderPreSignUpPolicy {
+        CognitoIdentityProviderPreSignUpPolicy {
             provider_name: name.to_owned(),
-            auto_link_verified_email: enabled,
-            link_source_attribute_name: source_attribute.to_owned(),
+            existing_email_action: action,
+            link_source_attribute_name: source_attribute.map(str::to_owned),
         }
     }
 
@@ -326,6 +472,17 @@ mod tests {
         LambdaEvent { payload, context }
     }
 
+    fn identity(subject: &str) -> CognitoIdentity {
+        CognitoIdentity {
+            issuer: CognitoIssuer::try_from(
+                "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_test-pool",
+            )
+            .unwrap_or_else(|error| panic!("invalid test issuer: {error}")),
+            subject: CognitoSubject::try_from(subject)
+                .unwrap_or_else(|error| panic!("invalid test subject: {error}")),
+        }
+    }
+
     fn calls(linker: &FakeLinker) -> Vec<LinkRequest> {
         linker
             .calls
@@ -335,215 +492,216 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn native_signup_is_a_noop_and_does_not_call_linker() {
+    async fn native_and_admin_created_users_are_noops() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::AllowNewAccount);
         let linker = FakeLinker::default();
-        let event = event("PreSignUp_SignUp", None, serde_json::json!({}));
-
-        let result = handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await;
-
-        assert!(result.is_ok());
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn admin_created_user_is_a_noop_and_does_not_call_linker() {
-        let linker = FakeLinker::default();
-        let event = event("PreSignUp_AdminCreateUser", None, serde_json::json!({}));
-
-        let result = handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await;
-
-        assert!(result.is_ok());
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn trusted_external_provider_is_parsed_and_forwarded_without_google_specific_logic() {
-        let linker = FakeLinker::default();
-        let configured = [policy("ExampleOidc", true, "Cognito_Subject")];
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("ExampleOidc_subject-opaque_42"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
+        for trigger in ["PreSignUp_SignUp", "PreSignUp_AdminCreateUser"] {
+            let result = handler(
+                event(trigger, None, serde_json::json!({})),
+                &[policy(
+                    "Google",
+                    ExistingEmailAction::LinkVerified,
+                    Some("Cognito_Subject"),
+                )],
+                &resolver,
+                &linker,
+            )
+            .await;
+            assert!(result.is_ok());
+        }
+        assert!(
+            resolver
+                .commands
+                .lock()
+                .expect("resolver commands")
+                .is_empty()
         );
+        assert!(calls(&linker).is_empty());
+    }
 
-        let result = handler(event, &configured, &linker).await;
+    #[tokio::test]
+    async fn no_match_allows_google_even_when_provider_email_is_unverified() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::AllowNewAccount);
+        let linker = FakeLinker::default();
+        let result = handler(
+            event(
+                "PreSignUp_ExternalProvider",
+                Some("Google_subject-opaque"),
+                serde_json::json!({ "email": "member@example.test", "email_verified": "false" }),
+            ),
+            &[policy(
+                "Google",
+                ExistingEmailAction::LinkVerified,
+                Some("Cognito_Subject"),
+            )],
+            &resolver,
+            &linker,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let commands = resolver.commands.lock().expect("resolver commands");
+        assert_eq!(1, commands.len());
+        assert!(!commands[0].email_verified);
+        assert!(calls(&linker).is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_match_allows_facebook_without_marking_email_verified() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::AllowNewAccount);
+        let linker = FakeLinker::default();
+        let result = handler(
+            event(
+                "PreSignUp_ExternalProvider",
+                Some("Facebook_subject-opaque"),
+                serde_json::json!({ "email": "member@example.test" }),
+            ),
+            &[policy("Facebook", ExistingEmailAction::Reject, None)],
+            &resolver,
+            &linker,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let commands = resolver.commands.lock().expect("resolver commands");
+        assert_eq!(
+            ExistingEmailAction::Reject,
+            commands[0].existing_email_action
+        );
+        assert!(!commands[0].email_verified);
+        assert!(calls(&linker).is_empty());
+    }
+
+    #[tokio::test]
+    async fn existing_facebook_email_is_rejected_without_cognito_linking() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::RejectExistingAccount);
+        let linker = FakeLinker::default();
+        let result = handler(
+            event(
+                "PreSignUp_ExternalProvider",
+                Some("Facebook_subject-opaque"),
+                serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
+            ),
+            &[policy("Facebook", ExistingEmailAction::Reject, None)],
+            &resolver,
+            &linker,
+        )
+        .await;
+
+        assert_eq!(Err(PreSignUpError::ExistingAccount), result.map(|_| ()));
+        assert!(calls(&linker).is_empty());
+    }
+
+    #[tokio::test]
+    async fn google_link_uses_postgres_bound_subject_and_canonical_email() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::LinkExistingAccount {
+            identity: identity("canonical-sub"),
+            canonical_email: "member@example.test"
+                .try_into()
+                .unwrap_or_else(|error| panic!("invalid test email: {error}")),
+        });
+        let linker = FakeLinker::default();
+        let result = handler(
+            event(
+                "PreSignUp_ExternalProvider",
+                Some("Google_google-subject"),
+                serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
+            ),
+            &[policy(
+                "Google",
+                ExistingEmailAction::LinkVerified,
+                Some("Cognito_Subject"),
+            )],
+            &resolver,
+            &linker,
+        )
+        .await;
 
         assert!(result.is_ok());
         assert_eq!(
             calls(&linker),
             [LinkRequest {
                 user_pool_id: "eu-central-1_test-pool".to_owned(),
-                source_provider_name: "ExampleOidc".to_owned(),
+                source_provider_name: "Google".to_owned(),
                 source_provider_attribute_name: "Cognito_Subject".to_owned(),
-                source_subject: "subject-opaque_42".to_owned(),
-                verified_email: "member@example.test".to_owned(),
+                source_subject: "google-subject".to_owned(),
+                destination_subject: "canonical-sub".to_owned(),
+                canonical_email: "member@example.test".to_owned(),
             }]
         );
     }
 
     #[tokio::test]
-    async fn external_event_without_email_fails_closed() {
-        let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Google_subject"),
-            serde_json::json!({
-                "email_verified": "true"
-            }),
-        );
-
-        assert_eq!(
-            Err(PreSignUpError::InvalidEvent),
-            handler(event, &[policy("Google", true, "Cognito_Subject")], &linker)
-                .await
-                .map(|_| ())
-        );
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn external_event_with_invalid_email_fails_closed() {
-        let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Google_subject"),
-            serde_json::json!({
-                "email": "invalid-email",
-                "email_verified": "true"
-            }),
-        );
-
-        assert!(matches!(
-            handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await,
-            Err(PreSignUpError::InvalidEvent)
-        ));
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn external_event_requires_verified_email_for_trusted_provider() {
-        for verified in [None, Some("false")] {
-            let linker = FakeLinker::default();
-            let mut attributes = serde_json::json!({ "email": "member@example.test" });
-            if let Some(value) = verified {
-                attributes["email_verified"] = serde_json::Value::String(value.to_owned());
-            }
-            let event = event(
-                "PreSignUp_ExternalProvider",
-                Some("Google_subject"),
-                attributes,
-            );
-
-            assert!(matches!(
-                handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await,
-                Err(PreSignUpError::InvalidEvent)
-            ));
-            assert!(calls(&linker).is_empty());
-        }
-    }
-
-    #[tokio::test]
-    async fn unknown_provider_never_receives_linking_privileges() {
-        let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Unconfigured_subject"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
-        );
-
-        assert!(matches!(
-            handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await,
-            Err(PreSignUpError::InvalidEvent)
-        ));
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn configured_provider_without_explicit_trust_is_a_noop_without_linking_attributes() {
+    async fn malformed_event_and_database_errors_fail_closed() {
+        let resolver = FakeResolver::new(FederatedAccountDecision::AllowNewAccount);
         let linker = FakeLinker::default();
         for attributes in [
             serde_json::json!({}),
-            serde_json::json!({ "email_verified": "false" }),
-            serde_json::json!({ "email_verified": "not-a-boolean" }),
+            serde_json::json!({ "email": "invalid-email" }),
         ] {
-            let event = event(
-                "PreSignUp_ExternalProvider",
-                Some("FutureProvider_subject"),
-                attributes,
-            );
-            let original = event.payload.clone();
-
-            let result = handler(
-                event,
-                &[policy("FutureProvider", false, "Cognito_Subject")],
+            assert!(matches!(
+                handler(
+                    event(
+                        "PreSignUp_ExternalProvider",
+                        Some("Google_subject"),
+                        attributes
+                    ),
+                    &[policy(
+                        "Google",
+                        ExistingEmailAction::LinkVerified,
+                        Some("Cognito_Subject")
+                    )],
+                    &resolver,
+                    &linker,
+                )
+                .await,
+                Err(PreSignUpError::InvalidEvent)
+            ));
+        }
+        let unavailable = FakeResolver {
+            decisions: Mutex::new(Vec::new()),
+            commands: Mutex::new(Vec::new()),
+            failure: Some(ResolveFederatedAccountError::TemporarilyUnavailable),
+        };
+        assert!(matches!(
+            handler(
+                event(
+                    "PreSignUp_ExternalProvider",
+                    Some("Facebook_subject"),
+                    serde_json::json!({ "email": "member@example.test" }),
+                ),
+                &[policy("Facebook", ExistingEmailAction::Reject, None)],
+                &unavailable,
                 &linker,
             )
-            .await;
-
-            assert_eq!(Ok(original), result);
-        }
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn overlapping_provider_names_use_longest_exact_prefix() {
-        let linker = FakeLinker::default();
-        let configured = [
-            policy("Example", true, "UserId"),
-            policy("Example_Oidc", true, "Cognito_Subject"),
-        ];
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Example_Oidc_longer-subject"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
-        );
-
-        assert!(handler(event, &configured, &linker).await.is_ok());
-        let calls = calls(&linker);
-        assert_eq!(calls[0].source_provider_name, "Example_Oidc");
-        assert_eq!(calls[0].source_provider_attribute_name, "Cognito_Subject");
-        assert_eq!(calls[0].source_subject, "longer-subject");
-    }
-
-    #[tokio::test]
-    async fn malformed_provider_prefixed_username_fails_closed() {
-        let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Google_"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
-        );
-
-        assert!(matches!(
-            handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await,
-            Err(PreSignUpError::InvalidEvent)
+            .await,
+            Err(PreSignUpError::TemporarilyUnavailable)
         ));
-        assert!(calls(&linker).is_empty());
-    }
-
-    #[tokio::test]
-    async fn success_returns_original_event_payload() {
-        let linker = FakeLinker::default();
-        let event = event(
-            "PreSignUp_ExternalProvider",
-            Some("Google_subject"),
-            serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
-        );
-        let original = event.payload.clone();
-
-        let result = handler(event, &[policy("Google", true, "Cognito_Subject")], &linker).await;
-
-        assert_eq!(Ok(original), result);
     }
 
     #[test]
-    fn parses_provider_policy_and_rejects_duplicate_names() {
-        let parsed = parse_linking_policy(
-            r#"[{"providerName":"Google","autoLinkVerifiedEmail":true,"linkSourceAttributeName":"Cognito_Subject"}]"#,
+    fn parses_discriminated_provider_policy_and_rejects_contradictory_entries() {
+        let parsed = parse_provider_signup_policy(
+            r#"[{"providerName":"Google","existingEmailAction":"LINK_VERIFIED","linkSourceAttributeName":"Cognito_Subject"},{"providerName":"Facebook","existingEmailAction":"REJECT"}]"#,
+        )
+        .unwrap_or_default();
+        assert_eq!(2, parsed.len());
+        assert!(parse_provider_signup_policy(
+            r#"[{"providerName":"Facebook","existingEmailAction":"REJECT","linkSourceAttributeName":"Cognito_Subject"}]"#
+        )
+        .is_err());
+        assert!(
+            parse_provider_signup_policy(
+                r#"[{"providerName":"Google","existingEmailAction":"LINK_VERIFIED"}]"#
+            )
+            .is_err()
         );
-        assert_eq!(1, parsed.unwrap_or_default().len());
-        assert!(parse_linking_policy(
-            r#"[{"providerName":"Google","autoLinkVerifiedEmail":true,"linkSourceAttributeName":"Cognito_Subject"},{"providerName":"Google","autoLinkVerifiedEmail":false,"linkSourceAttributeName":"Cognito_Subject"}]"#
+        assert!(parse_provider_signup_policy(
+            r#"[{"providerName":"Google","existingEmailAction":"LINK_VERIFIED","linkSourceAttributeName":"email"}]"#
+        )
+        .is_err());
+        assert!(parse_provider_signup_policy(
+            r#"[{"providerName":"Google","existingEmailAction":"REJECT"},{"providerName":"Google","existingEmailAction":"REJECT"}]"#
         )
         .is_err());
     }

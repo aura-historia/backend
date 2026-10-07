@@ -8,4 +8,5 @@ pub mod get_own_user;
 pub mod list_access_tokens;
 pub mod list_admin_access_tokens;
 pub mod resolve_cognito_user;
+pub mod resolve_federated_account;
 pub mod search_users;

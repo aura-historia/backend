@@ -7,14 +7,9 @@ use aws_sdk_cognitoidentityprovider::{
     types::{ProviderUserIdentifierType, UserStatusType, UserType},
 };
 use serde_json::Value;
+use user_service::ports::CognitoSubject;
 
-const MAX_EMAIL_LOOKUP_RESULTS: i32 = 2;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CognitoAccountLinkOutcome {
-    NoExistingAccount,
-    Linked,
-}
+const MAX_SUBJECT_LOOKUP_RESULTS: i32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CognitoAccountLinkError {
@@ -41,14 +36,15 @@ impl CognitoAccountLinker {
         source_provider_name: &str,
         source_provider_attribute_name: &str,
         source_subject: &str,
-        verified_email: &str,
-    ) -> Result<CognitoAccountLinkOutcome, CognitoAccountLinkError> {
+        destination_subject: &CognitoSubject,
+        canonical_email: &str,
+    ) -> Result<(), CognitoAccountLinkError> {
         let lookup = self
             .provider
-            .find_users_by_email(
+            .find_users_by_subject(
                 user_pool_id,
-                &email_filter(verified_email),
-                MAX_EMAIL_LOOKUP_RESULTS,
+                &subject_filter(destination_subject),
+                MAX_SUBJECT_LOOKUP_RESULTS,
             )
             .await?;
         if lookup.has_more {
@@ -56,14 +52,10 @@ impl CognitoAccountLinker {
         }
 
         let [user] = lookup.users.as_slice() else {
-            return if lookup.users.is_empty() {
-                Ok(CognitoAccountLinkOutcome::NoExistingAccount)
-            } else {
-                Err(CognitoAccountLinkError::InvalidState)
-            };
+            return Err(CognitoAccountLinkError::InvalidState);
         };
 
-        require_verified_email(user, verified_email)?;
+        require_bound_profile(user, destination_subject, canonical_email)?;
         let destination = destination_for(user)?;
         let source = ProviderIdentity {
             provider_name: source_provider_name.to_owned(),
@@ -73,25 +65,24 @@ impl CognitoAccountLinker {
 
         self.provider
             .link_provider(user_pool_id, &source, &destination)
-            .await?;
-        Ok(CognitoAccountLinkOutcome::Linked)
+            .await
     }
 }
 
 #[derive(Default)]
-struct EmailLookup {
+struct SubjectLookup {
     users: Vec<UserType>,
     has_more: bool,
 }
 
 #[async_trait]
 trait CognitoAccountLinkProvider: Send + Sync {
-    async fn find_users_by_email(
+    async fn find_users_by_subject(
         &self,
         user_pool_id: &str,
         filter: &str,
         limit: i32,
-    ) -> Result<EmailLookup, CognitoAccountLinkError>;
+    ) -> Result<SubjectLookup, CognitoAccountLinkError>;
 
     async fn link_provider(
         &self,
@@ -107,12 +98,12 @@ struct AwsCognitoAccountLinkProvider {
 
 #[async_trait]
 impl CognitoAccountLinkProvider for AwsCognitoAccountLinkProvider {
-    async fn find_users_by_email(
+    async fn find_users_by_subject(
         &self,
         user_pool_id: &str,
         filter: &str,
         limit: i32,
-    ) -> Result<EmailLookup, CognitoAccountLinkError> {
+    ) -> Result<SubjectLookup, CognitoAccountLinkError> {
         let response = self
             .client
             .list_users()
@@ -129,7 +120,7 @@ impl CognitoAccountLinkProvider for AwsCognitoAccountLinkProvider {
                 )
             })?;
 
-        Ok(EmailLookup {
+        Ok(SubjectLookup {
             users: response
                 .users()
                 .iter()
@@ -183,31 +174,39 @@ fn sdk_provider_user(identity: &ProviderIdentity) -> ProviderUserIdentifierType 
         .build()
 }
 
-fn email_filter(email: &str) -> String {
-    let mut escaped = String::with_capacity(email.len());
-    for character in email.chars() {
+fn subject_filter(subject: &CognitoSubject) -> String {
+    let mut escaped = String::with_capacity(subject.as_str().len());
+    for character in subject.as_str().chars() {
         if matches!(character, '\\' | '"') {
             escaped.push('\\');
         }
         escaped.push(character);
     }
-    format!("email = \"{escaped}\"")
+    format!("sub = \"{escaped}\"")
 }
 
-fn require_verified_email(
+fn require_bound_profile(
     user: &UserType,
-    requested_email: &str,
+    bound_subject: &CognitoSubject,
+    canonical_email: &str,
 ) -> Result<(), CognitoAccountLinkError> {
+    let subject = attribute(user, "sub")?
+        .and_then(|attribute| attribute.value())
+        .ok_or(CognitoAccountLinkError::InvalidState)?;
+    if subject != bound_subject.as_str() {
+        return Err(CognitoAccountLinkError::InvalidState);
+    }
+
     let email = attribute(user, "email")?
         .and_then(|attribute| attribute.value())
         .ok_or(CognitoAccountLinkError::InvalidState)?;
-    if !email.eq_ignore_ascii_case(requested_email) {
+    if email != canonical_email {
         return Err(CognitoAccountLinkError::InvalidState);
     }
 
     let verified = attribute(user, "email_verified")?
         .and_then(|attribute| attribute.value())
-        .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+        .is_some_and(|value| value == "true");
     if !verified {
         return Err(CognitoAccountLinkError::InvalidState);
     }
@@ -231,6 +230,7 @@ fn destination_for(user: &UserType) -> Result<ProviderIdentity, CognitoAccountLi
         | UserStatusType::Unconfirmed
         | UserStatusType::ForceChangePassword
         | UserStatusType::ResetRequired => {
+            require_no_facebook_identity(user)?;
             let username = user
                 .username()
                 .filter(|username| !username.is_empty())
@@ -267,6 +267,11 @@ fn primary_external_identity(
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .ok_or(CognitoAccountLinkError::InvalidState)?;
+        // Facebook-origin accounts are never eligible Google-link destinations, even if their
+        // email is verified later through another Cognito flow.
+        if provider_name == "Facebook" {
+            return Err(CognitoAccountLinkError::InvalidState);
+        }
         let user_id = identity
             .get("userId")
             .and_then(Value::as_str)
@@ -297,8 +302,8 @@ fn primary_external_identity(
 fn primary_flag(value: &Value) -> Option<bool> {
     match value {
         Value::Bool(value) => Some(*value),
-        Value::String(value) if value.eq_ignore_ascii_case("true") => Some(true),
-        Value::String(value) if value.eq_ignore_ascii_case("false") => Some(false),
+        Value::String(value) if value == "true" => Some(true),
+        Value::String(value) if value == "false" => Some(false),
         _ => None,
     }
 }
@@ -321,6 +326,32 @@ fn attribute<'a>(
         return Err(CognitoAccountLinkError::InvalidState);
     }
     Ok(Some(attribute))
+}
+
+fn require_no_facebook_identity(user: &UserType) -> Result<(), CognitoAccountLinkError> {
+    let Some(identities) = attribute(user, "identities")? else {
+        return Ok(());
+    };
+    let identities = identities
+        .value()
+        .ok_or(CognitoAccountLinkError::InvalidState)?;
+    let identities: Value =
+        serde_json::from_str(identities).map_err(|_| CognitoAccountLinkError::InvalidState)?;
+    let identities = identities
+        .as_array()
+        .ok_or(CognitoAccountLinkError::InvalidState)?;
+    for identity in identities {
+        let provider_name = identity
+            .as_object()
+            .and_then(|identity| identity.get("providerName"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or(CognitoAccountLinkError::InvalidState)?;
+        if provider_name == "Facebook" {
+            return Err(CognitoAccountLinkError::InvalidState);
+        }
+    }
+    Ok(())
 }
 
 fn classify_cognito_error_code(code: Option<&str>) -> CognitoAccountLinkError {
@@ -349,6 +380,7 @@ mod tests {
         sync::Mutex,
         task::{Context, Poll, Waker},
     };
+    use user_service::ports::CognitoIssuer;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct SearchCall {
@@ -374,12 +406,12 @@ mod tests {
 
     #[async_trait]
     impl CognitoAccountLinkProvider for FakeProvider {
-        async fn find_users_by_email(
+        async fn find_users_by_subject(
             &self,
             user_pool_id: &str,
             filter: &str,
             limit: i32,
-        ) -> Result<EmailLookup, CognitoAccountLinkError> {
+        ) -> Result<SubjectLookup, CognitoAccountLinkError> {
             self.searches
                 .lock()
                 .expect("search mutex")
@@ -388,7 +420,7 @@ mod tests {
                     filter: filter.to_owned(),
                     limit,
                 });
-            Ok(EmailLookup {
+            Ok(SubjectLookup {
                 users: self.users.clone(),
                 has_more: self.has_more,
             })
@@ -413,6 +445,11 @@ mod tests {
         CognitoAccountLinker { provider }
     }
 
+    fn subject(value: &str) -> CognitoSubject {
+        CognitoSubject::try_from(value)
+            .unwrap_or_else(|error| panic!("invalid test subject: {error}"))
+    }
+
     fn attribute_type(
         name: &str,
         value: &str,
@@ -427,31 +464,20 @@ mod tests {
     fn user(
         status: UserStatusType,
         username: &str,
-        email: &str,
-        email_verified: &str,
-        identities: Option<&str>,
-    ) -> UserType {
-        user_with_status(Some(status), username, email, email_verified, identities)
-    }
-
-    fn user_with_status(
-        status: Option<UserStatusType>,
-        username: &str,
+        subject: &str,
         email: &str,
         email_verified: &str,
         identities: Option<&str>,
     ) -> UserType {
         let mut attributes = vec![
+            attribute_type("sub", subject),
             attribute_type("email", email),
             attribute_type("email_verified", email_verified),
         ];
         if let Some(identities) = identities {
             attributes.push(attribute_type("identities", identities));
         }
-        let mut builder = UserType::builder().username(username);
-        if let Some(status) = status {
-            builder = builder.user_status(status);
-        }
+        let mut builder = UserType::builder().username(username).user_status(status);
         for attribute in attributes {
             builder = builder.attributes(attribute);
         }
@@ -469,31 +495,57 @@ mod tests {
         }
     }
 
+    fn link(
+        linker: &CognitoAccountLinker,
+        destination_subject: &CognitoSubject,
+        email: &str,
+    ) -> Result<(), CognitoAccountLinkError> {
+        block_on(linker.link_account(
+            "pool",
+            "Google",
+            "Cognito_Subject",
+            "google-source-id",
+            destination_subject,
+            email,
+        ))
+    }
+
     #[test]
-    fn should_escape_email_filter_and_stop_at_bounded_ambiguity() {
-        let email = r#"a"\b@example.com"#;
+    fn should_search_by_escaped_bound_subject_and_reject_ambiguous_results() {
         let provider = Arc::new(FakeProvider {
             users: vec![
-                user(UserStatusType::Confirmed, "first", email, "true", None),
-                user(UserStatusType::Confirmed, "second", email, "true", None),
+                user(
+                    UserStatusType::Confirmed,
+                    "first",
+                    "quoted\"\\subject",
+                    "person@example.test",
+                    "true",
+                    None,
+                ),
+                user(
+                    UserStatusType::Confirmed,
+                    "second",
+                    "quoted\"\\subject",
+                    "person@example.test",
+                    "true",
+                    None,
+                ),
             ],
             ..FakeProvider::default()
         });
 
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "NewProvider",
-            "subject",
-            "new-subject",
-            email,
-        ));
+        let result = link(
+            &linker(provider.clone()),
+            &subject("quoted\"\\subject"),
+            "person@example.test",
+        );
 
         assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
         assert_eq!(
             vec![SearchCall {
                 user_pool_id: "pool".to_owned(),
-                filter: r#"email = "a\"\\b@example.com""#.to_owned(),
-                limit: MAX_EMAIL_LOOKUP_RESULTS,
+                filter: "sub = \"quoted\\\"\\\\subject\"".to_owned(),
+                limit: MAX_SUBJECT_LOOKUP_RESULTS,
             }],
             *provider.searches.lock().expect("search mutex")
         );
@@ -501,62 +553,58 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_a_lookup_page_with_more_matching_users() {
-        let provider = Arc::new(FakeProvider {
-            users: vec![user(
-                UserStatusType::Confirmed,
-                "first",
-                "person@example.com",
-                "true",
-                None,
-            )],
-            has_more: true,
-            ..FakeProvider::default()
-        });
-
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "NewProvider",
-            "subject",
-            "new-subject",
-            "person@example.com",
-        ));
-
-        assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
-        assert!(provider.links.lock().expect("link mutex").is_empty());
+    fn should_reject_a_paged_or_missing_subject_lookup() {
+        for provider in [
+            FakeProvider {
+                users: vec![user(
+                    UserStatusType::Confirmed,
+                    "native-user",
+                    "canonical-sub",
+                    "person@example.test",
+                    "true",
+                    None,
+                )],
+                has_more: true,
+                ..FakeProvider::default()
+            },
+            FakeProvider::default(),
+        ] {
+            let provider = Arc::new(provider);
+            let result = link(
+                &linker(provider.clone()),
+                &subject("canonical-sub"),
+                "person@example.test",
+            );
+            assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
+            assert!(provider.links.lock().expect("link mutex").is_empty());
+        }
     }
 
     #[test]
-    fn should_return_no_existing_account_without_linking() {
-        let provider = Arc::new(FakeProvider::default());
-
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "NewProvider",
-            "subject",
-            "new-subject",
-            "person@example.com",
-        ));
-
-        assert_eq!(Ok(CognitoAccountLinkOutcome::NoExistingAccount), result);
-        assert!(provider.links.lock().expect("link mutex").is_empty());
-    }
-
-    #[test]
-    fn should_require_a_matching_verified_destination_email() {
+    fn should_require_exact_subject_email_and_verified_destination_profile() {
         for destination in [
             user(
                 UserStatusType::Confirmed,
-                "unverified",
-                "person@example.com",
-                "false",
+                "native-user",
+                "other-sub",
+                "person@example.test",
+                "true",
                 None,
             ),
             user(
                 UserStatusType::Confirmed,
-                "different-email",
-                "other@example.com",
+                "native-user",
+                "canonical-sub",
+                "Person@example.test",
                 "true",
+                None,
+            ),
+            user(
+                UserStatusType::Confirmed,
+                "native-user",
+                "canonical-sub",
+                "person@example.test",
+                "True",
                 None,
             ),
         ] {
@@ -564,14 +612,11 @@ mod tests {
                 users: vec![destination],
                 ..FakeProvider::default()
             });
-            let result = block_on(linker(provider.clone()).link_account(
-                "pool",
-                "NewProvider",
-                "subject",
-                "new-subject",
-                "person@example.com",
-            ));
-
+            let result = link(
+                &linker(provider.clone()),
+                &subject("canonical-sub"),
+                "person@example.test",
+            );
             assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
             assert!(provider.links.lock().expect("link mutex").is_empty());
         }
@@ -583,29 +628,28 @@ mod tests {
             users: vec![user(
                 UserStatusType::Confirmed,
                 "native-user",
-                "person@example.com",
+                "canonical-sub",
+                "person@example.test",
                 "true",
                 None,
             )],
             ..FakeProvider::default()
         });
 
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "ExternalProvider",
-            "custom-subject-claim",
-            "provider-subject-123",
-            "person@example.com",
-        ));
+        let result = link(
+            &linker(provider.clone()),
+            &subject("canonical-sub"),
+            "person@example.test",
+        );
 
-        assert_eq!(Ok(CognitoAccountLinkOutcome::Linked), result);
+        assert_eq!(Ok(()), result);
         assert_eq!(
             vec![LinkCall {
                 user_pool_id: "pool".to_owned(),
                 source: ProviderIdentity {
-                    provider_name: "ExternalProvider".to_owned(),
-                    attribute_name: "custom-subject-claim".to_owned(),
-                    attribute_value: "provider-subject-123".to_owned(),
+                    provider_name: "Google".to_owned(),
+                    attribute_name: "Cognito_Subject".to_owned(),
+                    attribute_value: "google-source-id".to_owned(),
                 },
                 destination: ProviderIdentity {
                     provider_name: "Cognito".to_owned(),
@@ -618,169 +662,107 @@ mod tests {
     }
 
     #[test]
-    fn should_choose_the_primary_external_identity_from_structured_json() {
+    fn should_derive_external_destination_from_primary_identity_after_subject_check() {
         let identities = r#"[
             {"providerType":"OIDC","issuer":null,"dateCreated":"2026-01-01","providerName":"SecondaryIdP","userId":"secondary-id","primary":"false"},
-            {"providerName":"Canonical\u0049dP","userId":"canonical-id","primary":"true","metadata":{"nested":[true,null,1.25]}}
+            {"providerName":"CanonicalIdP","userId":"canonical-id","primary":"true"}
         ]"#;
         let provider = Arc::new(FakeProvider {
             users: vec![user(
                 UserStatusType::ExternalProvider,
                 "external-user",
-                "person@example.com",
+                "canonical-sub",
+                "person@example.test",
                 "true",
                 Some(identities),
             )],
             ..FakeProvider::default()
         });
 
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "NewProvider",
-            "subject",
-            "source-id",
-            "person@example.com",
-        ));
+        let result = link(
+            &linker(provider.clone()),
+            &subject("canonical-sub"),
+            "person@example.test",
+        );
 
-        assert_eq!(Ok(CognitoAccountLinkOutcome::Linked), result);
+        assert_eq!(Ok(()), result);
         let links = provider.links.lock().expect("link mutex");
         assert_eq!(1, links.len());
-        assert_eq!(
-            ProviderIdentity {
-                provider_name: "CanonicalIdP".to_owned(),
-                attribute_name: "Cognito_Subject".to_owned(),
-                attribute_value: "canonical-id".to_owned(),
-            },
-            links[0].destination
-        );
+        assert_eq!("CanonicalIdP", links[0].destination.provider_name);
+        assert_eq!("canonical-id", links[0].destination.attribute_value);
     }
 
     #[test]
-    fn should_require_identities_for_external_provider_status() {
-        for identities in [None, Some("[]")] {
-            let external = user(
+    fn should_never_google_link_to_a_facebook_origin_even_if_its_email_is_now_verified() {
+        for (status, identities) in [
+            (
                 UserStatusType::ExternalProvider,
-                "external-user",
-                "person@example.com",
-                "true",
-                identities,
-            );
-
-            assert_eq!(
-                Err(CognitoAccountLinkError::InvalidState),
-                destination_for(&external)
-            );
-        }
-    }
-
-    #[test]
-    fn should_reject_missing_or_unknown_status() {
-        let missing_status =
-            user_with_status(None, "missing-status", "person@example.com", "true", None);
-        let ambiguous_status = user_with_status(
-            Some(UserStatusType::UnknownValue),
-            "unknown-status",
-            "person@example.com",
-            "true",
-            None,
-        );
-
-        for candidate in [missing_status, ambiguous_status] {
-            assert_eq!(
-                Err(CognitoAccountLinkError::InvalidState),
-                destination_for(&candidate)
-            );
-        }
-    }
-
-    #[test]
-    fn should_link_an_additional_provider_to_native_user_with_existing_linked_identities() {
-        let identities = r#"[
-            {"providerName":"Google","userId":"google-subject","primary":"true"},
-            {"providerName":"ExistingOidc","userId":"existing-subject","primary":"false"}
-        ]"#;
-        let provider = Arc::new(FakeProvider {
-            users: vec![user(
+                Some(r#"[{"providerName":"Facebook","userId":"facebook-id","primary":"true"}]"#),
+            ),
+            (
                 UserStatusType::Confirmed,
-                "native-user",
-                "person@example.com",
-                "true",
-                Some(identities),
-            )],
-            ..FakeProvider::default()
-        });
+                Some(r#"[{"providerName":"Facebook","userId":"facebook-id","primary":"false"}]"#),
+            ),
+        ] {
+            let provider = Arc::new(FakeProvider {
+                users: vec![user(
+                    status,
+                    "facebook-user",
+                    "canonical-sub",
+                    "person@example.test",
+                    "true",
+                    identities,
+                )],
+                ..FakeProvider::default()
+            });
 
-        let result = block_on(linker(provider.clone()).link_account(
-            "pool",
-            "NewProvider",
-            "Cognito_Subject",
-            "new-provider-subject",
-            "person@example.com",
-        ));
+            let result = link(
+                &linker(provider.clone()),
+                &subject("canonical-sub"),
+                "person@example.test",
+            );
 
-        assert_eq!(Ok(CognitoAccountLinkOutcome::Linked), result);
-        assert_eq!(
-            vec![LinkCall {
-                user_pool_id: "pool".to_owned(),
-                source: ProviderIdentity {
-                    provider_name: "NewProvider".to_owned(),
-                    attribute_name: "Cognito_Subject".to_owned(),
-                    attribute_value: "new-provider-subject".to_owned(),
-                },
-                destination: ProviderIdentity {
-                    provider_name: "Cognito".to_owned(),
-                    attribute_name: "Cognito_Subject".to_owned(),
-                    attribute_value: "native-user".to_owned(),
-                },
-            }],
-            *provider.links.lock().expect("link mutex")
-        );
+            assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
+            assert!(provider.links.lock().expect("link mutex").is_empty());
+        }
     }
 
     #[test]
-    fn should_reject_malformed_or_ambiguous_external_identity_state() {
+    fn should_reject_invalid_or_ambiguous_primary_identity_data() {
         for identities in [
             "not-json",
-            r#"[{"providerName":"IdP","userId":"id","primary":"false"}]"#,
-            r#"[
-                {"providerName":"First","userId":"first-id","primary":"true"},
-                {"providerName":"Second","userId":"second-id","primary":"true"}
-            ]"#,
+            "{}",
+            "[]",
+            r#"[{"providerName":"Google","userId":"id","primary":true},{"providerName":"Other","userId":"other","primary":true}]"#,
         ] {
-            assert_eq!(
-                Err(CognitoAccountLinkError::InvalidState),
-                primary_external_identity(identities).map(|identity| identity.unwrap_or_else(
-                    || ProviderIdentity {
-                        provider_name: "Cognito".to_owned(),
-                        attribute_name: "Cognito_Subject".to_owned(),
-                        attribute_value: "native".to_owned(),
-                    }
-                ))
+            let provider = Arc::new(FakeProvider {
+                users: vec![user(
+                    UserStatusType::ExternalProvider,
+                    "external-user",
+                    "canonical-sub",
+                    "person@example.test",
+                    "true",
+                    Some(identities),
+                )],
+                ..FakeProvider::default()
+            });
+            let result = link(
+                &linker(provider.clone()),
+                &subject("canonical-sub"),
+                "person@example.test",
             );
+            assert_eq!(Err(CognitoAccountLinkError::InvalidState), result);
+            assert!(provider.links.lock().expect("link mutex").is_empty());
         }
     }
 
     #[test]
-    fn should_classify_retryable_and_invalid_state_errors_without_error_text() {
-        for code in [
-            None,
-            Some("InternalErrorException"),
-            Some("TooManyRequestsException"),
-            Some("LimitExceededException"),
-            Some("ConcurrentModificationException"),
-        ] {
-            assert_eq!(
-                CognitoAccountLinkError::TemporarilyUnavailable,
-                classify_cognito_error_code(code)
-            );
-        }
-
-        let invalid = classify_cognito_error_code(Some("InvalidParameterException"));
-        assert_eq!(CognitoAccountLinkError::InvalidState, invalid);
-        assert_eq!(
-            "Cognito account linking encountered invalid account state",
-            invalid.to_string()
-        );
-        assert!(!format!("{invalid:?}").contains("InvalidParameterException"));
+    fn identity_values_remain_opaque() {
+        let identity = user_service::ports::CognitoIdentity {
+            issuer: CognitoIssuer::try_from("https://issuer.example/pool")
+                .unwrap_or_else(|error| panic!("invalid test issuer: {error}")),
+            subject: subject("oidc|subject-1"),
+        };
+        assert_eq!("oidc|subject-1", identity.subject.as_str());
     }
 }

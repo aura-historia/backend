@@ -11,12 +11,16 @@ aws_lambda_events = { workspace = true, features = ["cognito"] }
 lambda_runtime = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 tracing = { workspace = true }
 user-cognito = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

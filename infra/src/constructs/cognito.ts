@@ -63,9 +63,9 @@ export class Identity extends Construct {
     const identityProviders = createIdentityProviders(this, this.userPool, props.config.cognitoIdentityProviders);
 
     this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationLambda);
-    if (props.config.cognitoIdentityProviders.some((provider) => provider.autoLinkVerifiedEmail)) {
+    if (props.config.cognitoIdentityProviders.length > 0) {
       if (!props.preSignUpLambda) {
-        throw new Error("Verified-email identity linking requires the pre-sign-up Lambda.");
+        throw new Error("Federated account-collision checks require the pre-sign-up Lambda.");
       }
       this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, props.preSignUpLambda);
     }
@@ -160,7 +160,7 @@ function createIdentityProvider(
         userPool,
         clientId: ssmValue(provider.clientIdParameterName),
         // Cognito ProviderDetails rejects ssm-secure; this is a dynamic reference, not a literal secret.
-                clientSecretValue: cdk.SecretValue.unsafePlainText(ssmValue(provider.clientSecretParameterName)),
+        clientSecretValue: cdk.SecretValue.unsafePlainText(ssmValue(provider.clientSecretParameterName)),
         scopes: [...provider.scopes],
         attributeMapping: {
           email: cognito.ProviderAttribute.GOOGLE_EMAIL,
@@ -176,8 +176,29 @@ function createIdentityProvider(
         clientIdentityProvider: cognito.UserPoolClientIdentityProvider.GOOGLE,
       };
     }
-    default:
-      throw new Error(`Unsupported Cognito identity provider kind: ${String(provider.kind)}`);
+    case "facebook": {
+      const resource = new cognito.UserPoolIdentityProviderFacebook(
+        scope,
+        `${provider.providerName}IdentityProvider`,
+        {
+          userPool,
+          clientId: ssmValue(provider.clientIdParameterName),
+          // Facebook's client secret is an SSM String dynamic reference, never source or Lambda config.
+          clientSecret: ssmValue(provider.clientSecretParameterName),
+          scopes: [...provider.scopes],
+          attributeMapping: {
+            email: cognito.ProviderAttribute.FACEBOOK_EMAIL,
+            givenName: cognito.ProviderAttribute.FACEBOOK_FIRST_NAME,
+            familyName: cognito.ProviderAttribute.FACEBOOK_LAST_NAME,
+          },
+        },
+      );
+
+      return {
+        resource,
+        clientIdentityProvider: cognito.UserPoolClientIdentityProvider.FACEBOOK,
+      };
+    }
   }
 }
 

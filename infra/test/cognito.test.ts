@@ -74,10 +74,13 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
 
   test("creates Google with an SSM String client secret and the narrow mapped profile", () => {
     const template = computeTemplate(stage);
-    template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 1);
-    const [[, provider]] = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider");
+    template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 2);
+    const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
+      .map(([, resource]) => resource)
+      .find((resource) => resource.Properties.ProviderName === "Google");
+    expect(provider).toBeDefined();
 
-    expect(provider.Properties).toMatchObject({
+    expect(provider!.Properties).toMatchObject({
       ProviderName: "Google",
       ProviderType: "Google",
       ProviderDetails: {
@@ -93,21 +96,46 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
         locale: "locale",
       },
     });
-    expect(provider.Properties.AttributeMapping).not.toHaveProperty("custom:marketing_consent");
+    expect(provider!.Properties.AttributeMapping).not.toHaveProperty("custom:marketing_consent");
 
+  });
+
+  test("creates Facebook with only the email and public profile mappings", () => {
+    const template = computeTemplate(stage);
+    const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
+      .map(([, resource]) => resource)
+      .find((resource) => resource.Properties.ProviderName === "Facebook");
+
+    expect(provider).toBeDefined();
+    expect(provider!.Properties).toMatchObject({
+      ProviderName: "Facebook",
+      ProviderType: "Facebook",
+      ProviderDetails: {
+        client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-id}}`,
+        client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-secret}}`,
+        authorize_scopes: "email,public_profile",
+      },
+      AttributeMapping: {
+        email: "email",
+        given_name: "first_name",
+        family_name: "last_name",
+      },
+    });
+    expect(provider!.Properties.AttributeMapping).not.toHaveProperty("email_verified");
+    expect(provider!.Properties.AttributeMapping).not.toHaveProperty("custom:marketing_consent");
   });
 
   test("keeps the public app client native, secretless, authorization-code-only, and ordered after providers", () => {
     const template = computeTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPoolClient", 1);
     const [[, client]] = resourceByType(template, "AWS::Cognito::UserPoolClient");
-    const [[providerId]] = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider");
+    const providerIds = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider").map(([id]) => id);
     const config = stageConfig(stage);
 
     expect(client.Properties).toMatchObject({
       GenerateSecret: false,
       EnableTokenRevocation: true,
-      SupportedIdentityProviders: ["COGNITO", "Google"],
+      SupportedIdentityProviders: ["COGNITO", "Google", "Facebook"],
       AllowedOAuthFlowsUserPoolClient: true,
       AllowedOAuthFlows: ["code"],
       AllowedOAuthScopes: ["openid", "email", "profile"],
@@ -129,17 +157,28 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     });
     expect(client.Properties.WriteAttributes).not.toContain("email_verified");
     expect(client.Properties.ReadAttributes).not.toContain("custom:marketing_consent");
-    expect(client.DependsOn ?? []).toEqual(expect.arrayContaining([providerId]));
+    expect(client.DependsOn ?? []).toEqual(expect.arrayContaining(providerIds));
   });
 
-  test("uses a non-VPC pre-sign-up Lambda with only the account-linking IAM actions", () => {
+  test("uses a PostgreSQL-backed five-second pre-sign-up Lambda with narrow federation access", () => {
     const template = computeTemplate(stage);
     const preSignUp = resourceByFunctionName(template, `cognito-pre-sign-up-${stage}`);
     const variables = preSignUp.Properties.Environment.Variables as Record<string, string>;
 
-    expect(preSignUp.Properties.VpcConfig).toBeUndefined();
-    expect(Object.keys(variables).some((key) => key.startsWith("POSTGRES_") || key.includes("DATABASE"))).toBe(false);
-    expect(variables.COGNITO_IDENTITY_PROVIDER_LINKING_POLICY).toContain('"providerName":"Google"');
+    expect(preSignUp.Properties.Timeout).toBe(5);
+    expect(preSignUp.Properties.VpcConfig).toBeDefined();
+    expect(variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
+    expect(variables.POSTGRES_SECRET_ARN).toBeDefined();
+    expect(variables.POSTGRES_TLS_ROOT_CERT).toBeDefined();
+    const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY) as Array<Record<string, string>>;
+    expect(providerPolicies).toEqual([
+      {
+        providerName: "Google",
+        existingEmailAction: "LINK_VERIFIED",
+        linkSourceAttributeName: "Cognito_Subject",
+      },
+      { providerName: "Facebook", existingEmailAction: "REJECT" },
+    ]);
     expect(JSON.stringify(variables)).not.toContain("client-secret");
 
     const policies = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
