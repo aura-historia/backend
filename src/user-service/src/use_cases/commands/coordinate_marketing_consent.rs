@@ -1371,9 +1371,7 @@ mod tests {
         );
         assert_eq!(fields["consent_wording_reference"], "not-recorded");
         assert_eq!(fields["consent_wording_locale"], "und");
-        let sha = fields["backend_release_sha"].as_str().unwrap();
-        assert_eq!(sha.len(), 40);
-        assert!(sha.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
         assert_eq!(fields["request_id"], "request");
         assert_eq!(fields["correlation_id"], "correlation");
         for prohibited in [

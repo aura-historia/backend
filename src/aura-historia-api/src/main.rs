@@ -19,7 +19,7 @@ const GOOGLE_ADC_CREDENTIALS_FILE_NAME: &str = "application_default_credentials.
 
 fn main() -> Result<(), MainError> {
     let initialization_started_at = Instant::now();
-    validate_backend_release_sha(std::env::var("BACKEND_RELEASE_SHA").ok().as_deref())?;
+
     let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
     if is_lambda {
         materialize_google_application_credentials_from_env()?;
@@ -74,13 +74,6 @@ fn main() -> Result<(), MainError> {
 
             Ok(())
         })
-}
-
-fn validate_backend_release_sha(value: Option<&str>) -> Result<(), MainError> {
-    match value {
-        Some(sha) if sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) => Ok(()),
-        _ => Err(MainError::InvalidBackendReleaseSha),
-    }
 }
 
 fn materialize_google_application_credentials_from_env()
@@ -156,8 +149,6 @@ async fn shutdown_signal() {
 
 #[derive(thiserror::Error, Debug)]
 enum MainError {
-    #[error("BACKEND_RELEASE_SHA must be a 40-character hexadecimal SHA")]
-    InvalidBackendReleaseSha,
     #[error(transparent)]
     Config(#[from] ApiConfigError),
     #[error(transparent)]
@@ -191,25 +182,6 @@ mod tests {
     use uuid::Uuid;
 
     const TEST_CREDENTIALS: &str = r#"{"type":"service_account","project_id":"test-project"}"#;
-
-    #[test]
-    fn rejects_missing_or_invalid_backend_release_sha_before_startup() {
-        assert!(validate_backend_release_sha(Some(&"aB01234567".repeat(4))).is_ok());
-        for value in [
-            None,
-            Some(""),
-            Some("a"),
-            Some(&"a".repeat(39)),
-            Some(&"a".repeat(41)),
-            Some(&format!("{}g", "a".repeat(39))),
-            Some(&format!("{} ", "a".repeat(39))),
-        ] {
-            assert!(matches!(
-                validate_backend_release_sha(value),
-                Err(MainError::InvalidBackendReleaseSha)
-            ));
-        }
-    }
 
     fn test_credentials_directory() -> PathBuf {
         std::env::temp_dir().join(format!("aura-historia-google-adc-test-{}", Uuid::new_v4()))

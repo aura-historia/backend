@@ -16,7 +16,7 @@ fields @timestamp, fields.consent_effective_at_utc, fields.consent_recorded_at_u
   fields.subject_kind, fields.user_id, fields.recipient_fingerprint,
   fields.previous_consent, fields.current_consent, fields.consent_decision_id,
   fields.consent_revision, fields.consent_wording_reference,
-  fields.consent_wording_locale, fields.backend_release_sha,
+  fields.consent_wording_locale,
   fields.request_id, fields.correlation_id
 | filter fields.event = "marketing_consent.evidence.v1"
 | sort fields.consent_recorded_at_utc desc

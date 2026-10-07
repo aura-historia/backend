@@ -173,7 +173,6 @@ impl MarketingConsentEvidence {
         let correlation_id = context
             .map(|context| context.correlation_id.as_str())
             .filter(|value| safe_log_identifier(value));
-        let release_sha = backend_release_sha();
 
         if let (Some(user_id), Some(previous), Some(current), Some(revision)) = (
             self.user_id,
@@ -197,7 +196,6 @@ impl MarketingConsentEvidence {
                 consent_recorded_at_utc = %recorded_at,
                 consent_wording_reference = self.wording_reference,
                 consent_wording_locale = self.wording_locale,
-                backend_release_sha = %release_sha,
                 request_id = request_id.unwrap_or(""),
                 correlation_id = correlation_id.unwrap_or(""),
                 "Committed marketing consent evidence."
@@ -215,7 +213,6 @@ impl MarketingConsentEvidence {
                 consent_recorded_at_utc = %recorded_at,
                 consent_wording_reference = self.wording_reference,
                 consent_wording_locale = self.wording_locale,
-                backend_release_sha = %release_sha,
                 request_id = request_id.unwrap_or(""),
                 correlation_id = correlation_id.unwrap_or(""),
                 "Committed marketing consent evidence."
@@ -231,20 +228,6 @@ pub(crate) fn wording_locale(language: Option<Language>) -> &'static str {
         Some(Language::En) => "en",
         _ => "und",
     }
-}
-
-fn backend_release_sha() -> String {
-    #[cfg(test)]
-    let value = std::env::var("BACKEND_RELEASE_SHA")
-        .unwrap_or_else(|_| "0123456789abcdef0123456789abcdef01234567".to_owned());
-    #[cfg(not(test))]
-    let value = std::env::var("BACKEND_RELEASE_SHA")
-        .expect("BACKEND_RELEASE_SHA must be configured before emitting consent evidence");
-    assert!(
-        value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "BACKEND_RELEASE_SHA must be a 40-character hexadecimal SHA"
-    );
-    value
 }
 
 fn safe_log_identifier(value: &str) -> bool {

@@ -81,7 +81,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 256,
     postgres: true,
     timeoutSeconds: 5,
-    environment: backendReleaseEnvironment,
   },
   preSignUp: {
     id: "PrimaryUserPoolPreSignUpLambda",
@@ -735,10 +734,6 @@ function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Rec
   };
 }
 
-function backendReleaseEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return { BACKEND_RELEASE_SHA: context.commitSha };
-}
-
 function consentLogRetentionEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     CONSENT_EVIDENCE_LOG_GROUPS: JSON.stringify(consentEvidenceLogGroupNames(context.config.stage)),
@@ -749,7 +744,6 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
   const { config, search } = context;
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
-    BACKEND_RELEASE_SHA: context.commitSha,
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     STAGE: config.stage,

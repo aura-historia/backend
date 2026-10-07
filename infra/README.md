@@ -351,10 +351,9 @@ JSON records only after their consent transaction commits. Their exact log group
 `/aws/lambda/aura-historia-api-<stage>` and
 `/aws/lambda/cognito-post-confirmation-<stage>`. CDK creates explicit log-group resources
 with no `RetentionInDays` property and `Retain` removal/replacement policies in `dev` and
-`prod`. The API and PostConfirmation functions receive `BACKEND_RELEASE_SHA`; this records
-the backend artifact only and does not identify which frontend wording was deployed. The
-global CreateLogGroup retention handler receives only those two stage-specific names as
-exemptions. It continues to set 30 days for every other newly created log group. Its
+`prod`. The global CreateLogGroup retention handler receives only those two
+stage-specific names as exemptions. It continues to set 30 days for every other
+newly created log group. Its
 existing `DescribeLogGroups` / `PutRetentionPolicy` permissions do not grant log reading
 or deletion. Business Lambda roles receive no log read, query, or delete permission.
 
@@ -391,7 +390,7 @@ or event export. For retained-log access, query fields, privacy review and appro
 stream/group deletion steps, follow the [consent evidence operator procedure](../docs/durable-worker-runbook.md#marketing-consent-evidence-logs).
 
 The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
-`BACKEND_RELEASE_SHA`, PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
+PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
 Stripe billing settings, Loops newsletter settings, generated Cognito issuer/JWKS/client/pool settings,
 Vertex project and location, and staged ADC credential JSON. Real-stage nonsecret and secret
 configuration uses the existing SSM dynamic-reference paths:

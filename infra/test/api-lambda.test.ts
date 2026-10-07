@@ -60,7 +60,6 @@ function expectedApiEnvironmentKeys(stage: StageName): string[] {
     "AURA_HISTORIA_COGNITO_USER_POOL_ID",
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
-    "BACKEND_RELEASE_SHA",
     "OPENSEARCH_ENDPOINT_URL",
     "PRODUCT_LISTING_INGESTION_QUEUE_URL",
     "POSTGRES_DATABASE",
@@ -177,8 +176,6 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 
       const emitter = lambdaFunction(template, functionName);
       expect(emitter.Properties.LoggingConfig).toEqual({ LogGroup: { Ref: logicalId } });
-      const variables = (emitter.Properties.Environment as { Variables: Record<string, unknown> }).Variables;
-      expect(variables.BACKEND_RELEASE_SHA).toEqual({ Ref: "CommitSHA" });
     }
 
     const retentionLambda = lambdaFunction(template, `cloudwatch-log-retention-lambda-${stage}`);
