@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, type StageName } from "../src/config";
+import { consentEvidenceLogGroupNames } from "../src/constructs/lambdas";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
@@ -80,6 +81,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "LOOPS_API_BASE_URL",
     "LOOPS_API_KEY",
     "LOOPS_NEWSLETTER_LIST_ID",
+    "LOOPS_WEBHOOK_SIGNING_SECRET",
   ];
 
   keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_SECRET_ARN");
@@ -124,9 +126,57 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
     expect(environment.Variables.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
     expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(`{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`);
+    expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET).toBe(
+      `{{resolve:ssm:/loops/${stage}/webhook-signing-secret}}`,
+    );
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
+  });
+
+  test("retains never-expiring log groups for each consent-emitting Lambda", () => {
+    const template = computeTemplate(stage);
+    const [apiLogGroupName, postConfirmationLogGroupName] = consentEvidenceLogGroupNames(stage);
+    const logGroups = Object.entries(template.findResources("AWS::Logs::LogGroup")) as
+      [string, CloudFormationResource & { DeletionPolicy?: string; UpdateReplacePolicy?: string }][];
+
+    for (const [functionName, logGroupName] of [
+      [`aura-historia-api-${stage}`, apiLogGroupName],
+      [`cognito-post-confirmation-${stage}`, postConfirmationLogGroupName],
+    ] as const) {
+      const [logicalId, group] = logGroups.find(([, resource]) =>
+        resource.Properties.LogGroupName === logGroupName,
+      ) ?? [];
+      expect(logicalId).toBeDefined();
+      expect(group?.Properties.RetentionInDays).toBeUndefined();
+      expect(group?.DeletionPolicy).toBe("Retain");
+      expect(group?.UpdateReplacePolicy).toBe("Retain");
+
+      const emitter = lambdaFunction(template, functionName);
+      expect(emitter.Properties.LoggingConfig).toEqual({ LogGroup: { Ref: logicalId } });
+    }
+
+    const retentionLambda = lambdaFunction(template, `cloudwatch-log-retention-lambda-${stage}`);
+    const retentionEnvironment = (retentionLambda.Properties.Environment as { Variables: Record<string, unknown> }).Variables;
+    expect(retentionEnvironment.CONSENT_EVIDENCE_LOG_GROUPS).toBe(
+      JSON.stringify([apiLogGroupName, postConfirmationLogGroupName]),
+    );
+    expect(retentionEnvironment.CONSENT_EVIDENCE_LOG_GROUPS).not.toContain("*");
+  });
+
+  test("keeps log administration limited to retention writes", () => {
+    const template = computeTemplate(stage);
+    const logStatements = Object.values(template.findResources("AWS::IAM::Policy"))
+      .flatMap((resource) => (resource.Properties.PolicyDocument as { Statement: Record<string, unknown>[] }).Statement)
+      .filter((statement) => JSON.stringify(statement.Action).includes("logs:"));
+
+    expect(JSON.stringify(logStatements)).not.toMatch(/logs:(GetLogEvents|FilterLogEvents|DeleteLogGroup|DeleteLogStream)/);
+    const putRetention = logStatements.find((statement) =>
+      JSON.stringify(statement.Action).includes("logs:PutRetentionPolicy"),
+    );
+    expect(putRetention).toBeDefined();
+    expect(putRetention?.Resource).not.toBe("*");
+    expect(JSON.stringify(putRetention?.Resource)).toContain("log-group:*");
   });
 
   test("promotes parameter-only artifacts and rollback through an immutable live version", () => {

@@ -337,8 +337,54 @@ private `/tmp/aura-historia-google-adc/application_default_credentials.json` fil
 sets `GOOGLE_APPLICATION_CREDENTIALS`, and clears the JSON environment value. The
 Google/Vertex adapter and ADC provider still initialize only on an embedding request;
 an OpenSearch reachability check remains confined to `/api/v1/ready`. It logs only its
-component, Lambda request ID, remaining invocation budget, and cold-start duration;
-it never logs event bodies, credentials, or provider errors.
+component, Lambda request ID, remaining invocation budget, and cold-start duration.
+The consent-evidence event below is the specific post-commit exception; no path logs
+event bodies, credentials, raw provider payloads, or provider errors.
+
+## Consent evidence log retention
+
+The API and Cognito PostConfirmation Lambdas emit bounded `marketing_consent.evidence.v1`
+JSON records only after their consent transaction commits. Their exact log groups are
+`/aws/lambda/aura-historia-api-<stage>` and
+`/aws/lambda/cognito-post-confirmation-<stage>`. CDK creates explicit log-group resources
+with no `RetentionInDays` property and `Retain` removal/replacement policies in `dev` and
+`prod`. The global CreateLogGroup retention handler receives only those two
+stage-specific names as exemptions. It continues to set 30 days for every other
+newly created log group. Its
+existing `DescribeLogGroups` / `PutRetentionPolicy` permissions do not grant log reading
+or deletion. Business Lambda roles receive no log read, query, or delete permission.
+
+For a new stage, the explicit groups are created with the compute stack. For an existing
+stage, the Lambda-created groups already exist outside CloudFormation; do not run the
+normal Deploy first, because it would try to create colliding named groups. Under the
+existing deployment/operator approval boundary, complete this one-time ownership and
+retention migration without deleting or recreating either group:
+
+1. Hold the normal deployment. Verify the account, region, compute stack, exact physical
+   group names, current retention and resource ownership. Stop if either group has a
+   different owner or unexpected configuration.
+2. Synthesize the exact selected source SHA. Confirm the two `AWS::Logs::LogGroup`
+   resources use the names above, have no retention property, and carry `Retain` for
+   deletion and replacement. Prepare an import-only CloudFormation template/change set
+   for those two logical IDs; preserve all existing stack resources and make no Lambda or
+   unrelated changes in the import operation.
+3. With explicit operator authorization, remove the existing 30-day retention policy
+   from each verified group using CloudWatch `DeleteRetentionPolicy`. This clears expiry
+   without deleting archived log events. Record the action and verify both groups still
+   exist with retention unset.
+4. Inspect the prepared change set and require exactly two `AWS::Logs::LogGroup` imports
+   for the verified names, with no creates, updates, replacements or deletions. Execute
+   only that reviewed import change set. Verify the groups are now stack-managed and
+   retained.
+5. Review and deploy the normal CDK template separately. Confirm the API and
+   PostConfirmation `LoggingConfig` references the imported groups and the retention
+   Lambda's exemption environment contains only those two exact names. Verify no group
+   replacement/deletion is proposed and that unrelated log groups keep the existing
+   30-day policy.
+
+The infrastructure change does not perform a live import, retention change, log deletion,
+or event export. For retained-log access, query fields, privacy review and approved
+stream/group deletion steps, follow the [consent evidence operator procedure](../docs/durable-worker-runbook.md#marketing-consent-evidence-logs).
 
 The API Lambda receives `STAGE`, `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH`,
 PostgreSQL connection metadata plus `POSTGRES_SECRET_ARN`, OpenSearch endpoint/credentials,
@@ -348,7 +394,7 @@ configuration uses the existing SSM dynamic-reference paths:
 `/opensearch/<stage>/endpoint-url`,
 `/opensearch/<stage>/reader/{username,password}`, `/stripe/<stage>/api-key`,
 `/vertex-ai/<stage>/{project-id,location}`, `/secrets/<stage>/google-application-credentials`, and
-`/loops/<stage>/{api-key,newsletter-list-id}`. `LOOPS_API_KEY` uses a plain SSM `String` dynamic
+`/loops/<stage>/{api-key,newsletter-list-id,webhook-signing-secret}`. `LOOPS_API_KEY` uses a plain SSM `String` dynamic
 reference; `LOOPS_API_BASE_URL` is the literal `https://app.loops.so/api`.
 For AWS `dev`, `/opensearch/dev/endpoint-url` is
 `https://opensearch.stage.aura-historia.com:9443`; the API uses the `reader`
@@ -369,13 +415,21 @@ old pool lease. Dev and prod templates never inject PostgreSQL username or passw
 
 For the development cut-off, configure the existing dev Loops workspace only; no production workspace setup or audience transfer is required. In that workspace, an operator must create the public mailing list **Aura Historia Newsletter**, record its actual ID, and create the exact string contact properties `language`, `currency`, and `auraUserId`. Set **Settings → Sending → Double opt-in** to **OFF**. Verify the account's sending domain, sender/reply-to, branding, company/contact details, and preference-center/unsubscribe footer before any separately authorized marketing send. Keep workflows paused during setup and controlled acceptance checks. CDK never creates lists/properties, validates credentials, changes account settings, or sends mail.
 
-The API Lambda requires plain SSM `String` parameters for the list ID at `/loops/<stage>/newsletter-list-id` and the raw API key at `/loops/<stage>/api-key`. Provision `/loops/dev/newsletter-list-id` and `/loops/dev/api-key` for the intended dev workspace; the API key is sensitive even though its SSM value is plain text. Restrict parameter reads and do not put credentials in source, command transcripts, tests, or synthesized plaintext. The app's trusted endpoint base is `https://app.loops.so/api`; the adapter appends `/v1/contacts/update`. The API Lambda alone receives Loops settings.
+The API Lambda requires plain SSM `String` parameters for the list ID at `/loops/<stage>/newsletter-list-id`, the raw API key at `/loops/<stage>/api-key`, and the Loops webhook signing secret at `/loops/<stage>/webhook-signing-secret`. Provision `/loops/dev/newsletter-list-id` and `/loops/dev/api-key` for the intended dev workspace, and the exact signing secret shown under **Settings → Webhooks** at `/loops/dev/webhook-signing-secret`. The API validates its `whsec_` base64 format at startup and receives it as `LOOPS_WEBHOOK_SIGNING_SECRET`. Both secrets are sensitive even though their SSM values are plain text. Restrict parameter reads and do not put credentials in source, command transcripts, tests, or synthesized plaintext. The API Lambda alone receives the signing secret; the consent worker also receives the API key and list ID. The existing Loops API key is not technically read-scoped: C16 uses the provider adapter's bounded current-state read, while existing Loops API configuration remains full-access unless the provider supplies and the operator configures a restricted credential.
+
+The signed preference endpoint is `POST https://api.stage.aura-historia.com/api/v1/webhooks/loops` in dev (use the matching prod API host only after separately authorized setup). It does not require an Aura bearer, but every request must pass Loops signature verification. Subscribe to exactly `contact.unsubscribed`, `contact.deleted`, `email.unsubscribed`, `contact.mailingList.subscribed`, `contact.mailingList.unsubscribed`, `email.resubscribed`, `email.hardBounced`, and `email.spamReported`. Loops' **Send test event** uses `testing.testEvent`; it is verified and safely receipted as ignored. The accepted payload version is `webhookSchemaVersion: "1.0.0"`. A future unsupported version returns `400` instead of being treated as applied. The endpoint preserves the exact raw request bytes, caps the body at 64 KiB, and gives receipt/application processing 10 seconds, leaving response headroom under Loops' 15-second deadline. A `204` is sent only after the C13 receipt and any local preference change commit, or for a committed duplicate/safe ignore. Invalid proof returns `401`; malformed or unsupported event data `400`; receipt conflict `409`; oversize body `413`; temporary provider/database/deadline failure `503`; redacted configuration failure `500`. Every response is `no-store`; non-2xx responses are retryable by Loops.
+
+Keep the webhook endpoint active only under the appropriate release authorization. Do not register live webhook delivery, enable real workflows, or send marketing as part of infrastructure implementation. Verify an authorized endpoint with Loops' test event, then check the Webhooks settings history for its response and delivery status. Monitor API Gateway 4xx/5xx and integration latency together with Loops pending, retrying, and failed webhook history. Loops retries non-2xx up to eight times over about 28 hours, retains history for 30 days, and can disable an endpoint after repeated failures for five days; disabling it stops in-progress retries. Delivery is therefore finite. For an exhausted or missed event, inspect the recorded response and reconcile against current Loops state using the normal reviewed recovery process; do not synthesize a webhook or set a local consent boolean from stale state. The local consent boolean alone is not a safe gate for future marketing sends.
+
+For webhook signing-secret rotation, rotate it in **Settings → Webhooks**, update `/loops/<stage>/webhook-signing-secret`, and deploy an API Lambda configuration/version change so CloudFormation re-resolves the SSM dynamic reference. Loops sends signatures for both old and current secrets during its 24-hour overlap ([webhook documentation](https://loops.so/docs/webhooks)); complete deployment within that window, then verify with a dashboard test event and confirm delivery history. Restrict parameter, Lambda configuration, and deployment access. The deployment identity resolving dynamic references needs `ssm:GetParameters` for all three Loops paths; the Lambda execution role has no runtime SSM access. The signing secret is present in Lambda configuration, so principals who can read that configuration can also read it.
+
+The app's trusted endpoint base for API operations remains `https://app.loops.so/api`; the adapter appends `/v1/contacts/update`.
 
 The application endpoint `PUT /api/v1/newsletter-subscriptions` remains the website's integration surface. Never send a Loops API key to frontend code or call the authenticated Loops API directly from the browser. This integration writes only contacts submitted through that endpoint; it does not auto-subscribe account creation, profile changes, paying customers, watchlist/search notification preferences, or other application users. It adds no confirmation email or second consent step, and it does not use Loops for transactional messages. Loops owns marketing list membership and opt-outs; a successful `204` means the provider accepted the write, not that a campaign will be sent or delivered. Ordinary repeats omit global subscription state and do not clear an opt-out. For campaigns, use the Loops dashboard, explicitly choose **Aura Historia Newsletter** as the audience, and use language segments rather than separate lists. Review contacts with missing/unsupported language rather than excluding them by default or sending them multiple variants; do not target the whole workspace audience by default. Account email/profile changes do not constitute renewed marketing consent. Process marketing-data deletion through Loops' supported deletion process; deleting an application account does not authorize recreating or resubscribing its marketing contact.
 
 The preceding paragraph describes the existing direct API integration, not an activated consent worker. The [C03 target Loops consent adapter contract](../docs/events/flow.md#loops-consent-adapter-contract) covers identity, readback, provider blocks and failure semantics; it does not authorize Loops workspace changes or live sends.
 
-The identity CloudFormation uses to resolve dynamic references (the deployment principal or configured execution role) needs `ssm:GetParameters` for both Loops parameters. The Lambda execution role does not need runtime SSM access for Loops. The API key is readable as plain text by principals with SSM parameter-read access and is resolved into the API Lambda environment, so principals able to read its Lambda configuration can also read it; tightly restrict parameter, function-configuration, and deployment access. This deploy-time reference is not runtime secret isolation.
+The identity CloudFormation uses to resolve dynamic references (the deployment principal or configured execution role) needs `ssm:GetParameters` for the Loops parameters. The Lambda execution role does not need runtime SSM access for Loops. The API key and webhook signing secret are resolved into the API Lambda environment, so principals able to read SSM values or Lambda configuration can also read them; tightly restrict parameter, function-configuration, and deployment access. This deploy-time reference is not runtime secret isolation.
 
 Changing the SSM parameter value alone does not refresh a running Lambda environment. For key rotation, update `/loops/<stage>/api-key` and deploy an API Lambda version/configuration update that causes CloudFormation to re-resolve the dynamic reference; verify the new version with a controlled newsletter write, then revoke the old Loops key. For an immediate cut-off, an authorized Loops operator can disable or revoke the key; newsletter writes then fail until a replacement is deployed. This does not remove memberships or change opt-outs. Keep any future production marketing workspace/audience isolated from development contacts and workspace-level quota/state. There is no CDK-managed key rotation, provider fallback, or delivery control; campaigns and all remote-account actions require explicit operator authorization.
 
@@ -982,6 +1036,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /secrets/{stage}/cloudflare-workers-ai-api-token
 /loops/{stage}/api-key
 /loops/{stage}/newsletter-list-id
+/loops/{stage}/webhook-signing-secret
 ```
 
 The Google Cognito identity provider resolves both its client ID and client secret from SSM `String` parameters. CloudFormation does not support `ssm-secure` in Cognito `ProviderDetails.client_secret`, so the client secret must be a plain `String`, not `SecureString`. Restrict SSM reads and CloudFormation/Cognito configuration access; never put the value in source, logs, or CLI arguments. Changing the SSM value alone does not update the deployed provider: deploy an identity-provider configuration change to re-resolve it before revoking an old Google client secret.

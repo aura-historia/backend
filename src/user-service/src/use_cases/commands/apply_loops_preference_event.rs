@@ -10,6 +10,9 @@ use crate::ports::{
 use crate::use_cases::commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
+use crate::use_cases::commands::marketing_consent_evidence::{
+    ConsentEvidenceAction, ConsentEvidenceSource, MarketingConsentEvidence,
+};
 use application::transaction::{Transaction, UnitOfWork};
 use serde_email::Email;
 use time::{Duration, OffsetDateTime};
@@ -259,6 +262,7 @@ where
         mut tx: U::Tx,
         receipt: LoopsWebhookReceiptInput,
         applied: bool,
+        evidence: Option<MarketingConsentEvidence>,
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
         let disposition = receipt.disposition;
         let write = self
@@ -272,6 +276,9 @@ where
                 tx.commit()
                     .await
                     .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+                if let Some(evidence) = evidence {
+                    evidence.emit_after_commit(None);
+                }
                 if applied {
                     Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
                         disposition,
@@ -338,6 +345,7 @@ where
         }
 
         let fence = self.find_fence(&mut tx, &event.email).await?;
+        let mut evidence = None;
         let disposition = match classification {
             EventClassification::Ignore(disposition) => disposition,
             EventClassification::Withdraw(disposition) => {
@@ -368,6 +376,12 @@ where
                         } else {
                             self.apply_withdrawal(&mut tx, event.email.clone(), event.event_time)
                                 .await?;
+                            evidence = provider_withdrawal_evidence(
+                                &event,
+                                kind,
+                                Some(user),
+                                disposition,
+                            )?;
                             self.advance_fence(
                                 &mut tx,
                                 &event.email,
@@ -381,6 +395,7 @@ where
                     } else {
                         self.apply_withdrawal(&mut tx, event.email.clone(), event.event_time)
                             .await?;
+                        evidence = provider_withdrawal_evidence(&event, kind, None, disposition)?;
                         self.advance_fence(
                             &mut tx,
                             &event.email,
@@ -401,7 +416,7 @@ where
                 | Disposition::AppliedComplaintBlock
         );
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, applied).await
+        self.insert_and_commit(tx, receipt, applied, evidence).await
     }
 
     fn classify(
@@ -493,7 +508,7 @@ where
             .is_some_and(|fence| event.event_time <= fence.latest_event_at)
         {
             let receipt = self.receipt(&event, Disposition::IgnoredStale);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         }
         // A replacement contact ID is eligible only when the later provider read
         // confirms this exact mailbox now resolves to the event's contact. Keep
@@ -508,7 +523,7 @@ where
             .map_err(map_intent_error)?
         else {
             let receipt = self.receipt(&event, Disposition::IgnoredNoRegisteredUser);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         };
         if !valid_user_consent_state(&user) {
             return Err(ApplyLoopsPreferenceEventError::Retryable);
@@ -518,7 +533,7 @@ where
             .is_some_and(|changed_at| event.event_time <= changed_at)
         {
             let receipt = self.receipt(&event, Disposition::IgnoredStale);
-            return self.insert_and_commit(tx, receipt, false).await;
+            return self.insert_and_commit(tx, receipt, false, None).await;
         }
         let captured = CapturedConsentFence::from(&user);
         tx.commit()
@@ -572,6 +587,7 @@ where
             .find_user_by_email(&event.email)
             .await
             .map_err(map_intent_error)?;
+        let mut evidence = None;
         let disposition = match latest_user {
             Some(user)
                 if user.user_id == captured.user_id
@@ -590,6 +606,25 @@ where
                     .apply_provider_resubscription(&user, event.event_time)
                     .await
                     .map_err(map_intent_error)?;
+                let revision = if user.marketing_email_consent {
+                    user.marketing_email_consent_revision
+                } else {
+                    user.marketing_email_consent_revision
+                        .checked_add(1)
+                        .ok_or(ApplyLoopsPreferenceEventError::Retryable)?
+                };
+                evidence = Some(MarketingConsentEvidence::user_transition(
+                    ConsentEvidenceSource::LoopsUserPreference,
+                    ConsentEvidenceAction::Resubscribe,
+                    user.user_id,
+                    &event.email,
+                    user.marketing_email_consent,
+                    true,
+                    event.delivery_id.clone(),
+                    revision,
+                    event.event_time,
+                    "und",
+                ));
                 self.advance_fence(
                     &mut tx,
                     &event.email,
@@ -604,7 +639,7 @@ where
         };
         let applied = disposition == Disposition::AppliedResubscription;
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, applied).await
+        self.insert_and_commit(tx, receipt, applied, evidence).await
     }
 
     async fn commit_ignored_resubscription(
@@ -631,7 +666,7 @@ where
             return Ok(existing);
         }
         let receipt = self.receipt(&event, disposition);
-        self.insert_and_commit(tx, receipt, false).await
+        self.insert_and_commit(tx, receipt, false, None).await
     }
 }
 
@@ -645,6 +680,63 @@ struct VerifiedPreferenceEvent {
     contact_id: String,
     mailing_list_id: Option<String>,
     processed_at: OffsetDateTime,
+}
+
+fn provider_withdrawal_evidence(
+    event: &VerifiedPreferenceEvent,
+    kind: NewsletterWebhookEventKind,
+    user: Option<&ConsentUser>,
+    disposition: Disposition,
+) -> Result<Option<MarketingConsentEvidence>, ApplyLoopsPreferenceEventError> {
+    if !matches!(
+        disposition,
+        Disposition::AppliedWithdrawal | Disposition::AppliedContactRemoval
+    ) {
+        return Ok(None);
+    }
+    let (source, action) = if kind == NewsletterWebhookEventKind::ContactDeleted {
+        (
+            ConsentEvidenceSource::ProviderContactRemoved,
+            ConsentEvidenceAction::Remove,
+        )
+    } else {
+        (
+            ConsentEvidenceSource::LoopsUserPreference,
+            ConsentEvidenceAction::Revoke,
+        )
+    };
+    let evidence = match user {
+        Some(user) => {
+            let revision = if user.marketing_email_consent {
+                user.marketing_email_consent_revision
+                    .checked_add(1)
+                    .ok_or(ApplyLoopsPreferenceEventError::Retryable)?
+            } else {
+                user.marketing_email_consent_revision
+            };
+            MarketingConsentEvidence::user_transition(
+                source,
+                action,
+                user.user_id,
+                &event.email,
+                user.marketing_email_consent,
+                false,
+                event.delivery_id.clone(),
+                revision,
+                event.event_time,
+                "und",
+            )
+        }
+        None => MarketingConsentEvidence::email_only(
+            source,
+            action,
+            &event.email,
+            event.delivery_id.clone(),
+            event.event_time,
+            "und",
+        ),
+    };
+    Ok(Some(evidence))
 }
 
 #[derive(Clone, Copy)]
@@ -717,4 +809,625 @@ fn map_receipt_error(_: LoopsWebhookReceiptError) -> ApplyLoopsPreferenceEventEr
 
 fn map_consent_error(_: CoordinateMarketingConsentError) -> ApplyLoopsPreferenceEventError {
     ApplyLoopsPreferenceEventError::Retryable
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+
+    fn event() -> VerifiedPreferenceEvent {
+        let email = Email::try_from("private.recipient@example.test").unwrap();
+        VerifiedPreferenceEvent {
+            delivery_id: "delivery-1".to_owned(),
+            raw_body_sha256: [0; 32],
+            event_name: "email.spam_reported".to_owned(),
+            event_time: OffsetDateTime::UNIX_EPOCH,
+            email_text: <Email as AsRef<str>>::as_ref(&email).to_owned(),
+            email,
+            contact_id: "provider-contact-1".to_owned(),
+            mailing_list_id: None,
+            processed_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn provider_blocks_and_delivery_failures_do_not_create_withdrawal_evidence() {
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailSpamReported,
+                None,
+                Disposition::AppliedComplaintBlock,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailHardBounced,
+                None,
+                Disposition::IgnoredHardBounce,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            provider_withdrawal_evidence(
+                &event(),
+                NewsletterWebhookEventKind::EmailUnsubscribed,
+                None,
+                Disposition::IgnoredStale,
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod handler_evidence_tests {
+    use super::*;
+    use crate::ports::{
+        ConsentIntent, GrantRaceRepairOutcome, LoopsWebhookReceipts, MarketingConsentIntentError,
+        MarketingConsentIntents, MarketingEmailConsentError, MarketingEmailConsentOutcome,
+        NewsletterProfile, NewsletterWebhookDeliveryId, NewsletterWebhookEmailAddress,
+        NewsletterWebhookEventName, NewsletterWebhookProviderContactId,
+        NewsletterWebhookRawBodySha256, UserStorageVersion, VerifiedNewsletterWebhookEvent,
+    };
+    use application::transaction::TransactionError;
+    use std::io::{self, Write};
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+    use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
+
+    const ADDRESS: &str = "private.recipient@example.test";
+    const EVENT_AT: i64 = 1_700_000_000;
+    type Shared = Arc<Mutex<State>>;
+
+    #[derive(Default)]
+    struct State {
+        user: Option<ConsentUser>,
+        receipts: Vec<(String, [u8; 32])>,
+        commits: usize,
+        fail_on_commit: Option<usize>,
+        provider_reads: usize,
+    }
+
+    fn lock(state: &Shared) -> std::sync::MutexGuard<'_, State> {
+        state.lock().unwrap()
+    }
+
+    #[derive(Clone)]
+    struct Fake(Shared);
+    struct Tx {
+        state: Shared,
+        pending_receipt: Option<(String, [u8; 32])>,
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for Tx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock(&self.state);
+            state.commits += 1;
+            if state.fail_on_commit == Some(state.commits) {
+                return Err(TransactionError::CommitFailed);
+            }
+            if let Some(receipt) = self.pending_receipt {
+                state.receipts.push(receipt);
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for Fake {
+        type Tx = Tx;
+        async fn begin(&self) -> Result<Tx, TransactionError> {
+            Ok(Tx {
+                state: self.0.clone(),
+                pending_receipt: None,
+            })
+        }
+    }
+
+    impl LoopsWebhookReceiptsFactory<Tx> for Fake {
+        fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl LoopsWebhookReceipts + 'tx {
+            ReceiptPort(tx)
+        }
+    }
+    struct ReceiptPort<'a>(&'a mut Tx);
+
+    #[async_trait::async_trait]
+    impl LoopsWebhookReceipts for ReceiptPort<'_> {
+        async fn find_by_delivery_id(
+            &mut self,
+            id: &str,
+        ) -> Result<Option<LoopsWebhookReceiptLookup>, LoopsWebhookReceiptError> {
+            Ok(lock(&self.0.state)
+                .receipts
+                .iter()
+                .find(|(stored, _)| stored == id)
+                .map(|(_, digest)| LoopsWebhookReceiptLookup {
+                    raw_body_sha256: *digest,
+                }))
+        }
+        async fn find_preference_fence(
+            &mut self,
+            _: &Email,
+        ) -> Result<Option<LoopsPreferenceFence>, LoopsWebhookReceiptError> {
+            Ok(None)
+        }
+        async fn advance_preference_fence(
+            &mut self,
+            _: &Email,
+            _: &str,
+            _: OffsetDateTime,
+            _: bool,
+        ) -> Result<(), LoopsWebhookReceiptError> {
+            Ok(())
+        }
+        async fn insert_receipt(
+            &mut self,
+            receipt: LoopsWebhookReceiptInput,
+        ) -> Result<LoopsWebhookReceiptWriteOutcome, LoopsWebhookReceiptError> {
+            self.0.pending_receipt = Some((receipt.delivery_id, receipt.raw_body_sha256));
+            Ok(LoopsWebhookReceiptWriteOutcome::Inserted)
+        }
+    }
+
+    impl MarketingConsentIntentsFactory<Tx> for Fake {
+        fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl MarketingConsentIntents + 'tx {
+            IntentPort(tx.state.clone())
+        }
+    }
+    struct IntentPort(Shared);
+
+    #[async_trait::async_trait]
+    impl MarketingConsentIntents for IntentPort {
+        async fn lock_recipient(&mut self, _: &Email) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+        async fn lock_source_key(&mut self, _: &str) -> Result<(), MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn find_by_source_key(
+            &mut self,
+            _: &str,
+        ) -> Result<Option<ConsentIntent>, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn find_user_by_id(
+            &mut self,
+            _: UserId,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn find_user_by_email(
+            &mut self,
+            email: &Email,
+        ) -> Result<Option<ConsentUser>, MarketingConsentIntentError> {
+            Ok(lock(&self.0)
+                .user
+                .as_ref()
+                .filter(|user| &user.email == email)
+                .cloned())
+        }
+        async fn record_user_transition(
+            &mut self,
+            _: &ConsentUser,
+            _: bool,
+            _: crate::ports::ConsentIntentSource,
+            _: &str,
+            _: Option<NewsletterProfile>,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn record_email_only_intent(
+            &mut self,
+            _: &Email,
+            _: bool,
+            _: crate::ports::ConsentIntentSource,
+            _: &str,
+            _: Option<NewsletterProfile>,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn apply_provider_withdrawal(
+            &mut self,
+            _: &ConsentUser,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+        async fn apply_provider_resubscription(
+            &mut self,
+            _: &ConsentUser,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+        async fn cancel_provider_backsync(
+            &mut self,
+            _: &Email,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+        async fn invalidate_newsletter_confirmation_challenges(
+            &mut self,
+            _: &Email,
+            _: OffsetDateTime,
+        ) -> Result<(), MarketingConsentIntentError> {
+            Ok(())
+        }
+        async fn repair_raced_grant_if_needed(
+            &mut self,
+            _: MarketingConsentSyncIntentId,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<GrantRaceRepairOutcome, MarketingConsentIntentError> {
+            unreachable!()
+        }
+        async fn record_user_deletion(
+            &mut self,
+            _: &ConsentUser,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<ConsentIntent, MarketingConsentIntentError> {
+            unreachable!()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MarketingEmailConsentWriter for Fake {
+        async fn current_state(
+            &self,
+            _: &Email,
+        ) -> Result<MarketingEmailSubscriptionState, MarketingEmailConsentError> {
+            lock(&self.0).provider_reads += 1;
+            Ok(MarketingEmailSubscriptionState::Present {
+                contact_id: "provider-contact-1".to_owned(),
+                globally_subscribed: true,
+                on_target_list: true,
+                suppressed: false,
+            })
+        }
+        async fn grant(
+            &self,
+            _: &ConsentIntent,
+        ) -> Result<MarketingEmailConsentOutcome, MarketingEmailConsentError> {
+            unreachable!()
+        }
+        async fn revoke(
+            &self,
+            _: &ConsentIntent,
+        ) -> Result<MarketingEmailConsentOutcome, MarketingEmailConsentError> {
+            unreachable!()
+        }
+    }
+
+    // The writer runs synchronously on the test thread, so it can assert the
+    // transaction has completed before the first byte of evidence is emitted.
+    #[derive(Clone)]
+    struct CommittedWriter {
+        state: Shared,
+        output: Arc<Mutex<Vec<u8>>>,
+        required_commits: usize,
+    }
+    impl<'a> MakeWriter<'a> for CommittedWriter {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+    impl Write for CommittedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let state = lock(&self.state);
+            assert!(state.commits >= self.required_commits);
+            assert_eq!(
+                state.receipts.len(),
+                1,
+                "evidence must follow receipt commit"
+            );
+            drop(state);
+            self.output.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn command(name: &str, kind: NewsletterWebhookEventKind) -> ApplyLoopsPreferenceEventCommand {
+        ApplyLoopsPreferenceEventCommand {
+            verification: NewsletterWebhookVerification {
+                raw_body_sha256: NewsletterWebhookRawBodySha256::new([7; 32]),
+                outcome: NewsletterWebhookVerificationOutcome::Verified(
+                    VerifiedNewsletterWebhookEvent {
+                        delivery_id: NewsletterWebhookDeliveryId::new("delivery-1").unwrap(),
+                        provider_event_name: NewsletterWebhookEventName::new(name).unwrap(),
+                        kind,
+                        event_time_unix_seconds: EVENT_AT,
+                        provider_contact_id: NewsletterWebhookProviderContactId::new(
+                            "provider-contact-1",
+                        )
+                        .unwrap(),
+                        email: NewsletterWebhookEmailAddress::new(ADDRESS).unwrap(),
+                        mailing_list_id: None,
+                    },
+                ),
+            },
+        }
+    }
+
+    fn execute_captured(
+        state: &Shared,
+        command: ApplyLoopsPreferenceEventCommand,
+        required_commits: usize,
+    ) -> (
+        Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError>,
+        String,
+    ) {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(CommittedWriter {
+                state: state.clone(),
+                output: output.clone(),
+                required_commits,
+            })
+            .finish();
+        let fake = Fake(state.clone());
+        let handler = ApplyLoopsPreferenceEventHandler::new(
+            fake.clone(),
+            fake.clone(),
+            fake.clone(),
+            fake,
+            NewsletterWebhookMailingListId::new("marketing-list").unwrap(),
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let outcome = tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(handler.execute(command))
+        });
+        let line = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        (outcome, line)
+    }
+
+    fn user(consent: bool, revision: i64) -> ConsentUser {
+        ConsentUser {
+            user_id: UserId::new(),
+            email: Email::try_from(ADDRESS).unwrap(),
+            version: UserStorageVersion::INITIAL,
+            marketing_email_consent: consent,
+            marketing_email_consent_revision: revision,
+            marketing_email_consent_changed_at: Some(
+                OffsetDateTime::from_unix_timestamp(EVENT_AT - 10).unwrap(),
+            ),
+        }
+    }
+
+    fn assert_evidence(
+        line: &str,
+        source: &str,
+        action: &str,
+        user: &ConsentUser,
+        previous: bool,
+        current: bool,
+        revision: i64,
+    ) {
+        let record: serde_json::Value = serde_json::from_str(line).unwrap();
+        let fields = &record["fields"];
+        assert_eq!(fields["event"], "marketing_consent.evidence.v1");
+        assert_eq!(fields["consent_purpose"], "EMAIL_MARKETING");
+        assert_eq!(fields["consent_source"], source);
+        assert_eq!(fields["consent_action"], action);
+        assert_eq!(fields["subject_kind"], "USER");
+        assert_eq!(fields["user_id"], user.user_id.to_string());
+        assert_eq!(
+            fields["recipient_fingerprint"],
+            crate::ports::marketing_consent_recipient_key(&user.email)
+        );
+        assert_eq!(fields["consent_decision_id"], "delivery-1");
+        assert_eq!(fields["previous_consent"], previous);
+        assert_eq!(fields["current_consent"], current);
+        assert_eq!(fields["consent_revision"], revision);
+        assert_eq!(fields["consent_effective_at_utc"], "2023-11-14T22:13:20Z");
+        let recorded = fields["consent_recorded_at_utc"].as_str().unwrap();
+        assert!(
+            OffsetDateTime::parse(recorded, &time::format_description::well_known::Rfc3339).is_ok()
+        );
+        assert!(recorded.ends_with('Z'));
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(fields["consent_wording_locale"], "und");
+
+        assert_eq!(fields["request_id"], "");
+        assert_eq!(fields["correlation_id"], "");
+        for secret in [
+            ADDRESS,
+            "provider-contact-1",
+            "raw_token",
+            "signature",
+            "provider_payload",
+        ] {
+            assert!(!line.contains(secret));
+        }
+    }
+
+    #[test]
+    fn committed_unsubscribe_and_contact_deletion_log_distinct_evidence_once() {
+        for (name, kind, disposition, source, action) in [
+            (
+                "contact.unsubscribed",
+                NewsletterWebhookEventKind::ContactUnsubscribed,
+                Disposition::AppliedWithdrawal,
+                "LOOPS_USER_PREFERENCE",
+                "REVOKE",
+            ),
+            (
+                "contact.deleted",
+                NewsletterWebhookEventKind::ContactDeleted,
+                Disposition::AppliedContactRemoval,
+                "PROVIDER_CONTACT_REMOVED",
+                "REMOVE",
+            ),
+        ] {
+            let user = user(true, 4);
+            let state = Arc::new(Mutex::new(State {
+                user: Some(user.clone()),
+                ..State::default()
+            }));
+            let (outcome, line) = execute_captured(&state, command(name, kind), 1);
+            assert_eq!(
+                outcome,
+                Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
+                    disposition
+                ))
+            );
+            assert_evidence(&line, source, action, &user, true, false, 5);
+            assert_eq!(lock(&state).receipts.len(), 1);
+            let (duplicate, replay_log) = execute_captured(&state, command(name, kind), 2);
+            assert_eq!(duplicate, Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
+            assert!(replay_log.is_empty());
+            assert_eq!(lock(&state).commits, 1);
+        }
+    }
+
+    #[test]
+    fn anonymous_unsubscribe_logs_email_only_fields() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (outcome, line) = execute_captured(
+            &state,
+            command(
+                "contact.unsubscribed",
+                NewsletterWebhookEventKind::ContactUnsubscribed,
+            ),
+            1,
+        );
+        assert_eq!(
+            outcome,
+            Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
+                Disposition::AppliedWithdrawal
+            ))
+        );
+        let record: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let fields = &record["fields"];
+        assert_eq!(fields["event"], "marketing_consent.evidence.v1");
+        assert_eq!(fields["consent_source"], "LOOPS_USER_PREFERENCE");
+        assert_eq!(fields["consent_action"], "REVOKE");
+        assert_eq!(fields["subject_kind"], "EMAIL_ONLY");
+        assert_eq!(fields["consent_wording_reference"], "not-recorded");
+        assert_eq!(fields["consent_wording_locale"], "und");
+        assert_eq!(fields["consent_decision_id"], "delivery-1");
+        assert_eq!(
+            fields["recipient_fingerprint"],
+            crate::ports::marketing_consent_recipient_key(&Email::try_from(ADDRESS).unwrap())
+        );
+        for absent in [
+            "user_id",
+            "previous_consent",
+            "current_consent",
+            "consent_revision",
+        ] {
+            assert!(fields.get(absent).is_none());
+        }
+        assert!(!line.contains(ADDRESS));
+    }
+
+    #[test]
+    fn committed_resubscription_logs_only_after_the_final_commit() {
+        let user = user(false, 4);
+        let state = Arc::new(Mutex::new(State {
+            user: Some(user.clone()),
+            ..State::default()
+        }));
+        let (outcome, line) = execute_captured(
+            &state,
+            command(
+                "email.resubscribed",
+                NewsletterWebhookEventKind::EmailResubscribed,
+            ),
+            2,
+        );
+        assert_eq!(
+            outcome,
+            Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
+                Disposition::AppliedResubscription
+            ))
+        );
+        assert_evidence(
+            &line,
+            "LOOPS_USER_PREFERENCE",
+            "RESUBSCRIBE",
+            &user,
+            false,
+            true,
+            5,
+        );
+        assert_eq!(lock(&state).provider_reads, 1);
+        assert_eq!(lock(&state).receipts.len(), 1);
+        let (duplicate, replay_log) = execute_captured(
+            &state,
+            command(
+                "email.resubscribed",
+                NewsletterWebhookEventKind::EmailResubscribed,
+            ),
+            3,
+        );
+        assert_eq!(duplicate, Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
+        assert!(replay_log.is_empty());
+        assert_eq!(lock(&state).provider_reads, 1);
+    }
+
+    #[test]
+    fn failed_application_commit_emits_no_evidence_or_receipt() {
+        for (kind, name, failed_commit) in [
+            (
+                NewsletterWebhookEventKind::ContactUnsubscribed,
+                "contact.unsubscribed",
+                1,
+            ),
+            (
+                NewsletterWebhookEventKind::ContactDeleted,
+                "contact.deleted",
+                1,
+            ),
+            (
+                NewsletterWebhookEventKind::EmailResubscribed,
+                "email.resubscribed",
+                2,
+            ),
+        ] {
+            let state = Arc::new(Mutex::new(State {
+                user: Some(user(
+                    kind != NewsletterWebhookEventKind::EmailResubscribed,
+                    4,
+                )),
+                fail_on_commit: Some(failed_commit),
+                ..State::default()
+            }));
+            let (outcome, line) = execute_captured(&state, command(name, kind), failed_commit + 1);
+            assert_eq!(outcome, Err(ApplyLoopsPreferenceEventError::Retryable));
+            assert!(line.is_empty());
+            assert!(lock(&state).receipts.is_empty());
+            assert_eq!(lock(&state).commits, failed_commit);
+
+            lock(&state).fail_on_commit = None;
+            let (retry, retry_log) = execute_captured(
+                &state,
+                command(name, kind),
+                failed_commit + if failed_commit == 2 { 2 } else { 1 },
+            );
+            assert!(matches!(
+                retry,
+                Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(_))
+            ));
+            assert_eq!(retry_log.lines().count(), 1);
+            assert_eq!(lock(&state).receipts.len(), 1);
+        }
+    }
 }

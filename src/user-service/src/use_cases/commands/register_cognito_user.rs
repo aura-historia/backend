@@ -6,6 +6,7 @@ use crate::ports::{
 use crate::use_cases::commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
+use crate::use_cases::commands::marketing_consent_evidence::wording_locale;
 use application::error::{BoxError, static_error};
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
@@ -179,22 +180,32 @@ where
 
         // The immutable Cognito attribute is proof only on the first new native
         // registration. Replayed confirmations must never restore a withdrawn grant.
-        if created && command.signup_consent == Some(CognitoSignupConsent::Accepted) {
-            MarketingConsentCoordinator::new(&mut tx, &self.consent)
-                .cognito_signup(
-                    &self.identities,
-                    command.identity.clone(),
-                    user.id(),
-                    command.email.clone(),
-                    OffsetDateTime::now_utc(),
-                )
-                .await
-                .map_err(RegisterCognitoUserError::SignupConsentFailed)?;
-        }
+        let consent_evidence =
+            if created && command.signup_consent == Some(CognitoSignupConsent::Accepted) {
+                let changed_at = OffsetDateTime::now_utc();
+                let consent = MarketingConsentCoordinator::new(&mut tx, &self.consent)
+                    .cognito_signup_with_evidence(
+                        &self.identities,
+                        command.identity.clone(),
+                        user.id(),
+                        command.email.clone(),
+                        changed_at,
+                    )
+                    .await
+                    .map_err(RegisterCognitoUserError::SignupConsentFailed)?;
+                consent.evidence.map(|evidence| {
+                    evidence.with_wording_locale(wording_locale(command.initial_language))
+                })
+            } else {
+                None
+            };
 
         tx.commit()
             .await
             .map_err(|_| RegisterCognitoUserError::CommitTransactionFailed)?;
+        if let Some(evidence) = consent_evidence {
+            evidence.emit_after_commit(Some(context));
+        }
         tracing::Span::current().record("user_id", tracing::field::display(user.id()));
         tracing::info!(
             event = "user.cognito_identity_registered",

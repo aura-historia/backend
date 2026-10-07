@@ -17,6 +17,8 @@ mod auctions;
 mod billing;
 #[path = "api_cases/listing_sources.rs"]
 mod listing_sources;
+#[path = "api_cases/loops_webhook.rs"]
+mod loops_webhook;
 #[path = "api_cases/newsletter.rs"]
 mod newsletter;
 #[path = "api_cases/notifications.rs"]

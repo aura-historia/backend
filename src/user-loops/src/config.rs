@@ -34,7 +34,10 @@ impl LoopsNewsletterConfig {
         }
 
         let newsletter_list_id = newsletter_list_id.trim().to_owned();
-        if newsletter_list_id.is_empty() || newsletter_list_id.chars().any(char::is_whitespace) {
+        if newsletter_list_id.is_empty()
+            || newsletter_list_id.len() > 256
+            || newsletter_list_id.chars().any(char::is_whitespace)
+        {
             return Err(LoopsNewsletterConfigError::InvalidListId);
         }
 
@@ -87,6 +90,10 @@ impl LoopsNewsletterConfig {
             authorization,
         })
     }
+
+    pub fn newsletter_list_id(&self) -> &str {
+        &self.newsletter_list_id
+    }
 }
 
 #[cfg(test)]
@@ -123,6 +130,14 @@ mod tests {
                 Err(LoopsNewsletterConfigError::InvalidListId)
             ));
         }
+        assert!(matches!(
+            LoopsNewsletterConfig::new(
+                API_KEY.into(),
+                "x".repeat(257),
+                "https://app.loops.so/api".into()
+            ),
+            Err(LoopsNewsletterConfigError::InvalidListId)
+        ));
     }
 
     #[test]

@@ -53,6 +53,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "cloudwatch-log-retention-lambda",
     memorySize: 128,
     timeoutSeconds: 10,
+    environment: consentLogRetentionEnvironment,
   },
   cdcRouter: {
     id: "CdcRouterLambda",
@@ -231,6 +232,12 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export const API_LAMBDA_ALIAS_NAME = "live";
+export function consentEvidenceLogGroupNames(stage: StageName): readonly [string, string] {
+  return [
+    `/aws/lambda/aura-historia-api-${stage}`,
+    `/aws/lambda/cognito-post-confirmation-${stage}`,
+  ];
+}
 export type LambdaCatalog = Record<LambdaKey, lambda.IFunction>;
 export type LambdaFunctions = Record<LambdaKey, lambda.Function>;
 
@@ -272,12 +279,29 @@ export class Lambdas extends Construct {
       compatibleRuntimes: [lambda.Runtime.PROVIDED_AL2023],
       description: "Public AWS RDS root certificate bundle for PostgreSQL Lambdas",
     });
-    const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
+    const functions = {} as LambdaFunctions;
     const ingestionLogGroup = new logs.LogGroup(this, "ProductListingIngestionLogGroup", {
       logGroupName: `/aws/lambda/product-listing-ingestion-lambda-${props.config.stage}`,
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
+    const [apiEvidenceLogGroupName, postConfirmationEvidenceLogGroupName] =
+      consentEvidenceLogGroupNames(props.config.stage);
+    const consentEvidenceLogGroupRemovalPolicy = cdk.RemovalPolicy.RETAIN;
+    const apiEvidenceLogGroup = new logs.LogGroup(this, "AuraHistoriaApiEvidenceLogGroup", {
+      logGroupName: apiEvidenceLogGroupName,
+      retention: logs.RetentionDays.INFINITE,
+      removalPolicy: consentEvidenceLogGroupRemovalPolicy,
+    });
+    const postConfirmationEvidenceLogGroup = new logs.LogGroup(
+      this,
+      "PostConfirmationEvidenceLogGroup",
+      {
+        logGroupName: postConfirmationEvidenceLogGroupName,
+        retention: logs.RetentionDays.INFINITE,
+        removalPolicy: consentEvidenceLogGroupRemovalPolicy,
+      },
+    );
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
       commitSha: props.parameters.commitSha,
@@ -314,7 +338,13 @@ export class Lambdas extends Construct {
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         reservedConcurrentExecutions: key === "productListingIngestion" ? 2 : undefined,
-        logGroup: key === "productListingIngestion" ? ingestionLogGroup : undefined,
+        logGroup: key === "productListingIngestion"
+          ? ingestionLogGroup
+          : key === "auraHistoriaApi"
+            ? apiEvidenceLogGroup
+            : key === "postConfirmation"
+              ? postConfirmationEvidenceLogGroup
+              : undefined,
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -377,17 +407,12 @@ export class Lambdas extends Construct {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
     });
-    const backendCleanup = this.functions.backendCleanup;
-    const cdcRouter = this.functions.cdcRouter;
-    if (!backendCleanup || !cdcRouter) {
-      throw new Error("Real stages require backend cleanup and CDC router Lambdas.");
-    }
     this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
-      lambda: backendCleanup,
+      lambda: this.functions.backendCleanup,
       description: `backend-cleanup-${props.parameters.commitSha}`,
     });
     this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
-      lambda: cdcRouter,
+      lambda: this.functions.cdcRouter,
       description: `cdc-router-${props.parameters.commitSha}`,
     });
     grantRuntimeAccess(props, this.functions);
@@ -530,10 +555,22 @@ function withMigrationPostgresEnvironment(
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
+  const logGroupArnPattern = cdk.Stack.of(functions.cloudWatchLogRetention).formatArn({
+    service: "logs",
+    resource: "log-group",
+    resourceName: "*",
+    arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+  });
   functions.cloudWatchLogRetention.addToRolePolicy(
     new iam.PolicyStatement({
-      actions: ["logs:DescribeLogGroups", "logs:PutRetentionPolicy"],
+      actions: ["logs:DescribeLogGroups"],
       resources: ["*"],
+    }),
+  );
+  functions.cloudWatchLogRetention.addToRolePolicy(
+    new iam.PolicyStatement({
+      actions: ["logs:PutRetentionPolicy"],
+      resources: [logGroupArnPattern],
     }),
   );
   for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
@@ -655,6 +692,12 @@ function loopsNewsletterEnvironment(config: StageConfig): Record<string, string>
   };
 }
 
+function consentLogRetentionEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    CONSENT_EVIDENCE_LOG_GROUPS: JSON.stringify(consentEvidenceLogGroupNames(context.config.stage)),
+  };
+}
+
 function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   const { config, search } = context;
   const environment = {
@@ -671,6 +714,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     STRIPE_ULTIMATE_YEARLY_PRICE_ID: config.stripeUltimateYearlyPriceId,
   };
 
+
   return {
     ...environment,
     OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
@@ -682,6 +726,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
     ...loopsNewsletterEnvironment(config),
+    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
   };
 }
 

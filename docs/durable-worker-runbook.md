@@ -2,6 +2,30 @@
 
 **Target, not verified live state.** PostgreSQL is business truth; the intended path is DMS CDC → seven-day Kinesis → router Lambda → ten scoped Standard pairs plus one marketing-consent FIFO SQS source/DLQ pair → workers. `CdcRouterEnabled` is separate from compute creation (which activates worker mappings). [Architecture §12](arch.md#12-cdc-and-projection-architecture) owns invariants, [event flow](events/flow.md) owns routing, and [infrastructure](../infra/README.md#first-time-stage) owns deployment order. Applying the data stack carries declared DMS table-selection changes into task configuration, subject to DMS update constraints and task state; it does not start or restart DMS. Approval and coordination before that deployment, first-start/restart handling, slot/LSN and capture evidence, and external source decommissioning require an operator plan. Code and CDK do not prove live activation.
 
+## Marketing consent evidence logs
+
+The API and Cognito PostConfirmation evidence groups are `/aws/lambda/aura-historia-api-<stage>` and `/aws/lambda/cognito-post-confirmation-<stage>`. In real stages they have no automatic expiry and `Retain` removal/replacement policies. The retention Lambda skips only these exact stage names; its 30-day policy remains active for other new log groups. These logs are secondary evidence, not an audit database: commit and CloudWatch delivery are not atomic, so gaps and duplicates are possible, and CloudWatch records are mutable.
+
+Use the existing account/stage privacy-operations access path for a documented support, security or data-subject request. The evidence groups contain pseudonymous recipient fingerprints; never query or export by raw email, export a complete group, or use the fingerprint as a metric dimension. Business Lambdas have no log read/delete permissions. The retention Lambda has only `logs:DescribeLogGroups` and `logs:PutRetentionPolicy`; this change adds no log administration to business functions. Where operator read/delete access is needed, keep it in the existing external operator boundary and scope it to the named evidence groups.
+
+CloudWatch Logs Insights exposes the JSON event fields under `fields`. This query returns the defined evidence context without selecting the full message:
+
+```text
+fields @timestamp, fields.consent_effective_at_utc, fields.consent_recorded_at_utc,
+  fields.consent_purpose, fields.consent_source, fields.consent_action,
+  fields.subject_kind, fields.user_id, fields.recipient_fingerprint,
+  fields.previous_consent, fields.current_consent, fields.consent_decision_id,
+  fields.consent_revision, fields.consent_wording_reference,
+  fields.consent_wording_locale,
+  fields.request_id, fields.correlation_id
+| filter fields.event = "marketing_consent.evidence.v1"
+| sort fields.consent_recorded_at_utc desc
+```
+
+For a single approved subject lookup, add an exact `fields.user_id` filter when a registered User ID is available, or an exact `fields.recipient_fingerprint` filter for email-only evidence. Confirm stage, group, time window and identity before retrieval; retain only the minimum records required for the case and record the operator, purpose, query window and access time. The fingerprint is personal/pseudonymous data, not anonymous data.
+
+Review access and retention regularly under the organization's privacy and security process. No-expiry configuration is not a claim that unlimited retention is legally required, nor does it remove data-minimization or erasure duties. CloudWatch deletion is at log-stream or log-group granularity, not a single event: after an authorized erasure decision, identify the containing stream, assess unrelated records that would be removed, and record any collateral impact. Use the approved scoped operator role for [`DeleteLogStream`](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_DeleteLogStream.html); whole-group deletion via [`DeleteLogGroup`](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_DeleteLogGroup.html) additionally requires coordination with the retained CloudFormation resource and future logging. Do not remove or recreate groups as routine retention management.
+
 ## Activation and legacy handoff
 
 1. Record stage/account/release, approvals, identities and schema/job compatibility. Follow the [first-time stage path](../infra/README.md#first-time-stage): Deploy foundation → manual Migrate Postgres → operator OpenSearch setup if needed → FX-only Initialize → same-ref Deploy `scope=all`. Verify migrations, FX, OpenSearch, native-consumer handoff and SES/provider consent **before** `all` creates active mappings. There is no readiness marker; Migrate/Initialize neither deploy compute nor start DMS. Do not invent an LSN or restart with a new first-start point.

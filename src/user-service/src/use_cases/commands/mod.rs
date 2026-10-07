@@ -11,6 +11,7 @@ pub mod create_user;
 pub mod delete_access_token;
 pub mod delete_access_tokens;
 pub mod delete_user;
+pub(crate) mod marketing_consent_evidence;
 pub mod register_cognito_user;
 pub mod request_newsletter_subscription;
 pub mod revoke_user_sessions;

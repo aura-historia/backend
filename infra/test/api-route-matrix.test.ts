@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(103);
+    expect(catalog).toHaveLength(104);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -250,6 +250,18 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.WooCommerceSignature,
       }),
     }));
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/webhooks/loops")).toEqual([{
+      method: "POST",
+      path: "/api/v1/webhooks/loops",
+      lambda: "auraHistoriaApi",
+      auth: RouteAuthPolicy.LoopsSignature,
+      policy: {
+        bearer: "NONE",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.LoopsSignature,
+      },
+    }]);
     const probeRoutes = API_ROUTE_CATALOG.filter((route) =>
       ["/api/v1/health", "/api/v1/ready", "/health", "/ready"].includes(route.path));
     expect(probeRoutes.map((route) => routeKey(route.method, route.path)).sort()).toEqual([
@@ -371,7 +383,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(103);
+    expect(routes).toHaveLength(104);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
