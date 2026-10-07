@@ -121,6 +121,83 @@ async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn released_grant_superseded_by_withdrawal_remains_a_valid_terminal_intent() {
+    let pool = get_postgres_client().await;
+    let address = email(&format!(
+        "retry-withdrawal-{}@example.test",
+        uuid::Uuid::now_v7()
+    ));
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxMarketingConsentIntentRepository::new();
+    let worker = SqlxMarketingConsentIntentWorker::new();
+
+    let mut tx = uow.begin().await.unwrap();
+    let grant = MarketingConsentCoordinator::new(&mut tx, &repository)
+        .accepted_double_opt_in(
+            format!("retry-withdrawal-proof-{}", uuid::Uuid::now_v7()),
+            address.clone(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, grant)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("grant was not claimed"),
+    };
+    assert!(
+        MarketingConsentIntentWorker::release_for_retry(&worker, &mut tx, &claim, "THROTTLED")
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    let revoke = MarketingConsentCoordinator::new(&mut tx, &repository)
+        .email_only_withdrawal(
+            address,
+            format!("retry-withdrawal-action-{}", uuid::Uuid::now_v7()),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, grant)
+            .await
+            .unwrap(),
+        ConsentWorkerClaimOutcome::Terminal(ConsentWorkerTerminalStatus::Superseded)
+    ));
+    tx.commit().await.unwrap();
+    let old_row: (String, Option<String>) = sqlx::query_as(
+        "SELECT status, last_error_code FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
+    )
+    .bind(grant.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(("SUPERSEDED".to_owned(), None), old_row);
+
+    let mut tx = uow.begin().await.unwrap();
+    let revoke_claim = match MarketingConsentIntentWorker::claim_by_id(&worker, &mut tx, revoke)
+        .await
+        .unwrap()
+    {
+        ConsentWorkerClaimOutcome::Claimed(claim) => claim,
+        _ => panic!("newer withdrawal was not processable"),
+    };
+    assert!(!revoke_claim.intent.desired);
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn generic_user_transition_rejects_provider_race_repair_without_mutation() {
     let pool = get_postgres_client().await;
     let id = UserId::new();

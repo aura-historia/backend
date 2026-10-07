@@ -34,6 +34,7 @@ fn is_retry_no_write_marker(value: &str) -> bool {
                     | "PROVIDER_REJECTED"
                     | "THROTTLED"
                     | "PREWRITE_READ_UNAVAILABLE"
+                    | "PREWRITE_PROTOCOL"
                     | "INVALID_EMAIL"
             )
         })
@@ -476,7 +477,7 @@ async fn append(
     // A later decision invalidates earlier unsent or leased grants. Terminal
     // history and revokes are retained, never changed into permission to send.
     let sql = format!(
-        "UPDATE {TABLE} SET status = 'SUPERSEDED', lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $3 AND intent_sequence < $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
+        "UPDATE {TABLE} SET status = 'SUPERSEDED', last_error_code = NULL, lease_token = NULL, lease_expires_at = NULL, updated = clock_timestamp() WHERE recipient_key = $1 AND email = $3 AND intent_sequence < $2 AND desired AND status IN ('PENDING', 'IN_PROGRESS')"
     );
     sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(&key)
@@ -1499,6 +1500,7 @@ impl SqlxMarketingConsentIntentWorker {
                 | "PROVIDER_REJECTED"
                 | "THROTTLED"
                 | "PREWRITE_READ_UNAVAILABLE"
+                | "PREWRITE_PROTOCOL"
                 | "INVALID_EMAIL"
         ) {
             return Err(MarketingConsentPersistenceError::InvalidInput);

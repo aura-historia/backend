@@ -339,6 +339,7 @@ where
                         }
                     };
                     if !finalized {
+                        self.repair_if_grant_lost_fence(&mut tx, claim).await?;
                         tx.commit()
                             .await
                             .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
@@ -555,6 +556,7 @@ fn definite_no_write_reason(error: MarketingEmailConsentError) -> Option<&'stati
         MarketingEmailConsentError::Rejected { .. } => Some("PROVIDER_REJECTED"),
         MarketingEmailConsentError::Throttled { .. } => Some("THROTTLED"),
         MarketingEmailConsentError::ReadUnavailable => Some("PREWRITE_READ_UNAVAILABLE"),
+        MarketingEmailConsentError::PreWriteProtocol { .. } => Some("PREWRITE_PROTOCOL"),
         MarketingEmailConsentError::InvalidEmail => Some("INVALID_EMAIL"),
         MarketingEmailConsentError::AcceptanceUnknown
         | MarketingEmailConsentError::Protocol { .. }
@@ -576,30 +578,66 @@ mod tests {
     };
     use user_core::user_id::UserId;
 
-    struct TestTx;
+    struct TestTx {
+        commits: Arc<AtomicUsize>,
+        unconfirmed_commit: Option<usize>,
+    }
 
     #[async_trait::async_trait]
     impl Transaction for TestTx {
         async fn commit(self) -> Result<(), TransactionError> {
-            Ok(())
+            let commit_number = self.commits.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.unconfirmed_commit == Some(commit_number) {
+                // Model a commit that reached PostgreSQL but whose response was lost.
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
         }
     }
 
-    struct TestUnitOfWork;
+    #[derive(Default)]
+    struct TestUnitOfWork {
+        commits: Arc<AtomicUsize>,
+        unconfirmed_commit: Option<usize>,
+    }
+
+    impl TestUnitOfWork {
+        fn with_unconfirmed_commit(commit_number: usize) -> Self {
+            Self {
+                commits: Arc::new(AtomicUsize::new(0)),
+                unconfirmed_commit: Some(commit_number),
+            }
+        }
+    }
 
     #[async_trait::async_trait]
     impl UnitOfWork for TestUnitOfWork {
         type Tx = TestTx;
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            Ok(TestTx)
+            Ok(TestTx {
+                commits: Arc::clone(&self.commits),
+                unconfirmed_commit: self.unconfirmed_commit,
+            })
         }
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct RecordedFinalization {
+        status: &'static str,
+        provider_contact_id: Option<String>,
+        error_code: Option<String>,
+        completed_at: OffsetDateTime,
     }
 
     struct TestWorker {
         claims: Mutex<Vec<ConsentWorkerClaimOutcome>>,
         rechecks: Mutex<Vec<ConsentWorkerRecheckOutcome>>,
         finalizations: Mutex<Vec<&'static str>>,
+        finalization_calls: Mutex<Vec<RecordedFinalization>>,
+        finalization_failures: Mutex<usize>,
+        finalization_results: Mutex<Vec<bool>>,
         releases: Mutex<Vec<String>>,
     }
 
@@ -612,6 +650,9 @@ mod tests {
                 claims: Mutex::new(claims.into_iter().collect()),
                 rechecks: Mutex::new(rechecks.into_iter().collect()),
                 finalizations: Mutex::new(Vec::new()),
+                finalization_calls: Mutex::new(Vec::new()),
+                finalization_failures: Mutex::new(0),
+                finalization_results: Mutex::new(Vec::new()),
                 releases: Mutex::new(Vec::new()),
             }
         }
@@ -640,15 +681,42 @@ mod tests {
             _: &mut TestTx,
             _: &ConsentWorkerClaim,
             result: ConsentWorkerFinalization<'_>,
-            _: OffsetDateTime,
+            completed_at: OffsetDateTime,
         ) -> Result<bool, MarketingConsentIntentError> {
-            let label = match result {
-                ConsentWorkerFinalization::Applied { .. } => "APPLIED",
-                ConsentWorkerFinalization::Failed { .. } => "FAILED",
-                ConsentWorkerFinalization::Blocked { .. } => "BLOCKED",
+            let (label, provider_contact_id, error_code) = match result {
+                ConsentWorkerFinalization::Applied {
+                    provider_contact_id,
+                } => ("APPLIED", provider_contact_id.map(str::to_owned), None),
+                ConsentWorkerFinalization::Failed { error_code } => {
+                    ("FAILED", None, Some(error_code.to_owned()))
+                }
+                ConsentWorkerFinalization::Blocked { error_code } => {
+                    ("BLOCKED", None, Some(error_code.to_owned()))
+                }
             };
             self.finalizations.lock().unwrap().push(label);
-            Ok(true)
+            self.finalization_calls
+                .lock()
+                .unwrap()
+                .push(RecordedFinalization {
+                    status: label,
+                    provider_contact_id,
+                    error_code,
+                    completed_at,
+                });
+            let mut failures = self.finalization_failures.lock().unwrap();
+            if *failures > 0 {
+                *failures -= 1;
+                return Err(MarketingConsentIntentError::TemporarilyUnavailable {
+                    source: application::error::static_error("scripted finalization failure"),
+                });
+            }
+            let mut results = self.finalization_results.lock().unwrap();
+            Ok(if results.is_empty() {
+                true
+            } else {
+                results.remove(0)
+            })
         }
 
         async fn release_for_retry(
@@ -770,8 +838,9 @@ mod tests {
 
     struct TestProvider {
         states: Mutex<Vec<MarketingEmailSubscriptionState>>,
-        grant: Result<MarketingEmailConsentOutcome, MarketingEmailConsentError>,
+        grant_results: Mutex<Vec<Result<MarketingEmailConsentOutcome, MarketingEmailConsentError>>>,
         grants: AtomicUsize,
+        grant_writes: AtomicUsize,
         revokes: AtomicUsize,
     }
 
@@ -782,8 +851,24 @@ mod tests {
         ) -> Self {
             Self {
                 states: Mutex::new(states.into_iter().collect()),
-                grant,
+                grant_results: Mutex::new(vec![grant]),
                 grants: AtomicUsize::new(0),
+                grant_writes: AtomicUsize::new(0),
+                revokes: AtomicUsize::new(0),
+            }
+        }
+
+        fn with_grant_results(
+            states: impl IntoIterator<Item = MarketingEmailSubscriptionState>,
+            grant_results: impl IntoIterator<
+                Item = Result<MarketingEmailConsentOutcome, MarketingEmailConsentError>,
+            >,
+        ) -> Self {
+            Self {
+                states: Mutex::new(states.into_iter().collect()),
+                grant_results: Mutex::new(grant_results.into_iter().collect()),
+                grants: AtomicUsize::new(0),
+                grant_writes: AtomicUsize::new(0),
                 revokes: AtomicUsize::new(0),
             }
         }
@@ -804,7 +889,16 @@ mod tests {
             _: &ConsentIntent,
         ) -> Result<MarketingEmailConsentOutcome, MarketingEmailConsentError> {
             self.grants.fetch_add(1, Ordering::SeqCst);
-            self.grant.clone()
+            let result = self.grant_results.lock().unwrap().remove(0);
+            if matches!(
+                result,
+                Ok(_)
+                    | Err(MarketingEmailConsentError::AcceptanceUnknown)
+                    | Err(MarketingEmailConsentError::Protocol { .. })
+            ) {
+                self.grant_writes.fetch_add(1, Ordering::SeqCst);
+            }
+            result
         }
 
         async fn revoke(
@@ -862,7 +956,7 @@ mod tests {
         );
         let repairs = Arc::new(AtomicUsize::new(0));
         let use_case = SyncMarketingConsentIntentHandler::new(
-            TestUnitOfWork,
+            TestUnitOfWork::default(),
             worker,
             TestIntentsFactory {
                 repairs: Arc::clone(&repairs),
@@ -892,7 +986,7 @@ mod tests {
         );
         let repairs = Arc::new(AtomicUsize::new(0));
         let use_case = SyncMarketingConsentIntentHandler::new(
-            TestUnitOfWork,
+            TestUnitOfWork::default(),
             worker,
             TestIntentsFactory {
                 repairs: Arc::clone(&repairs),
@@ -926,6 +1020,187 @@ mod tests {
         assert_eq!(vec!["THROTTLED"], *use_case.worker.releases.lock().unwrap());
     }
 
+    #[tokio::test]
+    async fn prewrite_protocol_failure_releases_and_recovers_without_losing_the_grant() {
+        let claim = test_claim(1);
+        let mut retry_claim = claim.clone();
+        retry_claim.attempt_count = 2;
+        retry_claim.prior_attempt_write_ambiguous = false;
+        let worker = TestWorker::new(
+            [
+                ConsentWorkerClaimOutcome::Claimed(claim.clone()),
+                ConsentWorkerClaimOutcome::Claimed(retry_claim),
+            ],
+            [
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+            ],
+        );
+        let provider = TestProvider::with_grant_results(
+            [],
+            [
+                Err(MarketingEmailConsentError::PreWriteProtocol { status: Some(401) }),
+                Ok(MarketingEmailConsentOutcome::Applied {
+                    contact_id: "contact-123".into(),
+                }),
+            ],
+        );
+        let use_case = handler(worker, provider);
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Retryable),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(
+            vec!["PREWRITE_PROTOCOL"],
+            *use_case.worker.releases.lock().unwrap()
+        );
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Applied),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(2, use_case.provider.grants.load(Ordering::SeqCst));
+        assert_eq!(1, use_case.provider.grant_writes.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn postwrite_protocol_failure_reconciles_instead_of_releasing_as_no_write() {
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+            ],
+        );
+        let provider = TestProvider::new(
+            [MarketingEmailSubscriptionState::Present {
+                contact_id: "contact-123".into(),
+                globally_subscribed: true,
+                on_target_list: true,
+                suppressed: false,
+            }],
+            Err(MarketingEmailConsentError::Protocol { status: Some(200) }),
+        );
+        let use_case = handler(worker, provider);
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Applied),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        assert!(use_case.worker.releases.lock().unwrap().is_empty());
+        assert_eq!(
+            vec!["APPLIED"],
+            *use_case.worker.finalizations.lock().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn lost_finalize_commit_replays_the_same_receipt_without_another_provider_grant() {
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+            ],
+        );
+        let provider = TestProvider::new(
+            [],
+            Ok(MarketingEmailConsentOutcome::Applied {
+                contact_id: "contact-123".into(),
+            }),
+        );
+        let uow = TestUnitOfWork::with_unconfirmed_commit(3);
+        let commits = Arc::clone(&uow.commits);
+        let use_case = SyncMarketingConsentIntentHandler::new(
+            uow,
+            worker,
+            TestIntentsFactory {
+                repairs: Arc::new(AtomicUsize::new(0)),
+            },
+            provider,
+        );
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Applied),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        assert_eq!(4, commits.load(Ordering::SeqCst));
+        let calls = use_case.worker.finalization_calls.lock().unwrap();
+        assert_eq!(2, calls.len());
+        assert_eq!(calls[0], calls[1]);
+        assert_eq!("APPLIED", calls[0].status);
+        assert_eq!(Some("contact-123".to_owned()), calls[0].provider_contact_id);
+    }
+
+    #[tokio::test]
+    async fn unconfirmed_finalize_replays_the_exact_result_without_another_provider_grant() {
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+            ],
+        );
+        *worker.finalization_failures.lock().unwrap() = 1;
+        let provider = TestProvider::new(
+            [],
+            Ok(MarketingEmailConsentOutcome::Applied {
+                contact_id: "contact-123".into(),
+            }),
+        );
+        let use_case = handler(worker, provider);
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Applied),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        let calls = use_case.worker.finalization_calls.lock().unwrap();
+        assert_eq!(2, calls.len());
+        assert_eq!(calls[0], calls[1]);
+    }
+
+    #[tokio::test]
+    async fn lost_lease_finalize_false_defers_and_checks_for_a_raced_grant_repair() {
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+                ConsentWorkerRecheckOutcome::Ready(claim.intent.clone()),
+            ],
+        );
+        worker.finalization_results.lock().unwrap().push(false);
+        let provider = TestProvider::new(
+            [],
+            Ok(MarketingEmailConsentOutcome::Applied {
+                contact_id: "contact-123".into(),
+            }),
+        );
+        let repairs = Arc::new(AtomicUsize::new(0));
+        let use_case = SyncMarketingConsentIntentHandler::new(
+            TestUnitOfWork::default(),
+            worker,
+            TestIntentsFactory {
+                repairs: Arc::clone(&repairs),
+            },
+            provider,
+        );
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Deferred),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        assert_eq!(1, repairs.load(Ordering::SeqCst));
+    }
+
     fn handler(
         worker: TestWorker,
         provider: TestProvider,
@@ -936,7 +1211,7 @@ mod tests {
         TestProvider,
     > {
         SyncMarketingConsentIntentHandler::new(
-            TestUnitOfWork,
+            TestUnitOfWork::default(),
             worker,
             TestIntentsFactory {
                 repairs: Arc::new(AtomicUsize::new(0)),

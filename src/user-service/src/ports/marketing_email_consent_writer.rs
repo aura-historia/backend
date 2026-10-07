@@ -38,6 +38,8 @@ pub enum MarketingEmailConsentError {
     AcceptanceUnknown,
     #[error("marketing consent provider read unavailable")]
     ReadUnavailable,
+    #[error("marketing consent provider protocol/config failure before write (status {status:?})")]
+    PreWriteProtocol { status: Option<u16> },
     #[error("marketing consent provider protocol/config failure (status {status:?})")]
     Protocol { status: Option<u16> },
 }
