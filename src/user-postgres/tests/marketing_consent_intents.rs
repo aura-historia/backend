@@ -96,6 +96,21 @@ async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
     );
     tx.commit().await.unwrap();
 
+    // The caller retries this exact release after an unconfirmed commit response.
+    // The persisted marker is confirmation, even though the live lease is gone.
+    let mut replay_tx = uow.begin().await.unwrap();
+    assert!(
+        MarketingConsentIntentWorker::release_for_retry(
+            &worker,
+            &mut replay_tx,
+            &claim,
+            "THROTTLED"
+        )
+        .await
+        .unwrap()
+    );
+    replay_tx.commit().await.unwrap();
+
     let persisted: (String, Option<String>, i32) = sqlx::query_as(
         "SELECT status, last_error_code, attempt_count FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
     )
@@ -118,6 +133,19 @@ async fn definite_no_write_release_preserves_exact_id_for_safe_retry() {
     assert_eq!(2, retried.attempt_count);
     assert!(!retried.prior_attempt_write_ambiguous);
     tx.commit().await.unwrap();
+
+    let mut stale_release_tx = uow.begin().await.unwrap();
+    assert!(
+        !MarketingConsentIntentWorker::release_for_retry(
+            &worker,
+            &mut stale_release_tx,
+            &claim,
+            "THROTTLED"
+        )
+        .await
+        .unwrap()
+    );
+    stale_release_tx.commit().await.unwrap();
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

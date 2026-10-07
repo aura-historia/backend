@@ -373,24 +373,32 @@ where
         claim: &ConsentWorkerClaim,
         reason_code: &str,
     ) -> Result<SyncMarketingConsentIntentResult, SyncMarketingConsentIntentError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
-        let released = self
-            .worker
-            .release_for_retry(&mut tx, claim, reason_code)
-            .await
-            .map_err(map_persistence_error)?;
-        tx.commit()
-            .await
-            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
-        Ok(if released {
-            SyncMarketingConsentIntentResult::Retryable
-        } else {
-            SyncMarketingConsentIntentResult::Deferred
-        })
+        // A commit error has an unknown outcome. Retry this exact lease/reason in a
+        // fresh transaction: persistence confirms an already-committed marker or
+        // reapplies the release if the first transaction rolled back.
+        for _ in 0..2 {
+            let mut tx = self
+                .unit_of_work
+                .begin()
+                .await
+                .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            let released = self
+                .worker
+                .release_for_retry(&mut tx, claim, reason_code)
+                .await
+                .map_err(map_persistence_error)?;
+            if !released {
+                tx.commit()
+                    .await
+                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                return Ok(SyncMarketingConsentIntentResult::Deferred);
+            }
+            match tx.commit().await {
+                Ok(()) => return Ok(SyncMarketingConsentIntentResult::Retryable),
+                Err(_) => continue,
+            }
+        }
+        Err(SyncMarketingConsentIntentError::Transaction)
     }
 
     async fn finalize(
@@ -639,6 +647,7 @@ mod tests {
         finalization_failures: Mutex<usize>,
         finalization_results: Mutex<Vec<bool>>,
         releases: Mutex<Vec<String>>,
+        release_calls: Mutex<Vec<RecordedRelease>>,
     }
 
     impl TestWorker {
@@ -654,8 +663,17 @@ mod tests {
                 finalization_failures: Mutex::new(0),
                 finalization_results: Mutex::new(Vec::new()),
                 releases: Mutex::new(Vec::new()),
+                release_calls: Mutex::new(Vec::new()),
             }
         }
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct RecordedRelease {
+        intent_id: MarketingConsentSyncIntentId,
+        lease_token: String,
+        attempt_count: u32,
+        reason_code: String,
     }
 
     #[async_trait::async_trait]
@@ -722,10 +740,16 @@ mod tests {
         async fn release_for_retry(
             &self,
             _: &mut TestTx,
-            _: &ConsentWorkerClaim,
+            claim: &ConsentWorkerClaim,
             reason_code: &str,
         ) -> Result<bool, MarketingConsentIntentError> {
             self.releases.lock().unwrap().push(reason_code.to_owned());
+            self.release_calls.lock().unwrap().push(RecordedRelease {
+                intent_id: claim.intent.intent_id,
+                lease_token: claim.lease_token.clone(),
+                attempt_count: claim.attempt_count,
+                reason_code: reason_code.to_owned(),
+            });
             Ok(true)
         }
     }
@@ -842,6 +866,7 @@ mod tests {
         grants: AtomicUsize,
         grant_writes: AtomicUsize,
         revokes: AtomicUsize,
+        state_reads: AtomicUsize,
     }
 
     impl TestProvider {
@@ -855,6 +880,7 @@ mod tests {
                 grants: AtomicUsize::new(0),
                 grant_writes: AtomicUsize::new(0),
                 revokes: AtomicUsize::new(0),
+                state_reads: AtomicUsize::new(0),
             }
         }
 
@@ -870,6 +896,7 @@ mod tests {
                 grants: AtomicUsize::new(0),
                 grant_writes: AtomicUsize::new(0),
                 revokes: AtomicUsize::new(0),
+                state_reads: AtomicUsize::new(0),
             }
         }
     }
@@ -880,6 +907,7 @@ mod tests {
             &self,
             _: &Email,
         ) -> Result<MarketingEmailSubscriptionState, MarketingEmailConsentError> {
+            self.state_reads.fetch_add(1, Ordering::SeqCst);
             let mut states = self.states.lock().unwrap();
             Ok(states.remove(0))
         }
@@ -1018,6 +1046,47 @@ mod tests {
             use_case.execute(claim.intent.intent_id).await
         );
         assert_eq!(vec!["THROTTLED"], *use_case.worker.releases.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn unconfirmed_no_write_release_replays_same_marker_without_ambiguous_reconciliation() {
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [ConsentWorkerRecheckOutcome::Ready(claim.intent.clone())],
+        );
+        let provider = TestProvider::new(
+            [],
+            Err(MarketingEmailConsentError::Throttled { status: Some(429) }),
+        );
+        // Claim and preflight commits are 1 and 2; commit 3 is the release whose
+        // response is lost after PostgreSQL committed. Commit 4 confirms its replay.
+        let uow = TestUnitOfWork::with_unconfirmed_commit(3);
+        let commits = Arc::clone(&uow.commits);
+        let use_case = SyncMarketingConsentIntentHandler::new(
+            uow,
+            worker,
+            TestIntentsFactory {
+                repairs: Arc::new(AtomicUsize::new(0)),
+            },
+            provider,
+        );
+
+        assert_eq!(
+            Ok(SyncMarketingConsentIntentResult::Retryable),
+            use_case.execute(claim.intent.intent_id).await
+        );
+        assert_eq!(4, commits.load(Ordering::SeqCst));
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        assert_eq!(0, use_case.provider.grant_writes.load(Ordering::SeqCst));
+        assert_eq!(0, use_case.provider.state_reads.load(Ordering::SeqCst));
+
+        let release_calls = use_case.worker.release_calls.lock().unwrap();
+        assert_eq!(2, release_calls.len());
+        assert_eq!(release_calls[0], release_calls[1]);
+        assert_eq!(claim.lease_token, release_calls[0].lease_token);
+        assert_eq!(claim.attempt_count, release_calls[0].attempt_count);
+        assert_eq!("THROTTLED", release_calls[0].reason_code);
     }
 
     #[tokio::test]

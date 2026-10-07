@@ -253,7 +253,9 @@ pub trait MarketingConsentIntentWorker<Tx>: Send + Sync {
 
     /// Return a definitively non-writing attempt to PENDING so its exact wake-up can retry.
     /// The implementation records a retry marker which distinguishes this case from an
-    /// abandoned lease when the next claim is made.
+    /// abandoned lease when the next claim is made. Repeating the same lease/reason after an
+    /// unconfirmed commit must confirm the matching marker or reapply the release if it rolled
+    /// back; an older claim must not confirm a later attempt's marker.
     async fn release_for_retry(
         &self,
         tx: &mut Tx,

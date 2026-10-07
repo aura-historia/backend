@@ -1508,6 +1508,38 @@ impl SqlxMarketingConsentIntentWorker {
         let marker = format!("{RETRY_NO_WRITE_PREFIX}{reason_code}");
         let conn = tx.connection();
         lock_recipient(&mut *conn, &claim.intent.recipient_key).await?;
+        // A release commit can succeed while its response is lost. Treat the exact
+        // pending marker for this attempt as an idempotent confirmation; attempt_count
+        // prevents an old claim from confirming a later retry's release.
+        let sql = format!(
+            "SELECT EXISTS (SELECT 1 FROM {TABLE} WHERE intent_id = $1 AND status = 'PENDING' AND last_error_code = $2 AND attempt_count = $3 AND completed_lease_token IS NULL AND completed_at IS NULL AND completion_status IS NULL AND provider_contact_id IS NULL AND email = $4 AND recipient_key = $5 AND desired = $6 AND source = $7 AND subject_type = $8 AND user_id IS NOT DISTINCT FROM $9 AND source_key = $10 AND consent_revision IS NOT DISTINCT FROM $11 AND changed_at = $12 AND not_after IS NOT DISTINCT FROM $13)"
+        );
+        let replay: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+            .bind(claim.intent.intent_id.as_uuid())
+            .bind(&marker)
+            .bind(claim.attempt_count)
+            .bind::<&str>(claim.intent.email.as_ref())
+            .bind(&claim.intent.recipient_key)
+            .bind(claim.intent.desired)
+            .bind(claim.intent.source.as_str())
+            .bind(match claim.intent.subject {
+                ConsentSubject::User(_) => "USER",
+                ConsentSubject::EmailOnly => "EMAIL_ONLY",
+            })
+            .bind(match claim.intent.subject {
+                ConsentSubject::User(id) => Some(*id.as_uuid()),
+                ConsentSubject::EmailOnly => None,
+            })
+            .bind(&claim.intent.source_key)
+            .bind(claim.intent.consent_revision)
+            .bind(claim.intent.changed_at)
+            .bind(claim.intent.not_after)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+        if replay {
+            return Ok(true);
+        }
         let sql = format!(
             "UPDATE {TABLE} SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = clock_timestamp() WHERE intent_id = $1 AND status = 'IN_PROGRESS' AND lease_token = $2 AND lease_expires_at > clock_timestamp()"
         );
