@@ -9,6 +9,8 @@ admin-overview-service = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-sesv2 = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 application = { workspace = true }
 auction-core = { workspace = true }
@@ -77,6 +79,7 @@ tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }
 user-cognito = { workspace = true }
+user-email-aws = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
 user-loops = { workspace = true }

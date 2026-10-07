@@ -1,5 +1,6 @@
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
+use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use auction_postgres::{
     SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
@@ -172,8 +173,7 @@ use user_core::access_token::{
 use user_core::tier::UserTier;
 use user_service::ports::{
     AccessTokenRepository, AccessTokenRepositoryFactory, CognitoIdentity, CognitoIssuer,
-    CognitoSubject, NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
-    UserSessionRevocationError, UserSessionRevoker,
+    CognitoSubject, UserSessionRevocationError, UserSessionRevoker,
 };
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -185,7 +185,6 @@ use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::revoke_user_sessions::RevokeUserSessionsHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
-use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionHandler;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
@@ -193,7 +192,12 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use user_service::use_cases::{AuthenticateUserHandler, SuspendUserHandler, UnsuspendUserHandler};
+use user_service::use_cases::{
+    AuthenticateUserHandler, ConfirmNewsletterSubscriptionError,
+    ConfirmNewsletterSubscriptionUseCase, RequestNewsletterSubscriptionCommand,
+    RequestNewsletterSubscriptionError, RequestNewsletterSubscriptionUseCase, SuspendUserHandler,
+    UnsuspendUserHandler,
+};
 use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
@@ -279,14 +283,25 @@ impl StripePortalSessionCreator for TestStripeBilling {
 }
 
 #[derive(Clone, Copy)]
-struct SuccessfulNewsletterWriter;
+struct SuccessfulNewsletterRequest;
 
 #[async_trait::async_trait]
-impl NewsletterSubscriptionWriter for SuccessfulNewsletterWriter {
-    async fn upsert(
+impl RequestNewsletterSubscriptionUseCase for SuccessfulNewsletterRequest {
+    async fn execute(
         &self,
-        _subscription: &user_core::newsletter_subscription::NewsletterSubscription,
-    ) -> Result<(), NewsletterSubscriptionWriteError> {
+        _context: &OperationContext,
+        _command: RequestNewsletterSubscriptionCommand,
+    ) -> Result<(), RequestNewsletterSubscriptionError> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SuccessfulNewsletterConfirmation;
+
+#[async_trait::async_trait]
+impl ConfirmNewsletterSubscriptionUseCase for SuccessfulNewsletterConfirmation {
+    async fn execute(&self, _token: &str) -> Result<(), ConfirmNewsletterSubscriptionError> {
         Ok(())
     }
 }
@@ -1920,10 +1935,8 @@ async fn test_state(
         .with_partnerships(partnerships_state)
         .with_listing_sources(listing_sources_state)
         .with_newsletter(NewsletterState::new(
-            Arc::new(UpsertNewsletterSubscriptionHandler::new(
-                user_postgres::SqlxNewsletterProfileReader::new(get_postgres_client().await),
-                SuccessfulNewsletterWriter,
-            )),
+            Arc::new(SuccessfulNewsletterRequest),
+            Arc::new(SuccessfulNewsletterConfirmation),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_products(products_state)

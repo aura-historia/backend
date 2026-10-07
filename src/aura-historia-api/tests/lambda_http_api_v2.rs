@@ -65,6 +65,78 @@ async fn should_traverse_the_composed_public_router_from_an_http_api_v2_event() 
         assert_eq!(response_data["size"], 0);
         assert_eq!(response_data["items"], serde_json::json!([]));
 
+        let mut newsletter_request = http_api_v2_json_request(
+            "PUT",
+            "/api/v1/newsletter-subscriptions",
+            "",
+            r#"{"email":"collector@example.com"}"#,
+        )?;
+        newsletter_request
+            .headers_mut()
+            .remove(axum::http::header::AUTHORIZATION);
+        let newsletter_response =
+            handle_http_api_v2_request(app.clone(), newsletter_request).await?;
+        assert_eq!(StatusCode::NO_CONTENT, newsletter_response.status());
+        assert_eq!(
+            Some("no-store"),
+            newsletter_response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+        assert!(
+            to_bytes(newsletter_response.into_body(), usize::MAX)
+                .await?
+                .is_empty()
+        );
+
+        let mut confirmation_request = http_api_v2_json_request(
+            "POST",
+            "/api/v1/newsletter-subscriptions/confirm",
+            "",
+            r#"{"token":"opaque-confirmation-token"}"#,
+        )?;
+        confirmation_request
+            .headers_mut()
+            .remove(axum::http::header::AUTHORIZATION);
+        let confirmation_response =
+            handle_http_api_v2_request(app.clone(), confirmation_request).await?;
+        assert_eq!(StatusCode::NO_CONTENT, confirmation_response.status());
+        assert_eq!(
+            Some("no-store"),
+            confirmation_response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+        assert!(
+            to_bytes(confirmation_response.into_body(), usize::MAX)
+                .await?
+                .is_empty()
+        );
+
+        let mut invalid_newsletter_request = http_api_v2_json_request(
+            "POST",
+            "/api/v1/newsletter-subscriptions/confirm",
+            "",
+            r#"{"token":"opaque-confirmation-token","extra":true}"#,
+        )?;
+        invalid_newsletter_request
+            .headers_mut()
+            .remove(axum::http::header::AUTHORIZATION);
+        let invalid_newsletter_response =
+            handle_http_api_v2_request(app.clone(), invalid_newsletter_request).await?;
+        assert_eq!(
+            StatusCode::BAD_REQUEST,
+            invalid_newsletter_response.status()
+        );
+        let invalid_newsletter_body =
+            to_bytes(invalid_newsletter_response.into_body(), usize::MAX).await?;
+        assert_eq!(
+            serde_json::json!("BAD_BODY_VALUE"),
+            serde_json::from_slice::<serde_json::Value>(&invalid_newsletter_body)?["error"]
+        );
+
         let mut invalid_auth_request = listing_sources_request()?;
         invalid_auth_request.headers_mut().insert(
             axum::http::header::AUTHORIZATION,
@@ -591,6 +663,24 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
         (
             aura_historia_api::LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
             LOOPS_WEBHOOK_SIGNING_SECRET,
+        ),
+        (
+            aura_historia_api::S3_BUCKET_NAME_TEMPLATES_ENV,
+            "lambda-test-mail-templates",
+        ),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
+            "Aura Historia <newsletter@example.test>",
+        ),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV,
+            "contact@example.test",
+        ),
+        (aura_historia_api::STAGE_ENV, "ephemeral"),
+        (aura_historia_api::COMMIT_SHA_ENV, "lambda-test-commit"),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
+            "http://127.0.0.1:3000",
         ),
     ]);
     ApiConfig::from_getter(|name| values.get(name).map(ToString::to_string))

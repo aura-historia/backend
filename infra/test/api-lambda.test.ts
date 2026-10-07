@@ -60,6 +60,10 @@ function expectedApiEnvironmentKeys(): string[] {
     "AURA_HISTORIA_COGNITO_USER_POOL_ID",
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
+    "COMMIT_SHA",
+    "NEWSLETTER_CONFIRMATION_EMAIL_FROM",
+    "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO",
+    "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN",
     "OPENSEARCH_ENDPOINT_URL",
     "PRODUCT_LISTING_INGESTION_QUEUE_URL",
     "POSTGRES_DATABASE",
@@ -67,6 +71,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "POSTGRES_MAX_CONNECTIONS",
     "POSTGRES_PORT",
     "POSTGRES_TLS_ROOT_CERT",
+    "S3_BUCKET_NAME_TEMPLATES",
     "STAGE",
     "STRIPE_API_KEY",
     "STRIPE_CHECKOUT_CANCEL_URL",
@@ -111,6 +116,15 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     });
     expect(JSON.stringify(functionResource.Properties.Code)).toContain(`aura-historia-api-${stage}-`);
     expect(environment.Variables.STAGE).toBe(stage);
+    expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });
+    expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-mail-templates-eu-central-1");
+    expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_FROM)
+      .toBe(`{{resolve:ssm:/notifications/${stage}/email-from}}`);
+    expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO)
+      .toBe(`{{resolve:ssm:/notifications/${stage}/email-reply-to}}`);
+    expect(environment.Variables.NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN).toBe(
+      stage === "prod" ? "https://aura-historia.com" : "https://stage.aura-historia.com",
+    );
     expect(environment.Variables.AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH).toBe("true");
     expect(environment.Variables.AURA_HISTORIA_COGNITO_ISSUER).toBeDefined();
     expect(environment.Variables.AURA_HISTORIA_COGNITO_JWKS_URL).toBeDefined();
@@ -232,6 +246,36 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       expect(JSON.stringify(functionResource.Properties)).not.toContain("/loops/");
       expect(JSON.stringify(functionResource.Properties)).not.toContain("loops.test");
     }
+  });
+
+  test("grants API only the newsletter templates and approved SES identity", () => {
+    const template = computeTemplate(stage);
+    const api = apiFunction(template, stage);
+    const roleId = (api.Properties.Role as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0];
+    const policies = Object.values(template.findResources("AWS::IAM::Policy")) as CloudFormationResource[];
+    const apiStatements = policies
+      .filter((policy) => (policy.Properties.Roles as Array<{ Ref: string }>).some((role) => role.Ref === roleId))
+      .flatMap((policy) => (policy.Properties.PolicyDocument as { Statement: Record<string, unknown>[] }).Statement);
+    const s3Statements = apiStatements.filter((statement) => JSON.stringify(statement.Action).includes("s3:"));
+    const sesStatements = apiStatements.filter((statement) => JSON.stringify(statement.Action).includes("ses:"));
+
+    expect(s3Statements).toHaveLength(1);
+    expect(s3Statements[0].Action).toBe("s3:GetObject");
+    expect(JSON.stringify(s3Statements[0].Resource)).toContain(
+      `${stage}/`,
+    );
+    expect(JSON.stringify(s3Statements[0].Resource)).toContain('{"Ref":"CommitSHA"}');
+    expect(JSON.stringify(s3Statements[0].Resource)).toContain(
+      "/mjml/newsletter/confirmation/*",
+    );
+    expect(JSON.stringify(s3Statements[0].Resource)).not.toContain("/mjml/*");
+    expect(JSON.stringify(s3Statements[0].Resource)).not.toContain("/newsletter/*");
+
+    expect(sesStatements).toHaveLength(1);
+    expect(sesStatements[0].Action).toBe("ses:SendEmail");
+    expect(JSON.stringify(sesStatements[0].Resource)).toContain("identity/notify.aura-historia.com");
+    expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("identity/*");
+    expect(JSON.stringify(sesStatements[0].Action)).not.toContain("ses:*");
   });
 
   test("keeps Vertex ADC configuration and permissions out of the projector", () => {

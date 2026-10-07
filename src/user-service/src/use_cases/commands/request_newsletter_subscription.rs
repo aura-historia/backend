@@ -31,6 +31,8 @@ pub enum RequestNewsletterSubscriptionError {
     InvalidPersistedState,
     #[error("newsletter confirmation email was definitely rejected")]
     EmailRejected,
+    #[error("newsletter confirmation email acceptance is unknown")]
+    EmailAcceptanceUnknown,
     #[error("newsletter confirmation token generation failed")]
     TokenGenerationFailed,
 }
@@ -205,6 +207,8 @@ where
 
         if outcome == NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
             Err(RequestNewsletterSubscriptionError::EmailRejected)
+        } else if outcome == NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown {
+            Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown)
         } else {
             Ok(())
         }
@@ -538,22 +542,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_outcomes_record_safe_status_and_definite_failure_is_categorized() {
-        for (outcome, status, should_succeed) in [
+    async fn send_outcomes_record_safe_status_and_categorize_non_successes() {
+        for (outcome, status, expected_error) in [
             (
                 NewsletterConfirmationEmailSendOutcome::Accepted,
                 NewsletterConfirmationSendStatus::Accepted,
-                true,
+                None,
             ),
             (
                 NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown,
                 NewsletterConfirmationSendStatus::AcceptanceUnknown,
-                true,
+                Some("unknown"),
             ),
             (
                 NewsletterConfirmationEmailSendOutcome::DefinitelyRejected,
                 NewsletterConfirmationSendStatus::DefinitelyRejected,
-                false,
+                Some("rejected"),
             ),
         ] {
             let state = Arc::new(Mutex::new(State {
@@ -564,15 +568,19 @@ mod tests {
             let result = handler(&state)
                 .execute(&context(Principal::Anonymous), command())
                 .await;
-            assert_eq!(should_succeed, result.is_ok());
-            if let Err(error) = result {
+            if let Err(error) = &result {
                 let message = format!("{error:?}");
                 assert!(!message.contains("requested-target@example.test"));
                 assert!(!message.contains("WlpaWlpa"));
-                assert!(matches!(
-                    error,
-                    RequestNewsletterSubscriptionError::EmailRejected
-                ));
+            }
+            match (result, expected_error) {
+                (Ok(()), None) => {}
+                (
+                    Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown),
+                    Some("unknown"),
+                )
+                | (Err(RequestNewsletterSubscriptionError::EmailRejected), Some("rejected")) => {}
+                (result, expected) => panic!("unexpected request result: {result:?}, {expected:?}"),
             }
             let state = lock(&state);
             assert_eq!(Some(status), state.send_status);

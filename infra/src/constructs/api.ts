@@ -90,6 +90,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/newsletter-subscriptions", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings", ["POST", "PATCH", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),

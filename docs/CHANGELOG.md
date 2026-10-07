@@ -2,6 +2,12 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-07 — Newsletter double opt-in API (#1945)
+
+- `PUT /api/v1/newsletter-subscriptions` always requests double opt-in, including for an authenticated user's exact account email. Optional bearer authentication supplies profile fallback only; invalid supplied credentials return 401. New and rate-suppressed requests return empty `204` with `Cache-Control: no-store`, without revealing account or pending state. The endpoint no longer writes directly to Loops.
+- Added anonymous `POST /api/v1/newsletter-subscriptions/confirm` with exactly `{"token":"..."}`. It returns empty `204` after the confirmation, consent-state, and asynchronous Loops intent transaction commits; retained confirmed-token replay is idempotent. GET does not confirm consent, and success does not mean Loops accepted the later update.
+- These small JSON bodies are limited to 8 KiB and confirmation tokens to 512 bytes. Invalid proof uses one generic `400 NEWSLETTER_CONFIRMATION_INVALID`; temporary persistence failures and ambiguous SES acceptance return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`; definite SES rejection and other internal failures return `500 NEWSLETTER_INTERNAL_ERROR`. Results are `no-store` and errors omit email, token, and provider details.
+
 ## 2026-10-07 — Signed Loops preference webhook (#1948)
 
 - Added anonymous `POST /api/v1/webhooks/loops`; it requires valid `webhook-id`, `webhook-timestamp`, and `webhook-signature` proof over the exact request bytes, with no Aura bearer. The body limit is 64 KiB and the processing budget is 10 seconds.

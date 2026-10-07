@@ -45,6 +45,7 @@ impl std::fmt::Display for NewsletterConfirmationEmailConfigError {
 
 impl std::error::Error for NewsletterConfirmationEmailConfigError {}
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct NewsletterConfirmationEmailConfig {
     bucket: String,
     from: String,

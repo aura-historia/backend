@@ -5,7 +5,7 @@ use test_api::{IntegrationTestService, aura_integration_test};
 use user_core::access_token::Scope;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_subscribe_to_newsletter_anonymously() {
+async fn should_request_newsletter_confirmation_anonymously() {
     let response = reqwest::Client::new()
         .put(format!(
             "{}/api/v1/newsletter-subscriptions",
@@ -23,10 +23,18 @@ async fn should_subscribe_to_newsletter_anonymously() {
         .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
 
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+    assert_eq!(
+        Some("no-store"),
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok())
+    );
+    assert!(response.bytes().await.unwrap_or_default().is_empty());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_subscribe_to_newsletter_with_aura_access_token() {
+async fn should_request_newsletter_confirmation_with_an_optional_bearer() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
@@ -34,18 +42,51 @@ async fn should_subscribe_to_newsletter_with_aura_access_token() {
     )
     .await;
 
+    let account_email = format!("{}@example.test", user_id.as_uuid());
+    for email in [account_email.as_str(), "alternate@example.com"] {
+        let response = reqwest::Client::new()
+            .put(format!(
+                "{}/api/v1/newsletter-subscriptions",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({ "email": email }))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
+
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_eq!(
+            Some("no-store"),
+            response
+                .headers()
+                .get("cache-control")
+                .and_then(|value| value.to_str().ok())
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_confirm_newsletter_subscription_anonymously() {
     let response = reqwest::Client::new()
-        .put(format!(
-            "{}/api/v1/newsletter-subscriptions",
+        .post(format!(
+            "{}/api/v1/newsletter-subscriptions/confirm",
             AURA_API.base_url()
         ))
-        .bearer_auth(String::from(token))
-        .json(&serde_json::json!({ "email": "member@example.com" }))
+        .json(&serde_json::json!({ "token": "opaque-confirmation-token" }))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to call newsletter API: {error}"));
 
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+    assert_eq!(
+        Some("no-store"),
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok())
+    );
+    assert!(response.bytes().await.unwrap_or_default().is_empty());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
