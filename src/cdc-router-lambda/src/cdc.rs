@@ -19,7 +19,7 @@ pub const MAX_CDC_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_CDC_JOBS: usize = 500;
 pub const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(8);
 const DMS_KINESIS_SOURCE: &str = "aws-dms-kinesis";
-const MARKETING_CONSENT_DMS_COLUMNS: [&str; 2] = ["sync_intent_id", "recipient_key"];
+const MARKETING_CONSENT_DMS_COLUMNS: [&str; 2] = ["intent_id", "recipient_key"];
 
 #[async_trait::async_trait]
 pub trait Publisher: Send + Sync {
@@ -813,7 +813,7 @@ mod tests {
         missing_id["data"]
             .as_object_mut()
             .unwrap()
-            .remove("sync_intent_id");
+            .remove("intent_id");
         assert!(
             router
                 .prepare_dms_kinesis_record(missing_id.to_string().as_bytes())
@@ -833,9 +833,9 @@ mod tests {
             );
         }
         for (field, value) in [
-            ("sync_intent_id", "usr_01h455vb4pex5vy7enb1p677vn"),
-            ("sync_intent_id", "01890a5d-ac96-474b-bf1d-d5586c639f75"),
-            ("intent_id", "01890a5d-ac96-774b-bf1d-d5586c639f75"),
+            ("intent_id", "usr_01h455vb4pex5vy7enb1p677vn"),
+            ("intent_id", "01890a5d-ac96-474b-bf1d-d5586c639f75"),
+            ("sync_intent_id", "01890a5d-ac96-774b-bf1d-d5586c639f75"),
             ("recipient_key", "short"),
             (
                 "recipient_key",

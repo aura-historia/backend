@@ -1129,7 +1129,7 @@ pub fn marketing_consent_sync_intent_created_job<O: RouteOperation>(
     change: &CdcChange<O>,
 ) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
     let row = required_row(change)?;
-    let uuid_text = required_string(row, "sync_intent_id")?;
+    let uuid_text = required_string(row, "intent_id")?;
     let uuid = parse_canonical_storage_uuid(
         &uuid_text,
         || CdcRouteError::InvalidMarketingConsentSyncIntentId,
@@ -1389,7 +1389,7 @@ mod tests {
             "marketing_email_consent_sync_intents",
             "insert",
             json!({
-                "sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             }),
         ))
@@ -1445,7 +1445,7 @@ mod tests {
             "marketing_email_consent_sync_intents",
             "insert",
             json!({
-                "sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             }),
         );
@@ -1453,7 +1453,7 @@ mod tests {
             "marketing_email_consent_sync_intents",
             "insert",
             json!({
-                "sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f76",
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f76",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             }),
         );
@@ -1461,7 +1461,7 @@ mod tests {
             "marketing_email_consent_sync_intents",
             "insert",
             json!({
-                "sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f77",
+                "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f77",
                 "recipient_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             }),
         );
@@ -1505,10 +1505,10 @@ mod tests {
 
         for record in [
             json!({"recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
-            json!({"sync_intent_id": "usr_01h455vb4pex5vy7enb1p677vn", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
-            json!({"sync_intent_id": "01890a5d-ac96-474b-bf1d-d5586c639f75", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
-            json!({"sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "short"}),
-            json!({"sync_intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
+            json!({"intent_id": "usr_01h455vb4pex5vy7enb1p677vn", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            json!({"intent_id": "01890a5d-ac96-474b-bf1d-d5586c639f75", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "short"}),
+            json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
         ] {
             assert!(
                 route_change(&change(

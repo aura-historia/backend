@@ -278,8 +278,7 @@ function tableMappings(): Record<string, unknown> {
     },
     {
       table: "marketing_email_consent_sync_intents",
-      // DMS permits only one transformation per column. Keep the two router
-      // fields by removing every other column, then rename intent_id once.
+      // Only the intent ID and opaque recipient key may enter Kinesis.
       removedColumns: [
         "intent_sequence",
         "source_key",
@@ -337,19 +336,6 @@ function tableMappings(): Record<string, unknown> {
     }
   }
 
-  rules.push({
-    "rule-type": "transformation",
-    "rule-id": nextRule(),
-    "rule-name": "rename-marketing-consent-intent-id",
-    "rule-target": "column",
-    "object-locator": {
-      "schema-name": "public",
-      "table-name": "marketing_email_consent_sync_intents",
-      "column-name": "intent_id",
-    },
-    "rule-action": "rename",
-    value: "sync_intent_id",
-  });
 
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },

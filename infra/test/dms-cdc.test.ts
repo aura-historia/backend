@@ -211,7 +211,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
 
     const consentColumnRules = mappings.rules.filter((rule) => {
       const locator = rule["object-locator"] as Record<string, string>;
-      return locator["table-name"] === "marketing_email_consent_sync_intents";
+      return rule["rule-type"] === "transformation" && locator["table-name"] === "marketing_email_consent_sync_intents";
     });
     const consentColumnTransforms = consentColumnRules.map((rule) => {
       const locator = rule["object-locator"] as Record<string, string>;
@@ -219,7 +219,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     });
     expect(consentColumnTransforms.some(({ action }) => action === "include-column")).toBe(false);
     expect(new Set(consentColumnTransforms.map(({ column }) => column)).size).toBe(consentColumnTransforms.length);
-    expect(consentColumnTransforms.filter(({ action }) => action === "rename")).toHaveLength(1);
+    expect(consentColumnTransforms.every(({ action }) => action === "remove-column")).toBe(true);
+    expect(consentColumnTransforms.some(({ column }) => column === "intent_id" || column === "recipient_key")).toBe(false);
     expect(consentColumnTransforms.filter(({ action }) => action === "remove-column").map(({ column }) => column).sort()).toEqual([
       "attempt_count",
       "changed_at",
@@ -244,16 +245,6 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "updated",
       "user_id",
     ]);
-    expect(consentColumnRules).toContainEqual(expect.objectContaining({
-      "rule-action": "rename",
-      "rule-target": "column",
-      "object-locator": expect.objectContaining({
-        "schema-name": "public",
-        "table-name": "marketing_email_consent_sync_intents",
-        "column-name": "intent_id",
-      }),
-      value: "sync_intent_id",
-    }));
 
     const removedColumns = mappings.rules
       .filter((rule) => rule["rule-action"] === "remove-column")
