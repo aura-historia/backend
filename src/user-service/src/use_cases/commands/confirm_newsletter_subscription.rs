@@ -6,6 +6,7 @@ use crate::ports::{
 use crate::use_cases::commands::coordinate_marketing_consent::{
     CoordinateMarketingConsentError, MarketingConsentCoordinator,
 };
+use crate::use_cases::commands::marketing_consent_evidence::wording_locale;
 use application::transaction::{Transaction, UnitOfWork};
 use serde_email::Email;
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
@@ -119,10 +120,10 @@ where
 
         // Only a binding discovered from this exact target mailbox is ownership
         // evidence. The requester ID is metadata and is never consulted here.
-        let bound_user_id = match challenge.bound_user_id {
+        let consent_user = match challenge.bound_user_id {
             Some(bound_user_id) => {
                 match find_user_by_id(&self.intents, &mut tx, bound_user_id).await? {
-                    Some(user) if exact_email(&user.email, &challenge.email) => Some(bound_user_id),
+                    Some(user) if exact_email(&user.email, &challenge.email) => Some(user),
                     Some(_) => {
                         self.challenges
                             .in_transaction(&mut tx)
@@ -147,13 +148,12 @@ where
                     }
                 }
             }
-            None => find_user_by_email(&self.intents, &mut tx, &challenge.email)
-                .await?
-                .map(|user| user.user_id),
+            None => find_user_by_email(&self.intents, &mut tx, &challenge.email).await?,
         };
+        let bound_user_id = consent_user.as_ref().map(|user| user.user_id);
 
-        let intent_id = MarketingConsentCoordinator::new(&mut tx, &self.intents)
-            .accepted_double_opt_in_with_profile(
+        let consent = MarketingConsentCoordinator::new(&mut tx, &self.intents)
+            .accepted_double_opt_in_with_profile_and_evidence(
                 confirmation_id_text,
                 challenge.email.clone(),
                 Some(challenge.profile.clone()),
@@ -161,6 +161,10 @@ where
             )
             .await
             .map_err(map_consent_error)?;
+        let intent_id = consent.intent_id;
+        let evidence = consent.evidence.map(|evidence| {
+            evidence.with_wording_locale(wording_locale(challenge.profile.language))
+        });
         self.challenges
             .in_transaction(&mut tx)
             .complete_confirmation(challenge.id, bound_user_id, intent_id, now)
@@ -169,7 +173,11 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)
+            .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        if let Some(evidence) = evidence {
+            evidence.emit_after_commit(None);
+        }
+        Ok(())
     }
 }
 

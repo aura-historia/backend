@@ -19,6 +19,7 @@ const GOOGLE_ADC_CREDENTIALS_FILE_NAME: &str = "application_default_credentials.
 
 fn main() -> Result<(), MainError> {
     let initialization_started_at = Instant::now();
+
     let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
     if is_lambda {
         materialize_google_application_credentials_from_env()?;

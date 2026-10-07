@@ -16,6 +16,7 @@ use user_service::use_cases::RegisterCognitoUserHandler;
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
+
     init(logging_config_from_env());
 
     let postgres = LambdaPostgresConfig::from_env()?;
