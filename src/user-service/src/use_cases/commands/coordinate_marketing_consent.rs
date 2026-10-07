@@ -1029,6 +1029,9 @@ mod tests {
                 user_id: id,
                 email: email("person@example.test"),
                 version: UserStorageVersion::INITIAL,
+                marketing_email_consent: false,
+                marketing_email_consent_revision: 0,
+                marketing_email_consent_changed_at: None,
             }),
             identity_user: Some(id),
             ..Default::default()

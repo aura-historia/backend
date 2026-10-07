@@ -63,6 +63,9 @@ pub struct ConsentUser {
     pub user_id: UserId,
     pub email: Email,
     pub version: UserStorageVersion,
+    pub marketing_email_consent: bool,
+    pub marketing_email_consent_revision: i64,
+    pub marketing_email_consent_changed_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -133,6 +136,16 @@ pub trait MarketingConsentIntents: Send {
         user: &ConsentUser,
         changed_at: OffsetDateTime,
     ) -> Result<(), MarketingConsentIntentError>;
+    /// Apply an explicitly verified provider resubscription to a registered exact
+    /// mailbox without creating an outbound synchronization intent. Implementations
+    /// must fence this update with the supplied User version.
+    async fn apply_provider_resubscription(
+        &mut self,
+        _user: &ConsentUser,
+        _changed_at: OffsetDateTime,
+    ) -> Result<(), MarketingConsentIntentError> {
+        Err(MarketingConsentIntentError::InvalidInput)
+    }
     /// Invalidate unsent and leased grants for this recipient; do not enqueue an echo.
     async fn cancel_provider_backsync(
         &mut self,
