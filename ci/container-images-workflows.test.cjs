@@ -584,6 +584,7 @@ for (const scenario of [
   { name: 'explicit all scope admits first-time compute and API', options: { absentStacks }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
   { name: 'foundation scope skips compute and API without comparing migration sources', options: { gitDiffExitCode: 128 }, env: { DEPLOY_SCOPE: 'foundation' }, expected: ['network', 'data', 'initialize'] },
   { name: 'production application deployment includes observability', options: {}, env: { STAGE: 'prod' }, expected: ['network', 'data', 'initialize', 'compute', 'api', 'observability'] },
+  { name: 'completed resource adoption admits application deployment', options: { stackStatuses: { compute: 'IMPORT_COMPLETE' } }, env: { DEPLOY_SCOPE: 'all' }, expected: ['network', 'data', 'initialize', 'compute', 'api'] },
 ]) {
   test(scenario.name, (t) => {
     const f = fixture(t, scenario.options);
@@ -662,7 +663,7 @@ test('stack permission errors halt before the DMS role or any deployment is chan
   assertNoMutation(f);
 });
 
-for (const status of ['CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_FAILED', 'CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS', 'REVIEW_IN_PROGRESS', 'DELETE_IN_PROGRESS']) {
+for (const status of ['CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_FAILED', 'CREATE_IN_PROGRESS', 'UPDATE_IN_PROGRESS', 'REVIEW_IN_PROGRESS', 'DELETE_IN_PROGRESS', 'IMPORT_IN_PROGRESS', 'IMPORT_ROLLBACK_IN_PROGRESS', 'IMPORT_ROLLBACK_FAILED', 'IMPORT_ROLLBACK_COMPLETE']) {
   test(`${status} stacks halt before any mutation, including foundation-only deployment`, (t) => {
     const f = fixture(t, { stackStatuses: { compute: status } });
     const result = f.deploy({ DEPLOY_SCOPE: 'foundation' });

@@ -227,8 +227,11 @@ Before a release adopts existing API/PostConfirmation evidence log groups, inspe
 selected templates and exact names/ownership from the Lambda construct. Do not
 let normal Deploy create colliding groups. Under separate approval, remove expiry
 without deleting events and execute an **import-only** change set for the two
-verified `AWS::Logs::LogGroup` resources, with no unrelated changes. Then review
-normal Deploy separately: no replacement/deletion, retention unset, retained
+verified `AWS::Logs::LogGroup` resources, with no unrelated changes. Require only
+`Import` actions before execution. `GetTemplate` can lose non-ASCII characters;
+verify the import template against deployed source and live configuration rather
+than assuming a lossless round trip. Then review normal Deploy separately:
+no replacement/deletion, retention unset, retained
 resources and exact retention-handler exemptions. Consent access/retention duties
 belong in [marketing consent](marketing-consent.md), not this ownership migration.
 
@@ -281,9 +284,11 @@ effects. Require separate prepared-change-set inspection when needed; environmen
 approval is not that inspection. This is not atomic across stacks and does not
 undo database writes, email/provider effects, external DNS or OpenSearch changes.
 
-Failed/in-progress/rollback-failed/import-only/empty-shell stacks need operator
-CloudFormation recovery before release. A usable `UPDATE_ROLLBACK_COMPLETE` may be
-retried after inspection; failed creation cannot simply be updated. Inventory
+Failed/in-progress/rollback-failed/incomplete-import/empty-shell stacks need operator
+CloudFormation recovery before release. A usable `UPDATE_ROLLBACK_COMPLETE` or
+`IMPORT_COMPLETE` may be deployed after inspecting resource ownership and stack
+completeness; status alone does not prove readiness. Failed creation cannot simply
+be updated. Inventory
 retained buckets, queues, repositories and log groups before cleanup/import;
 normal workflows neither import nor delete them. Inspect already active mappings
 and schedules after partial creation. If only output lookup failed, verify actual

@@ -22,7 +22,7 @@ for stack in "${stacks[@]}"; do
     --output json > "${stack}-stack.json" 2>stack-error.txt; then
     status="$(jq -er '.Stacks[0].StackStatus' "${stack}-stack.json")"
     case "$status" in
-      CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
+      CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE|IMPORT_COMPLETE) ;;
       *) echo "${stack} is ${status}; repair it before deployment." >&2; exit 1 ;;
     esac
     if [ "$stack" = compute ]; then application_exists=true; fi
