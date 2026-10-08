@@ -84,8 +84,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PrimaryUserPoolPreSignUpLambda",
     binaryName: "cognito-pre-sign-up",
     memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
     timeoutSeconds: 5,
-    environment: identityProviderLinkingEnvironment,
+    environment: providerSignupEnvironment,
   },
   shopify: {
     id: "ShopifyLambda",
@@ -672,13 +674,15 @@ export function grantCognitoFederatedLinkingAccess(functions: LambdaFunctions): 
   }));
 }
 
-function identityProviderLinkingEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
-    COGNITO_IDENTITY_PROVIDER_LINKING_POLICY: JSON.stringify(
+    COGNITO_PROVIDER_SIGNUP_POLICY: JSON.stringify(
       context.config.cognitoIdentityProviders.map((provider) => ({
         providerName: provider.providerName,
-        autoLinkVerifiedEmail: provider.autoLinkVerifiedEmail,
-        linkSourceAttributeName: provider.linkSourceAttributeName,
+        existingEmailAction: provider.existingEmailAction,
+        ...(provider.existingEmailAction === "LINK_VERIFIED"
+          ? { linkSourceAttributeName: provider.linkSourceAttributeName }
+          : {}),
       })),
     ),
   };

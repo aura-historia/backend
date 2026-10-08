@@ -140,6 +140,84 @@ identity mappings must be reset and registered against the new issuer/subjects;
 preserve Google linking and ordinary auth configuration. Do not infer consent
 for old users or silently replace/delete a production pool.
 
+### Federated provider signup
+
+The existing pool offers Google and Facebook through Cognito authorization-code
+OAuth. It does not add a Facebook API callback or accept provider tokens at Aura
+API routes. Google and Facebook both map a valid email for first-time
+federation; Cognito's provider verification assertion is preserved as supplied
+and is never manufactured by this backend. PostgreSQL's exact `users.email`
+lookup decides whether Aura already owns the address. A new row is allowed even
+when the provider email is not verified. Existing Google accounts link only
+when the incoming Google email is exactly verified, PostgreSQL has a valid
+same-pool Cognito binding, and Cognito resolves that bound `sub` to one profile
+whose exact email and verified state match. Existing Facebook email collisions
+are rejected and are never linked. A Cognito account whose profile includes a
+Facebook identity is not a Google-link destination later, even if its email is
+subsequently verified. A PostgreSQL email uniqueness conflict remains the
+final concurrent-signup barrier; investigate any losing Cognito
+identity through the documented account recovery process before cleanup or
+retry.
+
+If two first sign-ins race and PostgreSQL rejects the later post-confirmation
+registration with an email conflict, treat the losing Cognito identity as
+potentially retained: Cognito invokes `PostConfirmation_ConfirmSignUp` after
+the federated user is signed up. Verify the failed registration's immutable
+Cognito `sub` and exact issuer against PostgreSQL's `user_cognito_identities`
+table, and verify that this Cognito profile is not bound to any Aura User.
+Keep the existing PostgreSQL account and binding unchanged. Only after the
+profile is proven unbound may an operator with separately authorized Cognito
+administration remove that specific losing profile, identified by its `sub`,
+then allow the person to retry. Never select a deletion target by email, link a
+Facebook identity, or grant the pre-sign-up Lambda destructive Cognito access.
+If the subject, issuer, or binding cannot be verified, stop and escalate for
+identity recovery rather than deleting or retrying. See AWS's [post-confirmation
+trigger contract](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-post-confirmation.html).
+
+Before enabling a Facebook sign-in entry in a client, an operator must verify
+the Facebook Login use case, app mode set to Live, and `email` and
+`public_profile` permissions in Meta's app settings. Register these exact
+Meta Valid OAuth Redirect URIs:
+
+| Stage | Meta redirect URI |
+| --- | --- |
+| dev | `https://primary-userpool-dev.auth.eu-central-1.amazoncognito.com/oauth2/idpresponse` |
+| prod | `https://primary-userpool-prod.auth.eu-central-1.amazoncognito.com/oauth2/idpresponse` |
+
+These Meta-to-Cognito redirect URIs are distinct from the Cognito app-client
+callback URLs, which return the authorization response to the frontend.
+Business verification alone does not establish the Facebook Login use case,
+Live mode, permissions, or redirect configuration. The deployed Cognito
+provider reads the stage-specific Facebook App ID and App Secret from the SSM
+`String` parameters listed below; CDK does not create them or edit Meta
+configuration. Test the Cognito-hosted authorization flow after these checks.
+
+The Facebook provider pins Graph API `v26.0` in both stages. This selection was
+checked on 2026-10-08: Meta's version table lists v26.0, released 2026-07-29,
+as the current Graph API version, and Cognito's current user-pool social IdP
+guide recommends selecting the latest available Facebook API version because
+versions have separate lifecycles and attribute behavior. Cognito's provider
+configuration exposes the version as [`ProviderDetails.api_version`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_IdentityProviderType.html);
+the CDK synthesis test asserts that it emits `v26.0`. Review Meta's version
+table and rerun the hosted sign-in flow before changing this pin.
+
+- [Meta Graph API versions](https://developers.facebook.com/docs/graph-api/changelog/versions/)
+- [Cognito social identity provider setup](https://docs.aws.amazon.com/cognito/latest/developerguide/tutorial-create-user-pool-social-idp.html)
+
+`cognito-pre-sign-up` now uses the existing private application network and
+runtime PostgreSQL secret with one connection. Its Cognito timeout remains five
+seconds, and each invocation has a 4.2-second processing deadline. Live timing
+evidence is still outstanding; repository checks do not exercise the deployed
+VPC, secret refresh, database, or Cognito APIs. Keep issue #1925 open until
+repeated cold and warm dev measurements cover no-match Facebook, Facebook
+collision rejection, no-match Google, and Google linking. Record Lambda
+`InitDuration` and `Duration` with the safe `result_category`, `provider_name`
+and `duration_ms` logs for each path. Also verify fail-closed behavior for
+PostgreSQL, Cognito lookup, and Cognito linking failures. Do not deploy or
+enable this provider for rollout until the measurements and failure probes are
+recorded. Hold rollout if cold execution does not leave reliable margin under
+Cognito's fixed five-second deadline; do not increase the trigger timeout.
+
 PR/develop CI runs CDK build, tests, deployment-helper tests, and synthesis in
 `.github/workflows/cdk-test.yml` only when infrastructure, deployment helpers,
 workflow inputs, or files consumed by those checks change. MJML compilation runs
@@ -1028,6 +1106,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /certificates/{stage}/api-regional-certificate-arn
 /certificates/{stage}/api-cloudfront-certificate-arn
 /cognito/{stage}/identity-providers/google/{client-id,client-secret}
+/cognito/{stage}/identity-providers/facebook/{client-id,client-secret}
 /vertex-ai/{stage}/project-id
 /vertex-ai/{stage}/location
 /vertex-ai/{stage}/model
@@ -1039,7 +1118,7 @@ the API Lambda. Required paths are stage-specific for `prod` and `dev`:
 /loops/{stage}/webhook-signing-secret
 ```
 
-The Google Cognito identity provider resolves both its client ID and client secret from SSM `String` parameters. CloudFormation does not support `ssm-secure` in Cognito `ProviderDetails.client_secret`, so the client secret must be a plain `String`, not `SecureString`. Restrict SSM reads and CloudFormation/Cognito configuration access; never put the value in source, logs, or CLI arguments. Changing the SSM value alone does not update the deployed provider: deploy an identity-provider configuration change to re-resolve it before revoking an old Google client secret.
+Google and Facebook Cognito identity providers resolve their client IDs and client secrets from SSM `String` parameters. CloudFormation does not support `ssm-secure` in Cognito `ProviderDetails.client_secret`, so each client secret must be a plain `String`, not `SecureString`. Restrict SSM reads and CloudFormation/Cognito configuration access; never put credentials in source, logs, or CLI arguments. Changing an SSM value alone does not update the deployed provider: deploy an identity-provider configuration change to re-resolve it before revoking an old provider secret.
 
 The API Lambda, `product-embedding-lambda`, and `product-translation-lambda` resolve their scoped Vertex and Google ADC settings through CloudFormation dynamic references. Each writes the JSON to its private `/tmp` ADC file during startup; the raw JSON is neither packaged nor logged. Neither needs runtime SSM permission. The embedding Lambda receives only Vertex project/location and ADC, not a Vertex model, OpenSearch, SES, notification-delivery, or template configuration. The translation Lambda receives only Vertex project/location/model and ADC, PostgreSQL, and its source queue. The percolator receives Cloudflare account ID, model (`clef-flash` by default or `clef`), the service acceptance threshold, and its OpenSearch endpoint, username, and password. Its environment contains the API token's `SecureString` parameter name; at startup it reads the decrypted value with `ssm:GetParameter` under permission scoped to that parameter. The token value is never placed in the Lambda environment or logs. Rotating the token does not replace the copy held by an already warm Lambda process; recycle the percolator Lambda after rotation. Use the AWS-managed SSM key for the token parameter, or grant the exact KMS decrypt permission to both runtime roles if a customer-managed key is selected. The periodic matcher receives the same Cloudflare model/account configuration and injects the token as an ECS task secret. `product-listing-opensearch-lambda` receives none of the Vertex, Cloudflare, or Google ADC configuration and has no Google or SSM permission. It resolves the listed OpenSearch endpoint, username, and password in real stages.
 The initialization-stack `fxrate-lambda-<stage>` resolves `/fxratesapi/<stage>/api-token`.

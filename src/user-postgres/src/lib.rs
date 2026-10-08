@@ -1,5 +1,6 @@
 mod access_token_mapping;
 mod cognito_identity;
+mod federated_account_reader;
 mod loops_webhook_receipts;
 mod mapping;
 mod marketing_consent_intents;
@@ -8,6 +9,7 @@ mod readers;
 mod repositories;
 
 pub use cognito_identity::{SqlxCognitoUserIdentityReader, SqlxUserCognitoIdentityRegistryFactory};
+pub use federated_account_reader::SqlxFederatedAccountReader;
 pub use loops_webhook_receipts::SqlxLoopsWebhookReceiptRepository;
 pub use marketing_consent_intents::{
     ConsentIntentFinalization, ConsentIntentSource, ConsentIntentStatus, ConsentSubject,
