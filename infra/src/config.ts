@@ -45,6 +45,7 @@ export interface CognitoGoogleIdentityProviderConfig {
 export interface CognitoFacebookIdentityProviderConfig {
   readonly kind: "facebook";
   readonly providerName: "Facebook";
+  readonly apiVersion: "v26.0";
   readonly clientIdParameterName: string;
   readonly clientSecretParameterName: string;
   readonly scopes: readonly string[];
@@ -192,6 +193,7 @@ export function stageConfig(stage: StageName): StageConfig {
       {
         kind: "facebook",
         providerName: "Facebook",
+        apiVersion: "v26.0",
         clientIdParameterName: `/cognito/${stage}/identity-providers/facebook/client-id`,
         clientSecretParameterName: `/cognito/${stage}/identity-providers/facebook/client-secret`,
         scopes: ["email", "public_profile"],

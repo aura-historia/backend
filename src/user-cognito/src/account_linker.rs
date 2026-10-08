@@ -400,6 +400,8 @@ mod tests {
     struct FakeProvider {
         users: Vec<UserType>,
         has_more: bool,
+        search_failure: Option<CognitoAccountLinkError>,
+        link_failure: Option<CognitoAccountLinkError>,
         searches: Mutex<Vec<SearchCall>>,
         links: Mutex<Vec<LinkCall>>,
     }
@@ -420,6 +422,9 @@ mod tests {
                     filter: filter.to_owned(),
                     limit,
                 });
+            if let Some(error) = self.search_failure {
+                return Err(error);
+            }
             Ok(SubjectLookup {
                 users: self.users.clone(),
                 has_more: self.has_more,
@@ -437,7 +442,7 @@ mod tests {
                 source: source.clone(),
                 destination: destination.clone(),
             });
-            Ok(())
+            self.link_failure.map_or(Ok(()), Err)
         }
     }
 
@@ -508,6 +513,91 @@ mod tests {
             destination_subject,
             email,
         ))
+    }
+
+    #[test]
+    fn should_classify_retryable_and_deterministic_cognito_errors() {
+        for code in [
+            "InternalErrorException",
+            "TooManyRequestsException",
+            "LimitExceededException",
+            "ServiceUnavailableException",
+            "ThrottlingException",
+            "ConcurrentModificationException",
+        ] {
+            assert_eq!(
+                CognitoAccountLinkError::TemporarilyUnavailable,
+                classify_cognito_error_code(Some(code)),
+                "retryable Cognito error {code}"
+            );
+        }
+        assert_eq!(
+            CognitoAccountLinkError::TemporarilyUnavailable,
+            classify_cognito_error_code(None)
+        );
+        for code in ["InvalidParameterException", "NotAuthorizedException"] {
+            assert_eq!(
+                CognitoAccountLinkError::InvalidState,
+                classify_cognito_error_code(Some(code)),
+                "deterministic Cognito error {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_fail_closed_on_subject_lookup_errors_without_linking() {
+        for failure in [
+            CognitoAccountLinkError::TemporarilyUnavailable,
+            CognitoAccountLinkError::InvalidState,
+        ] {
+            let provider = Arc::new(FakeProvider {
+                search_failure: Some(failure),
+                ..FakeProvider::default()
+            });
+
+            assert_eq!(
+                Err(failure),
+                link(
+                    &linker(provider.clone()),
+                    &subject("canonical-sub"),
+                    "person@example.test"
+                )
+            );
+            assert_eq!(1, provider.searches.lock().expect("search mutex").len());
+            assert!(provider.links.lock().expect("link mutex").is_empty());
+        }
+    }
+
+    #[test]
+    fn should_fail_closed_when_admin_link_errors() {
+        for failure in [
+            CognitoAccountLinkError::TemporarilyUnavailable,
+            CognitoAccountLinkError::InvalidState,
+        ] {
+            let provider = Arc::new(FakeProvider {
+                users: vec![user(
+                    UserStatusType::Confirmed,
+                    "native-user",
+                    "canonical-sub",
+                    "person@example.test",
+                    "true",
+                    None,
+                )],
+                link_failure: Some(failure),
+                ..FakeProvider::default()
+            });
+
+            assert_eq!(
+                Err(failure),
+                link(
+                    &linker(provider.clone()),
+                    &subject("canonical-sub"),
+                    "person@example.test"
+                )
+            );
+            assert_eq!(1, provider.searches.lock().expect("search mutex").len());
+            assert_eq!(1, provider.links.lock().expect("link mutex").len());
+        }
     }
 
     #[test]

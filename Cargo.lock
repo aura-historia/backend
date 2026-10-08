@@ -1782,7 +1782,6 @@ dependencies = [
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
- "platform-postgres",
  "platform-postgres-secretsmanager",
  "serde-email",
  "serde_json",

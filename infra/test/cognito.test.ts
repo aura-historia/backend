@@ -113,6 +113,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ProviderDetails: {
         client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-id}}`,
         client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-secret}}`,
+        api_version: "v26.0",
         authorize_scopes: "email,public_profile",
       },
       AttributeMapping: {

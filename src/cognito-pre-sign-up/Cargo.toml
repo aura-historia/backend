@@ -11,7 +11,6 @@ aws_lambda_events = { workspace = true, features = ["cognito"] }
 lambda_runtime = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
-platform-postgres = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }

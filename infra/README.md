@@ -175,25 +175,48 @@ identity recovery rather than deleting or retrying. See AWS's [post-confirmation
 trigger contract](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-post-confirmation.html).
 
 Before enabling a Facebook sign-in entry in a client, an operator must verify
-the Facebook Login use case, app mode set to Live, `email` and `public_profile`
-permissions, and the exact deployed Cognito callback URL
-`https://primary-userpool-<stage>.auth.eu-central-1.amazoncognito.com/oauth2/idpresponse`
-in Meta's app settings. Business verification alone does not establish those
-settings. The deployed Cognito provider reads the stage-specific Facebook App
-ID and App Secret from the SSM `String` parameters listed below; CDK does not
-create them or edit Meta configuration. Test the Cognito-hosted authorization
-flow with the deployed callback after those checks.
+the Facebook Login use case, app mode set to Live, and `email` and
+`public_profile` permissions in Meta's app settings. Register these exact
+Meta Valid OAuth Redirect URIs:
+
+| Stage | Meta redirect URI |
+| --- | --- |
+| dev | `https://primary-userpool-dev.auth.eu-central-1.amazoncognito.com/oauth2/idpresponse` |
+| prod | `https://primary-userpool-prod.auth.eu-central-1.amazoncognito.com/oauth2/idpresponse` |
+
+These Meta-to-Cognito redirect URIs are distinct from the Cognito app-client
+callback URLs, which return the authorization response to the frontend.
+Business verification alone does not establish the Facebook Login use case,
+Live mode, permissions, or redirect configuration. The deployed Cognito
+provider reads the stage-specific Facebook App ID and App Secret from the SSM
+`String` parameters listed below; CDK does not create them or edit Meta
+configuration. Test the Cognito-hosted authorization flow after these checks.
+
+The Facebook provider pins Graph API `v26.0` in both stages. This selection was
+checked on 2026-10-08: Meta's version table lists v26.0, released 2026-07-29,
+as the current Graph API version, and Cognito's current user-pool social IdP
+guide recommends selecting the latest available Facebook API version because
+versions have separate lifecycles and attribute behavior. Cognito's provider
+configuration exposes the version as [`ProviderDetails.api_version`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_IdentityProviderType.html);
+the CDK synthesis test asserts that it emits `v26.0`. Review Meta's version
+table and rerun the hosted sign-in flow before changing this pin.
+
+- [Meta Graph API versions](https://developers.facebook.com/docs/graph-api/changelog/versions/)
+- [Cognito social identity provider setup](https://docs.aws.amazon.com/cognito/latest/developerguide/tutorial-create-user-pool-social-idp.html)
 
 `cognito-pre-sign-up` now uses the existing private application network and
 runtime PostgreSQL secret with one connection. Its Cognito timeout remains five
-seconds, and each invocation has a 4.2-second processing deadline. Before any
-rollout, collect cold and warm dev duration evidence for no-match Facebook,
-no-match Google, Google linking, and collision rejection. The repository-only
-checks do not provide that live latency evidence. Record the Lambda `InitDuration`
-and `Duration` alongside the safe `result_category`, `provider_name` and
-`duration_ms` logs for each path; if cold execution does not leave reliable
-margin under Cognito's deadline, hold rollout and resolve the latency before
-proceeding. Do not increase the trigger timeout.
+seconds, and each invocation has a 4.2-second processing deadline. Live timing
+evidence is still outstanding; repository checks do not exercise the deployed
+VPC, secret refresh, database, or Cognito APIs. Keep issue #1925 open until
+repeated cold and warm dev measurements cover no-match Facebook, Facebook
+collision rejection, no-match Google, and Google linking. Record Lambda
+`InitDuration` and `Duration` with the safe `result_category`, `provider_name`
+and `duration_ms` logs for each path. Also verify fail-closed behavior for
+PostgreSQL, Cognito lookup, and Cognito linking failures. Do not deploy or
+enable this provider for rollout until the measurements and failure probes are
+recorded. Hold rollout if cold execution does not leave reliable margin under
+Cognito's fixed five-second deadline; do not increase the trigger timeout.
 
 PR/develop CI runs CDK build, tests, deployment-helper tests, and synthesis in
 `.github/workflows/cdk-test.yml` only when infrastructure, deployment helpers,

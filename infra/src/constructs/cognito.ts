@@ -185,6 +185,7 @@ function createIdentityProvider(
           clientId: ssmValue(provider.clientIdParameterName),
           // Facebook's client secret is an SSM String dynamic reference, never source or Lambda config.
           clientSecret: ssmValue(provider.clientSecretParameterName),
+          apiVersion: provider.apiVersion,
           scopes: [...provider.scopes],
           attributeMapping: {
             email: cognito.ProviderAttribute.FACEBOOK_EMAIL,

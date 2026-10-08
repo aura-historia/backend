@@ -68,7 +68,7 @@ product-service = ["application", "domain-primitives", "indexmap", "listing-sour
 
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]
 cognito-post-confirmation = ["application", "localization", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-core", "user-postgres", "user-service"]
-cognito-pre-sign-up = ["platform-lambda-bootstrap", "platform-observability", "user-cognito"]
+cognito-pre-sign-up = ["platform-lambda-bootstrap", "platform-observability", "platform-postgres-secretsmanager", "user-cognito", "user-postgres", "user-service"]
 crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-postgres", "product-listing-service", "public-network-policy"]
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "user-core"]
 

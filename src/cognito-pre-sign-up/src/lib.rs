@@ -30,7 +30,7 @@ pub enum PreSignUpError {
     TemporarilyUnavailable,
     #[error("invalid Cognito account-link state")]
     InvalidIdentityState,
-    #[error("an account already exists for this email")]
+    #[error("federated sign-up cannot proceed")]
     ExistingAccount,
 }
 
@@ -588,7 +588,12 @@ mod tests {
         )
         .await;
 
-        assert_eq!(Err(PreSignUpError::ExistingAccount), result.map(|_| ()));
+        let Err(error) = result else {
+            panic!("existing Facebook account was allowed");
+        };
+        assert_eq!(PreSignUpError::ExistingAccount, error);
+        assert_eq!("existing_account", error.category());
+        assert_eq!("federated sign-up cannot proceed", error.to_string());
         assert!(calls(&linker).is_empty());
     }
 
