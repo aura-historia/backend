@@ -39,6 +39,7 @@ export class Identity extends Construct {
         familyName: { required: false, mutable: true },
         locale: { required: false, mutable: true },
       },
+      // Cognito custom attributes are permanent; rollback templates must retain this schema.
       customAttributes: {
         marketing_consent: new cognito.StringAttribute({ mutable: false }),
       },

@@ -46,15 +46,13 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     template.resourceCountIs("AWS::Cognito::UserPool", 1);
 
     const [pool] = resourceByType(template, "AWS::Cognito::UserPool").map(([, resource]) => resource);
-    expect(pool.Properties.Schema).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ Name: "email", Required: true, Mutable: true }),
-        expect.objectContaining({ Name: "given_name", Required: false, Mutable: true }),
-        expect.objectContaining({ Name: "family_name", Required: false, Mutable: true }),
-        expect.objectContaining({ Name: "locale", Required: false, Mutable: true }),
-        expect.objectContaining({ Name: "marketing_consent", AttributeDataType: "String", Mutable: false }),
-      ]),
-    );
+    expect(pool.Properties.Schema).toEqual([
+      { Name: "email", Required: true, Mutable: true },
+      { Name: "given_name", Required: false, Mutable: true },
+      { Name: "family_name", Required: false, Mutable: true },
+      { Name: "locale", Required: false, Mutable: true },
+      { Name: "marketing_consent", AttributeDataType: "String", Mutable: false },
+    ]);
     expect(pool.Properties.AutoVerifiedAttributes).toEqual(["email"]);
     expect(pool.Properties.UsernameConfiguration).toEqual({ CaseSensitive: true });
     expect(pool.Properties.Policies.PasswordPolicy).toMatchObject({
@@ -100,7 +98,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
 
   });
 
-  test("creates Facebook with only the email and public profile mappings", () => {
+  test("pins Facebook v21.0 with only the email and public profile mappings", () => {
     const template = computeTemplate(stage);
     const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
       .map(([, resource]) => resource)
@@ -113,7 +111,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ProviderDetails: {
         client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-id}}`,
         client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-secret}}`,
-        api_version: "v26.0",
+        api_version: "v21.0",
         authorize_scopes: "email,public_profile",
       },
       AttributeMapping: {

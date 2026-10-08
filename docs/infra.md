@@ -294,6 +294,15 @@ normal workflows neither import nor delete them. Inspect already active mappings
 and schedules after partial creation. If only output lookup failed, verify actual
 stack state and redo missing checks instead of blindly redeploying.
 
+Cognito schema additions are **forward-only**: custom attributes cannot be removed
+or redefined after creation, including during CloudFormation rollback. Retain the
+existing pool and permanent attributes; do not delete/replace it to unblock a
+release. For an irreversible schema rollback failure, inspect rollback events and
+continue rollback with only the minimum confirmed rollback-failed resource skipped.
+Skipping does not reconcile live state: review and deploy a forward template that
+retains the permanent schema before considering recovery complete. A cancelled
+forward update alone is not grounds to skip a resource.
+
 Preserve failure custody under [controlled recovery](durable-worker-runbook.md#failure-custody-and-controlled-redrive).
 Never purge queues or replace RDS to get a release through. Database recovery needs
 an isolated snapshot/PITR restore, verified engine/roles/schema/password alignment
