@@ -1,16 +1,14 @@
 use crate::error::{
-    ApiError, BAD_BODY_VALUE, NEWSLETTER_CONFIRMATION_INVALID, NEWSLETTER_INTERNAL_ERROR,
+    ApiError, NEWSLETTER_CONFIRMATION_INVALID, NEWSLETTER_INTERNAL_ERROR,
     NEWSLETTER_TEMPORARILY_UNAVAILABLE,
 };
+use crate::newsletter::common::{no_store, parse_body};
 use crate::state::NewsletterState;
-use axum::body::{Body, to_bytes};
+use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
-
-const MAX_NEWSLETTER_BODY_BYTES: usize = 8 * 1024;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,24 +44,11 @@ pub async fn confirm_newsletter_subscription(
     }
 }
 
-async fn parse_body<T: DeserializeOwned>(body: Body) -> Result<T, ApiError> {
-    let bytes = to_bytes(body, MAX_NEWSLETTER_BODY_BYTES)
-        .await
-        .map_err(|_| ApiError::bad_request(BAD_BODY_VALUE))?;
-    serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request(BAD_BODY_VALUE))
-}
-
-fn no_store(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use crate::newsletter::common::MAX_NEWSLETTER_BODY_BYTES;
     use axum::body::to_bytes;
     use axum::http::{Request as HttpRequest, header};
     use axum::routing::post;

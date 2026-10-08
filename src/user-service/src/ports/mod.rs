@@ -64,8 +64,8 @@ pub use newsletter_confirmation_challenges::{
     OsNewsletterConfirmationTokenGenerator, SystemNewsletterConfirmationClock,
 };
 pub use newsletter_confirmation_email_sender::{
-    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
-    NewsletterConfirmationEmailSender,
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailRetryability,
+    NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
 };
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,

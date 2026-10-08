@@ -6,6 +6,8 @@ use test_api::{AuraHistoriaApi, OpenSearch, Postgres};
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const OPENSEARCH: OpenSearch = OpenSearch();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
+static NEWSLETTER_C09_API: AuraHistoriaApi =
+    AuraHistoriaApi::new(api_support::newsletter_c09_api_app);
 
 #[path = "api_cases/admin_overview.rs"]
 mod admin_overview;

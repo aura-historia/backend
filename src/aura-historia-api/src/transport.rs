@@ -1,5 +1,6 @@
 use crate::auth::RequestMetadata;
 use crate::error::{ApiError, BAD_BODY_VALUE, LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE};
+use crate::newsletter::common::no_store;
 pub(crate) mod cache;
 use axum::Router;
 use axum::extract::Request;
@@ -59,7 +60,7 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
             request_timeout,
         ))
         .layer(RequestBodyLimitLayer::new(MAX_REQUEST_BODY_BYTES))
-        .layer(axum::middleware::from_fn(async_ingestion_body_limit_error))
+        .layer(axum::middleware::from_fn(request_body_limit_error))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -106,7 +107,7 @@ async fn cache_policy(request: Request, next: Next) -> Response {
     cache::apply_transport_policy(&request_headers, response)
 }
 
-async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Response {
+async fn request_body_limit_error(request: Request, next: Next) -> Response {
     let path = request.uri().path();
     let async_ingestion = matches!(
         request.method(),
@@ -118,15 +119,20 @@ async fn async_ingestion_body_limit_error(request: Request, next: Next) -> Respo
             .strip_prefix("/api/v1/webhooks/woocommerce/")
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
     let loops_webhook = request.method() == Method::POST && path == "/api/v1/webhooks/loops";
+    let newsletter = (request.method() == Method::PUT
+        && path == "/api/v1/newsletter-subscriptions")
+        || (request.method() == Method::POST && path == "/api/v1/newsletter-subscriptions/confirm");
     let response = next.run(request).await;
-    if (async_ingestion || woocommerce_webhook || loops_webhook)
+    if (async_ingestion || woocommerce_webhook || loops_webhook || newsletter)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
             .headers()
             .get(header::CONTENT_TYPE)
             .is_some_and(|value| value == "text/plain; charset=utf-8")
     {
-        if loops_webhook {
+        if newsletter {
+            no_store(ApiError::bad_request(BAD_BODY_VALUE).into_response())
+        } else if loops_webhook {
             ApiError::new(
                 axum::http::StatusCode::PAYLOAD_TOO_LARGE,
                 "Payload Too Large",

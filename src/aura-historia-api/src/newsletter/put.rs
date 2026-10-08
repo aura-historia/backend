@@ -1,21 +1,17 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{
-    ApiError, BAD_BODY_VALUE, NEWSLETTER_INTERNAL_ERROR, NEWSLETTER_TEMPORARILY_UNAVAILABLE,
-};
+use crate::error::{ApiError, NEWSLETTER_INTERNAL_ERROR, NEWSLETTER_TEMPORARILY_UNAVAILABLE};
+use crate::newsletter::common::{no_store, parse_body};
 use crate::state::NewsletterState;
-use axum::body::{Body, to_bytes};
+use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_email::Email;
 use user_core::{first_name::FirstName, last_name::LastName};
 use user_service::use_cases::RequestNewsletterSubscriptionCommand;
-
-const MAX_NEWSLETTER_BODY_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +67,7 @@ pub async fn put_newsletter_subscription(
         Err(error) => {
             let error = match error {
                 user_service::use_cases::RequestNewsletterSubscriptionError::TemporarilyUnavailable
+                | user_service::use_cases::RequestNewsletterSubscriptionError::EmailTemporarilyRejected
                 | user_service::use_cases::RequestNewsletterSubscriptionError::EmailAcceptanceUnknown => {
                     ApiError::service_unavailable(NEWSLETTER_TEMPORARILY_UNAVAILABLE)
                 }
@@ -85,26 +82,13 @@ pub async fn put_newsletter_subscription(
     }
 }
 
-async fn parse_body<T: DeserializeOwned>(body: Body) -> Result<T, ApiError> {
-    let bytes = to_bytes(body, MAX_NEWSLETTER_BODY_BYTES)
-        .await
-        .map_err(|_| ApiError::bad_request(BAD_BODY_VALUE))?;
-    serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request(BAD_BODY_VALUE))
-}
-
-fn no_store(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use crate::newsletter::common::MAX_NEWSLETTER_BODY_BYTES;
     use application::operation_context::{OperationContext, Principal};
     use axum::body::to_bytes;
     use axum::http::{Request as HttpRequest, header};
@@ -153,6 +137,7 @@ mod tests {
     enum UseCaseResult {
         TemporarilyUnavailable,
         EmailAcceptanceUnknown,
+        EmailTemporarilyRejected,
         EmailRejected,
         Internal,
     }
@@ -173,6 +158,9 @@ mod tests {
                 }
                 Some(UseCaseResult::EmailAcceptanceUnknown) => {
                     Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown)
+                }
+                Some(UseCaseResult::EmailTemporarilyRejected) => {
+                    Err(RequestNewsletterSubscriptionError::EmailTemporarilyRejected)
                 }
                 Some(UseCaseResult::EmailRejected) => {
                     Err(RequestNewsletterSubscriptionError::EmailRejected)
@@ -347,6 +335,11 @@ mod tests {
             ),
             (
                 UseCaseResult::EmailAcceptanceUnknown,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
+            ),
+            (
+                UseCaseResult::EmailTemporarilyRejected,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
             ),

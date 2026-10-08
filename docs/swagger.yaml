@@ -8916,7 +8916,7 @@ paths:
                 title: Unauthorized
                 error: INVALID_CREDENTIALS
         "503":
-          description: Newsletter persistence or SES is temporarily unavailable, or SES acceptance is ambiguous.
+          description: Newsletter persistence or SES is temporarily unavailable, SES throttling was rejected, or SES acceptance is ambiguous.
           headers:
             Cache-Control:
               description: Shared caching is disabled for the response.
@@ -8932,7 +8932,7 @@ paths:
                 title: Service Unavailable
                 error: NEWSLETTER_TEMPORARILY_UNAVAILABLE
         "500":
-          description: Internal/configuration failure, including a definite SES rejection.
+          description: Internal/configuration failure, including a permanent definite SES rejection.
           headers:
             Cache-Control:
               description: Shared caching is disabled for the response.
@@ -8981,7 +8981,7 @@ paths:
                 type: string
               example: no-store
         "400":
-          description: Malformed body or one generic invalid, unknown, expired, or invalidated confirmation result.
+          description: Malformed, oversized, or wrong-shape body, or one generic invalid, unknown, expired, or invalidated confirmation result.
           headers:
             Cache-Control:
               description: Shared caching is disabled for the response.

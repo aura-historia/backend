@@ -1,10 +1,10 @@
 use crate::ports::{
     NewNewsletterConfirmationChallenge, NewsletterConfirmationChallenges,
     NewsletterConfirmationChallengesFactory, NewsletterConfirmationClock,
-    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
-    NewsletterConfirmationEmailSender, NewsletterConfirmationIssueOutcome,
-    NewsletterConfirmationSendStatus, NewsletterConfirmationTokenGenerator, NewsletterProfile,
-    NewsletterProfileReader,
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailRetryability,
+    NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
+    NewsletterConfirmationIssueOutcome, NewsletterConfirmationSendStatus,
+    NewsletterConfirmationTokenGenerator, NewsletterProfile, NewsletterProfileReader,
 };
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
@@ -31,6 +31,8 @@ pub enum RequestNewsletterSubscriptionError {
     InvalidPersistedState,
     #[error("newsletter confirmation email was definitely rejected")]
     EmailRejected,
+    #[error("newsletter confirmation email was temporarily rejected")]
+    EmailTemporarilyRejected,
     #[error("newsletter confirmation email acceptance is unknown")]
     EmailAcceptanceUnknown,
     #[error("newsletter confirmation token generation failed")]
@@ -180,16 +182,25 @@ where
                 profile,
             })
             .await;
-        let send_status = match outcome {
+        let (send_status, request_result) = match outcome {
             NewsletterConfirmationEmailSendOutcome::Accepted => {
-                NewsletterConfirmationSendStatus::Accepted
+                (NewsletterConfirmationSendStatus::Accepted, Ok(()))
             }
-            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected => {
-                NewsletterConfirmationSendStatus::DefinitelyRejected
-            }
-            NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown => {
-                NewsletterConfirmationSendStatus::AcceptanceUnknown
-            }
+            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected { retryability } => (
+                NewsletterConfirmationSendStatus::DefinitelyRejected,
+                Err(match retryability {
+                    NewsletterConfirmationEmailRetryability::Retryable => {
+                        RequestNewsletterSubscriptionError::EmailTemporarilyRejected
+                    }
+                    NewsletterConfirmationEmailRetryability::NotRetryable => {
+                        RequestNewsletterSubscriptionError::EmailRejected
+                    }
+                }),
+            ),
+            NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown => (
+                NewsletterConfirmationSendStatus::AcceptanceUnknown,
+                Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown),
+            ),
         };
         let mut tx = self
             .unit_of_work
@@ -205,13 +216,7 @@ where
             .await
             .map_err(|_| RequestNewsletterSubscriptionError::TemporarilyUnavailable)?;
 
-        if outcome == NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
-            Err(RequestNewsletterSubscriptionError::EmailRejected)
-        } else if outcome == NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown {
-            Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown)
-        } else {
-            Ok(())
-        }
+        request_result
     }
 }
 
@@ -555,9 +560,18 @@ mod tests {
                 Some("unknown"),
             ),
             (
-                NewsletterConfirmationEmailSendOutcome::DefinitelyRejected,
+                NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+                    retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+                },
                 NewsletterConfirmationSendStatus::DefinitelyRejected,
                 Some("rejected"),
+            ),
+            (
+                NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+                    retryability: NewsletterConfirmationEmailRetryability::Retryable,
+                },
+                NewsletterConfirmationSendStatus::DefinitelyRejected,
+                Some("temporarily rejected"),
             ),
         ] {
             let state = Arc::new(Mutex::new(State {
@@ -580,6 +594,10 @@ mod tests {
                     Some("unknown"),
                 )
                 | (Err(RequestNewsletterSubscriptionError::EmailRejected), Some("rejected")) => {}
+                (
+                    Err(RequestNewsletterSubscriptionError::EmailTemporarilyRejected),
+                    Some("temporarily rejected"),
+                ) => {}
                 (result, expected) => panic!("unexpected request result: {result:?}, {expected:?}"),
             }
             let state = lock(&state);

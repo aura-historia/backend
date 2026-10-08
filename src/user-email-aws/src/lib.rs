@@ -16,8 +16,8 @@ use tokio::io::AsyncReadExt;
 use url::{Host, Url};
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 use user_service::ports::{
-    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
-    NewsletterConfirmationEmailSender,
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailRetryability,
+    NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
 };
 
 // Includes the SDK call and response body. C11 must leave room for service persistence
@@ -302,15 +302,15 @@ impl SesNewsletterConfirmationEmailSender {
         let language = EmailLanguage::resolve(email.profile.language);
         let body = match self.rendered_body(language, &email).await {
             Ok(body) => body,
-            Err(_) => return NewsletterConfirmationEmailSendOutcome::DefinitelyRejected,
+            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
         };
         let subject = match Content::builder().data(language.subject()).build() {
             Ok(content) => content,
-            Err(_) => return NewsletterConfirmationEmailSendOutcome::DefinitelyRejected,
+            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
         };
         let html = match Content::builder().data(body).build() {
             Ok(content) => content,
-            Err(_) => return NewsletterConfirmationEmailSendOutcome::DefinitelyRejected,
+            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
         };
         let message = Message::builder()
             .subject(subject)
@@ -363,21 +363,24 @@ fn accepted_receipt(response: &SendEmailOutput) -> NewsletterConfirmationEmailSe
 fn classify_ses_error(error: &SdkError<SendEmailError>) -> NewsletterConfirmationEmailSendOutcome {
     match error {
         SdkError::ConstructionFailure(_) => {
-            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+            rejected(NewsletterConfirmationEmailRetryability::NotRetryable)
         }
         SdkError::ServiceError(response) => {
             let service = response.err();
-            if service.is_bad_request_exception()
+            if service.is_too_many_requests_exception()
+                || service.is_limit_exceeded_exception()
+                || response.raw().status().as_u16() == 429
+            {
+                rejected(NewsletterConfirmationEmailRetryability::Retryable)
+            } else if service.is_bad_request_exception()
                 || service.is_message_rejected()
                 || service.is_account_suspended_exception()
                 || service.is_mail_from_domain_not_verified_exception()
                 || service.is_not_found_exception()
                 || service.is_sending_paused_exception()
-                || service.is_too_many_requests_exception()
-                || service.is_limit_exceeded_exception()
-                || matches!(response.raw().status().as_u16(), 400..=407 | 409..=428 | 429..=499)
+                || matches!(response.raw().status().as_u16(), 400..=407 | 409..=428 | 430..=499)
             {
-                NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+                rejected(NewsletterConfirmationEmailRetryability::NotRetryable)
             } else {
                 // Timeout and 5xx may follow acceptance; do not retry.
                 NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
@@ -385,6 +388,12 @@ fn classify_ses_error(error: &SdkError<SendEmailError>) -> NewsletterConfirmatio
         }
         _ => NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown,
     }
+}
+
+fn rejected(
+    retryability: NewsletterConfirmationEmailRetryability,
+) -> NewsletterConfirmationEmailSendOutcome {
+    NewsletterConfirmationEmailSendOutcome::DefinitelyRejected { retryability }
 }
 
 #[cfg(test)]
