@@ -135,11 +135,41 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(104);
+    expect(catalog).toHaveLength(105);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
     expect(catalog).not.toContain("ANY /{proxy+}");
+  });
+
+  test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
+    expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/newsletter-subscriptions")))
+      .toEqual([
+        {
+          method: "PUT",
+          path: "/api/v1/newsletter-subscriptions",
+          lambda: "auraHistoriaApi",
+          auth: RouteAuthPolicy.OptionalBearer,
+          policy: {
+            bearer: "OPTIONAL",
+            authorization: RouteAuthorizationClass.Public,
+            oauthCredentials: OAuthCredentialRequirement.None,
+            providerProof: ProviderProofRequirement.None,
+          },
+        },
+        {
+          method: "POST",
+          path: "/api/v1/newsletter-subscriptions/confirm",
+          lambda: "auraHistoriaApi",
+          auth: RouteAuthPolicy.Anonymous,
+          policy: {
+            bearer: "NONE",
+            authorization: RouteAuthorizationClass.Public,
+            oauthCredentials: OAuthCredentialRequirement.None,
+            providerProof: ProviderProofRequirement.None,
+          },
+        },
+      ]);
   });
 
   test("documents anonymous versioned probes with their body contracts", () => {
@@ -383,7 +413,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(104);
+    expect(routes).toHaveLength(105);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

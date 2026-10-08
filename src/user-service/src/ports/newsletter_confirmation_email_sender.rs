@@ -13,9 +13,17 @@ pub struct NewsletterConfirmationEmail {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NewsletterConfirmationEmailRetryability {
+    Retryable,
+    NotRetryable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NewsletterConfirmationEmailSendOutcome {
     Accepted,
-    DefinitelyRejected,
+    DefinitelyRejected {
+        retryability: NewsletterConfirmationEmailRetryability,
+    },
     AcceptanceUnknown,
 }
 

@@ -84,13 +84,15 @@ use user_service::use_cases::commands::delete_access_tokens::DeleteAccessTokensU
 use user_service::use_cases::commands::delete_user::DeleteUserUseCase;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenUseCase;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileUseCase;
-use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionUseCase;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase;
 use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
+use user_service::use_cases::{
+    ConfirmNewsletterSubscriptionUseCase, RequestNewsletterSubscriptionUseCase,
+};
 use user_service::use_cases::{
     RevokeUserSessionsUseCase, SuspendUserUseCase, UnsuspendUserUseCase,
 };
@@ -445,17 +447,20 @@ impl BillingState {
 
 #[derive(Clone)]
 pub struct NewsletterState {
-    pub(crate) upsert_subscription: Arc<dyn UpsertNewsletterSubscriptionUseCase>,
+    pub(crate) request_subscription: Arc<dyn RequestNewsletterSubscriptionUseCase>,
+    pub(crate) confirm_subscription: Arc<dyn ConfirmNewsletterSubscriptionUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl NewsletterState {
     pub fn new(
-        upsert_subscription: Arc<dyn UpsertNewsletterSubscriptionUseCase>,
+        request_subscription: Arc<dyn RequestNewsletterSubscriptionUseCase>,
+        confirm_subscription: Arc<dyn ConfirmNewsletterSubscriptionUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
-            upsert_subscription,
+            request_subscription,
+            confirm_subscription,
             authenticator,
         }
     }

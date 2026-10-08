@@ -30,8 +30,8 @@ use user_core::{
 };
 use user_email_aws::{NewsletterConfirmationEmailConfig, SesNewsletterConfirmationEmailSender};
 use user_service::ports::{
-    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
-    NewsletterConfirmationEmailSender, NewsletterProfile,
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailRetryability,
+    NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender, NewsletterProfile,
 };
 
 const TEMPLATE_KEY: &str = "ephemeral/test-commit/mjml/newsletter/confirmation/en.html";
@@ -292,7 +292,9 @@ async fn missing_oversized_and_invalid_templates_are_rejected_before_ses() {
             sender(s3_http.clone(), ses_http.clone())
                 .send(email(None))
                 .await,
-            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+                retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+            }
         );
         assert_eq!(s3_http.paths().len(), 1);
         assert!(ses_http.requests().is_empty());
@@ -328,13 +330,15 @@ async fn modeled_message_rejection_is_definite() {
         .await;
     assert_eq!(
         outcome,
-        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+            retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+        }
     );
     assert_eq!(ses_http.requests().len(), 1);
 }
 
 #[tokio::test]
-async fn modeled_and_unmodeled_throttling_are_definite_rejections() {
+async fn modeled_and_unmodeled_throttling_are_retryable_definite_rejections() {
     for reply in [
         Reply::Response(
             500,
@@ -351,7 +355,9 @@ async fn modeled_and_unmodeled_throttling_are_definite_rejections() {
             sender(template_http(), ses_http.clone())
                 .send(email(None))
                 .await,
-            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+                retryability: NewsletterConfirmationEmailRetryability::Retryable,
+            }
         );
         assert_eq!(ses_http.requests().len(), 1);
     }
@@ -427,7 +433,9 @@ async fn stalled_s3_request_is_bounded_by_adapter_deadline_without_ses_send() {
     .expect("adapter S3 deadline must bound the stalled request");
     assert_eq!(
         outcome,
-        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected
+        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+            retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+        }
     );
     assert!(start.elapsed() >= Duration::from_secs(2));
     assert_eq!(s3_http.paths().len(), 1);
