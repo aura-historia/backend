@@ -59,7 +59,7 @@ impl CognitoAccountLinker {
         let destination = destination_for(user)?;
         let source = ProviderIdentity {
             provider_name: source_provider_name.to_owned(),
-            attribute_name: source_provider_attribute_name.to_owned(),
+            attribute_name: Some(source_provider_attribute_name.to_owned()),
             attribute_value: source_subject.to_owned(),
         };
 
@@ -162,16 +162,18 @@ impl CognitoAccountLinkProvider for AwsCognitoAccountLinkProvider {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProviderIdentity {
     provider_name: String,
-    attribute_name: String,
+    attribute_name: Option<String>,
     attribute_value: String,
 }
 
 fn sdk_provider_user(identity: &ProviderIdentity) -> ProviderUserIdentifierType {
-    ProviderUserIdentifierType::builder()
+    let mut builder = ProviderUserIdentifierType::builder()
         .provider_name(&identity.provider_name)
-        .provider_attribute_name(&identity.attribute_name)
-        .provider_attribute_value(&identity.attribute_value)
-        .build()
+        .provider_attribute_value(&identity.attribute_value);
+    if let Some(attribute_name) = &identity.attribute_name {
+        builder = builder.provider_attribute_name(attribute_name);
+    }
+    builder.build()
 }
 
 fn subject_filter(subject: &CognitoSubject) -> String {
@@ -237,7 +239,7 @@ fn destination_for(user: &UserType) -> Result<ProviderIdentity, CognitoAccountLi
                 .ok_or(CognitoAccountLinkError::InvalidState)?;
             Ok(ProviderIdentity {
                 provider_name: "Cognito".to_owned(),
-                attribute_name: "Cognito_Subject".to_owned(),
+                attribute_name: Some("Cognito_Subject".to_owned()),
                 attribute_value: username.to_owned(),
             })
         }
@@ -287,8 +289,8 @@ fn primary_external_identity(
                 return Err(CognitoAccountLinkError::InvalidState);
             }
             primary_identity = Some(ProviderIdentity {
-                provider_name: provider_name.to_owned(),
-                attribute_name: "Cognito_Subject".to_owned(),
+                provider_name: "Cognito".to_owned(),
+                attribute_name: None,
                 attribute_value: user_id.to_owned(),
             });
         }
@@ -738,12 +740,12 @@ mod tests {
                 user_pool_id: "pool".to_owned(),
                 source: ProviderIdentity {
                     provider_name: "Google".to_owned(),
-                    attribute_name: "Cognito_Subject".to_owned(),
+                    attribute_name: Some("Cognito_Subject".to_owned()),
                     attribute_value: "google-source-id".to_owned(),
                 },
                 destination: ProviderIdentity {
                     provider_name: "Cognito".to_owned(),
-                    attribute_name: "Cognito_Subject".to_owned(),
+                    attribute_name: Some("Cognito_Subject".to_owned()),
                     attribute_value: "native-user".to_owned(),
                 },
             }],
@@ -778,8 +780,22 @@ mod tests {
         assert_eq!(Ok(()), result);
         let links = provider.links.lock().expect("link mutex");
         assert_eq!(1, links.len());
-        assert_eq!("CanonicalIdP", links[0].destination.provider_name);
-        assert_eq!("canonical-id", links[0].destination.attribute_value);
+        assert_eq!(
+            LinkCall {
+                user_pool_id: "pool".to_owned(),
+                source: ProviderIdentity {
+                    provider_name: "Google".to_owned(),
+                    attribute_name: Some("Cognito_Subject".to_owned()),
+                    attribute_value: "google-source-id".to_owned(),
+                },
+                destination: ProviderIdentity {
+                    provider_name: "Cognito".to_owned(),
+                    attribute_name: None,
+                    attribute_value: "canonical-id".to_owned(),
+                },
+            },
+            links[0]
+        );
     }
 
     #[test]
