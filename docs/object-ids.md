@@ -1,132 +1,89 @@
 # Object IDs
 
-Aura object IDs are typed durable object identities backed by RFC 9562 UUIDv7 values. Humans and application protocols see TypeID v0.3 strings:
+Aura object IDs are typed durable identities backed by RFC 9562 UUIDv7 values. Application protocols use [TypeID v0.3](https://github.com/jetify-com/typeid/tree/main/spec):
 
 ```text
 <prefix>_<26-character lowercase TypeID suffix>
 ```
 
-The prefix is part of the type contract. Parsing is strict: malformed, noncanonical, wrong-prefix, non-v7, and bare UUID input fail. No legacy UUID fallback exists.
-
-Reference: <https://github.com/jetify-com/typeid/tree/main/spec>
-
-## Ownership and implementation
-
-`domain-primitives` owns the reusable `object_id_newtype!` facility, strict errors, serde, and TypeID codec. Entity crates own their concrete ID types.
-
-The codec uses `strong_id` 0.4 with default features disabled and only `typeid` enabled. This dependency stays private to `domain-primitives`; generated domain APIs expose only Aura types and `uuid::Uuid`. Aura wrappers separately enforce UUIDv7 and canonical input because the dependency parser accepts other UUID versions.
-
-Official TypeID v0.3 vectors prove the codec. New IDs use `Uuid::now_v7()`. Raw UUID construction is fallible.
+The prefix is part of the type contract. Parsing rejects malformed/noncanonical text, wrong prefixes, non-v7 or non-RFC UUIDs, and bare UUID input. There is no legacy UUID fallback. Entity owners define concrete types; `domain-primitives` supplies the shared strict codec.
 
 ## Prefix registry
 
-Prefixes are durable and collision-free.
+Prefixes are durable and collision-free; do not rename or reuse them.
 
-| Rust type | Prefix | Owner |
-|---|---|---|
-| `ProductListingId` | `pl` | `product-listing-core` |
-| `AuctionId` | `auc` | `auction-core` |
-| `PartyId` | `pty` | `party-core` |
-| `ListingSourceId` | `ls` | `listing-source-core` |
-| `UserId` | `usr` | `user-core` |
-| `MarketingConsentSyncIntentId` | `mci` | `user-core` |
-| `NewsletterConfirmationId` | `nsc` | `user-core` |
-| `PartnershipId` | `psh` | `partnership-core` |
-| `PartnershipApplicationId` | `pa` | `partnership-core` |
-| `UserSearchFilterId` | `sf` | `search-filter-core` |
-| `NotificationId` | `ntf` | `notification-core` |
-| `NotificationDeliveryId` | `nd` | `notification-core` |
-| `FxRateId` | `fx` | `fxrate-core` |
-| `OAuthClientId` | `oc` | `credential-core` |
-| `AccessTokenId` | `at` | `user-core` |
-| `ProductListingRawStreamId` | `prs` | `product-listing-service` |
-| `ProductListingRawRevisionId` | `prr` | `product-listing-service` |
-| `EventId` | `evt` | `domain-primitives` |
-| `CrawlerDomainId` | `cd` | `crawler` |
-| `CrawlerReviewId` | `cr` | `crawler` |
-| `CrawlerReviewPageId` | `crp` | `crawler` |
-| `CrawlerReviewUrlId` | `cru` | `crawler` |
-
-The crawler review types replace bare `Uuid` fields that identify persisted rows. They are durable crawler entities exposed by its review API. Crawler schema evaluation also has synthetic references today; those are not object IDs and must become an explicit input-page index/reference rather than nil or fabricated UUID values.
+| Type | Prefix |
+| --- | --- |
+| `ProductListingId` | `pl` |
+| `AuctionId` | `auc` |
+| `PartyId` | `pty` |
+| `ListingSourceId` | `ls` |
+| `UserId` | `usr` |
+| `MarketingConsentSyncIntentId` | `mci` |
+| `NewsletterConfirmationId` | `nsc` |
+| `PartnershipId` | `psh` |
+| `PartnershipApplicationId` | `pa` |
+| `UserSearchFilterId` | `sf` |
+| `NotificationId` | `ntf` |
+| `NotificationDeliveryId` | `nd` |
+| `FxRateId` | `fx` |
+| `OAuthClientId` | `oc` |
+| `AccessTokenId` | `at` |
+| `ProductListingRawStreamId` | `prs` |
+| `ProductListingRawRevisionId` | `prr` |
+| `EventId` | `evt` |
+| `CrawlerDomainId` | `cd` |
+| `CrawlerReviewId` | `cr` |
+| `CrawlerReviewPageId` | `crp` |
+| `CrawlerReviewUrlId` | `cru` |
 
 ## Boundary policy
 
 | Boundary | Representation |
-|---|---|
-| Domain and service | concrete typed ID backed by `Uuid` |
-| `Display`, `FromStr`, serde | canonical prefixed TypeID |
-| REST path, query, request, response | typed TypeID |
-| Public cursor field that directly represents an object ID | TypeID |
-| Semantic worker/SQS field and key | TypeID |
-| Structured log object identity | TypeID |
-| OpenSearch document and object-derived `_id` | TypeID |
-| PostgreSQL PK/FK, UUID array, bind, and row | native `uuid` |
-| CDC value read from PostgreSQL | UUID text, immediately mapped `Uuid -> typed ID` |
+| --- | --- |
+| Domain and service | Concrete typed ID backed by UUIDv7. |
+| `Display`, `FromStr`, serde | Canonical prefixed TypeID. |
+| REST, object-ID cursor fields, semantic worker fields/keys, structured logs | TypeID. |
+| OpenSearch documents and object-derived `_id` | TypeID. |
+| PostgreSQL PK/FK, UUID arrays, binds and rows | Native `uuid`. |
+| CDC values from PostgreSQL | UUID text, immediately mapped to typed IDs. |
 
-PostgreSQL adapters call `as_uuid()` or `into_uuid()` when writing. Reads use fallible `TryFrom<Uuid>` and report invalid persisted versions as corruption. Code must never stringify a typed ID and reparse it as UUID.
-
-Database keyset order and advisory-lock bytes continue to use the backing UUID where that is the storage contract.
+PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uuid>` and reject invalid persisted identities as corruption. Never stringify a typed ID and reparse it as UUID. Storage keyset ordering and advisory-lock bytes use the backing UUID where required by their storage contract.
 
 ## Storage-only JSON
 
-Internal persisted JSON deliberately keeps canonical lowercase hyphenated UUID text where PostgreSQL or storage codecs depend on UUID semantics:
+These persisted fields deliberately retain **canonical lowercase hyphenated UUID text**, not public TypeID serde:
 
-- partnership application proposal `listing_source_id`;
-- ProductListing event payload `listingSourceId`;
-- ProductListing sale observation `fxRateId`;
-- ProductListing enrichment `sourceEventId`;
-- notification product snapshot `listing_source_id`;
-- search-filter persisted ProductListing, ListingSource, and Auction ID sets.
+- Partnership application proposal `listing_source_id`.
+- ProductListing event `listingSourceId` and nested Auction `auctionId` references.
+- ProductListing sale observation `fxRateId`.
+- ProductListing enrichment `sourceEventId`.
+- Notification product snapshot `listing_source_id`.
+- Search-filter persisted ProductListing, ListingSource and Auction ID sets.
 
-Crawler `validation_summary.schema_matrix` is also returned by the crawler review API, has no SQL UUID cast dependency, and therefore uses TypeIDs for persisted `CrawlerReviewId` and `CrawlerReviewPageId` references. Evaluations created before a review row exists use an explicit absent review ID and input-page index/reference. They never use nil or fabricated UUID placeholders.
+Adapter-local codecs explicitly encode the backing UUID and decode UUID → typed ID, validating canonical text and UUIDv7. Public history and notification DTOs still expose TypeIDs. Do not derive persisted encoding from object-ID `Display` or public serde.
 
-Adapter-local UUID codecs must encode with the backing UUID and decode `UUID -> typed ID` explicitly. They must not use object-ID `Display` or public serde. Public history, notification, and crawler review DTOs expose TypeIDs.
+Crawler `validation_summary.schema_matrix` is the exception to storage UUID text: persisted review/page references use TypeIDs, also exposed by the review API. Before a review row exists, use an absent review ID and explicit input-page index/reference, never nil or fabricated UUID placeholders.
 
-Raw source payload, normalization context, and provenance remain opaque source evidence; Aura identities belong in dedicated native UUID columns unless a field is explicitly documented above.
+Raw source payload, normalization context and provenance remain opaque evidence. Store Aura identities in dedicated native UUID columns unless a JSON field is explicitly documented above.
 
 ## External identity and exclusions
 
-Cognito `sub` is an opaque provider identity, not `UserId`. Persist the verified `(issuer, subject)` separately and resolve it to an independently generated `usr_` UUIDv7. Session revocation reads the stored Cognito identity; it never derives a subject from `UserId`.
+Cognito `sub` is an opaque provider identity, not `UserId`. Persist the verified `(issuer, subject)` separately and resolve it to an independently generated `usr_` UUIDv7. Session revocation uses that stored provider identity; never derive a subject from `UserId`.
 
-These are not Aura object IDs:
+Not every value named “ID” is an Aura object identity:
 
-- `PartySlugId`, `ListingSourceSlugId`, `ProductListingSlugId`;
-- `SourceListingId` and other provider-controlled IDs;
-- OAuth authorization codes, exchange codes, client secrets, raw access tokens, and PKCE values;
-- webhook/provider delivery IDs and Stripe customer IDs;
-- notification and marketing-consent lease tokens, and crawler session cookies;
-- marketing-consent `source_key` (proof/action identity), `recipient_key` (email-marketing fingerprint), Loops contact IDs, and newsletter confirmation tokens/digests;
-- request IDs, correlation IDs, idempotency keys, SQS receipt/message IDs, Sequin delivery IDs/LSNs, and OpenSearch PIT IDs;
-- URLs and secret/webhook credentials.
+- Slugs, source/provider-controlled IDs, URLs and provider account/contact/delivery identities.
+- Credentials, OAuth/exchange codes, raw bearer tokens, PKCE values, confirmation tokens/digests and session cookies.
+- Request/correlation IDs, idempotency keys, ingestion submission/command IDs, queue receipt/message IDs, CDC delivery IDs/LSNs and search PIT IDs.
+- Lease tokens and marketing-consent proof/fingerprint keys.
 
-`MarketingConsentSyncIntentId` identifies a durable operational intent, with native UUID storage and `mci_` application identity; it is not a Loops identity or an event ID. It is stored in `marketing_email_consent_sync_intents.intent_id`; `intent_sequence` orders operational work but is not an Aura object ID. `OAuthClientId` and `AccessTokenId` identify durable records and are object IDs. Their associated secret or bearer values are not.
-
-The legacy `partner_shop_application_id` notification column has no current object type. It is stale schema, not a new object-ID contract.
-
-## Wire and reset policy
-
-This change is intentionally breaking.
-
-- REST accepts no bare UUID object IDs.
-- Worker semantic wire format becomes schema version 2; version 1 is rejected, not compatibility-decoded.
-- CDC remains raw UUID because it mirrors PostgreSQL.
-- OpenSearch indexes are rebuilt with TypeID documents; old UUID documents are not read.
-- Development PostgreSQL and crawler databases reset so all object rows become UUIDv7. Crawler UUIDv4 database defaults are removed; application code generates typed UUIDv7 values before inserts.
-- Development queues drain/reset before schema-v2 deployment.
-- Cognito users must be recreated or explicitly registered into the new issuer/subject mapping after a database reset.
-- Stripe sandbox metadata carrying old User IDs resets or is rewritten.
+`OAuthClientId`, `AccessTokenId` and `MarketingConsentSyncIntentId` identify durable records, not their associated secrets, provider identities or operational ordering counters.
 
 ## Adding an object ID
 
-1. Confirm the value is a durable Aura object identity, not a slug, credential, external ID, or operational token.
-2. Add one short unique lowercase prefix to this registry.
-3. Define the type in its semantic owner:
-
-   ```rust
-   domain_primitives::object_id_newtype!(ExampleId, "ex");
-   ```
-
-4. Persist only `id.as_uuid()` in native PostgreSQL `uuid` columns.
-5. Expose the typed ID through public/application boundaries.
-6. Test prefix assignment, wrong-prefix rejection, bare UUID rejection, serde, and storage roundtrip.
-7. Never use `Display` as a persistence codec.
+1. Confirm it identifies a durable Aura object, not an excluded value.
+2. Register a unique lowercase prefix and define the concrete type in its semantic owner.
+3. Generate UUIDv7; keep raw UUID construction fallible.
+4. Use native UUID storage and typed application boundaries; add any necessary storage JSON exception here explicitly.
+5. Test canonical roundtrips, prefix uniqueness/assignment, wrong-prefix and bare-UUID rejection, invalid UUID versions/variants, serde and storage roundtrips.

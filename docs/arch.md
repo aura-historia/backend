@@ -1,8 +1,8 @@
 # Architecture Guide
 
-This document defines architecture, design boundaries, and guardrails for this workspace. It is intended to be read before adding or changing domain logic, use cases, persistence, APIs, integrations, or projections. Code blocks and `Record` names are illustrative, not a required implementation or inventory of current crates.
+This document defines architecture, design boundaries, and guardrails for this workspace. It is intended to be read before adding or changing domain logic, use cases, persistence, APIs, integrations, or projections. Code blocks, example directory trees, and `Record` names are illustrative patterns, not prescribed implementations or an inventory of current crates. Keep the rules, rationale, and examples explicit enough to show how to apply the boundaries; brevity is not a goal at the expense of that guidance.
 
-Specialized documents own public, storage, event, deployment, and operational contracts; code and configuration own concrete wiring, values, and mechanics. See the [documentation map](README.md). Changes that intentionally deviate from this guide MUST explain the reason in the pull request and SHOULD update it when the deviation represents a new general rule.
+Specialized documents own public, storage, event, deployment, and operational contracts; code and configuration own concrete wiring, values, and mechanics. See the [documentation map](README.md). Deployment procedures belong in [infrastructure](infra.md); integration-specific consent, proof, provider, and evidence rules belong in [marketing consent](marketing-consent.md), not in this guide. Changes that intentionally deviate from this guide MUST explain the reason in the pull request and SHOULD update it when the deviation represents a new general rule.
 
 ---
 
@@ -41,6 +41,8 @@ graph/knowledge stores, external APIs, queues
         ▼
 External systems
 ```
+
+The diagram shows runtime call flow, not Rust dependency direction. Adapters depend on service-owned contracts, and services depend on core types—not the other way around. See [dependency direction](#36-dependency-direction).
 
 The write model is authoritative in PostgreSQL unless a bounded context explicitly documents another operational source of truth.
 
@@ -189,7 +191,7 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 Transport crates authenticate and map requests or jobs to inbound use cases; the composition root constructs concrete adapters and injects them into service-owned handlers. Composition roots MAY depend on every crate needed to assemble the process but MUST NOT contain business behavior or implement service-owned ports. Route and worker handlers MUST NOT construct repositories or clients or own transaction boundaries. Protected endpoint authorization belongs in use cases or service-owned policies, not controllers.
 
-Scheduled executables SHOULD be run-to-completion callers of service use cases; durable coordination belongs in authoritative storage rather than process-local state. Operational migration tooling is separate from application runtimes and MAY use direct operational SQL, but domain/service crates MUST NOT depend on it. Application startup MUST NOT silently run business migrations. Deployment order, exception details, and migration admission are owned by the [infrastructure guide](../infra/README.md).
+Scheduled executables SHOULD be run-to-completion callers of service use cases; durable coordination belongs in authoritative storage rather than process-local state. Operational migration tooling is separate from application runtimes and MAY use direct operational SQL, but domain/service crates MUST NOT depend on it. Application startup MUST NOT silently run business migrations. Deployment order, exception details, and migration admission are owned by the [infrastructure guide](infra.md).
 
 ### 3.6 Dependency direction
 
@@ -740,7 +742,7 @@ A reusable capability crate MAY own a technology-neutral contract and its provid
 - Construct credentials and clients at the composition boundary. Apply least-privilege scopes, secret redaction, approved egress destinations, TLS verification, and SSRF protections for externally supplied URLs. Never log raw provider payloads or secrets.
 - Bound requests with timeouts, concurrency limits, and provider rate-limit/backoff policies. Retry only failures whose semantics allow it, with bounded jitter/backoff and idempotency where supported; distinguish definite rejection, confirmed acceptance, and ambiguous outcomes. A timeout MUST NOT be treated as proof of non-delivery.
 - The service decides whether an external read is required, optional, or stale-tolerant and how failures affect the use case. For external writes, persist durable intent/receipts when needed and reconcile uncertain outcomes; never hold an authoritative database transaction across a provider call or assume an atomic cross-system commit.
-- Minimize data shared with providers, validate provider responses before they influence business state, and document any provider-specific consent, retention, quota, cost, or outage requirements in the owning integration contract.
+- Minimize data shared with providers, validate provider responses before they influence business state, and document any provider-specific consent, retention, quota, cost, or outage requirements in the owning integration contract. For email-marketing integration rules, see [marketing consent](marketing-consent.md).
 
 Ports MUST be named by capability, not by technology.
 
@@ -1104,7 +1106,7 @@ A PostgreSQL transaction cannot atomically include a search engine, queue, key-v
 
 ## 12. CDC and projection architecture
 
-CDC propagates committed authoritative changes to workers and rebuildable read projections. The intended shape is PostgreSQL commit -> CDC transport/router -> durable scoped jobs -> workers -> service use cases and projection adapters. This is an architectural target, not proof that a given stage has activated or verified delivery. [Event flow](events/flow.md) owns routes, event/job schemas and consumer behavior; the [worker runbook](durable-worker-runbook.md) owns activation, custody, replay and recovery; [infrastructure](../infra/README.md) owns deployment declarations and gates. Subsection numbers for schema evolution and required tests retain their established link targets.
+CDC propagates committed authoritative changes to workers and rebuildable read projections. The intended shape is PostgreSQL commit -> CDC transport/router -> durable scoped jobs -> workers -> service use cases and projection adapters. This is an architectural target, not proof that a given stage has activated or verified delivery. [Event flow](events/flow.md) owns routes, event/job schemas and consumer behavior; the [worker runbook](durable-worker-runbook.md) owns activation, custody, replay and recovery; [infrastructure](infra.md) owns deployment declarations and gates. Subsection numbers for schema evolution and required tests retain their established link targets.
 
 ### 12.1 Storage ownership and write contract
 

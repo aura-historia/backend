@@ -1,84 +1,99 @@
 # HTTP API front door
 
-This document records the checked-in target for the HTTP API migration. It is an implementation and rollout guide, not evidence of live DNS, certificate, alias, WAF, or forwarding configuration. Operators MUST verify those values in the approved environment inventory before deployment or cutover.
+This document owns edge routing, authentication, forwarding and cache/security rules.
+[OpenAPI](swagger.yaml) owns request/response contracts; [ProductListing](product-listing.md)
+and [marketing consent](marketing-consent.md) own use-case semantics. Source/synth do not
+verify live DNS, certificates, aliases, WAF or forwarding; operators must inspect them.
 
 ## Route and authentication boundary
 
-`infra/src/constructs/api.ts` owns the closed Gateway route matrix. `infra/test/api-route-matrix.test.ts` checks every matrix operation against `swagger.yaml` and Axum route declarations; no proxy or `$default` route is configured. All ordinary REST methods use the `live` alias of the one `aura-historia-api-<stage>` Lambda.
+[`api.ts`](../infra/src/constructs/api.ts) owns a closed Gateway route catalog, checked
+against OpenAPI and Axum by [`api-route-matrix.test.ts`](../infra/test/api-route-matrix.test.ts).
+There is no proxy or `$default` route. Ordinary REST methods target the `live` alias
+of the single stage API Lambda; deploy its version/alias before the API stack uses it.
 
-Gateway deliberately applies no Cognito JWT authorizer to these routes. Axum remains the authentication boundary because the public contract accepts both Cognito access JWTs and Aura opaque access tokens, has optional authentication on discovery reads, and contains OAuth and signed WooCommerce intake flows. Consequently:
+Gateway deliberately applies **no Cognito JWT authorizer**. Axum validates Cognito
+access JWTs and Aura opaque access tokens, optional bearers, delegated scopes and
+required user/admin/partner authorization. Anonymous probes remain anonymous;
+optional-auth routes reject invalid supplied credentials. OAuth and signed-provider
+handlers retain their dedicated credential/proof checks. A Cognito-only edge policy
+would reject valid application credentials before those handlers can evaluate them.
 
-- anonymous health/readiness probes stay anonymous;
-- optional-bearer discovery and newsletter routes can run anonymously but reject invalid supplied credentials;
-- user, administrator, and partner routes enforce their required application bearer and authorization checks in Axum;
-- `GET /api/v1/oauth/clients/{clientId}` accepts only a Cognito access JWT in Axum and returns registered consent metadata with `Cache-Control: no-store`; its application-bearer Gateway route uses the generic uncached `/api/*` behavior;
-- OAuth credentials and WooCommerce raw-body/signature validation reach their dedicated Axum handlers unchanged.
-
-This is not an authorization bypass: every protected handler retains its existing application authorization. It prevents a Cognito-only Gateway policy from incorrectly rejecting valid non-Cognito credentials before the application can evaluate them.
-
-## Newsletter double opt-in (#1945)
-
-The closed route catalog exposes optional-bearer `PUT /api/v1/newsletter-subscriptions` and anonymous `POST /api/v1/newsletter-subscriptions/confirm`. The PUT bearer may fill omitted profile values; only mailbox confirmation proves control of the submitted address, even when it matches the signed-in account. The PUT endpoint never writes directly to Loops. The POST body contains only the opaque `token`; confirmation is never a GET, URL path, query parameter, or redirect target. Both bodies are bounded to 8 KiB, confirmation tokens to 512 bytes, and every response uses `Cache-Control: no-store`.
-
-The API sends confirmation mail from the approved notification SES identity. Its template read is restricted to `<stage>/<commit>/mjml/newsletter/confirmation/*`; SES send permission is restricted to that identity. Runtime configuration uses the existing template bucket, `STAGE`, and `COMMIT_SHA`, plus `NEWSLETTER_CONFIRMATION_EMAIL_FROM`, `NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO`, and `NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN`. The origin is pinned to `https://aura-historia.com` for prod and `https://stage.aura-historia.com` for dev; tests use an explicit loopback origin. The mail links resolve to `/<language>/newsletter/confirm#token=...`; the frontend must consume that route and fragment. API code and IAM do not prove template upload, frontend support, email delivery, or deployment, so those remain release prerequisites.
-
-## Async partner product-listing routes (#1860–#1863)
-
-`POST`, `PATCH`, `PUT`, and `DELETE /api/v1/listing-sources/{listingSourceId}/product-listings/async` are explicit Gateway routes with application bearer + Partner authorization, matching their synchronous counterparts. Gateway `AuthorizationType.NONE` lets Axum validate Cognito access JWTs and Aura access tokens (delegated tokens require `product-listings:write`). The shared Lambda proxy integration forwards DELETE's JSON body without stripping or rewriting it; do not add a catch-all route or Cognito-only Gateway authorizer. Synchronous operations remain unchanged. Axum submits async DELETE through the shared admission use case; OpenAPI and the route catalog alone are not evidence of a deployed route or queue.
-
-The API Lambda requires `PRODUCT_LISTING_INGESTION_QUEUE_URL` (an HTTP(S) FIFO queue URL) and `sqs:SendMessage` permission on that queue; missing or invalid configuration prevents startup. Gateway preflight must allow the `Idempotency-Key` request header, and response CORS must expose the echoed `Idempotency-Key` to browser clients. Preserve existing origin policy, WAF, throttling, authentication, and whole-body limits (1 MiB). Native duplicate `Idempotency-Key` headers and comma-joined values (including HTTP API v2 folded duplicates) return `400 BAD_HEADER_VALUE` before any send. A supplied key must contain 1–128 visible ASCII bytes excluding comma (`^[\x21-\x2B\x2D-\x7E]{1,128}$`); a missing key is generated for an evaluated submission. Whole-request syntax/non-array/over-100/limit and auth/scope failures send nothing and use the existing `ApiError` envelope. An evaluated array (including `[]`) returns a JSON admission report with `submissionId`, `acceptedCount`, and per-original-index failures; non-2xx evaluated reports also echo the effective key. There is no `Location` or status resource. Only confirmed queue admission counts as accepted; `202` never means completed creation, update, upsert, or withdrawal, nor guaranteed immediate search visibility. Async DELETE accepts the synchronous DELETE array of `WithdrawProductListingData` items (up to 100); invalid items can fail while eligible siblings are admitted. Withdrawal is reversible, not physical deletion. Listing existence, partnership/source authority and lifecycle are checked downstream, so a partial or deferred withdrawal may leave listings visible until applied. An unconfirmed send may already have been queued.
-
-For unconfirmed/retryable transport outcomes, retry the **unchanged ordered array** with the **same key**, retaining invalid entries and their original indices. For example, if a four-entry batch accepts indices 0 and 2, rejects invalid index 1, and cannot confirm index 3, retry all four in their original order under the original key; do not retry only index 3 with that key. Fix index 1 separately with a new key and exclude accepted/uncertain siblings. Per-command receipts deduplicate successful downstream effects, not the whole submission. Within a listing-key FIFO group, an unresolved send at index 0 blocks its eligible successor at index 1 (`ENQUEUE_BLOCKED`); an unrelated key at index 2 can still be accepted. Blocked retryability follows the predecessor; queue acceptance order is not business execution order. A generated key lost with its first response cannot be recovered; supplying a key initially is strongly recommended. An evaluated zero-accepted report may be `400` (validation/mixed definite size), `413` (all encoded messages oversized), `500` (internal/configuration), or `503` (transport/uncertainty/deadline); a report is still returned with the echoed key. Whole-body limit failures use request-level `413` and `ApiError` before sends. There is no status polling; inspect authoritative PostgreSQL and queue/DLQ state with approved access for operational recovery. Never log keys, credentials, or raw payloads while diagnosing retries. See [OpenAPI](swagger.yaml) for per-verb schemas and examples and the [ingestion recovery gate](durable-worker-runbook.md#productlisting-ingestion-rollout-and-acceptance-gate) before exposing a producer.
+Preserve request headers, cookies, query strings and exact signed bodies through the
+Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
+payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
+and Axum response CORS must retain approved origins, required authorization/provider
+headers and `Idempotency-Key` admission/exposure. CORS is not authorization; do not
+relax raw-body limits or application checks to fix an edge integration.
 
 ## Front-door controls
 
-| Control | Decision | Security and cache implication |
-| --- | --- | --- |
-| HTTP API custom domain | Use the regional TLS 1.2 domain and default API mapping for the public host. | `/api/v1` is forwarded unchanged; `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true` avoids adding the named `dev` stage in `lambda_http`. The Lambda transport adapter removes the matching stage prefix if the HTTP API v2 request URI already contains it; public Axum routes remain unprefixed. DNS records are externally owned and must be verified before cutover. |
-| CloudFront | Use exact aliases `api.stage.aura-historia.com` for AWS `dev` and `api.aura-historia.com` for prod, with HTTPS redirect. Do not claim `*.stage.aura-historia.com`. | Keep the existing AllViewer origin request policy and HTTPS-only regional API Gateway origin. The default and generic `/api/*` behaviors remain on managed `CachingDisabled`; only the reviewed discovery behaviors use a pay-as-you-go custom cache policy. |
-| WAF | Retain the CloudFront-scoped AWS IP reputation, common-rule-set, and known-bad-input managed rules. | The common rule set's `NoUserAgent_HEADER` remains count-only. There is no new WAF rate rule in this migration. |
-| CORS | Retain HTTP API preflight and Axum response CORS. | Gateway permits `Authorization`, `Content-Type`, `Accept`, `X-Correlation-Id`, required WooCommerce headers, and (for async partner submission) `Idempotency-Key`. Axum must expose `Idempotency-Key` on evaluated async reports alongside response correlation headers, without relaxing allowed origins or raw-body limits. |
-| Throttling | Retain the explicit stage policy: prod burst/rate `5000/2000`, dev `50/20`. | This is Gateway request shaping, not a database connection, account-Lambda concurrency, or hard capacity guarantee. No reserved/provisioned concurrency or hidden replacement cap is introduced. Route-family limits remain absent until a separately reviewed policy specifies values and WAF/application ownership. |
+- Public aliases are exactly `api.stage.aura-historia.com` for AWS **`dev`** and
+  `api.aura-historia.com` for prod, never `*.stage.aura-historia.com`.
+- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The public
+  `/api/v1` path stays unchanged; the Lambda adapter normalizes a matching Gateway
+  stage prefix. Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
+- CloudFront redirects viewers to HTTPS and uses an HTTPS-only regional Gateway
+  origin (`attrRegionalDomainName`), **not the public CloudFront-facing DNS record**.
+  AllViewer forwards `Host`; origin TLS and custom-domain mapping must accept it.
+  The default execute-api endpoint is disabled when the custom domain is configured.
+- Retain CloudFront-scoped AWS IP reputation, common-rule-set and known-bad-input
+  rules; `NoUserAgent_HEADER` is count-only. There is no additional WAF rate rule.
+  Gateway stage throttles shape requests, not database or Lambda concurrency/capacity.
 
-## Selective anonymous discovery caching (#1827)
+## Selective anonymous discovery caching
 
-The distribution is operated on CloudFront pay-as-you-go pricing so it can use a stage-specific custom cache policy. Multi-auth remains application-owned: CloudFront does not parse tokens, add an authorizer, or use a function at the edge. Cognito access JWTs, Aura opaque access tokens, malformed credentials, and future bearer formats are forwarded unchanged to Axum.
+Only explicitly approved anonymous `200` discovery representations may be shared.
+Any `Authorization` header means `private, no-store`, including malformed credentials.
+Unmarked responses and errors default to no-store; pending results, redirects and
+non-`200` responses are not cacheable. Consent, OAuth, protected and write routes
+remain uncached. Application cache approval and edge policy must agree.
 
-Only successful anonymous `200` representations for the explicit discovery allowlist below may be shared. A request containing any `Authorization` header uses `private, no-store`, even if that credential is valid or the response body would otherwise be identical. The API transport layer defaults every unmarked response—including errors—to `private, no-store`; `202`, redirects, other non-`200` responses, and similar-product pending results are not cached.
-
-| Discovery route | Initial shared TTL |
+| Approved GET representation | Shared TTL |
 | --- | ---: |
-| `GET /api/v1/listing-sources` | 300 s |
-| `GET /api/v1/listing-sources/by-slug/{listing_source_slug_id}` | 300 s |
-| `GET /api/v1/auctions` | 60 s |
-| `GET /api/v1/auctions/{auction_id}` | 60 s |
-| `GET /api/v1/auctions/{auction_id}/product-listings` | 60 s |
-| `GET /api/v1/product-listings` | 60 s |
-| `GET /api/v1/product-listings/by-slug/{product_listing_title_slug_id}` | 120 s |
-| `GET /api/v1/product-listings/{product_listing_id}` | 120 s |
-| `GET /api/v1/product-listings/{product_listing_id}/history` | 300 s |
-| `GET /api/v1/product-listings/{product_listing_id}/similar` (Ready only) | 300 s |
+| Listing-source collection and by-slug detail | 300 s |
+| Auction collection, detail and auction product-listings | 60 s |
+| Product-listing collection | 60 s |
+| Product-listing ID/by-slug detail | 120 s |
+| Product-listing history and ready similar results | 300 s |
 
-Approved anonymous responses emit `Cache-Control: public, max-age=0, s-maxage=<route TTL>, stale-if-error=0`, using the route TTL listed above.
+Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`.
+The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin`,
+`Host` and **all query strings**, and enables gzip/Brotli variation. Cookies are
+forwarded but not keyed: never add cookie-dependent data to a shared representation.
+OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-The cache key includes `Authorization`, `Origin`, and `Host`, plus **all query strings**; it includes no cookies. The unchanged managed AllViewer origin request policy still forwards viewer headers, query strings, and cookies (including `Host`) to the origin. This isolates credential-bearing requests from the anonymous object, preserves CORS/host/query variation, and keeps malformed or unknown query parameters from aliasing another response. Gzip and Brotli variations are enabled. OPTIONS is allowed but not cached. No positive stale window is enabled. `stale-if-error=0` explicitly prevents CloudFront from serving expired cached discovery data when the origin is unavailable or returns 5xx; `stale-while-revalidate` is not used.
-
-Only six reviewed CloudFront path behaviors have the custom cache and response-headers policies. Their path wildcards are guarded against route-catalog expansion in `infra/test/api-route-matrix.test.ts`; new routes remain uncached unless deliberately reviewed and allowlisted. The generic `/api/*` fallback and default behavior remain `CachingDisabled`. Do not add a JWT-only cache-key function, CloudFront Function, Lambda@Edge association, API Gateway authorizer, token-derived key, synthetic query parameter, or cookie partition.
-
-CloudFront removes `X-Request-Id` and `X-Correlation-Id` from all viewer responses on the cache-enabled behaviors, on both hits and origin misses, so origin-generated IDs are never replayed between viewers. Those headers remain available on uncached behavior responses. Custom error responses set `ErrorCachingMinTTL: 0` for 400, 403, 404, 405, 414, 500, 501, 502, 503, and 504; application errors also carry `private, no-store`. CORS policy is unchanged, and `Origin` remains in the cache key.
-
-CloudFront, WAF, API Gateway access logging, and Lambda invocations all incur their normal request/logging charges. Shared caching is deliberately limited to these anonymous reads; all other API traffic continues to the origin uncached.
+Only reviewed discovery path behaviors use this policy; generic `/api/*` and default
+behaviors use `CachingDisabled`. Wildcard expansion requires route/cache review and
+tests. Do not add token-derived keys, cookie partitions or an edge auth function.
+Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
+misses so one viewer cannot receive another's origin IDs. Uncached behaviors retain
+them. Configured CloudFront error TTLs are zero; application errors are also no-store.
 
 ## Deployment, cutover, and rollback
 
-The target public staging URL is `https://api.stage.aura-historia.com` on the AWS **`dev`** environment. It does not change `stage=dev`, `application-dev-*`, `aws-dev`, Lambda identities, artifact prefixes, `/.../dev/...` SSM paths, stage frontend/Cognito callbacks, billing URLs, or production. The old API hostname is `api.dev.aura-historia.com`; it is **not** automatically redirected or retired. #1802 and #1806 own approved release and cutover sequencing.
+Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), then:
 
-**Read-only inventory (2026-09-25; inspected CLI account, not deployment approval):** The two existing `/certificates/dev/` references resolve to issued ACM certificates in `eu-central-1` and `us-east-1`, but **neither SAN set covers `api.stage.aura-historia.com`** (`*.aura-historia.com` and `*.dev.aura-historia.com` do not cover it). Public DNS lookup returned NXDOMAIN for the new hostname and a CloudFront CNAME for the old host; the public zone advertises Cloudflare nameservers, but DNS control-plane ownership was not verified. The inspected account listed no active `application-dev-*` CloudFormation stacks or dev Lambda functions and no CloudFront distribution claiming the new exact alias; this does not rule out an alias in another account or confirm ownership of the old distribution. These findings are a **hold**, not permission to delete anything. Recheck them in the approved account and DNS control plane at cutover time.
+1. Inventory approved-account alias/domain claims, externally owned DNS, current
+   consumers and the previous endpoint/rollback target. Resolve conflicts with their
+   owners. The dev public hostname does not rename AWS stages, SSM paths or stacks.
+2. Verify issued, valid ACM certificates covering the **exact public hostname**:
+   regional Gateway in `eu-central-1`, CloudFront viewer in `us-east-1`. Check the
+   stage references in configuration; `*.aura-historia.com` or `*.dev.aura-historia.com`
+   does not cover `api.stage.aura-historia.com`. Do not infer validity from synth.
+3. Review the actual diff and deployed API version/`live` alias, route catalog,
+   origin Host/TLS, WAF and forwarding. Probe the approved full chain before DNS:
+   health/readiness, anonymous and invalid optional bearers, allowed/denied protected
+   Cognito/Aura calls, OAuth, CORS, signed bodies and cache/header isolation. Search
+   readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
+   Keep credentials and signed payloads out of logs; omitted checks are not passes.
+4. With approval and successful probes, move external DNS and affected frontend/provider
+   registrations; repeat probes on the public hostname. Keep the old endpoint until
+   its consumers are migrated and verified. Redirecting authenticated requests or
+   signed webhooks is not a safe default, and old-host retirement is not automatic.
 
-1. In the approved account and DNS control plane, inventory existing `api.stage.aura-historia.com` DNS records, CloudFront alternate-domain claims (including other accounts), regional API Gateway custom domains, and the old `api.dev.aura-historia.com` endpoint/consumers. Resolve any actual alias/DNS conflict with its owner before deploying; this API must not take the `*.stage.aura-historia.com` alias from other stage services. Confirm ownership of the external DNS record and an approved rollback target. Inspect stage frontend API base-URL configuration and registered OAuth/provider/webhook URLs; change only registrations using the old API hostname. Keep the old endpoint while consumers are unverified, especially for authenticated requests and signed webhooks; a redirect is not a safe default.
-2. Verify the **issued**, valid ACM certificate referenced by `/certificates/dev/api-regional-certificate-arn` in `eu-central-1` and the viewer ACM certificate referenced by `/certificates/dev/api-cloudfront-certificate-arn` in `us-east-1` both include `api.stage.aura-historia.com` in the SAN and are available to the deploying account. An old `*.dev` SAN does not cover this hostname. Provision or update references only via an approved operation; do not copy certificate ARNs or secrets into logs. Check the approved CloudFront distribution, WAF ACL, and any temporary forwarders under #449.
-3. Build artifacts, run tests and synth, and review the CloudFormation diff: one API Lambda `live` alias, one ordinary Lambda integration, explicit routes, exact dev alias, new regional custom domain and default mapping, certificate references, CloudFront origin/WAF, and no unapproved changes to EventBridge, SQS, Cognito triggers, or legacy special-intake integrations. Deploy the API Lambda version and `live` alias before (or atomically with) the API stack referencing it. The compute stack's `CommitSHA` parameter selects the artifact and replaces the immutable API version via its description; `live` follows that version. A code release or rollback must update both the function code and alias target; unchanged parameters/configuration must not force a new version.
-4. Before moving externally owned DNS, verify CloudFront serves trusted viewer TLS for the exact alias and connects over trusted HTTPS to the regional API Gateway domain target (`attrRegionalDomainName`, **not** the public alias). CloudFront's all-viewer origin request policy forwards the viewer `Host`, so regional TLS and the Gateway custom-domain mapping must both accept `api.stage.aura-historia.com`; never point the origin to the CloudFront-facing DNS record. Validate the complete chain (viewer → CloudFront/WAF → regional HTTP API → Lambda `live`) with sanitized probes to the approved distribution, including `/api/v1/health`, `/api/v1/ready` (a bounded PostgreSQL `SELECT 1` and a successful zero-result `product-listings` reader search, not an unlisted gateway root ping; OpenSearch reachability depends on #1782 and the [dev TCP 9443 network gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate-1850)), anonymous and optional reads with invalid-credential rejection, denied and allowed protected Cognito/Aura bearer calls, OAuth, CORS preflight, headers/cookies/query forwarding, and signed provider requests with intact raw bodies. For #1802/#1805, record the deployed dev rule and approved destination CIDR(s), plus sanitized private-workload `/api/v1/ready` and reader-search results; record any failure or omitted search probe explicitly and do not mark search readiness passed on host-local checks or the waived standalone NAT test. Hold search-dependent cutover until corrected and retested. Do not place tokens or signed payloads in logs.
-5. With owner approval and successful probes, update the external DNS record to the approved CloudFront distribution and coordinate the stage frontend API base URL and any affected provider registrations. Repeat trusted-TLS and front-door probes on the public hostname. Hold old-host retirement until its remaining consumers are inventoried, migrated and verified. Keep legacy integrations until their replacement owner and coverage proof are recorded.
-
-**Hold/rollback boundary:** If certificate, alternate-domain ownership, origin Host/TLS, forwarding, or consumer checks fail, do not move DNS or retire the old hostname. After cutover, revert the external DNS record to its recorded previous target (accounting for TTL) and restore frontend/provider URLs as needed; keep the old host available until consumers have been proven migrated. For a compatible code regression, [manual Deploy rollback](../infra/README.md#rollback-and-stack-recovery) selects an older supported CalVer tag for prod or a full merged SHA for dev; prefer `scope=all` after compatibility review, since `auto` may stop at foundation on migration-source differences. It uses that source's build/publish/CDK path but never invokes the older migrator. It may change infrastructure, including API policy; review the actual diff, newer database schema, retained queues and provider effects before approval. It never runs down migrations or reverses external DNS changes. Alternatively move `live` to a last known-good Lambda version under an approved API-specific operation. Do not delete retained state or disable the old front door, WAF, provider/Cognito/event resources, or legacy integrations. A Lambda timeout does not cancel in-flight database or provider effects; use the owning service's reconciliation procedure before retrying side-effecting requests.
+If alias/certificate/Host/TLS/forwarding checks fail, hold cutover. After cutover,
+restore the recorded DNS target and affected client/provider URLs, accounting for TTL.
+[Code/stack rollback](infra.md#rollback-and-stack-recovery) does not reverse DNS or
+provider effects. Preserve the old front door, WAF and retained state. Lambda timeout
+is not proof that side effects were canceled; reconcile before retrying writes.
