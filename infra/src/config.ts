@@ -38,12 +38,24 @@ export interface CognitoGoogleIdentityProviderConfig {
   readonly clientIdParameterName: string;
   readonly clientSecretParameterName: string;
   readonly scopes: readonly string[];
-  readonly autoLinkVerifiedEmail: boolean;
+  readonly existingEmailAction: "LINK_VERIFIED";
   readonly linkSourceAttributeName: "Cognito_Subject";
 }
 
-// New providers must explicitly define credentials, scopes, mappings, client support, and verified-email trust.
-export type CognitoIdentityProviderConfig = CognitoGoogleIdentityProviderConfig;
+export interface CognitoFacebookIdentityProviderConfig {
+  readonly kind: "facebook";
+  readonly providerName: "Facebook";
+  readonly apiVersion: "v26.0";
+  readonly clientIdParameterName: string;
+  readonly clientSecretParameterName: string;
+  readonly scopes: readonly string[];
+  readonly existingEmailAction: "REJECT";
+}
+
+// Each provider explicitly defines credentials, scopes, attribute mappings, client support, and collision policy.
+export type CognitoIdentityProviderConfig =
+  | CognitoGoogleIdentityProviderConfig
+  | CognitoFacebookIdentityProviderConfig;
 
 export interface NotificationEmailConfig {
   readonly from: string;
@@ -175,8 +187,17 @@ export function stageConfig(stage: StageName): StageConfig {
         clientIdParameterName: `/cognito/${stage}/identity-providers/google/client-id`,
         clientSecretParameterName: `/cognito/${stage}/identity-providers/google/client-secret`,
         scopes: ["openid", "email", "profile"],
-        autoLinkVerifiedEmail: true,
+        existingEmailAction: "LINK_VERIFIED",
         linkSourceAttributeName: "Cognito_Subject",
+      },
+      {
+        kind: "facebook",
+        providerName: "Facebook",
+        apiVersion: "v26.0",
+        clientIdParameterName: `/cognito/${stage}/identity-providers/facebook/client-id`,
+        clientSecretParameterName: `/cognito/${stage}/identity-providers/facebook/client-secret`,
+        scopes: ["email", "public_profile"],
+        existingEmailAction: "REJECT",
       },
     ],
     cognitoEmail: {

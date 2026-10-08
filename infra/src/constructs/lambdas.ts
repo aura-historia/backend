@@ -84,8 +84,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PrimaryUserPoolPreSignUpLambda",
     binaryName: "cognito-pre-sign-up",
     memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
     timeoutSeconds: 5,
-    environment: identityProviderLinkingEnvironment,
+    environment: providerSignupEnvironment,
   },
   shopify: {
     id: "ShopifyLambda",
@@ -603,6 +605,20 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
       resourceName: props.config.notificationEmail.identityDomain,
     })],
   }));
+  functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["s3:GetObject"],
+    resources: [props.mailTemplateBucket.arnForObjects(
+      `${props.config.stage}/${props.parameters.commitSha}/mjml/newsletter/confirmation/*`,
+    )],
+  }));
+  functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["ses:SendEmail"],
+    resources: [cdk.Stack.of(props.mailTemplateBucket).formatArn({
+      service: "ses",
+      resource: "identity",
+      resourceName: props.config.notificationEmail.identityDomain,
+    })],
+  }));
 
   if (props.postgres.secretArn) {
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -658,13 +674,15 @@ export function grantCognitoFederatedLinkingAccess(functions: LambdaFunctions): 
   }));
 }
 
-function identityProviderLinkingEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
-    COGNITO_IDENTITY_PROVIDER_LINKING_POLICY: JSON.stringify(
+    COGNITO_PROVIDER_SIGNUP_POLICY: JSON.stringify(
       context.config.cognitoIdentityProviders.map((provider) => ({
         providerName: provider.providerName,
-        autoLinkVerifiedEmail: provider.autoLinkVerifiedEmail,
-        linkSourceAttributeName: provider.linkSourceAttributeName,
+        existingEmailAction: provider.existingEmailAction,
+        ...(provider.existingEmailAction === "LINK_VERIFIED"
+          ? { linkSourceAttributeName: provider.linkSourceAttributeName }
+          : {}),
       })),
     ),
   };
@@ -702,8 +720,15 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
   const { config, search } = context;
   const environment = {
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
+    COMMIT_SHA: context.commitSha,
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
+    NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
+    NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
+    NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: config.isProd
+      ? "https://aura-historia.com"
+      : "https://stage.aura-historia.com",
+    S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
     STAGE: config.stage,
     STRIPE_CHECKOUT_CANCEL_URL: config.stripeCheckoutCancelUrl,
     STRIPE_CHECKOUT_SUCCESS_URL: config.stripeCheckoutSuccessUrl,

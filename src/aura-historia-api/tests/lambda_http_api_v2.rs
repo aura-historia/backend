@@ -592,6 +592,24 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
             LOOPS_WEBHOOK_SIGNING_SECRET,
         ),
+        (
+            aura_historia_api::S3_BUCKET_NAME_TEMPLATES_ENV,
+            "lambda-test-mail-templates",
+        ),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
+            "Aura Historia <newsletter@example.test>",
+        ),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV,
+            "contact@example.test",
+        ),
+        (aura_historia_api::STAGE_ENV, "ephemeral"),
+        (aura_historia_api::COMMIT_SHA_ENV, "lambda-test-commit"),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
+            "http://127.0.0.1:3000",
+        ),
     ]);
     ApiConfig::from_getter(|name| values.get(name).map(ToString::to_string))
 }

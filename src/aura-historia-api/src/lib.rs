@@ -189,18 +189,18 @@ use tokio::net::TcpListener;
 use tokio::sync::OnceCell;
 use tracing::info;
 use user_cognito::CognitoUserSessionRevoker;
+use user_email_aws::{NewsletterConfirmationEmailConfig, SesNewsletterConfirmationEmailSender};
 use user_loops::{
-    LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter,
-    LoopsNewsletterWebhookVerifier,
+    LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig, LoopsNewsletterWebhookVerifier,
 };
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
     SqlxCognitoUserIdentityReader, SqlxLoopsWebhookReceiptRepository,
-    SqlxMarketingConsentIntentRepository, SqlxNewsletterProfileReader,
-    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
-    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
-    SqlxUserTierEntitlementsFactory,
+    SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
+    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
+    SqlxUserAuthenticationReader, SqlxUserCognitoIdentityRegistryFactory,
+    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::ports::NewsletterWebhookMailingListId;
 use user_service::use_cases::ApplyLoopsPreferenceEventHandler;
@@ -213,7 +213,6 @@ use user_service::use_cases::commands::delete_access_tokens::DeleteAccessTokensH
 use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
-use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionHandler;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
@@ -222,8 +221,9 @@ use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandle
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use user_service::use_cases::{
-    AuthenticateAccessTokenHandler, AuthenticateUserHandler, ResolveCognitoUserHandler,
-    RevokeUserSessionsHandler, SuspendUserHandler, UnsuspendUserHandler,
+    AuthenticateAccessTokenHandler, AuthenticateUserHandler, ConfirmNewsletterSubscriptionHandler,
+    RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
+    SuspendUserHandler, UnsuspendUserHandler,
 };
 use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
@@ -250,6 +250,14 @@ pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
+pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
+    "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN";
+pub const NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV: &str = "NEWSLETTER_CONFIRMATION_EMAIL_FROM";
+pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
+    "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO";
+pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const STAGE_ENV: &str = "STAGE";
+pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED_ENV: &str =
     "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED";
@@ -290,8 +298,6 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const LOOPS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-const LOOPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
@@ -306,6 +312,7 @@ pub struct ApiConfig {
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     loops: LoopsNewsletterConfig,
+    newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
     product_listing_search_parallel_enrichment_enabled: bool,
     product_listing_search_fx_cache: FxSearchCacheConfig,
@@ -393,6 +400,15 @@ impl ApiConfig {
             get(LOOPS_API_BASE_URL_ENV).unwrap_or_else(|| DEFAULT_LOOPS_API_BASE_URL.to_owned()),
         )
         .map_err(ApiConfigError::LoopsConfig)?;
+        let newsletter_confirmation_email = NewsletterConfirmationEmailConfig::new(
+            required_config(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+            required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV)?,
+            required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV)?,
+            required_config(&mut get, STAGE_ENV)?,
+            required_config(&mut get, COMMIT_SHA_ENV)?,
+            &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
+        )
+        .map_err(ApiConfigError::NewsletterConfirmationEmailConfig)?;
         let loops_webhook_signing_secret =
             required_config(&mut get, LOOPS_WEBHOOK_SIGNING_SECRET_ENV)?;
         user_loops::LoopsNewsletterWebhookVerifier::validate_signing_secret(
@@ -408,6 +424,7 @@ impl ApiConfig {
             stripe_billing,
             billing_prices,
             loops,
+            newsletter_confirmation_email,
             loops_webhook_signing_secret,
             product_listing_search_parallel_enrichment_enabled,
             product_listing_search_fx_cache,
@@ -443,6 +460,10 @@ impl ApiConfig {
 
     fn loops(&self) -> &LoopsNewsletterConfig {
         &self.loops
+    }
+
+    fn newsletter_confirmation_email(&self) -> &NewsletterConfirmationEmailConfig {
+        &self.newsletter_confirmation_email
     }
 
     fn loops_webhook_signing_secret(&self) -> &str {
@@ -662,6 +683,10 @@ pub enum ApiConfigError {
     ),
     #[error("invalid Loops newsletter configuration")]
     LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
+    #[error("invalid newsletter confirmation email configuration")]
+    NewsletterConfirmationEmailConfig(
+        #[source] user_email_aws::NewsletterConfirmationEmailConfigError,
+    ),
     #[error("invalid Loops webhook signing-secret configuration")]
     InvalidLoopsWebhookSigningSecret,
 }
@@ -982,6 +1007,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     "/api/v1/newsletter-subscriptions",
                     axum::routing::put(newsletter::put::put_newsletter_subscription),
                 )
+                .route(
+                    "/api/v1/newsletter-subscriptions/confirm",
+                    post(newsletter::confirm::confirm_newsletter_subscription),
+                )
                 .with_state(newsletter),
         );
     }
@@ -1117,13 +1146,13 @@ async fn app_state_from_config_and_pool(
     config: &ApiConfig,
     pool: PgPool,
 ) -> Result<AppState, ApiStateError> {
-    let cognito_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+    let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let ingestion_publisher = SqsProductListingIngestionPublisher::new(
-        aws_sdk_sqs::Client::new(&cognito_config),
+        aws_sdk_sqs::Client::new(&aws_client_config),
         ingestion_queue_url_from_env()?,
     );
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
-        aws_sdk_cognitoidentityprovider::Client::new(&cognito_config),
+        aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
         config.cognito_user_pool_id(),
     );
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -1274,17 +1303,25 @@ async fn app_state_from_config_and_pool(
         SqlxMarketingConsentIntentRepository::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let loops_client = reqwest::Client::builder()
-        .connect_timeout(LOOPS_CONNECT_TIMEOUT)
-        .timeout(LOOPS_REQUEST_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| ApiStateError::LoopsClient)?;
-    let newsletter_writer =
-        LoopsNewsletterSubscriptionWriter::new(config.loops().clone(), loops_client);
-    let upsert_newsletter_subscription = UpsertNewsletterSubscriptionHandler::new(
+    let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
+    let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(
+        aws_sdk_s3::Client::new(&aws_client_config),
+        aws_sdk_sesv2::Client::new(&aws_client_config),
+        config.newsletter_confirmation_email().clone(),
+    );
+    let request_newsletter_subscription = RequestNewsletterSubscriptionHandler::new(
+        unit_of_work.clone(),
+        newsletter_challenges,
         SqlxNewsletterProfileReader::new(pool.clone()),
-        newsletter_writer,
+        newsletter_email_sender,
+        user_service::ports::OsNewsletterConfirmationTokenGenerator,
+        user_service::ports::SystemNewsletterConfirmationClock,
+    );
+    let confirm_newsletter_subscription = ConfirmNewsletterSubscriptionHandler::new(
+        unit_of_work.clone(),
+        SqlxNewsletterConfirmationChallengesRepository::new(),
+        SqlxMarketingConsentIntentRepository::new(),
+        user_service::ports::SystemNewsletterConfirmationClock,
     );
     let loops_consent_provider = LoopsMarketingEmailConsentWriter::new(config.loops().clone())
         .map_err(|_| ApiStateError::LoopsClient)?;
@@ -1841,7 +1878,8 @@ async fn app_state_from_config_and_pool(
         .with_notifications(notifications_state)
         .with_billing(billing_state)
         .with_newsletter(NewsletterState::new(
-            Arc::new(upsert_newsletter_subscription),
+            Arc::new(request_newsletter_subscription),
+            Arc::new(confirm_newsletter_subscription),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_readiness(readiness))
@@ -2183,6 +2221,24 @@ mod tests {
                 LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
                 "whsec_dGVzdC1sb29wcy13ZWJob29r".to_owned(),
             ),
+            (
+                S3_BUCKET_NAME_TEMPLATES_ENV,
+                "test-mail-templates".to_owned(),
+            ),
+            (
+                NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
+                "Aura Historia <newsletter@example.test>".to_owned(),
+            ),
+            (
+                NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV,
+                "contact@example.test".to_owned(),
+            ),
+            (STAGE_ENV, "ephemeral".to_owned()),
+            (COMMIT_SHA_ENV, "test-commit".to_owned()),
+            (
+                NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
+                "http://127.0.0.1:3000".to_owned(),
+            ),
         ])
     }
 
@@ -2200,6 +2256,34 @@ mod tests {
         .expect("expected Loops config");
 
         assert!(expected_loops == config.loops);
+    }
+
+    #[test]
+    fn should_validate_newsletter_confirmation_origin_for_each_deployment_stage() {
+        for (stage, origin) in [
+            ("prod", "https://aura-historia.com"),
+            ("dev", "https://stage.aura-historia.com"),
+            ("ephemeral", "http://127.0.0.1:3000"),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(STAGE_ENV, stage.to_owned());
+            values.insert(
+                NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
+                origin.to_owned(),
+            );
+            assert!(ApiConfig::from_getter(|name| values.get(name).cloned()).is_ok());
+        }
+
+        let mut untrusted = valid_api_config_values();
+        untrusted.insert(STAGE_ENV, "prod".to_owned());
+        untrusted.insert(
+            NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
+            "https://attacker.example".to_owned(),
+        );
+        assert!(matches!(
+            ApiConfig::from_getter(|name| untrusted.get(name).cloned()),
+            Err(ApiConfigError::NewsletterConfirmationEmailConfig(_))
+        ));
     }
 
     #[test]

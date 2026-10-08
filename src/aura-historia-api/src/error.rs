@@ -79,7 +79,6 @@ use user_service::use_cases::commands::delete_user::DeleteUserError;
 use user_service::use_cases::commands::revoke_user_sessions::RevokeUserSessionsError;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenError;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileError;
-use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionError;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserError;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminError;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenError;
@@ -181,9 +180,10 @@ pub(crate) const SEARCH_FILTER_RESTRICTED_FEATURE: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_RESTRICTED_FEATURE");
 pub(crate) const SEARCH_FILTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_TEMPORARILY_UNAVAILABLE");
-pub(crate) const INVALID_EMAIL: ApiErrorCode = ApiErrorCode("INVALID_EMAIL");
 pub(crate) const NEWSLETTER_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_INTERNAL_ERROR");
+pub(crate) const NEWSLETTER_CONFIRMATION_INVALID: ApiErrorCode =
+    ApiErrorCode("NEWSLETTER_CONFIRMATION_INVALID");
 pub(crate) const NEWSLETTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_TEMPORARILY_UNAVAILABLE");
 pub(crate) const LOOPS_WEBHOOK_CONFLICT: ApiErrorCode = ApiErrorCode("LOOPS_WEBHOOK_CONFLICT");
@@ -1599,23 +1599,6 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::ContentAssessmentStateInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing search failed internally.")
-            }
-        }
-    }
-}
-
-impl From<UpsertNewsletterSubscriptionError> for ApiError {
-    fn from(error: UpsertNewsletterSubscriptionError) -> Self {
-        match error {
-            UpsertNewsletterSubscriptionError::InvalidEmail => ApiError::bad_request(INVALID_EMAIL)
-                .with_detail("Newsletter provider rejected the email address."),
-            UpsertNewsletterSubscriptionError::NewsletterSubscriptionUnavailable { .. } => {
-                ApiError::service_unavailable(NEWSLETTER_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Newsletter subscription is temporarily unavailable.")
-            }
-            UpsertNewsletterSubscriptionError::NewsletterSubscriptionInternal { .. } => {
-                ApiError::internal_server_error(NEWSLETTER_INTERNAL_ERROR)
-                    .with_detail("Newsletter subscription failed internally.")
             }
         }
     }

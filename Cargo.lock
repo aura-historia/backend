@@ -278,6 +278,8 @@ dependencies = [
  "auction-service",
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
  "aws-sdk-sqs",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -350,6 +352,7 @@ dependencies = [
  "url",
  "user-cognito",
  "user-core",
+ "user-email-aws",
  "user-loops",
  "user-postgres",
  "user-service",
@@ -1785,12 +1788,15 @@ dependencies = [
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
+ "platform-postgres-secretsmanager",
  "serde-email",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-cognito",
+ "user-postgres",
+ "user-service",
 ]
 
 [[package]]

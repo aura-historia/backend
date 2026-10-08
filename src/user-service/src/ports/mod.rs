@@ -5,6 +5,7 @@ pub mod access_token_repository;
 pub mod admin_access_token_list_reader;
 pub mod cognito_identity;
 pub mod consent_workflow_cleanup;
+pub mod federated_account_reader;
 pub mod loops_webhook_receipts;
 pub mod marketing_consent_intents;
 pub mod marketing_email_consent_writer;
@@ -44,6 +45,9 @@ pub use cognito_identity::{
 pub use consent_workflow_cleanup::{
     ConsentWorkflowCleanup, ConsentWorkflowCleanupError, ConsentWorkflowCleanupFactory,
 };
+pub use federated_account_reader::{
+    FederatedAccount, FederatedAccountReadError, FederatedAccountReader,
+};
 
 pub use loops_webhook_receipts::{
     LoopsPreferenceFence, LoopsWebhookReceiptDisposition, LoopsWebhookReceiptError,
@@ -68,8 +72,8 @@ pub use newsletter_confirmation_challenges::{
     OsNewsletterConfirmationTokenGenerator, SystemNewsletterConfirmationClock,
 };
 pub use newsletter_confirmation_email_sender::{
-    NewsletterConfirmationEmail, NewsletterConfirmationEmailSendOutcome,
-    NewsletterConfirmationEmailSender,
+    NewsletterConfirmationEmail, NewsletterConfirmationEmailRetryability,
+    NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
 };
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,

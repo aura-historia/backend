@@ -1,15 +1,17 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::{ApiError, NEWSLETTER_INTERNAL_ERROR, NEWSLETTER_TEMPORARILY_UNAVAILABLE};
+use crate::newsletter::common::{no_store, parse_body};
 use crate::state::NewsletterState;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::body::Body;
+use axum::extract::{Request, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
 use serde::Deserialize;
 use serde_email::Email;
 use user_core::{first_name::FirstName, last_name::LastName};
-use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionCommand;
+use user_service::use_cases::RequestNewsletterSubscriptionCommand;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,7 +28,7 @@ struct PutNewsletterSubscriptionDto {
     currency: Option<Currency>,
 }
 
-impl From<PutNewsletterSubscriptionDto> for UpsertNewsletterSubscriptionCommand {
+impl From<PutNewsletterSubscriptionDto> for RequestNewsletterSubscriptionCommand {
     fn from(dto: PutNewsletterSubscriptionDto) -> Self {
         Self {
             email: dto.email,
@@ -40,58 +42,63 @@ impl From<PutNewsletterSubscriptionDto> for UpsertNewsletterSubscriptionCommand 
 
 pub async fn put_newsletter_subscription(
     State(state): State<NewsletterState>,
-    headers: HeaderMap,
-    body: String,
+    request: Request<Body>,
 ) -> Response {
+    let headers = request.headers().clone();
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
         .await
     {
         Ok(principal) => principal,
-        Err(error) => return ApiError::from(error).into_response(),
+        Err(error) => return no_store(ApiError::from(error).into_response()),
     };
-    let data = match parse_body(&body) {
+    let data: PutNewsletterSubscriptionDto = match parse_body(request.into_body()).await {
         Ok(data) => data,
-        Err(error) => return error.into_response(),
+        Err(error) => return no_store(error.into_response()),
     };
+
     match state
-        .upsert_subscription
+        .request_subscription
         .execute(&principal.operation_context(metadata), data.into())
         .await
     {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => ApiError::from(error).into_response(),
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => {
+            let error = match error {
+                user_service::use_cases::RequestNewsletterSubscriptionError::TemporarilyUnavailable
+                | user_service::use_cases::RequestNewsletterSubscriptionError::EmailTemporarilyRejected
+                | user_service::use_cases::RequestNewsletterSubscriptionError::EmailAcceptanceUnknown => {
+                    ApiError::service_unavailable(NEWSLETTER_TEMPORARILY_UNAVAILABLE)
+                }
+                user_service::use_cases::RequestNewsletterSubscriptionError::InvalidPersistedState
+                | user_service::use_cases::RequestNewsletterSubscriptionError::EmailRejected
+                | user_service::use_cases::RequestNewsletterSubscriptionError::TokenGenerationFailed => {
+                    ApiError::internal_server_error(NEWSLETTER_INTERNAL_ERROR)
+                }
+            };
+            no_store(error.into_response())
+        }
     }
-}
-
-fn parse_body(body: &str) -> Result<PutNewsletterSubscriptionDto, ApiError> {
-    if body.trim().is_empty() {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail("Body cannot be empty"));
-    }
-    serde_json::from_str(body)
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
-    use application::operation_context::OperationContext;
-    use axum::body::Body;
-    use axum::http::{Request, header};
+    use crate::auth::{
+        AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
+    };
+    use crate::newsletter::common::MAX_NEWSLETTER_BODY_BYTES;
+    use application::operation_context::{OperationContext, Principal};
+    use axum::body::to_bytes;
+    use axum::http::{Request as HttpRequest, header};
     use axum::routing::put;
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
-    use user_loops::{LoopsNewsletterConfig, LoopsNewsletterSubscriptionWriter};
-    use user_service::ports::{NewsletterProfileReadError, NewsletterProfileReader};
-    use user_service::use_cases::commands::upsert_newsletter_subscription::{
-        UpsertNewsletterSubscriptionError, UpsertNewsletterSubscriptionHandler,
-        UpsertNewsletterSubscriptionUseCase,
-    };
-    use wiremock::{
-        Mock, MockServer, ResponseTemplate,
-        matchers::{body_json, method, path},
+    use user_core::user_id::UserId;
+    use user_service::use_cases::{
+        RequestNewsletterSubscriptionError, RequestNewsletterSubscriptionUseCase,
     };
 
     #[derive(Clone)]
@@ -119,64 +126,63 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy)]
-    struct EmptyNewsletterProfileReader;
-
-    #[async_trait::async_trait]
-    impl NewsletterProfileReader for EmptyNewsletterProfileReader {
-        async fn find_by_user_id(
-            &self,
-            _user_id: user_core::user_id::UserId,
-        ) -> Result<Option<user_service::ports::NewsletterProfile>, NewsletterProfileReadError>
-        {
-            Ok(None)
-        }
-    }
-
     #[derive(Clone, Default)]
     struct RecordingUseCase {
-        commands: Arc<Mutex<Vec<UpsertNewsletterSubscriptionCommand>>>,
+        contexts: Arc<Mutex<Vec<Principal>>>,
+        emails: Arc<Mutex<Vec<String>>>,
         result: Arc<Mutex<Option<UseCaseResult>>>,
     }
 
     #[derive(Clone, Copy)]
     enum UseCaseResult {
-        InvalidEmail,
         TemporarilyUnavailable,
+        EmailAcceptanceUnknown,
+        EmailTemporarilyRejected,
+        EmailRejected,
         Internal,
     }
 
     #[async_trait::async_trait]
-    impl UpsertNewsletterSubscriptionUseCase for RecordingUseCase {
+    impl RequestNewsletterSubscriptionUseCase for RecordingUseCase {
         async fn execute(
             &self,
-            _context: &OperationContext,
-            command: UpsertNewsletterSubscriptionCommand,
-        ) -> Result<(), UpsertNewsletterSubscriptionError> {
-            lock(&self.commands).push(command);
+            context: &OperationContext,
+            command: RequestNewsletterSubscriptionCommand,
+        ) -> Result<(), RequestNewsletterSubscriptionError> {
+            lock(&self.contexts).push(context.principal.clone());
+            lock(&self.emails).push(command.email.to_string());
             match *lock(&self.result) {
                 None => Ok(()),
-                Some(UseCaseResult::InvalidEmail) => {
-                    Err(UpsertNewsletterSubscriptionError::InvalidEmail)
+                Some(UseCaseResult::TemporarilyUnavailable) => {
+                    Err(RequestNewsletterSubscriptionError::TemporarilyUnavailable)
                 }
-                Some(UseCaseResult::TemporarilyUnavailable) => Err(
-                    UpsertNewsletterSubscriptionError::NewsletterSubscriptionUnavailable {
-                        source: application::error::static_error("unavailable"),
-                    },
-                ),
-                Some(UseCaseResult::Internal) => Err(
-                    UpsertNewsletterSubscriptionError::NewsletterSubscriptionInternal {
-                        source: application::error::static_error("internal"),
-                    },
-                ),
+                Some(UseCaseResult::EmailAcceptanceUnknown) => {
+                    Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown)
+                }
+                Some(UseCaseResult::EmailTemporarilyRejected) => {
+                    Err(RequestNewsletterSubscriptionError::EmailTemporarilyRejected)
+                }
+                Some(UseCaseResult::EmailRejected) => {
+                    Err(RequestNewsletterSubscriptionError::EmailRejected)
+                }
+                Some(UseCaseResult::Internal) => {
+                    Err(RequestNewsletterSubscriptionError::InvalidPersistedState)
+                }
             }
         }
     }
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        match mutex.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
+        mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn user_principal(id: UserId) -> TransportPrincipal {
+        TransportPrincipal::User {
+            user_id: id,
+            auth_method: AuthMethod::CognitoJwt,
+            capabilities: BTreeSet::new(),
         }
     }
 
@@ -188,242 +194,107 @@ mod tests {
             )
             .with_state(NewsletterState::new(
                 Arc::new(use_case),
+                Arc::new(ConfirmNeverCalled),
                 Arc::new(authenticator),
             ))
     }
 
-    fn loops_router(server: &MockServer, auth_result: AuthenticationResult) -> axum::Router {
-        let config = LoopsNewsletterConfig::new(
-            "test-loops-api-key".into(),
-            "test-newsletter-list".into(),
-            format!("{}/api", server.uri()),
-        )
-        .unwrap_or_else(|error| panic!("invalid test Loops config: {error}"));
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_else(|error| panic!("failed to build test Loops client: {error}"));
-        let writer = LoopsNewsletterSubscriptionWriter::new(config, client);
-        let handler =
-            UpsertNewsletterSubscriptionHandler::new(EmptyNewsletterProfileReader, writer);
+    #[derive(Clone, Copy)]
+    struct ConfirmNeverCalled;
 
-        axum::Router::new()
-            .route(
-                "/api/v1/newsletter-subscriptions",
-                put(put_newsletter_subscription),
-            )
-            .with_state(NewsletterState::new(
-                Arc::new(handler),
-                Arc::new(StaticAuthenticator {
-                    result: auth_result,
-                }),
-            ))
+    #[async_trait::async_trait]
+    impl user_service::use_cases::ConfirmNewsletterSubscriptionUseCase for ConfirmNeverCalled {
+        async fn execute(
+            &self,
+            _token: &str,
+        ) -> Result<(), user_service::use_cases::ConfirmNewsletterSubscriptionError> {
+            unreachable!("PUT must not invoke confirmation")
+        }
     }
 
-    fn request(body: impl Into<String>) -> Request<Body> {
-        Request::builder()
+    fn request(body: impl Into<Body>) -> HttpRequest<Body> {
+        HttpRequest::builder()
             .method("PUT")
             .uri("/api/v1/newsletter-subscriptions")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(body.into()))
+            .body(body.into())
             .unwrap_or_else(|error| panic!("failed to create request: {error}"))
     }
 
+    fn anonymous_authenticator() -> StaticAuthenticator {
+        StaticAuthenticator {
+            result: AuthenticationResult::Principal(TransportPrincipal::Anonymous),
+        }
+    }
+
+    async fn empty_body(response: Response) -> bool {
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .is_ok_and(|body| body.is_empty())
+    }
+
     #[tokio::test]
-    async fn should_return_204_and_map_request_for_anonymous_subscription() {
+    async fn anonymous_put_requests_confirmation_and_returns_empty_no_store_204() {
         let use_case = RecordingUseCase::default();
-        let response = router(
-            StaticAuthenticator {
-                result: AuthenticationResult::Principal(TransportPrincipal::Anonymous),
-            },
-            use_case.clone(),
-        )
-        .oneshot(request(
-            r#"{"email":"ada@example.com","language":"en","currency":"EUR"}"#,
-        ))
-        .await
-        .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+        let response = router(anonymous_authenticator(), use_case.clone())
+            .oneshot(request(
+                r#"{"email":"ada@example.com","language":"en","currency":"EUR"}"#,
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
 
         assert_eq!(StatusCode::NO_CONTENT, response.status());
-        let commands = lock(&use_case.commands);
-        assert_eq!(1, commands.len());
-        assert_eq!("ada@example.com", commands[0].email.to_string());
-        assert_eq!(Some(localization::Language::En), commands[0].language);
-        assert_eq!(Some(money::Currency::Eur), commands[0].currency);
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert!(empty_body(response).await);
+        assert_eq!(vec!["ada@example.com"], *lock(&use_case.emails));
+        assert_eq!(vec![Principal::Anonymous], *lock(&use_case.contexts));
     }
 
     #[tokio::test]
-    async fn should_allow_missing_bearer_token_for_public_subscription() {
-        let response = router(
-            StaticAuthenticator {
-                result: AuthenticationResult::Principal(TransportPrincipal::Anonymous),
-            },
-            RecordingUseCase::default(),
-        )
-        .oneshot(request(r#"{"email":"ada@example.com"}"#))
-        .await
-        .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+    async fn authenticated_own_and_alternate_email_requests_both_reach_doi_use_case() {
+        let user_id = UserId::new();
+        let account_email = format!("{}@example.test", user_id.as_uuid());
+        for email in [account_email.as_str(), "alternate@example.com"] {
+            let use_case = RecordingUseCase::default();
+            let response = router(
+                StaticAuthenticator {
+                    result: AuthenticationResult::Principal(user_principal(user_id)),
+                },
+                use_case.clone(),
+            )
+            .oneshot(
+                HttpRequest::builder()
+                    .method("PUT")
+                    .uri("/api/v1/newsletter-subscriptions")
+                    .header(header::AUTHORIZATION, "Bearer valid")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(r#"{{"email":"{email}"}}"#)))
+                    .unwrap_or_else(|error| panic!("failed to create request: {error}")),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
 
-        assert_eq!(StatusCode::NO_CONTENT, response.status());
+            assert_eq!(StatusCode::NO_CONTENT, response.status());
+            assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+            assert!(empty_body(response).await);
+            assert_eq!(vec![email], *lock(&use_case.emails));
+            assert_eq!(vec![Principal::User(user_id)], *lock(&use_case.contexts));
+        }
     }
 
     #[tokio::test]
-    async fn should_reject_invalid_supplied_bearer_token() {
-        let response = router(
+    async fn invalid_bearer_and_invalid_or_oversized_bodies_have_no_use_case_side_effects() {
+        let use_case = RecordingUseCase::default();
+        let app = router(
             StaticAuthenticator {
                 result: AuthenticationResult::InvalidCredentials,
             },
-            RecordingUseCase::default(),
-        )
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri("/api/v1/newsletter-subscriptions")
-                .header(header::AUTHORIZATION, "Bearer invalid")
-                .body(Body::from(r#"{"email":"ada@example.com"}"#))
-                .unwrap_or_else(|error| panic!("failed to create request: {error}")),
-        )
-        .await
-        .unwrap_or_else(|error| panic!("failed to call router: {error}"));
-
-        assert_eq!(StatusCode::UNAUTHORIZED, response.status());
-    }
-
-    #[tokio::test]
-    async fn should_return_bad_body_value_for_empty_or_invalid_body() {
-        for body in ["", "not-json", r#"{"email":"not-an-email"}"#] {
-            let response = router(
-                StaticAuthenticator {
-                    result: AuthenticationResult::Principal(TransportPrincipal::Anonymous),
-                },
-                RecordingUseCase::default(),
-            )
-            .oneshot(request(body))
-            .await
-            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
-
-            assert_eq!(StatusCode::BAD_REQUEST, response.status());
-        }
-    }
-
-    #[tokio::test]
-    async fn should_map_subscription_errors_to_stable_http_statuses() {
-        for (result, status, error_code) in [
-            (
-                UseCaseResult::InvalidEmail,
-                StatusCode::BAD_REQUEST,
-                "INVALID_EMAIL",
-            ),
-            (
-                UseCaseResult::TemporarilyUnavailable,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
-            ),
-            (
-                UseCaseResult::Internal,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "NEWSLETTER_INTERNAL_ERROR",
-            ),
-        ] {
-            let use_case = RecordingUseCase::default();
-            *lock(&use_case.result) = Some(result);
-            let response = router(
-                StaticAuthenticator {
-                    result: AuthenticationResult::Principal(TransportPrincipal::Anonymous),
-                },
-                use_case,
-            )
-            .oneshot(request(r#"{"email":"ada@example.com"}"#))
-            .await
-            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
-
-            assert_eq!(status, response.status());
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap_or_else(|error| panic!("failed to read error response: {error}"));
-            let problem: serde_json::Value = serde_json::from_slice(&body)
-                .unwrap_or_else(|error| panic!("invalid problem response: {error}"));
-            assert_eq!(error_code, problem["error"]);
-        }
-    }
-
-    #[tokio::test]
-    async fn should_compose_real_loops_writer_through_http_endpoint_and_return_empty_204() {
-        let server = MockServer::start().await;
-        Mock::given(method("PUT"))
-            .and(path("/api/v1/contacts/update"))
-            .and(body_json(serde_json::json!({
-                "email": "ada@example.com",
-                "source": "aura-historia-newsletter-api",
-                "mailingLists": {"test-newsletter-list": true}
-            })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "success": true,
-                "id": "test-contact-id"
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-        let app = loops_router(
-            &server,
-            AuthenticationResult::Principal(TransportPrincipal::Anonymous),
+            use_case.clone(),
         );
-
-        let response = app
-            .oneshot(request(r#"{"email":"ada@example.com"}"#))
-            .await
-            .unwrap_or_else(|error| panic!("failed to call composed router: {error}"));
-        assert_eq!(StatusCode::NO_CONTENT, response.status());
-        let response_body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap_or_else(|error| panic!("failed to read response: {error}"));
-        assert!(response_body.is_empty());
-        assert_eq!(
-            1,
-            server
-                .received_requests()
-                .await
-                .unwrap_or_else(|| panic!("request recording unavailable"))
-                .len()
-        );
-    }
-
-    #[tokio::test]
-    async fn should_map_loops_service_unavailable_to_public_503() {
-        let server = MockServer::start().await;
-        Mock::given(method("PUT"))
-            .and(path("/api/v1/contacts/update"))
-            .respond_with(ResponseTemplate::new(503))
-            .expect(1)
-            .mount(&server)
-            .await;
-        let app = loops_router(
-            &server,
-            AuthenticationResult::Principal(TransportPrincipal::Anonymous),
-        );
-
-        let response = app
-            .oneshot(request(r#"{"email":"ada@example.com"}"#))
-            .await
-            .unwrap_or_else(|error| panic!("failed to call composed router: {error}"));
-        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap_or_else(|error| panic!("failed to read error response: {error}"));
-        let problem: serde_json::Value = serde_json::from_slice(&body)
-            .unwrap_or_else(|error| panic!("invalid problem response: {error}"));
-        assert_eq!("NEWSLETTER_TEMPORARILY_UNAVAILABLE", problem["error"]);
-    }
-
-    #[tokio::test]
-    async fn should_not_call_loops_for_invalid_authentication_or_request_body() {
-        let server = MockServer::start().await;
-        let app = loops_router(&server, AuthenticationResult::InvalidCredentials);
-
         let invalid_auth = app
             .clone()
             .oneshot(
-                Request::builder()
+                HttpRequest::builder()
                     .method("PUT")
                     .uri("/api/v1/newsletter-subscriptions")
                     .header(header::AUTHORIZATION, "Bearer invalid")
@@ -433,19 +304,74 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("failed to call router: {error}"));
         assert_eq!(StatusCode::UNAUTHORIZED, invalid_auth.status());
+        assert_eq!("no-store", invalid_auth.headers()[header::CACHE_CONTROL]);
 
-        let invalid_body = app
+        let invalid_body = router(anonymous_authenticator(), use_case.clone())
             .oneshot(request("not-json"))
             .await
             .unwrap_or_else(|error| panic!("failed to call router: {error}"));
         assert_eq!(StatusCode::BAD_REQUEST, invalid_body.status());
+        assert_eq!("no-store", invalid_body.headers()[header::CACHE_CONTROL]);
 
-        assert!(
-            server
-                .received_requests()
+        let oversized = router(anonymous_authenticator(), use_case.clone())
+            .oneshot(request(Body::from(vec![
+                b'a';
+                MAX_NEWSLETTER_BODY_BYTES + 1
+            ])))
+            .await
+            .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+        assert_eq!(StatusCode::BAD_REQUEST, oversized.status());
+        assert_eq!("no-store", oversized.headers()[header::CACHE_CONTROL]);
+        assert!(lock(&use_case.emails).is_empty());
+    }
+
+    #[tokio::test]
+    async fn failures_map_to_safe_codes_and_never_include_body_values() {
+        for (result, status, expected_error) in [
+            (
+                UseCaseResult::TemporarilyUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
+            ),
+            (
+                UseCaseResult::EmailAcceptanceUnknown,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
+            ),
+            (
+                UseCaseResult::EmailTemporarilyRejected,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NEWSLETTER_TEMPORARILY_UNAVAILABLE",
+            ),
+            (
+                UseCaseResult::Internal,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "NEWSLETTER_INTERNAL_ERROR",
+            ),
+            (
+                UseCaseResult::EmailRejected,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "NEWSLETTER_INTERNAL_ERROR",
+            ),
+        ] {
+            let use_case = RecordingUseCase::default();
+            *lock(&use_case.result) = Some(result);
+            let response = router(anonymous_authenticator(), use_case)
+                .oneshot(request(
+                    r#"{"email":"private@example.com","firstName":"Private"}"#,
+                ))
                 .await
-                .unwrap_or_else(|| panic!("request recording unavailable"))
-                .is_empty()
-        );
+                .unwrap_or_else(|error| panic!("failed to call router: {error}"));
+            assert_eq!(status, response.status());
+            assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+            let bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap_or_else(|error| panic!("failed to read error body: {error}"));
+            let body: serde_json::Value = serde_json::from_slice(&bytes)
+                .unwrap_or_else(|error| panic!("failed to parse error body: {error}"));
+            assert_eq!(expected_error, body["error"]);
+            assert!(!body.to_string().contains("private@example.com"));
+            assert!(!body.to_string().contains("Private"));
+        }
     }
 }

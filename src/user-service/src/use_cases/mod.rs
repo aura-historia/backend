@@ -136,6 +136,10 @@ pub use queries::resolve_cognito_user::{
     ResolveCognitoUserError, ResolveCognitoUserHandler, ResolveCognitoUserRequest,
     ResolveCognitoUserResult, ResolveCognitoUserUseCase,
 };
+pub use queries::resolve_federated_account::{
+    ExistingEmailAction, FederatedAccountDecision, ResolveFederatedAccountCommand,
+    ResolveFederatedAccountError, ResolveFederatedAccountHandler, ResolveFederatedAccountUseCase,
+};
 pub use queries::search_users::{
     SearchUsersError, SearchUsersHandler, SearchUsersRequest, SearchUsersResult,
     SearchUsersUseCase, UserSummary,
