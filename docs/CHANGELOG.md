@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-08 — Newsletter confirmation template failures
+
+- Temporary failures fetching a confirmation email template now return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`. Missing or invalid templates remain `500 NEWSLETTER_INTERNAL_ERROR`; no SES send occurs when template preparation fails.
+
 ## 2026-10-07 — Newsletter double opt-in API (#1945)
 
 - `PUT /api/v1/newsletter-subscriptions` always requests double opt-in, including for an authenticated user's exact account email. Optional bearer authentication supplies profile fallback only; invalid supplied credentials return 401. New and rate-suppressed requests return empty `204` with `Cache-Control: no-store`, without revealing account or pending state. The endpoint no longer writes directly to Loops.

@@ -8916,7 +8916,7 @@ paths:
                 title: Unauthorized
                 error: INVALID_CREDENTIALS
         "503":
-          description: Newsletter persistence or SES is temporarily unavailable, SES throttling was rejected, or SES acceptance is ambiguous.
+          description: Newsletter persistence, confirmation-template retrieval, or SES is temporarily unavailable, SES throttling was rejected, or SES acceptance is ambiguous.
           headers:
             Cache-Control:
               description: Shared caching is disabled for the response.

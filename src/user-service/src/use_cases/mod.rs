@@ -29,10 +29,6 @@ pub use commands::cleanup_consent_workflow::{
     CleanupConsentWorkflowError, CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase,
     ConsentWorkflowCleanupCounts,
 };
-pub use commands::cleanup_newsletter_confirmation_challenges::{
-    CleanupNewsletterConfirmationChallengesError, CleanupNewsletterConfirmationChallengesHandler,
-    CleanupNewsletterConfirmationChallengesUseCase,
-};
 pub use commands::confirm_newsletter_subscription::{
     ConfirmNewsletterSubscriptionError, ConfirmNewsletterSubscriptionHandler,
     ConfirmNewsletterSubscriptionUseCase,
@@ -93,10 +89,6 @@ pub use commands::update_access_token::{
 pub use commands::update_user_profile::{
     UpdateUserProfileCommand, UpdateUserProfileError, UpdateUserProfileHandler,
     UpdateUserProfileResult, UpdateUserProfileUseCase,
-};
-pub use commands::upsert_newsletter_subscription::{
-    UpsertNewsletterSubscriptionCommand, UpsertNewsletterSubscriptionError,
-    UpsertNewsletterSubscriptionHandler, UpsertNewsletterSubscriptionUseCase,
 };
 pub use queries::admin_get_user::{
     AdminGetUserError, AdminGetUserHandler, AdminGetUserRequest, AdminGetUserUseCase,

@@ -20,7 +20,7 @@ use user_service::ports::{
     NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
 };
 
-// Includes the SDK call and response body. C11 must leave room for service persistence
+// Includes the SDK call and response body. Leave room for service persistence
 // and HTTP response after these sequential deadlines (2s + 3s).
 const S3_DEADLINE: Duration = Duration::from_secs(2);
 const SES_DEADLINE: Duration = Duration::from_secs(3);
@@ -302,6 +302,9 @@ impl SesNewsletterConfirmationEmailSender {
         let language = EmailLanguage::resolve(email.profile.language);
         let body = match self.rendered_body(language, &email).await {
             Ok(body) => body,
+            Err(PreparationFailure::TemplateUnavailable) => {
+                return rejected(NewsletterConfirmationEmailRetryability::Retryable);
+            }
             Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
         };
         let subject = match Content::builder().data(language.subject()).build() {

@@ -12,7 +12,6 @@ pub mod marketing_email_consent_writer;
 pub mod newsletter_confirmation_challenges;
 pub mod newsletter_confirmation_email_sender;
 pub mod newsletter_profile_reader;
-pub mod newsletter_subscription_writer;
 pub mod newsletter_webhook_verifier;
 pub mod user_account_reader;
 pub mod user_admin_reader;
@@ -77,9 +76,6 @@ pub use newsletter_confirmation_email_sender::{
 };
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,
-};
-pub use newsletter_subscription_writer::{
-    NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
 };
 pub use newsletter_webhook_verifier::{
     IgnoredNewsletterWebhookEvent, NewsletterWebhookDeliveryId, NewsletterWebhookEmailAddress,

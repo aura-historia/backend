@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 openssl = { workspace = true }
@@ -14,10 +13,10 @@ serde_json = { workspace = true }
 serde-email = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
-user-core = { workspace = true }
 user-service = { workspace = true }
 
 [dev-dependencies]
+user-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time"] }
