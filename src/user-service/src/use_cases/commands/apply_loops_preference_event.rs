@@ -1,3 +1,4 @@
+use crate::ports::consent_workflow_cleanup::CONSENT_WORKFLOW_RECEIPT_RETENTION_DAYS;
 use crate::ports::{
     ConsentUser, LoopsPreferenceFence, LoopsWebhookReceiptDisposition as Disposition,
     LoopsWebhookReceiptError, LoopsWebhookReceiptInput, LoopsWebhookReceiptLookup,
@@ -18,7 +19,7 @@ use serde_email::Email;
 use time::{Duration, OffsetDateTime};
 use user_core::user_id::UserId;
 
-const WEBHOOK_RECEIPT_RETENTION: Duration = Duration::days(35);
+const WEBHOOK_RECEIPT_RETENTION: Duration = Duration::days(CONSENT_WORKFLOW_RECEIPT_RETENTION_DAYS);
 
 /// Authenticated verifier output and the configured single marketing-purpose list.
 /// The transport must verify the signature before calling this use case.

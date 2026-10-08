@@ -6,12 +6,13 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 use time::{Duration, OffsetDateTime};
 use user_core::{marketing_consent_sync_intent_id::MarketingConsentSyncIntentId, user_id::UserId};
 use user_postgres::{
-    SqlxLoopsWebhookReceiptRepository, SqlxMarketingConsentIntentRepository,
-    SqlxNewsletterConfirmationChallengesRepository,
+    SqlxConsentWorkflowCleanup, SqlxLoopsWebhookReceiptRepository,
+    SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
 };
 use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
 use user_service::ports::{
-    ConsentIntent, LoopsWebhookReceiptDisposition as Disposition, LoopsWebhookReceipts,
+    ConsentIntent, ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory,
+    LoopsWebhookReceiptDisposition as Disposition, LoopsWebhookReceipts,
     LoopsWebhookReceiptsFactory, MarketingEmailConsentError, MarketingEmailConsentOutcome,
     MarketingEmailConsentWriter, MarketingEmailSubscriptionState, NewsletterConfirmationChallenges,
     NewsletterConfirmationChallengesFactory, NewsletterConfirmationIssueOutcome,
@@ -341,7 +342,7 @@ async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invali
     .unwrap();
     assert_eq!(Disposition::AppliedWithdrawal.as_str(), disposition);
     assert_eq!(event_at, receipt_event_at);
-    assert_eq!(35, expiry_days);
+    assert_eq!(120, expiry_days);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -1139,6 +1140,24 @@ async fn stale_and_equal_provider_positive_events_cannot_reverse_a_withdrawal() 
         ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
         withdrawn
     );
+    // Simulate passage of the operational retention window. The independent
+    // provider ordering fence must still reject an old positive observation.
+    let processed_at = withdrawal_at - Duration::days(121);
+    sqlx::query("UPDATE loops_webhook_receipts SET processed_at = $1, expires_at = $2 WHERE delivery_id = 'loops-ordering-negative'")
+        .bind(processed_at)
+        .bind(processed_at + Duration::days(120))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let mut tx = uow.begin().await.unwrap();
+    let removed = SqlxConsentWorkflowCleanup::new()
+        .in_transaction(&mut tx)
+        .cleanup_webhook_receipts(withdrawal_at, 1)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(1, removed);
     for (id_suffix, event_at) in [
         ("old", withdrawal_at - Duration::seconds(1)),
         ("equal", withdrawal_at),

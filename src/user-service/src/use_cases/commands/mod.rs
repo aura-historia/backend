@@ -3,6 +3,7 @@ pub mod apply_stripe_subscription;
 pub mod associate_user_stripe_customer_id;
 pub mod change_user_role;
 pub mod change_user_tier;
+pub mod cleanup_consent_workflow;
 pub mod cleanup_newsletter_confirmation_challenges;
 pub mod confirm_newsletter_subscription;
 pub mod coordinate_marketing_consent;

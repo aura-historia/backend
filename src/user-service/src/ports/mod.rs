@@ -4,6 +4,7 @@ pub mod access_token_list_reader;
 pub mod access_token_repository;
 pub mod admin_access_token_list_reader;
 pub mod cognito_identity;
+pub mod consent_workflow_cleanup;
 pub mod loops_webhook_receipts;
 pub mod marketing_consent_intents;
 pub mod marketing_email_consent_writer;
@@ -39,6 +40,9 @@ pub use cognito_identity::{
     CognitoIdentity, CognitoIssuer, CognitoSubject, CognitoUserIdentityReadError,
     CognitoUserIdentityReader, InvalidCognitoIdentityValue, UserCognitoIdentityRegistry,
     UserCognitoIdentityRegistryError, UserCognitoIdentityRegistryFactory,
+};
+pub use consent_workflow_cleanup::{
+    ConsentWorkflowCleanup, ConsentWorkflowCleanupError, ConsentWorkflowCleanupFactory,
 };
 
 pub use loops_webhook_receipts::{
