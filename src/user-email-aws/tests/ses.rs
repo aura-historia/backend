@@ -302,6 +302,25 @@ async fn missing_oversized_and_invalid_templates_are_rejected_before_ses() {
 }
 
 #[tokio::test]
+async fn unavailable_templates_are_retryable_without_sending_email() {
+    let s3_http = ReplayHttp::new(
+        Service::S3,
+        (0..3).map(|_| Reply::Response(503, "<Error><Code>ServiceUnavailable</Code></Error>")),
+    );
+    let ses_http = ReplayHttp::new(Service::Ses, []);
+    assert_eq!(
+        sender(s3_http.clone(), ses_http.clone())
+            .send(email(None))
+            .await,
+        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+            retryability: NewsletterConfirmationEmailRetryability::Retryable,
+        }
+    );
+    assert!(!s3_http.paths().is_empty());
+    assert!(ses_http.requests().is_empty());
+}
+
+#[tokio::test]
 async fn success_without_a_nonempty_ses_receipt_has_unknown_acceptance() {
     for response in [r#"{}"#, r#"{"MessageId":""}"#] {
         let ses_http = ReplayHttp::new(Service::Ses, [Reply::Response(200, response)]);
@@ -434,7 +453,7 @@ async fn stalled_s3_request_is_bounded_by_adapter_deadline_without_ses_send() {
     assert_eq!(
         outcome,
         NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
-            retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+            retryability: NewsletterConfirmationEmailRetryability::Retryable,
         }
     );
     assert!(start.elapsed() >= Duration::from_secs(2));

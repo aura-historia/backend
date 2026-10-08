@@ -713,8 +713,6 @@ impl SqlxMarketingConsentIntentRepository {
         initial.into_intent()?;
         lock_recipient(&mut *conn, &key).await?;
 
-        // Fetch the reason separately so the standard intent decoder remains the
-        // single validation path for all immutable target fields.
         let row = sqlx::query_as::<_, IntentRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {COLUMNS} FROM {TABLE} WHERE intent_id = $1 FOR UPDATE"
         )))
@@ -728,19 +726,12 @@ impl SqlxMarketingConsentIntentRepository {
         let sequence = row.intent_sequence;
         let attempts = row.attempt_count;
         let finalized = row.completed_lease_token.is_some();
+        let provider_race = row.status == "BLOCKED"
+            && row.last_error_code.as_deref() == Some("PROVIDER_WITHDRAWAL_RACE_CANDIDATE");
         let intent = row.into_intent()?;
         if !intent.desired || attempts == 0 || finalized {
             return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
         }
-        let reason: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT last_error_code FROM {TABLE} WHERE intent_id = $1"
-        )))
-        .bind(original.as_uuid())
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
-        let provider_race = intent.status == ConsentIntentStatus::Blocked
-            && reason.as_deref() == Some("PROVIDER_WITHDRAWAL_RACE_CANDIDATE");
         if !provider_race && intent.status != ConsentIntentStatus::Superseded {
             return Ok(GrantRaceRepairOutcome::NoRepairNeeded);
         }
