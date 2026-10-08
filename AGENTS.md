@@ -39,14 +39,16 @@
 
 ## Validation
 
-Start with focused checks and tests for changed crates. Run broader validation when the change warrants it:
+Start with focused checks and tests for changed crates. Use `--locked` so validation does not update dependencies. Library tests can use real local infrastructure; check their fixtures and Docker/LocalStack requirements before running them. Use isolated test resources and test credentials, never deployed services or live credentials.
+
+Run broader validation when the change warrants it:
 
 ```sh
 cargo fmt --all -- --check
-cargo check --workspace
+cargo check --locked --workspace
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 cargo depgraph-check check
-cargo test --workspace --lib --all-features
+cargo test --locked --workspace --lib --all-features
 npm --prefix infra test
 npm --prefix infra run synth:all
 ```

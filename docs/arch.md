@@ -1642,7 +1642,6 @@ Use these suffixes consistently:
 | `...Policy` | Domain or application decision abstraction |
 | `...Row` | PostgreSQL row representation |
 | `...Document` | Search document representation |
-
 | `...Record` | External/graph/source response representation |
 | `...Dto` | Transport representation |
 | `...Event` | Domain event |

@@ -19,6 +19,7 @@ use user_postgres::{
 };
 use user_service::ports::{
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -451,6 +452,41 @@ async fn should_report_user_update_concurrency_conflict() {
         stale,
         Err(UserRepositoryError::ConcurrencyConflict)
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_unrepresentable_user_version_without_poisoning_transaction() {
+    let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
+    let users = SqlxUserRepositoryFactory::new();
+    let mut user = sample_user("postgres-version-overflow", UserRole::User, None);
+    let mut tx = begin(&unit_of_work).await;
+    let inserted = users.in_transaction(&mut tx).insert(&user).await.unwrap();
+    user.change_tier(UserTier::Pro);
+
+    let invalid_version = UserStorageVersion::try_from(i64::MAX as u64 + 1).unwrap();
+    assert!(matches!(
+        users
+            .in_transaction(&mut tx)
+            .update(&user, invalid_version)
+            .await,
+        Err(UserRepositoryError::InvalidPersistedState { .. })
+    ));
+
+    let unchanged = users
+        .in_transaction(&mut tx)
+        .find_by_id(user.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(inserted, unchanged);
+    let updated = users
+        .in_transaction(&mut tx)
+        .update(&user, inserted.version)
+        .await
+        .unwrap();
+    assert_eq!(user, updated.value);
+    assert_eq!(inserted.version.next(), updated.version);
+    commit(tx).await;
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
