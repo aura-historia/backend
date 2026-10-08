@@ -25,6 +25,10 @@ pub use commands::change_user_tier::{
     ChangeUserTierCommand, ChangeUserTierError, ChangeUserTierHandler, ChangeUserTierResult,
     ChangeUserTierUseCase,
 };
+pub use commands::cleanup_consent_workflow::{
+    CleanupConsentWorkflowError, CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase,
+    ConsentWorkflowCleanupCounts,
+};
 pub use commands::cleanup_newsletter_confirmation_challenges::{
     CleanupNewsletterConfirmationChallengesError, CleanupNewsletterConfirmationChallengesHandler,
     CleanupNewsletterConfirmationChallengesUseCase,

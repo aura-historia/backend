@@ -7,9 +7,13 @@ use platform_lambda_bootstrap::{
     logging_config_from_env,
 };
 use platform_observability::init;
+use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
+use user_postgres::{SqlxConsentWorkflowCleanup, SqlxNewsletterConfirmationChallengesRepository};
+use user_service::ports::SystemNewsletterConfirmationClock;
+use user_service::use_cases::CleanupConsentWorkflowHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -42,13 +46,21 @@ async fn main() -> Result<(), Error> {
                         .connect()
                         .await
                         .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
-                    Ok::<_, Error>(CleanupExpiredCredentialsAndProviderReceiptsHandler::new(
-                        SqlxExpiredCredentialCleanup::new(pool),
+                    Ok::<_, Error>((
+                        CleanupExpiredCredentialsAndProviderReceiptsHandler::new(
+                            SqlxExpiredCredentialCleanup::new(pool.clone()),
+                        ),
+                        CleanupConsentWorkflowHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxNewsletterConfirmationChallengesRepository::new(),
+                            SqlxConsentWorkflowCleanup::new(),
+                            SystemNewsletterConfirmationClock,
+                        ),
                     ))
                 })
                 .await?;
 
-            run_cleanup(cleanup.value(), batch_size).await
+            run_cleanup(&cleanup.value().0, &cleanup.value().1, batch_size).await
         }
     }))
     .await

@@ -55,6 +55,115 @@ age and Loops result, repair the cause and obtain operator approval. Preserve th
 message and FIFO identifiers; do not infer provider acceptance from a timeout or
 queue transfer. Keep API writer cutover for its later task.
 
+### Consent workflow maintenance and diagnosis
+
+The existing cleanup Lambda also runs one bounded batch per User-owned target:
+unconfirmed DOI challenges after their 24-hour issuance window, confirmed DOI
+challenges seven days after confirmation and after issuance expiry, completed
+`APPLIED`/`SUPERSEDED` sync receipts after 120 days, and processed Loops webhook
+receipts after at least 120 days. Each target commits separately, uses `SKIP
+LOCKED`, and deletes at most the configured batch size (1–1000). A failed target
+fails the invocation; earlier committed batches are safe to retry. Older webhook
+receipts with a 35-day stored expiry remain until 120 days after processing.
+Permanent minimal markers for committed positive Loops deliveries survive this
+cleanup; never remove them to force a replay. They contain only delivery ID and
+body digest, and protect ignored as well as applied positives.
+These windows cover the declared 90-day router archive, seven-day Kinesis/source
+queues and 14-day worker DLQ with recovery margin. They are operational
+deduplication windows, not legal consent history. `PENDING`, `IN_PROGRESS`,
+`BLOCKED` and `FAILED` intents, including provider-withdrawal race candidates and
+unfinished `PROVIDER_RACE_REPAIR` revokes, are never housekeeping targets.
+
+Use a read-only transaction and a fixed inspection time when sampling the
+oldest work. These queries return opaque intent IDs and bounded rows; they
+exclude email, source keys, provider IDs, payloads and lease tokens.
+`transaction_timestamp()` fixes the inspection time for a transaction; keep
+the limits. The first sample
+shows pending work and leases, including stale ones:
+
+```sql
+SELECT intent_id, status, source, desired, changed_at, not_after,
+       lease_expires_at, attempt_count
+FROM marketing_email_consent_sync_intents
+WHERE status IN ('PENDING', 'IN_PROGRESS')
+ORDER BY intent_sequence
+LIMIT 100;
+```
+
+Inspect blocked/failed work, provider-withdrawal race candidates, unfinished
+repair revokes and expired grants awaiting settlement separately:
+
+```sql
+SELECT intent_id, status, source, desired, changed_at, not_after, attempt_count
+FROM marketing_email_consent_sync_intents
+WHERE status IN ('BLOCKED', 'FAILED')
+ORDER BY status, intent_sequence
+LIMIT 100;
+
+SELECT intent_id, status, changed_at, attempt_count
+FROM marketing_email_consent_sync_intents
+WHERE status = 'BLOCKED'
+  AND last_error_code = 'PROVIDER_WITHDRAWAL_RACE_CANDIDATE'
+ORDER BY intent_sequence
+LIMIT 100;
+
+SELECT intent_id, status, changed_at, attempt_count
+FROM marketing_email_consent_sync_intents
+WHERE source = 'PROVIDER_RACE_REPAIR'
+  AND status NOT IN ('APPLIED', 'SUPERSEDED')
+ORDER BY intent_sequence
+LIMIT 100;
+
+SELECT intent_id, status, not_after, attempt_count
+FROM marketing_email_consent_sync_intents
+WHERE desired AND status IN ('PENDING', 'IN_PROGRESS', 'BLOCKED', 'FAILED')
+  AND not_after <= transaction_timestamp()
+ORDER BY not_after, intent_id
+LIMIT 100;
+```
+
+For backlog, count only a bounded oldest sample and label it as a sample, not
+the global total. Review source/DLQ age and visible count, router lag/archive
+delivery, and cleanup outcome/count logs alongside it:
+
+```sql
+WITH oldest AS (
+  SELECT status FROM marketing_email_consent_sync_intents
+  WHERE status IN ('PENDING', 'IN_PROGRESS')
+  ORDER BY intent_sequence LIMIT 1000
+)
+SELECT status, count(*) AS sampled_count FROM oldest GROUP BY status;
+```
+
+For webhooks, sample recent committed dispositions without exposing receipt
+identifiers; failures before commit have no receipt and require a time-bounded
+review of API 4xx/5xx, Loops pending/retrying/failed history, and endpoint
+disablement. A zero receipt count does not prove healthy delivery:
+
+```sql
+SELECT disposition, count(*) AS sampled_count
+FROM (
+  SELECT disposition FROM loops_webhook_receipts
+  WHERE processed_at >= transaction_timestamp() - interval '24 hours'
+  ORDER BY processed_at DESC LIMIT 1000
+) AS recent
+GROUP BY disposition;
+```
+
+Before any small operator-authorized replay, reread the exact PostgreSQL intent,
+current User decision/revision and mailbox ownership, provider state and repair
+status. A missing intent cannot be manufactured from an archive/DLQ message;
+an `APPLIED` receipt cannot be reset to force another send. Do not replay an
+expired or revoked grant. A `BLOCKED` original grant can still need the guarded
+repair-before-ACK path, so resolve abandoned work through the service state
+machine before considering it settled. S3/Kinesis archives and SQS DLQs do not
+retry indefinitely. Never use a periodic scan of
+`users.marketing_email_consent=true` to resubscribe contacts. The User boolean is
+only the local decision: provider opt-outs/suppression and send-time freshness
+still gate delivery. This work does not authorize an independent SES marketing
+sender; Loops remains the final delivery gate, and lost/disabled webhook
+recovery needs review before any independent sender is enabled.
+
 Raw-revision inserts only wake `product-listing-normalization-lambda`: it drains PostgreSQL stream heads and atomically persists terminal progress with zero or one canonical write/event. Unfinished/capped drains fail for retry. **No scheduled raw-backlog reconciliation exists.** Inspect pending heads, queue age/DLQ and CDC gaps; missing/expired wake-ups need an approved recovery plan, not fabricated completion. Crawler capture success is not normalization completion.
 
 ## ProductListing ingestion FIFO command recovery

@@ -3,8 +3,8 @@ use serde_email::Email;
 use time::OffsetDateTime;
 
 /// Durable delivery deduplication and a mailbox-scoped provider ordering fence.
-/// These are operational records, not consent history. The preference fence must
-/// outlive receipt cleanup so replaying an old event cannot restore permission.
+/// These are operational records, not consent history. Positive delivery markers
+/// and preference fences outlive receipt cleanup so old events cannot restore permission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoopsWebhookReceiptDisposition {
     AppliedWithdrawal,
@@ -44,7 +44,8 @@ impl LoopsWebhookReceiptDisposition {
     }
 }
 
-/// The stored digest is sufficient to distinguish a retry from delivery-ID reuse.
+/// The stored digest is sufficient to distinguish a retry from delivery-ID reuse,
+/// including a positive delivery whose detailed receipt has expired.
 /// It deliberately does not expose or retain the raw provider payload.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct LoopsWebhookReceiptLookup {

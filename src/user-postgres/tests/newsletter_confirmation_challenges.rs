@@ -836,7 +836,7 @@ async fn expired_cleanup_is_bounded_and_retains_confirmed_replay_rows() {
         .unwrap();
 
     let expired_email = email("doi-cleanup-expired-a@example.test");
-    let (_, _, _) = create_challenge(
+    let (_, _, expired_token) = create_challenge(
         &uow,
         &challenge_repo,
         &expired_email,
@@ -896,4 +896,26 @@ async fn expired_cleanup_is_bounded_and_retains_confirmed_replay_rows() {
     .await
     .unwrap();
     assert_eq!(0, unconfirmed_expired);
+
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM marketing_email_consent_sync_intents")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let replay = ConfirmNewsletterSubscriptionHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxNewsletterConfirmationChallengesRepository::new(),
+        SqlxMarketingConsentIntentRepository::new(),
+        FixedClock(now),
+    );
+    assert_eq!(
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
+        replay.execute(expired_token.as_str()).await
+    );
+    let after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM marketing_email_consent_sync_intents")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
 }

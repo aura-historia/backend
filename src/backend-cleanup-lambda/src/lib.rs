@@ -5,6 +5,7 @@ use oauth_service::use_cases::{
 };
 use std::env;
 use std::time::Instant;
+use user_service::use_cases::CleanupConsentWorkflowUseCase;
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
 
@@ -50,10 +51,12 @@ fn cleanup_batch_size_from_result(
 
 pub async fn run_cleanup(
     cleanup: &(dyn CleanupExpiredCredentialsAndProviderReceiptsUseCase + Send + Sync),
+    consent_cleanup: &(dyn CleanupConsentWorkflowUseCase + Send + Sync),
     batch_size: ExpiryCleanupBatchSize,
 ) -> Result<(), Error> {
     let started_at = Instant::now();
-    match cleanup.execute(batch_size).await {
+    let credential_result = cleanup.execute(batch_size).await;
+    match &credential_result {
         Ok(counts) => {
             tracing::info!(
                 event = "backend_cleanup.expired_credentials.completed",
@@ -65,7 +68,6 @@ pub async fn run_cleanup(
                 provider_receipts_deleted = counts.provider_receipts_deleted,
                 duration_ms = started_at.elapsed().as_millis(),
             );
-            Ok(())
         }
         Err(_) => {
             tracing::warn!(
@@ -74,8 +76,31 @@ pub async fn run_cleanup(
                 batch_size = batch_size.get(),
                 duration_ms = started_at.elapsed().as_millis(),
             );
-            Err(Error::from("expired credential cleanup failed"))
         }
+    }
+    let consent_result = consent_cleanup.execute(batch_size.get() as u16).await;
+    match &consent_result {
+        Ok(counts) => tracing::info!(
+            event = "backend_cleanup.consent_workflow.completed",
+            outcome = "success",
+            batch_size = batch_size.get(),
+            unconfirmed_challenges_deleted = counts.unconfirmed_challenges_deleted,
+            confirmed_challenges_deleted = counts.confirmed_challenges_deleted,
+            completed_intents_deleted = counts.completed_intents_deleted,
+            webhook_receipts_deleted = counts.webhook_receipts_deleted,
+            duration_ms = started_at.elapsed().as_millis(),
+        ),
+        Err(_) => tracing::warn!(
+            event = "backend_cleanup.consent_workflow.completed",
+            outcome = "failure",
+            batch_size = batch_size.get(),
+            duration_ms = started_at.elapsed().as_millis(),
+        ),
+    }
+    if credential_result.is_err() || consent_result.is_err() {
+        Err(Error::from("backend cleanup failed"))
+    } else {
+        Ok(())
     }
 }
 
@@ -85,9 +110,16 @@ mod tests {
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use user_service::use_cases::{CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts};
 
     struct RecordingCleanup {
         calls: AtomicUsize,
+        fail: bool,
+    }
+
+    struct RecordingConsentCleanup {
+        calls: AtomicUsize,
+        fail: bool,
     }
 
     #[async_trait::async_trait]
@@ -97,11 +129,35 @@ mod tests {
             _batch_size: ExpiryCleanupBatchSize,
         ) -> Result<CleanupCounts, ExpiredCredentialCleanupError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                return Err(ExpiredCredentialCleanupError::TemporarilyUnavailable {
+                    source: Box::new(std::io::Error::other("fixture failure")),
+                });
+            }
             Ok(CleanupCounts {
                 access_tokens_deleted: 1,
                 authorization_codes_deleted: 2,
                 third_party_exchange_codes_deleted: 3,
                 provider_receipts_deleted: 4,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CleanupConsentWorkflowUseCase for RecordingConsentCleanup {
+        async fn execute(
+            &self,
+            _batch_size: u16,
+        ) -> Result<ConsentWorkflowCleanupCounts, CleanupConsentWorkflowError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                return Err(CleanupConsentWorkflowError::TemporarilyUnavailable);
+            }
+            Ok(ConsentWorkflowCleanupCounts {
+                unconfirmed_challenges_deleted: 1,
+                confirmed_challenges_deleted: 2,
+                completed_intents_deleted: 3,
+                webhook_receipts_deleted: 4,
             })
         }
     }
@@ -128,14 +184,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_invoke_expiry_cleanup_once_per_lambda_invocation() {
+    async fn should_invoke_each_cleanup_once_per_lambda_invocation() {
         let cleanup = RecordingCleanup {
             calls: AtomicUsize::new(0),
+            fail: false,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
         };
         let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
 
-        run_cleanup(&cleanup, batch_size).await.unwrap();
+        run_cleanup(&cleanup, &consent, batch_size).await.unwrap();
 
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn consent_failure_fails_invocation_after_existing_cleanup() {
+        let cleanup = RecordingCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
+
+        assert!(run_cleanup(&cleanup, &consent, batch_size).await.is_err());
+        assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn existing_cleanup_failure_still_invokes_consent_cleanup_and_fails() {
+        let cleanup = RecordingCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
+        let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
+
+        assert!(run_cleanup(&cleanup, &consent, batch_size).await.is_err());
+        assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
     }
 }

@@ -58,7 +58,7 @@ fxrate-service = ["application", "fxrate-core", "money", "user-core"]
 fxrate-postgres = ["application", "fxrate-core", "money", "platform-postgres", "fxrate-service", "strum"]
 fxrate-fxratesapi = ["application", "fxrate-core", "fxrate-service", "money", "reqwest", "strum"]
 fxrate-lambda = ["application", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "fxrate-fxratesapi", "fxrate-postgres", "fxrate-service"]
-backend-cleanup-lambda = ["oauth-postgres", "oauth-service", "platform-lambda-bootstrap", "platform-observability", "platform-postgres-secretsmanager"]
+backend-cleanup-lambda = ["oauth-postgres", "oauth-service", "platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "user-postgres", "user-service"]
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
 product-listing-core = ["auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros"]

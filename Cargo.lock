@@ -1244,11 +1244,14 @@ dependencies = [
  "oauth-service",
  "platform-lambda-bootstrap",
  "platform-observability",
+ "platform-postgres",
  "platform-postgres-secretsmanager",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "user-postgres",
+ "user-service",
 ]
 
 [[package]]

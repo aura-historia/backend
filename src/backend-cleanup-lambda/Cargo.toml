@@ -7,6 +7,7 @@ edition = "2024"
 lambda_runtime = { workspace = true }
 oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
+platform-postgres = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres-secretsmanager = { workspace = true }
@@ -14,6 +15,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

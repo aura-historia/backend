@@ -20,6 +20,7 @@ pub const MAX_CDC_JOBS: usize = 500;
 pub const PUBLICATION_TIMEOUT: Duration = Duration::from_secs(8);
 const DMS_KINESIS_SOURCE: &str = "aws-dms-kinesis";
 const MARKETING_CONSENT_DMS_COLUMNS: [&str; 2] = ["intent_id", "recipient_key"];
+const MARKETING_CONSENT_DELETE_DMS_COLUMNS: [&str; 1] = ["intent_id"];
 
 #[async_trait::async_trait]
 pub trait Publisher: Send + Sync {
@@ -471,7 +472,12 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
                 if change.table == "marketing_email_consent_sync_intents" =>
             {
                 let row = row_for_operation(change)?;
-                require_exact_dms_columns(row, &MARKETING_CONSENT_DMS_COLUMNS)?;
+                let columns = if change.operation == CdcOperation::Delete {
+                    MARKETING_CONSENT_DELETE_DMS_COLUMNS.as_slice()
+                } else {
+                    MARKETING_CONSENT_DMS_COLUMNS.as_slice()
+                };
+                require_exact_dms_columns(row, columns)?;
                 continue;
             }
             DmsKinesisRecordClassification::Noop
@@ -751,6 +757,24 @@ mod tests {
             );
         }
         assert!(publisher.bodies.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn default_replica_identity_consent_delete_is_a_key_only_noop() {
+        let (router, publisher) = fanout();
+        let fixture = include_str!(
+            "../tests/fixtures/dms-kinesis/synthetic-marketing-consent-intent-delete.json"
+        );
+        let row: Value = serde_json::from_str(fixture).unwrap();
+        assert_eq!("delete", row["metadata"]["operation"]);
+        assert_eq!(1, row["data"].as_object().unwrap().len());
+        assert!(row["data"].get("intent_id").is_some());
+        assert!(
+            router
+                .prepare_dms_kinesis_record(fixture.as_bytes())
+                .is_ok()
+        );
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

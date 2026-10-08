@@ -6,12 +6,13 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 use time::{Duration, OffsetDateTime};
 use user_core::{marketing_consent_sync_intent_id::MarketingConsentSyncIntentId, user_id::UserId};
 use user_postgres::{
-    SqlxLoopsWebhookReceiptRepository, SqlxMarketingConsentIntentRepository,
-    SqlxNewsletterConfirmationChallengesRepository,
+    SqlxConsentWorkflowCleanup, SqlxLoopsWebhookReceiptRepository,
+    SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
 };
 use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
 use user_service::ports::{
-    ConsentIntent, LoopsWebhookReceiptDisposition as Disposition, LoopsWebhookReceipts,
+    ConsentIntent, ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory,
+    LoopsWebhookReceiptDisposition as Disposition, LoopsWebhookReceipts,
     LoopsWebhookReceiptsFactory, MarketingEmailConsentError, MarketingEmailConsentOutcome,
     MarketingEmailConsentWriter, MarketingEmailSubscriptionState, NewsletterConfirmationChallenges,
     NewsletterConfirmationChallengesFactory, NewsletterConfirmationIssueOutcome,
@@ -341,7 +342,7 @@ async fn provider_withdrawal_commits_consent_grant_cancellation_challenge_invali
     .unwrap();
     assert_eq!(Disposition::AppliedWithdrawal.as_str(), disposition);
     assert_eq!(event_at, receipt_event_at);
-    assert_eq!(35, expiry_days);
+    assert_eq!(120, expiry_days);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -1063,6 +1064,127 @@ async fn later_verified_resubscribe_updates_only_exact_registered_mailbox_withou
         future
     );
     assert_eq!((true, 1, Some(now)), consent_state(&pool, id).await);
+
+    let later_negative = handler(&pool, MockProvider::state(CONTACT_ID, false, false, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-after-future-positive",
+                44,
+                "email.unsubscribed",
+                NewsletterWebhookEventKind::EmailUnsubscribed,
+                now + Duration::seconds(1),
+                address.as_ref(),
+                CONTACT_ID,
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
+        later_negative
+    );
+    assert!(!consent_state(&pool, id).await.0);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn ignored_positive_remains_spent_after_receipt_cleanup_and_provider_change() {
+    let pool = get_postgres_client().await;
+    let address = email("loops-positive-replay@example.test");
+    let id = UserId::new();
+    seed_user(&pool, id, &address).await;
+    let now = timestamp();
+    let verification = || {
+        verified_event(
+            "loops-positive-replay",
+            57,
+            "email.resubscribed",
+            NewsletterWebhookEventKind::EmailResubscribed,
+            now,
+            address.as_ref(),
+            CONTACT_ID,
+            None,
+        )
+    };
+
+    let ignored = handler(&pool, MockProvider::state(CONTACT_ID, false, true, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verification(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        ApplyLoopsPreferenceEventOutcome::Ignored(Disposition::IgnoredProviderState),
+        ignored
+    );
+    let marker_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM loops_webhook_positive_delivery_tombstones WHERE delivery_id = $1",
+    )
+    .bind("loops-positive-replay")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(1, marker_count);
+
+    sqlx::query(
+        "UPDATE loops_webhook_receipts SET processed_at = $1, expires_at = $2 WHERE delivery_id = $3",
+    )
+    .bind(now - Duration::days(121))
+    .bind(now - Duration::days(1))
+    .bind("loops-positive-replay")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert_eq!(
+        1,
+        SqlxConsentWorkflowCleanup::new()
+            .in_transaction(&mut tx)
+            .cleanup_webhook_receipts(now, 1)
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    let receipt_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM loops_webhook_receipts WHERE delivery_id = $1")
+            .bind("loops-positive-replay")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(0, receipt_count);
+
+    let replay = handler(&pool, MockProvider::state(CONTACT_ID, true, true, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verification(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ApplyLoopsPreferenceEventOutcome::Duplicate, replay);
+    let changed_body = handler(&pool, MockProvider::state(CONTACT_ID, true, true, false))
+        .execute(ApplyLoopsPreferenceEventCommand {
+            verification: verified_event(
+                "loops-positive-replay",
+                58,
+                "email.resubscribed",
+                NewsletterWebhookEventKind::EmailResubscribed,
+                now,
+                address.as_ref(),
+                CONTACT_ID,
+                None,
+            ),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ApplyLoopsPreferenceEventOutcome::Conflict, changed_body);
+    assert_eq!((false, 0, None), consent_state(&pool, id).await);
+    let intent_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email = $1",
+    )
+    .bind::<&str>(address.as_ref())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(0, intent_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -1139,6 +1261,24 @@ async fn stale_and_equal_provider_positive_events_cannot_reverse_a_withdrawal() 
         ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
         withdrawn
     );
+    // Simulate passage of the operational retention window. The independent
+    // provider ordering fence must still reject an old positive observation.
+    let processed_at = withdrawal_at - Duration::days(121);
+    sqlx::query("UPDATE loops_webhook_receipts SET processed_at = $1, expires_at = $2 WHERE delivery_id = 'loops-ordering-negative'")
+        .bind(processed_at)
+        .bind(processed_at + Duration::days(120))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let mut tx = uow.begin().await.unwrap();
+    let removed = SqlxConsentWorkflowCleanup::new()
+        .in_transaction(&mut tx)
+        .cleanup_webhook_receipts(withdrawal_at, 1)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(1, removed);
     for (id_suffix, event_at) in [
         ("old", withdrawal_at - Duration::seconds(1)),
         ("equal", withdrawal_at),
