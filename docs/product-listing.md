@@ -2,167 +2,145 @@
 
 ## Scope
 
-Aura owns `ProductListing`, not `Product`. `Product` remains reserved for a future intrinsic/catalog identity. This rewrite is breaking and pre-production: no aliases, forwarding crates, compatibility routes, dual writes, migration/backfill machinery, or legacy OpenSearch aliases.
+Aura owns `ProductListing`: a source's offer, not an intrinsic/catalog `Product` identity. Provider vocabulary stays at adapter boundaries.
 
-Provider vocabulary (Shopify/WooCommerce/schema.org) stays at adapter boundaries; `product-listing-core` uses Aura listing commands and values.
-
-## Ubiquitous language
-
-The aggregate is `ProductListing`; its IDs are `ProductListingId`, `ProductListingSlugId` (REST: `productListingTitleSlugId`), `ListingSourceId`, `SourceListingId`, and `ProductListingKey`. Listing facts use `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage`, `ListingAvailability`, derived `ListingOrderability`, `ListingLifecycle`, and `ListingSaleObservation`. Read types are `ProductListingSearch`, `ProductListingSummary`, and `ProductListingDetails*`; event/repository/document types are `ProductListingEvent*`, `ProductListingRepository`, and `ProductListingDocument`. The `product-listing-core`, `product-listing-service`, `product-listing-postgres`, `product-listing-opensearch`, and `product-listing-translation-llm` crates follow [architecture ownership and dependency direction](arch.md#3-canonical-workspace-layout).
+This document owns listing semantics. [OpenAPI](swagger.yaml) owns REST shapes and statuses; [event flow](events/flow.md) owns delivery contracts; the [worker runbook](durable-worker-runbook.md) owns recovery.
 
 ## Aggregate and invariants
 
-`ProductListing` has private fields: identity, mutable listing facts, optional `ListingAvailability`, `ListingLifecycle`, optional `ListingSaleObservation`, and at most one pending event payload. New listings are `Active`; `NewProductListing` cannot set lifecycle. `RehydratedProductListingState` is a `#[doc(hidden)] pub` adapter boundary that validates persisted state without emitting events.
-
-Required invariants:
-
-- `Withdrawn` requires absent availability; `Active` may have an assertion or none. Ordinary listing-data mutation requires `Active`. Withdrawal clears availability but retains sale observation; only explicit restore/upsert intent restores to `Active` without an availability assertion.
-- Sale observation is complete or absent and independent of lifecycle and availability, including `SoldOut`. Idempotent no-ops emit no event.
-
-Aggregate mutations collect zero or one payload without creating event IDs or reading the clock. Creation emits one `PRODUCT_LISTING_DISCOVERED`; rehydrated mutation coalesces into one non-empty `PRODUCT_LISTING_CHANGED`. Service stamps that one payload with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix. Initial discovery cannot be paired with a lifecycle transition or sale observation; those transitions are rejected rather than silently omitted. Durable image counts use fixed-width `u64` semantics, and image replacement remains a dedicated change that can retain equal counts when image identity or order changed.
+- A listing has an immutable `ProductListingId` and source key `(ListingSourceId, SourceListingId)`.
+- `SourceListingId` is opaque: trim outer Unicode whitespace, reject blank/NUL-containing values, preserve case, punctuation and internal whitespace, and limit the canonical value to 512 UTF-8 bytes. Only the trimmed value is persisted and emitted.
+- `ProductListingSlugId` is an immutable, globally unique Aura-owned public locator (`productListingTitleSlugId`), not a source-composite key or TypeID. Creation selects it through a collision-aware service flow.
+- Availability, catalog lifecycle and sale observation are independent dimensions. Persisted state must satisfy the same invariants as new state; invalid state fails closed.
 
 ## Availability and orderability
 
-`ListingAvailability` is an optional current source assertion. It is a canonical core enum with explicit exhaustive `as_str()` and exact `from_code()`. It has no `Default`, Serde, or SQLx derive.
+Availability is an optional, reliable current source assertion. It has no `UNKNOWN` or default value.
 
-| Variant | Code | Meaning |
-| --- | --- | --- |
-| `Available` | `AVAILABLE` | Source says available without finer stock detail. |
-| `InStock` | `IN_STOCK` | Ordinary current stock is available. |
-| `LimitedAvailability` | `LIMITED_AVAILABILITY` | Available with explicitly limited quantity/capacity. |
-| `BackOrder` | `BACK_ORDER` | Order accepted for later fulfillment. |
-| `MadeToOrder` | `MADE_TO_ORDER` | Prepared or produced after order. |
-| `PreOrder` | `PRE_ORDER` | Order accepted before ordinary release. |
-| `PreSale` | `PRE_SALE` | Explicit pre-sale semantics distinct from pre-order. |
-| `Unavailable` | `UNAVAILABLE` | Source says unavailable without a precise reason. |
-| `Reserved` | `RESERVED` | Temporarily held for another buyer. |
-| `OutOfStock` | `OUT_OF_STOCK` | No current stock; it may return. |
-| `SoldOut` | `SOLD_OUT` | Source says sold or permanently exhausted. |
-
-`ListingOrderability` is derived only; it is never independently persisted or mutable.
-
-| Values | Orderability code |
+| Canonical code | Meaning |
 | --- | --- |
-| `Available`, `InStock`, `LimitedAvailability` | `ORDERABLE_NOW` |
-| `BackOrder`, `MadeToOrder`, `PreOrder`, `PreSale` | `ORDERABLE_CONDITIONALLY` |
-| `Unavailable`, `Reserved`, `OutOfStock`, `SoldOut` | `NOT_ORDERABLE` |
+| `AVAILABLE` | Available without finer stock detail. |
+| `IN_STOCK` | Ordinary current stock is available. |
+| `LIMITED_AVAILABILITY` | Explicitly limited quantity/capacity. |
+| `BACK_ORDER` | Orders accepted for later fulfillment. |
+| `MADE_TO_ORDER` | Prepared or produced after order. |
+| `PRE_ORDER` | Orders accepted before ordinary release. |
+| `PRE_SALE` | Explicit pre-sale, distinct from pre-order. |
+| `UNAVAILABLE` | Unavailable without a precise reason. |
+| `RESERVED` | Temporarily held for another buyer. |
+| `OUT_OF_STOCK` | No current stock; it may return. |
+| `SOLD_OUT` | Source says sold or permanently exhausted. |
+
+Orderability is derived, never independently mutable or persisted:
+
+| Availability codes | Orderability |
+| --- | --- |
+| `AVAILABLE`, `IN_STOCK`, `LIMITED_AVAILABILITY` | `ORDERABLE_NOW` |
+| `BACK_ORDER`, `MADE_TO_ORDER`, `PRE_ORDER`, `PRE_SALE` | `ORDERABLE_CONDITIONALLY` |
+| `UNAVAILABLE`, `RESERVED`, `OUT_OF_STOCK`, `SOLD_OUT` | `NOT_ORDERABLE` |
+
+Query exact values OR together; orderability expands to these values. Supplying both intersects them. `include_unspecified` optionally ORs in absence; contradictory filters match no concrete values. Search omits absent availability rather than indexing a sentinel.
 
 ## Lifecycle and absence semantics
 
-`ListingLifecycle::{Active, Withdrawn}` persists as `ACTIVE` and `WITHDRAWN`. Withdrawal means retained history for a listing no longer offered/published by its authoritative source. It is reversible. It is not physical purge, legal deletion, or retention cleanup.
+- New listings are `ACTIVE`. Ordinary listing-data mutation requires an active listing.
+- `WITHDRAWN` means the source no longer offers/publishes the listing. Withdrawal clears availability but retains sale observation, history, watch state and quota occupancy. It is reversible, not physical purge or retention cleanup.
+- Only explicit restore/upsert intent restores a withdrawn listing. Restore starts without an availability assertion; upsert then applies supplied facts.
+- Absent availability on an active listing means no sufficiently reliable current assertion. It does not mean unavailable, sold, unchanged or extraction failure.
+- Absent asking price means no current assertion. `MONETARY` is an explicit numeric price; `ON_REQUEST` is an explicit request to ask the seller/source. Only monetary prices support conversion and numeric filtering; estimates remain monetary-only.
 
-`None` for aggregate availability has one meaning only: Aura has no sufficiently reliable current availability assertion for this active listing. `None` for `ProductListingPricing.price` means Aura has no current asking-price assertion. `Some(ProductListingPrice::Monetary(price))` is an explicit numeric asking price; `Some(ProductListingPrice::OnRequest)` is an explicit seller/source request for price. Neither means unchanged. Application patches use `PatchField::{Unchanged, Set, Clear}` for that separate instruction; a price clear emits the ordinary price-change event with old `Some(price)` and new `None`.
-
-The old canonical `ProductState` vocabulary is deleted. In particular, `LISTED`, `UNKNOWN`, `REMOVED`, and `SOLD` are not Aura listing availability values. Boundary uncertainty remains adapter-local.
+Absence is state, not a write instruction. Patches distinguish `Unchanged`, `Clear` and `Set`; clearing an asserted price or availability is an ordinary semantic change. `LISTED`, `UNKNOWN`, `REMOVED` and `SOLD` are not listing availability codes.
 
 ## Sale observation
 
-`ListingSaleObservation` holds `observed_at: OffsetDateTime` and `fx_rate_id: FxRateId`: when Aura first recorded explicit sold evidence and the FX snapshot used to value the last advertised source price. It does not claim a completed transaction or transaction amount.
+`ListingSaleObservation` is complete or absent: `observed_at` records when Aura first observed explicit sold evidence, and `fx_rate_id` pins the snapshot used to value the last advertised source price. It is not proof of a completed transaction or its amount.
 
-Availability writes never create, overwrite, or clear an observation. Recording an equal observation is a no-op; a different observation conflicts and requires correction. Retraction is a dedicated correction operation. `SoldOut` without an observation is valid, and a retained observation may remain after withdrawal or relisting.
-
-Use observation FX for presentation only while currently `SoldOut`, or for a deliberately historical/withdrawn presentation. An active relisted listing uses current FX.
+- Availability writes never create, overwrite or clear an observation. `SOLD_OUT` without an observation is valid.
+- Recording uses a dedicated authorized transaction and the latest persisted FX snapshot at or before `observed_at`.
+- An equal observation is a no-op; a different observation conflicts. Retraction is a dedicated correction, not an implicit overwrite.
+- An observation may survive withdrawal or relisting. Use its FX only while currently sold out or for deliberately historical/withdrawn presentation; an active relisted listing uses current FX.
 
 ## Behaviors and events
 
-Canonical aggregate behaviors are `set_price`, `set_price_on_request`, `clear_price`, `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
+Creation emits `PRODUCT_LISTING_DISCOVERED`. A later committed semantic revision emits at most one non-empty `PRODUCT_LISTING_CHANGED`; no-ops emit nothing. The service supplies event identity/time and commits state and event atomically. Rehydration emits no events.
 
-Canonical domain event codes:
+- Discovery records immutable source identity, initial title/description, pricing, availability, URL, image count and Auction/lot facts. It omits the public slug, image URLs, lifecycle and sale observation. Initial discovery cannot include a lifecycle transition or sale observation.
+- Changes keep price, each estimate, availability, URL, image replacement, Auction/lot facts, lifecycle and sale observation separate.
+- Ordinary changes coalesce first `previous` and final `current`; net-zero changes disappear. Image identity/order changes remain meaningful even with equal counts; durable counts use `u64`.
+- Withdrawal records the lifecycle transition and previous availability. Sale observations transition only absent → present or present → absent, never directly between different observations.
 
-```text
-PRODUCT_LISTING_DISCOVERED
-PRODUCT_LISTING_CHANGED
-```
-
-Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, fixed-width image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image replacement, auction, lifecycle, and sale observation are separate dimensions. Ordinary value changes retain first `previous` and final `current`; net-zero value changes disappear. Image replacement has separate count fields and may retain equal cardinality. Withdrawal records a lifecycle transition with previous availability. PostgreSQL owns strict v1 DTO decoding and maps directly through an immutable event rehydration boundary; it never reconstructs a ProductListing aggregate. Canonical domain journal rows use group `DOMAIN` and schema version `1`; enrichment journal events are separate from aggregate-core payloads. Event payload enum values persist explicit canonical codes, not Rust debug output.
+Enrichment is separate from aggregate changes and public domain history. Persisted event decoding is strict; delivery and projection rules belong to [event flow](events/flow.md).
 
 ## Application, API, and search contracts
 
-`auction: None` means no supplied listing-owned Auction or lot facts. `ProductListingAuction` groups an optional same-source `auction_id`, opaque 1–128-byte lot number, optional positive one-based catalogue position, and independently optional exact RFC3339 `bidding_opens`, `scheduled_closes`, and `reported_closed_at` instants. It has no presence meaning beyond those facts. A listing may carry lot facts without an Auction ID. All-empty facts normalize to absence. Date-only or timezone-ambiguous values are rejected rather than guessed as midnight.
+Title and description are optional creation-only inputs. Upsert of an existing listing preserves them. Availability, main price and estimates use tri-state patches: omitted preserves, `null` clears, a value sets. Absent response availability is explicit `null`.
 
-Create accepts optional localized `title` and `description`; omitted or `null` values are not recorded. It also accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Main price transport is tagged `MONETARY { currency, amount }` or `ON_REQUEST`; only `MONETARY` may be converted, formatted as money, or match numeric filters. Update and upsert use tri-state patches for availability, main price, and each price estimate: omitted is unchanged, `null` clears, and a value sets. In an asserted partner `auction` object, `auctionId` must identify an existing Auction for the same ListingSource; omit it to preserve membership, send `null` to clear membership, or send an ID to set it. Lot and timing leaves omit to preserve, use `null` to clear, or use a value to set. Partner writes cannot create Auctions or supply Auction metadata. Outer `auction: null` is invalid. Raw input has no Auction fields and normalization preserves stored Auction/lot facts. Upsert images are separate: omitted preserves existing images, `[]` clears them, and `null` is invalid. URL is non-clearable: omitted or `null` preserves it; a URL value sets it. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
+Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
-Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
-
-`title` and `description` are optional creation-only inputs on both create and upsert. For an existing listing, upsert preserves their current state and emits no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingTitleSlugId`, and `sourceListingId`.
-
-A ProductListing is authoritatively identified for partner writes by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values and embedded NUL characters, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. The trimmed value is the canonical input and the only value persisted in PostgreSQL, used for the authoritative key and emitted in events; pre-trim input is not retained. It has no seller, auctioneer, Party attribution, address, or location state. The discovery event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
+Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
 ## Asynchronous ingestion submission
 
-The source-neutral path is **typed intent → confirmed FIFO admission → per-command atomic PostgreSQL write and receipt → downstream work**. Partner async `POST`/`PATCH`/`PUT`/`DELETE` submit `CREATE`/`UPDATE`/`UPSERT`/`WITHDRAW` respectively; Shopify and WooCommerce submit `CAPTURE_RAW` after their own provider boundaries; trusted internal callers may submit canonical intent or raw capture without a partnership prerequisite at intake. The crawler and synchronous partner routes retain their direct paths. `CREATE` retains existing create semantics; `UPDATE` changes an existing listing only; `UPSERT` may create, update or restore; `WITHDRAW` retains history without purging. A successful `CAPTURE_RAW` stores raw evidence, plus provider receipt and source-order decisions when applicable, before the separate normalization path may write canonical state/events and CDC may update projections. Admission is not any of these later effects. The [event flow](events/flow.md#v1-command-admission-versus-cdc-delivery) and [recovery runbook](durable-worker-runbook.md#productlisting-ingestion-fifo-command-recovery) describe the two failure boundaries and operator gates.
+**Typed intent → confirmed FIFO admission → atomic command application and receipt → downstream work.** Admission is never business completion.
 
-Partner and internal ingestion submission are service-owned admission use cases over one `ProductListingIngestionPublisher` port. They accept typed `CREATE`, `UPDATE`, `UPSERT`, `WITHDRAW`, and `CAPTURE_RAW` intents and await publication; they do not perform canonical writes, persistence, HTTP parsing, or detached/background fallback. Existing synchronous use cases are unchanged. Internal intake accepts only `Service` or `System` contexts and needs no partnership or PostgreSQL dependencies. Partner intake requires a `User` or `DelegatedUser`; delegated credentials must have `ProductListingsWrite`. The trusted user/service/system actor and request/correlation IDs are copied into each message without credentials. Admission performs only pure input, actor/scope, and envelope validation; it does not query PostgreSQL or validate execution eligibility. Partner/source membership, listing/Auction existence, lifecycle, and business conflicts remain consumer checks; provider authentication and source-configuration reads remain separate provider-boundary responsibilities.
+| Intent | Execution meaning |
+| --- | --- |
+| `CREATE` | Existing create semantics. |
+| `UPDATE` | Change an existing listing only. |
+| `UPSERT` | Create, update or explicitly restore. |
+| `WITHDRAW` | Retain the listing and its history. |
+| `CAPTURE_RAW` | Store source evidence; separate normalization may later change canonical state. |
 
-Each typed item carries its original zero-based request index and the original input count. Indices must be unique and in range; service validation failures are returned for their own indices, and valid siblings may still be published. Transport parse failures remain API-owned. A publisher result is exactly one of `Accepted`, `Rejected` (reason and retryability), `Unconfirmed` (possibly accepted), or `NotAttempted` (deadline or blocked FIFO predecessor) per eligible item. `Accepted` confirms queue admission only, never business completion. Only publisher-confirmed `Accepted` outcomes count as accepted; unconfirmed and not-attempted items must not be counted. Rejected-before-send items do not reserve FIFO positions. The publisher preserves original order within each logical FIFO group, allows at most one outstanding send per group, and waits for acceptance before sending a successor; an unconfirmed or failed eligible predecessor leaves successors `NotAttempted`. Independent groups may progress concurrently within the publisher budget. Eligible items retain input order and repeated listing keys retain distinct indices/command identities.
+Admission awaits publication; it does not write canonical state or fall back to detached work. Partner intake requires a user, with `ProductListingsWrite` for delegated credentials; internal intake accepts only trusted service/system callers without a partnership prerequisite. Intake validates input, actor/scope and envelope, not current database eligibility. Execution checks current source grants, referenced entities, lifecycle and business conflicts. Provider authentication remains at its boundary; credentials never enter messages.
 
-REST may supply one `Idempotency-Key` header value containing 1–128 visible ASCII bytes; duplicate header occurrences and invalid values are rejected by the transport. If absent, service intake generates an effective key once and returns it for the API to echo; it cannot be recovered if that first response is lost. `submissionId` is a versioned, opaque correlation value scoped by actor, ListingSource, and effective key; each `commandId` additionally scopes operation and original input index. IDs use unambiguous length-prefixed encoding and exclude request IDs and current time. The same unchanged ordered logical batch and key yields stable IDs. Reordering, compacting, or changing content under that key is unsupported. These IDs are metadata only: there is no submission registry, batch deduplication, or persistence. Downstream execution receipts are per `commandId`; commands sharing a `submissionId` remain independent. Raw evidence, normalization context, provenance, source timestamps, provider receipts, and repeated-key order pass through unchanged after pure ingress validation.
+Each item retains its unique, in-range original zero-based index and input count, including repeated listing keys. Invalid items need not block valid siblings. An evaluated report accounts for every input as confirmed acceptance or an original-index failure, not listing IDs or a completion/polling result.
 
-[OpenAPI](swagger.yaml) owns REST examples/statuses. An evaluated report has `submissionId`, `acceptedCount`, and original-index `failures` (`index`, optional safe `sourceListingId`, bounded `error`, `retryable`); accepted count plus failures equals input count, including evaluated non-2xx responses. It reports admission, not completion/listing IDs or a polling route. Authorized empty arrays return `202` without sends; invalid items need not block siblings. Pre-evaluation syntax, shape, authorization, key, or whole-body failures send nothing and return `ApiError`. Whole-call authorization/index or publisher failure before any attempt is not partial acceptance; after sending starts, transport failures become per-item outcomes. Missing or non-unique publisher outcomes for an eligible item are `Unconfirmed`, never invented success. Unsent deterministic rejections do not block same-group successors; sent uncertain/failed predecessors do, with retryability inherited from the predecessor (uncertainty is retryable). A deadline-before-send item is `NotAttempted(DeadlineExceeded, retryable=true)`.
+| Outcome | Meaning |
+| --- | --- |
+| `Accepted` | Matching publisher receipt confirms queue custody only. |
+| `Rejected` | Admission rejected, with a safe reason and retryability. |
+| `Unconfirmed` | Possibly queued; never count as accepted. |
+| `NotAttempted` | Unsent because of a deadline or blocked FIFO predecessor. |
 
-On a partial/lost response retry, retain actor/source, effective key, original ordered batch, operations, indices, and count; never compact under the same key. This reproduces IDs, not a stored response or exactly-once execution. A generated key lost with the first reply cannot be recovered; a later retry may produce new IDs. Retryable admission failure does not imply batch rollback; consumer receipts handle duplicates and business rejection independently.
+Missing or non-unique publisher outcomes are unconfirmed, not success. Within each logical FIFO group, a successor waits for confirmed predecessor admission. Unsent deterministic rejection reserves no position; a sent failed/uncertain predecessor blocks successors. Independent groups may advance. Uncertainty and deadline exhaustion are retryable; blocked successors inherit predecessor retryability.
 
-V1 input limits: REST `Idempotency-Key` 1–128 visible ASCII bytes; trimmed `SourceListingId` ≤512 UTF-8 bytes; `CAPTURE_RAW` record key ≤4,096 UTF-8 bytes without NUL. Raw JSON limits are in [persistence](#persistence-contract); input limits do not guarantee queue fit. The `product-listing-ingestion-sqs` v1 envelope carries exactly one operation with `schemaVersion`, `submissionId`, `commandId`, original `index`/`inputCount`, `listingSourceId`, actor (`kind`, optional `id`), request/correlation IDs, `preparedAt`, `semanticFingerprint`, and `payload` (`operation`, typed `command`). Operations are `CREATE`, `UPDATE`, `UPSERT`, `WITHDRAW`, `CAPTURE_RAW`; patches encode `UNCHANGED`, `CLEAR`, or `SET` with `value`. Raw capture preserves unknown provider payload keys and original evidence. Unknown versions/opcodes/typed fields or invalid values fail closed; `preparedAt` is preparation, not completion. Verified SHA-256 fingerprint covers actor identity scope, target, operation, typed command, and raw evidence, but not request/submission IDs, index, or preparation time. Authorized delegated actors share the user's `USER` fingerprint/ID scope while retaining their distinct envelope actor variant; other users and service/system identities remain distinct. SQS dedup combines `commandId` and fingerprint so conflicting reuse is not hidden.
+### Retry identity
 
-The SQS adapter enforces 1,048,576 UTF-8 bytes per message and batch, at most 10 entries per batch, no attributes/S3 offload; oversized items reject without dropping siblings. It allows three outer attempts per entry, disables hidden SDK retries, and uses the earlier of a configurable publisher budget (default 10 seconds) and the caller's per-invocation deadline with response headroom. Only an unambiguous matching per-entry receipt confirms `Accepted`; a lost reply is `Unconfirmed` unless retry confirms it. Safe error codes: `INVALID_MESSAGE_SIZE`, `ENCODING_FAILED`, `SQS_SENDER_FAILURE`, `SQS_RETRYABLE_FAILURE`. Canonical commands group by source and normalized listing ID; raw capture groups separately by source, ingestion method, and exact record key. Only one send per group may be outstanding; a successor waits for confirmed acceptance. FIFO guarantees per-group shared-queue admission order, not upstream, database, cross-group, or raw-normalization order. Durable consumer receipts remain necessary.
+- REST accepts one `Idempotency-Key` of 1–128 visible ASCII bytes excluding comma. Without it, intake generates and returns an effective key; a key lost with the first response cannot be recovered.
+- `submissionId` scopes actor, source and effective key; `commandId` additionally scopes operation and original index. Request IDs and current time do not affect them. An authorized delegated caller shares the same user's identity scope.
+- Retry a partial/lost response with the **unchanged original ordered batch**, actor/source, effective key, operations, indices and count. Never compact, reorder or change content under that key.
+- Stable IDs do not reproduce a stored response or guarantee exactly-once execution. There is no submission registry or batch rollback; commands sharing a submission remain independent.
 
-`ProductListingSlugId` is the immutable Aura-owned public locator, exposed as `productListingTitleSlugId`. Use `raw` for a persisted value or `from_title_and_suffix` for an explicit candidate; no implicit string conversion synthesizes a locator. Aggregate creation requires the selected slug explicitly, so only collision-aware service flows choose production candidates. Aura derives a capped ASCII slug body from the creation title and appends a six-character lowercase hexadecimal suffix from a random UUID; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. On a unique-slug collision, creation generates a new locator and retries persistence up to five attempts; exhausting them fails the creation. `PRODUCT_LISTING_DISCOVERED` events identify the aggregate in their envelope and intentionally omit the title slug; event consumers needing the current public locator read current aggregate state.
+FIFO orders per-group shared-queue admission, not upstream chronology, cross-group execution, synchronous writes or raw normalization. Wire validation and delivery mechanics belong to [event flow](events/flow.md); recovery belongs to the [worker runbook](durable-worker-runbook.md).
 
-Public listing discovery contains active listings only. Withdrawn listings are not found by public detail (by ID or title slug returns `404 PRODUCT_LISTING_NOT_FOUND`, never `410`) and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter. OpenSearch retains only each raw source `url`. Public search alone resolves its first-page immutable FX snapshot through a process-local cache over the one-statement PostgreSQL reader; continuation pages resolve their cursor-pinned snapshot ID exactly. Exact immutable payloads use FIFO capacity eviction (default 512). Latest selections reuse only a cutoff-compatible snapshot for a fixed monotonic TTL (default 30 seconds); hits never extend that deadline, and a delayed fill is not retained. The latest selection can retain one additional immutable payload after FIFO eviction. Missing/error results and stale-on-error fallbacks are never cached. `PRODUCT_LISTING_SEARCH_FX_CACHE_ENABLED` defaults to `true`; `PRODUCT_LISTING_SEARCH_FX_CACHE_MAX_ENTRIES` accepts 1–8,192; `PRODUCT_LISTING_SEARCH_FX_LATEST_TTL_SECONDS` accepts 0–300, where zero disables only latest-selection reuse. The cache is per API process, restart-cleared, and does not make search database-independent or create an explicit FX read transaction. Transaction-scoped FX repositories remain fresh for detail, similar-listing, administrative, financial-write, and other invariant-critical flows. Public search alone also has a process-local source/referral decorator. It caches the complete `ListingSourceSummaryWithReferral` for a fixed monotonic TTL (default 60 seconds), bounded by 4,096 FIFO entries, 8 MiB accounted payload, and 16 KiB per-entry admission; one coarse fill gate still loads all page misses in one batch. `PRODUCT_LISTING_SEARCH_SOURCE_CACHE_ENABLED` defaults to `true`; `PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_ENTRIES` accepts 1–65,536, `PRODUCT_LISTING_SEARCH_SOURCE_CACHE_MAX_BYTES` accepts 1–536,870,912, and `PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS` accepts 1–300 seconds. It has no negative/error cache or stale-if-error fallback. `view_url` is always rebuilt from the cached referral configuration and each hit's current raw URL. Administrative, detail, similar-listing, worker, and write reads use direct fresh source readers; public source edits may remain visible only after the fixed TTL. The endpoint's anonymous HTTP cache can add age beyond service-cache TTLs. Cache disable or rollback is a normal restart/redeploy; it does not clear HTTP caches. Per-request structured cache events carry only component/outcome, aggregate source batch/admission counts, fill-gate wait, and backend duration; they never carry cache keys, IDs, URLs, referral parameters, or payloads, and do not provision dashboards. `PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED` defaults to `false`; it may enable the same source, authenticated user-state, and current-assessment pure assembly reads concurrently only for public search. User state and assessments stay authoritative and uncached.
+### Downstream command execution
 
-`ListingAvailabilityQuery` supports exact availability values, derived orderability values, and `include_unspecified`. Exact values OR together; orderability expands to detailed values; supplying both intersects them; unspecified values only match the missing field and are optionally ORed in. Contradictory exact/orderability filters yield no concrete matches.
+Execution verifies semantic integrity and serializes by `commandId`. Canonical state/event or raw capture and an `APPLIED` receipt commit together. Matching committed receipts replay without effects; conflicting reuse fails closed. Rejection or rollback creates no success receipt. After an ambiguous commit, retry checks the receipt; acknowledge only confirmed application or matching replay.
 
-Public ProductListing search and saved searches accept up to 100 distinct repeated exact `auctionId` values. Each must be a strict `auc_` TypeID; IDs OR together and intersect all other filters before OpenSearch pagination. The filter matches only resolved listing membership. A missing `auctionId` does not match, even when independent lot facts are present. The same filter is percolated and has the same paid-tier restriction as `listingSourceId`.
-
-OpenSearch stores an active listing document with optional availability. Concrete availability serializes as its canonical code; absent availability omits the field. Missing availability queries use `must_not exists`; `UNKNOWN` is never indexed.
-
-### Downstream command execution (consumer installed; Shopify producer forwarding gated by deployment)
-
-The Lambda verifies the v1 envelope/fingerprint, then calls a service-owned execution use case. It serializes by `commandId`, checks the receipt and current authorization/business rules, and atomically commits canonical state/event **or** raw capture with an `APPLIED` `product_listing_command_receipts` row. The queue adapter owns no transaction. A matching committed ID/fingerprint/metadata replays without effects; conflicts fail closed. Rejection, rollback, or transient failure leaves no receipt. After an ambiguous commit, retry checks for a receipt; only confirmed `APPLIED` completion or matching replay is acknowledged. Receipts have no TTL and survive listing/source deletion; they contain no commands, credentials, provider evidence, or exceptions. `submissionId` is correlation, not batch atomicity/deduplication. See [storage](storage.md#productlisting-ingestion-command-receipts) for receipt ownership and CDC exclusion.
-
-FIFO admission is not exactly-once execution or ordering against synchronous writes/raw normalization; distinct commands still need aggregate/source concurrency guards. The installed consumer handles at most ten messages in received order; on the first incomplete result, it fails that SQS message ID and the entire unprocessed suffix, including other groups. Consumer deployment alone does not cut over producers. Shopify/WooCommerce mapped raw observations enter after provider checks; current partner/source grant is checked at consumer execution (for an ignored no-op, before HTTP acknowledgment). Provider HTTP `204` means confirmed FIFO admission or authorized ignored no-op, never completion. See [event flow](events/flow.md#v1-ingestion-command-execution-installed-consumer) for worker acknowledgment and producer boundaries.
+Receipts survive listing/source deletion and have no TTL. They deduplicate successful command application, not admission, rejection or an entire batch. Raw capture completion still does not mean canonical normalization or projection completion. [Storage](storage.md) owns persistence guardrails; [event flow](events/flow.md) owns worker acknowledgment.
 
 ## Content assessment and image visibility
 
-`ProductListingImage` is a URL-only source fact. It carries no classification, consent, or assessment lifecycle.
+Images are URL-only source facts. Listing-level assessment is asynchronous enrichment; missing or stale assessment means unassessed, not an invented policy value.
 
-Listing text is assessed asynchronously after each committed `PRODUCT_LISTING_DISCOVERED` event, the sole current text source. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.content_source_event_id`. Price, availability, URL, images, lifecycle, and enrichment revisions do not invalidate it. A future title/description event must advance `content_source_event_id` and route content assessment. Missing or stale rows mean unassessed.
+Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT(NAZI_GERMANY)`) and unassessed images. Redaction preserves image order/cardinality and emits hidden URLs as `null`.
 
-`ContentPolicyDecision` is either `ALLOWED` or `REQUIRES_CONSENT(NAZI_GERMANY)`. There is no `UNKNOWN` or `NONE` policy/category value. The pure visibility rule is centralized in `product-listing-core`: callers without the stored `show_unassessed_or_sensitive_content` preference see image URLs only for a current `ALLOWED` assessment. Opted-in users see URLs for allowed, sensitive, and unassessed listings. Presentation retains image order/cardinality and redacts a hidden URL as `null`.
-
-Assessment is enrichment, not aggregate state: it does not block source ingestion, append ProductListing events, modify the listing revision, or enter OpenSearch. Crawler, provider, and partner boundaries submit URLs only. OpenSearch keeps raw URLs for internal matching/search and has no content-policy fields.
+Assessment does not block ingestion, change aggregate revision/history or become search authority. Non-content changes do not invalidate text assessment; a new text source must invalidate the old result.
 
 ## Source anti-corruption rules
 
-Crawler normalization is boundary-local: `Availability(value)` sets a reliable assertion; `NoAssertion` clears it after a successful full page without an assertion; `Ignore` preserves it after ambiguous or failed extraction.
+Boundary uncertainty never becomes invented domain truth. Reliable assertions set availability; reliable absence clears it; ambiguous or failed extraction preserves it. Only reliable removal evidence withdraws a listing, never timeout, blocking or parsing failure. Missing/untracked inventory is not zero; zero stock is not sold evidence. Explicit sold availability still does not implicitly create a sale observation.
 
-Reusable mappings persist `AVAILABILITY` with a non-null valid value or `NO_ASSERTION` with a null value. `Ignore` is not persisted. Presence is independent: reliable source removal becomes `Withdrawn`; timeouts, 5xx, parsing failure, blocking, and ambiguity never withdraw.
-
-- schema.org directly maps supported availability meanings; `OnlineOnly`, `InStoreOnly`, and `Discontinued` remain adapter diagnostics/raw attributes and map to `NoAssertion` or `Ignore` by confidence.
-- Shopify active with tracked inventory above zero sets `InStock`; all known tracked inventory at or below zero sets `OutOfStock`; missing/untracked inventory clears availability. Archived, draft, and delete evidence withdraw existing listings; draft does not create. Missing inventory is never zero and zero inventory is never `SoldOut`.
-- WooCommerce published `instock`, `outofstock`, and `onbackorder` map to `InStock`, `OutOfStock`, and `BackOrder`. Trash/delete and nonpublished draft/pending/private evidence withdraw existing listings and do not create. Unsupported/missing status is non-destructive.
-- Explicit crawler sold evidence may set `SoldOut`, but creates a sale observation only through the dedicated observation use case when that feature is required.
+Provider mappings and ordering/recovery details belong to [event flow](events/flow.md); crawler-specific contracts remain in the [crawler docs](crawler/README.md).
 
 ## Persistence contract
 
-Raw capture is separate from canonical state: `product_listing_raw_streams` holds mutable change-detection heads for `WEB_CRAWL`, `SHOPIFY`, and `WOOCOMMERCE`; `product_listing_raw_revisions` holds immutable changed evidence with independent optional `source_event_id` and provenance. The input hash covers action, format/version, complete semantic source JSON, provider-neutral raw values, and normalization context, but not provenance. Raw JSON rejects NUL and limits source payload to 1 MiB, raw values to 256 KiB, context/provenance to 64 KiB each, and depth to 64. Mapped provider receipts hold only a source-evidence digest for a 90-day logical window; expiry never changes revisions. A missing delivery identity/source timestamp permits intake but provides no corresponding receipt/order guarantee. [Storage](storage.md#productlisting-events-and-revisions) owns receipt expiry and cleanup.
+PostgreSQL is authoritative; OpenSearch is rebuildable. Raw evidence is separate from canonical state and history. Raw capture alone cannot mutate the listing; ordered normalization is responsible for canonical changes.
 
-Crawler stream keys are configured candidate URLs (`CRAWLER_EXTRACTED_PRODUCT` v1 from selected `RawExtractedProduct` values; verified removal is raw `DELETE` before dormancy). Shopify and WooCommerce stream keys are canonical decimal product IDs; they retain complete semantic product objects as `SHOPIFY_PRODUCT` v1 or `WOOCOMMERCE_PRODUCT` v1 and map status/inventory or topic/status/stock into generic raw intent. WooCommerce verifies untouched bytes before parsing. An authorized ignored create/update status submits nothing and persists no receipt even with a delivery ID. For mapped observations, HTTP `204` confirms one FIFO `CAPTURE_RAW` admission only; rejected, oversized, unconfirmed, or not-attempted commands are not acknowledged (a lost reply may have queued). Capture and command receipt, including provider receipt/source-order decisions, commit together in the consumer; conflicts/ambiguous restore barriers retry/DLQ, not immediate HTTP `409`. Normalization writes canonical state later; capture never writes `product_listings` or `product_listing_events`. Partner API writes remain canonical/direct.
-
-Shopify uses `X-Shopify-Triggered-At` as its only source-order clock; `updated_at` remains source provenance and is never compared for ordering. Its receipt identity is origin-namespaced (`shopify-webhook:<X-Shopify-Webhook-Id>` or `eventbridge:<EventBridge ID>`), and equal-order conflicting observations remain retryable/DLQ-visible rather than overwriting evidence. A timestamp-free Shopify `DELETE` enters the durable `UNKNOWN_DELETE` ordering state: every later UPSERT is blocked until an explicit operator/developer correction after independent provider-state verification.
-
-For mapped Shopify records, the upstream Standard SQS Lambda resolves the source and forwards one `CAPTURE_RAW`. It acknowledges upstream only on matching confirmed `Accepted`; other outcomes retain upstream IDs for retry/DLQ. Its source/topic-scoped submission key prefers webhook ID, then EventBridge ID, then upstream SQS ID as transport fallback; fixed item index is independent of batch position. `source_event_id` and provider receipt evidence are separate from command identity. See [event flow](events/flow.md#shopify-queue-forwarding-boundaries-runtime-deployment-gated) for the two-queue handoff.
-
-One current provider-neutral raw-values schema is accepted: discriminator `1` with required `priceFormat`. `DISPLAY_TEXT` parses price patches as display text; main-price on-request markers normalize to the explicit `OnRequest` assertion, while price estimates remain monetary-only. `MACHINE_DECIMAL` requires context `fallbackCurrency` for nonblank values and accepts only full unsigned ASCII decimals. Extra fractional digits may be zero padding only, so it never truncates a nonzero minor-unit value. Crawler UPSERTs emit `DISPLAY_TEXT`; Shopify and WooCommerce UPSERTs emit `MACHINE_DECIMAL`. Provider source payload retains its price string exactly, while a blank provider price maps to a generic `CLEAR` patch. Other raw-values discriminator values are not decoded or upgraded.
-
-`product-service::NormalizeProductListingRawRevisionUseCase` alone converts raw revisions to canonical state, preserving Auction/lot facts absent from raw input. It locks the stream's `product_listing_raw_normalization_heads` head, processes only the next revision, and commits one immutable `product_listing_raw_normalizations` terminal result (ordered bounded diagnostics) with head advancement and zero or one canonical event. `APPLIED`, `NO_CHANGE`, `IGNORED`, and candidate-data `REJECTED` advance; configuration, schema/deployment, or transient persistence failure stays pending. The dedicated worker accepts committed raw-revision inserts with typed IDs only and acknowledges only a fully drained stream; capped/unfinished attempts retry via SQS. There is no warm-cursor dependency or scheduled reconciliation. [Event flow](events/flow.md#cdc-routing) owns CDC wake-up routing; [worker operations](durable-worker-runbook.md#failure-custody-and-controlled-redrive) owns recovery. Crawler dormancy/retry follows [crawler scheduling](crawler/scheduling-and-retries.md).
-
-PostgreSQL owns `product_listings`, `product_listing_events`, translations, and watchlist; see [storage](storage.md#productlisting-events-and-revisions) for keys and revision fences. Listing-owned Auction/lot columns are optional; `(listing_source_id, source_listing_id)` and `product_listing_title_slug_id` are unique. Withdrawal retains watch state, quota occupancy, and current-interval timestamps; explicit physical deletion cascades listing-owned translations, events, assessments, watchlist rows, and search-filter matches, but not immutable notification snapshots/delivery rows. This pre-production rewrite has no outbox, compatibility decoder, migration, backfill, or dual write.
-
-Authoritative columns include nullable `availability`, non-null `lifecycle`, and paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`; PostgreSQL enforces these invariants and exact codes. `version` tracks aggregate concurrency; `current_event_id` and `projection_version` track projection state; `content_source_event_id` and `embedding_source_event_id` fence text and title/description/first-image enrichment. Discovery initializes both source markers; image changes advance the embedding marker and clear the vector. No listing address/geo or seller columns exist. OpenSearch is rebuildable, never authoritative.
-
-Rows keep persisted enum text as `String` and map using fallible exact canonical parsing. Invalid or noncanonical persisted values are rejected; no mapping defaults or case-normalizes corrupt state.
+Canonical enum codes and persisted invariants are decoded exactly, without defaults or case-normalizing corruption. Storage JSON identity exceptions live in [object IDs](object-ids.md#storage-only-json); schema and concurrency guardrails belong to [storage](storage.md).
 
 ## Public history
 
-`GET /api/v1/product-listings/{productListingId}/history` returns only committed domain `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` entries, ordered by occurrence time then event ID. One changed entry represents one committed revision and contains one deterministically ordered `changes` list. History excludes enrichment rows, storage JSON/core payload wrappers, and source image URLs.
+History exposes only committed `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` domain entries, ordered by occurrence time then event ID. One changed entry represents one committed revision with a deterministically ordered `changes` list.
+
+History excludes raw evidence, operational receipts, enrichment, storage/core payload wrappers and source image URLs. Public object identities use TypeIDs even where persisted event JSON uses UUID text.

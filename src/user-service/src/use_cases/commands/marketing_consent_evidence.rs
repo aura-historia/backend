@@ -7,7 +7,7 @@ use user_core::user_id::UserId;
 
 const PURPOSE: &str = "EMAIL_MARKETING";
 const EVENT_NAME: &str = "marketing_consent.evidence.v1";
-// Frozen English purpose wording is retained in docs/events/flow.md. This is not
+// Frozen English purpose wording is retained in docs/marketing-consent.md. This is not
 // a claim about which frontend release or translation the user actually saw.
 const WORDING_REFERENCE: &str = "backend:email-marketing-purpose:v1";
 const WORDING_NOT_RECORDED: &str = "not-recorded";
