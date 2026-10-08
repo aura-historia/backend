@@ -123,6 +123,13 @@ async fn exists(pool: &sqlx::PgPool, table: &str, column: &str, id: Uuid) -> boo
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
     let pool = get_postgres_client().await;
+    let replica_identity: String = sqlx::query_scalar(
+        "SELECT relreplident::text FROM pg_class WHERE oid = 'marketing_email_consent_sync_intents'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!("d", replica_identity);
     let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
     let old = now - Duration::days(121);
     let completed = seed_intent(
@@ -176,8 +183,15 @@ async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
     let confirmed = seed_challenge(
         &pool,
         now - Duration::days(8),
-        Some(now - Duration::days(7)),
+        Some(now - Duration::days(7) - Duration::seconds(1)),
         Some(completed),
+    )
+    .await;
+    let second_confirmed = seed_challenge(
+        &pool,
+        now - Duration::days(8),
+        Some(now - Duration::days(7)),
+        Some(second_completed),
     )
     .await;
     let recent_confirmed = seed_challenge(
@@ -254,6 +268,15 @@ async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
             &pool,
             "newsletter_subscription_confirmations",
             "confirmation_id",
+            second_confirmed
+        )
+        .await
+    );
+    assert!(
+        exists(
+            &pool,
+            "newsletter_subscription_confirmations",
+            "confirmation_id",
             recent_confirmed
         )
         .await
@@ -312,6 +335,28 @@ async fn bounded_cleanup_respects_equality_replay_and_unfinished_work() {
         .fetch_one(&pool)
         .await
         .unwrap()
+    );
+
+    let second = handler.execute(1).await.unwrap();
+    assert_eq!(1, second.confirmed_challenges_deleted);
+    assert_eq!(1, second.completed_intents_deleted);
+    assert!(
+        !exists(
+            &pool,
+            "newsletter_subscription_confirmations",
+            "confirmation_id",
+            second_confirmed
+        )
+        .await
+    );
+    assert!(
+        exists(
+            &pool,
+            "newsletter_subscription_confirmations",
+            "confirmation_id",
+            recent_confirmed
+        )
+        .await
     );
 }
 

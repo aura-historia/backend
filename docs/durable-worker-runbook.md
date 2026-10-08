@@ -65,6 +65,9 @@ receipts after at least 120 days. Each target commits separately, uses `SKIP
 LOCKED`, and deletes at most the configured batch size (1–1000). A failed target
 fails the invocation; earlier committed batches are safe to retry. Older webhook
 receipts with a 35-day stored expiry remain until 120 days after processing.
+Permanent minimal markers for committed positive Loops deliveries survive this
+cleanup; never remove them to force a replay. They contain only delivery ID and
+body digest, and protect ignored as well as applied positives.
 These windows cover the declared 90-day router archive, seven-day Kinesis/source
 queues and 14-day worker DLQ with recovery margin. They are operational
 deduplication windows, not legal consent history. `PENDING`, `IN_PROGRESS`,

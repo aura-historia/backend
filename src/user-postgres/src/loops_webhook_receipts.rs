@@ -63,10 +63,12 @@ impl LoopsWebhookReceipts for SqlxLoopsWebhookReceipts<'_> {
         delivery_id: &str,
     ) -> Result<Option<LoopsWebhookReceiptLookup>, LoopsWebhookReceiptError> {
         let digest: Option<Vec<u8>> = sqlx::query_scalar(
-            "SELECT raw_body_sha256 FROM loops_webhook_receipts WHERE delivery_id = $1",
+            "SELECT COALESCE(\
+                (SELECT raw_body_sha256 FROM loops_webhook_receipts WHERE delivery_id = $1), \
+                (SELECT raw_body_sha256 FROM loops_webhook_positive_delivery_tombstones WHERE delivery_id = $1))",
         )
         .bind(delivery_id)
-        .fetch_optional(self.tx.connection())
+        .fetch_one(self.tx.connection())
         .await
         .map_err(|source| LoopsWebhookReceiptError::TemporarilyUnavailable {
             source: box_error(source),
@@ -128,6 +130,17 @@ impl LoopsWebhookReceipts for SqlxLoopsWebhookReceipts<'_> {
         &mut self,
         receipt: LoopsWebhookReceiptInput,
     ) -> Result<LoopsWebhookReceiptWriteOutcome, LoopsWebhookReceiptError> {
+        // Early ignored positives do not take a mailbox lock. Check the durable
+        // marker here too, before inserting a fresh receipt after cleanup.
+        if receipt.event_name == "email.resubscribed"
+            && let Some(existing) = self.find_by_delivery_id(&receipt.delivery_id).await?
+        {
+            return Ok(if existing.raw_body_sha256 == receipt.raw_body_sha256 {
+                LoopsWebhookReceiptWriteOutcome::ExistingSameDigest
+            } else {
+                LoopsWebhookReceiptWriteOutcome::ExistingDifferentDigest
+            });
+        }
         let result = sqlx::query(
             "INSERT INTO loops_webhook_receipts (delivery_id, raw_body_sha256, provider_event_name, event_time, email, provider_contact_id, mailing_list_id, disposition, processed_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (delivery_id) DO NOTHING",
         )
