@@ -92,11 +92,19 @@ async fn should_enforce_admin_access_through_the_composed_http_api_v2_router() {
         let app = api_support::aura_api_app().await;
         let admin_id = api_support::seed_user("ADMIN").await;
         let admin_token = String::from(
-            api_support::seed_access_token_for(admin_id, std::collections::HashSet::new()).await,
+            api_support::seed_access_token_for(
+                admin_id,
+                std::collections::HashSet::from([Scope::AdminOverviewRead]),
+            )
+            .await,
         );
         let user_id = api_support::seed_user("USER").await;
         let user_token = String::from(
-            api_support::seed_access_token_for(user_id, std::collections::HashSet::new()).await,
+            api_support::seed_access_token_for(
+                user_id,
+                std::collections::HashSet::from([Scope::AdminOverviewRead]),
+            )
+            .await,
         );
 
         let allowed = handle_http_api_v2_request(
