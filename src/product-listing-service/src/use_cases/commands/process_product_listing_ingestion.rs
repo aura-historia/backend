@@ -63,9 +63,9 @@ pub enum ProductListingIngestionError {
     #[error("command identity was reused for different content")]
     FingerprintConflict,
     #[error("failed to begin ingestion transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit ingestion transaction; completion is unconfirmed")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
     #[error("ingestion receipt failed")]
     Receipt(#[source] ProductListingCommandReceiptError),
     #[error(transparent)]
@@ -87,8 +87,8 @@ impl ProductListingIngestionError {
         match self {
             Self::InvalidMetadata => "INVALID_METADATA",
             Self::FingerprintConflict => "FINGERPRINT_CONFLICT",
-            Self::BeginTransactionFailed => "BEGIN_TRANSACTION_FAILED",
-            Self::CommitTransactionFailed => "COMMIT_UNCONFIRMED",
+            Self::BeginTransactionFailed(_) => "BEGIN_TRANSACTION_FAILED",
+            Self::CommitTransactionFailed(_) => "COMMIT_UNCONFIRMED",
             Self::Receipt(error) => match error {
                 ProductListingCommandReceiptError::InvalidIdentity => "RECEIPT_INVALID_IDENTITY",
                 ProductListingCommandReceiptError::AlreadyExists => "RECEIPT_ALREADY_EXISTS",
@@ -111,8 +111,8 @@ impl ProductListingIngestionError {
                 CreateProductListingError::CreatedEventMissing => "CREATE_CREATED_EVENT_MISSING",
                 CreateProductListingError::PersistenceFailed => "CREATE_PERSISTENCE_FAILED",
                 CreateProductListingError::EventAppenderFailed { .. } => "CREATE_EVENT_APPENDER_FAILED",
-                CreateProductListingError::BeginTransactionFailed => "CREATE_BEGIN_TRANSACTION_FAILED",
-                CreateProductListingError::CommitTransactionFailed => "CREATE_COMMIT_TRANSACTION_FAILED",
+                CreateProductListingError::BeginTransactionFailed(_) => "CREATE_BEGIN_TRANSACTION_FAILED",
+                CreateProductListingError::CommitTransactionFailed(_) => "CREATE_COMMIT_TRANSACTION_FAILED",
             },
             Self::Update(error) => match error {
                 UpdateProductListingError::AuthenticatedActorRequired => "UPDATE_AUTHENTICATED_ACTOR_REQUIRED",
@@ -129,8 +129,8 @@ impl ProductListingIngestionError {
                 UpdateProductListingError::InvalidProductListing => "UPDATE_INVALID_PRODUCT_LISTING",
                 UpdateProductListingError::PersistenceFailed => "UPDATE_PERSISTENCE_FAILED",
                 UpdateProductListingError::EventAppenderFailed { .. } => "UPDATE_EVENT_APPENDER_FAILED",
-                UpdateProductListingError::BeginTransactionFailed => "UPDATE_BEGIN_TRANSACTION_FAILED",
-                UpdateProductListingError::CommitTransactionFailed => "UPDATE_COMMIT_TRANSACTION_FAILED",
+                UpdateProductListingError::BeginTransactionFailed(_) => "UPDATE_BEGIN_TRANSACTION_FAILED",
+                UpdateProductListingError::CommitTransactionFailed(_) => "UPDATE_COMMIT_TRANSACTION_FAILED",
             },
             Self::Upsert(error) => match error {
                 UpsertProductListingError::AuthenticatedActorRequired => "UPSERT_AUTHENTICATED_ACTOR_REQUIRED",
@@ -146,8 +146,8 @@ impl ProductListingIngestionError {
                 UpsertProductListingError::ProductListingTitleSlugGenerationExhausted => "UPSERT_TITLE_SLUG_GENERATION_EXHAUSTED",
                 UpsertProductListingError::PersistenceFailed => "UPSERT_PERSISTENCE_FAILED",
                 UpsertProductListingError::EventAppenderFailed { .. } => "UPSERT_EVENT_APPENDER_FAILED",
-                UpsertProductListingError::BeginTransactionFailed => "UPSERT_BEGIN_TRANSACTION_FAILED",
-                UpsertProductListingError::CommitTransactionFailed => "UPSERT_COMMIT_TRANSACTION_FAILED",
+                UpsertProductListingError::BeginTransactionFailed(_) => "UPSERT_BEGIN_TRANSACTION_FAILED",
+                UpsertProductListingError::CommitTransactionFailed(_) => "UPSERT_COMMIT_TRANSACTION_FAILED",
             },
             Self::Withdraw(error) => match error {
                 WithdrawProductListingError::AuthenticatedActorRequired => "WITHDRAW_AUTHENTICATED_ACTOR_REQUIRED",
@@ -158,8 +158,8 @@ impl ProductListingIngestionError {
                 WithdrawProductListingError::NotFound => "WITHDRAW_NOT_FOUND",
                 WithdrawProductListingError::PersistenceFailed => "WITHDRAW_PERSISTENCE_FAILED",
                 WithdrawProductListingError::EventAppenderFailed { .. } => "WITHDRAW_EVENT_APPENDER_FAILED",
-                WithdrawProductListingError::BeginTransactionFailed => "WITHDRAW_BEGIN_TRANSACTION_FAILED",
-                WithdrawProductListingError::CommitTransactionFailed => "WITHDRAW_COMMIT_TRANSACTION_FAILED",
+                WithdrawProductListingError::BeginTransactionFailed(_) => "WITHDRAW_BEGIN_TRANSACTION_FAILED",
+                WithdrawProductListingError::CommitTransactionFailed(_) => "WITHDRAW_COMMIT_TRANSACTION_FAILED",
             },
             Self::CaptureRaw(error) => match error {
                 CaptureProductListingRawObservationError::AuthenticatedActorRequired => "CAPTURE_RAW_AUTHENTICATED_ACTOR_REQUIRED",
@@ -174,9 +174,9 @@ impl ProductListingIngestionError {
                 CaptureProductListingRawObservationError::ProviderReceiptDigestConflict => "CAPTURE_RAW_PROVIDER_RECEIPT_DIGEST_CONFLICT",
                 CaptureProductListingRawObservationError::ProviderSourceOrderConflict => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_CONFLICT",
                 CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_AMBIGUOUS",
-                CaptureProductListingRawObservationError::BeginTransactionFailed => "CAPTURE_RAW_BEGIN_TRANSACTION_FAILED",
+                CaptureProductListingRawObservationError::BeginTransactionFailed(_) => "CAPTURE_RAW_BEGIN_TRANSACTION_FAILED",
                 CaptureProductListingRawObservationError::CaptureFailed { .. } => "CAPTURE_RAW_CAPTURE_FAILED",
-                CaptureProductListingRawObservationError::CommitTransactionFailed => "CAPTURE_RAW_COMMIT_TRANSACTION_FAILED",
+                CaptureProductListingRawObservationError::CommitTransactionFailed(_) => "CAPTURE_RAW_COMMIT_TRANSACTION_FAILED",
             },
         }
     }
@@ -300,11 +300,9 @@ where
         let mut slug_attempts = 0;
         let mut source_race_retried = false;
         loop {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| ProductListingIngestionError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                ProductListingIngestionError::BeginTransactionFailed(Box::new(source))
+            })?;
             let receipt = self
                 .receipts
                 .in_transaction(&mut tx)
@@ -321,9 +319,9 @@ where
                 if receipt.completion_code != ProductListingCommandCompletionCode::Applied {
                     return Err(ProductListingIngestionError::InvalidMetadata);
                 }
-                tx.commit()
-                    .await
-                    .map_err(|_| ProductListingIngestionError::CommitTransactionFailed)?;
+                tx.commit().await.map_err(|source| {
+                    ProductListingIngestionError::CommitTransactionFailed(Box::new(source))
+                })?;
                 return Ok(ProductListingIngestionCompletion::AlreadyCompleted);
             }
 
@@ -417,9 +415,9 @@ where
                 })
                 .await
                 .map_err(ProductListingIngestionError::Receipt)?;
-            tx.commit()
-                .await
-                .map_err(|_| ProductListingIngestionError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                ProductListingIngestionError::CommitTransactionFailed(Box::new(source))
+            })?;
             return Ok(ProductListingIngestionCompletion::Applied(effect));
         }
     }
@@ -442,11 +440,15 @@ mod diagnostic_tests {
                 "FINGERPRINT_CONFLICT",
             ),
             (
-                ProductListingIngestionError::BeginTransactionFailed,
+                ProductListingIngestionError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 "BEGIN_TRANSACTION_FAILED",
             ),
             (
-                ProductListingIngestionError::CommitTransactionFailed,
+                ProductListingIngestionError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 "COMMIT_UNCONFIRMED",
             ),
             (

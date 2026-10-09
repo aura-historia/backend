@@ -76,9 +76,9 @@ pub enum RecordProductListingSaleObservationError {
         source: BoxError,
     },
     #[error("failed to begin sale observation transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit sale observation transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -138,11 +138,9 @@ where
 
         let observed_at = command.observed_at;
         let recorded_at = OffsetDateTime::now_utc();
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| RecordProductListingSaleObservationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            RecordProductListingSaleObservationError::BeginTransactionFailed(Box::new(source))
+        })?;
         let loaded = self
             .products
             .in_transaction(&mut tx)
@@ -179,9 +177,9 @@ where
                 .value;
             self.events.in_transaction(&mut tx).append(&event).await?;
         }
-        tx.commit()
-            .await
-            .map_err(|_| RecordProductListingSaleObservationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            RecordProductListingSaleObservationError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(event = "product_listing.sale_observed", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %listing.id(), event_id = ?current_event_id, outcome = "success");
         Ok(RecordProductListingSaleObservationResult {
             product_listing_id: listing.id(),

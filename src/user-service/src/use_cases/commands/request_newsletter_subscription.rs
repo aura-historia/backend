@@ -25,6 +25,8 @@ pub struct RequestNewsletterSubscriptionCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RequestNewsletterSubscriptionError {
+    #[error("transaction failed")]
+    TransactionFailed(#[source] application::error::BoxError),
     #[error("newsletter confirmation service temporarily unavailable")]
     TemporarilyUnavailable,
     #[error("newsletter confirmation state is invalid")]
@@ -152,20 +154,18 @@ where
             now,
         };
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| RequestNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            RequestNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
         let issue = self
             .challenges
             .in_transaction(&mut tx)
             .create_if_allowed(draft)
             .await
             .map_err(map_request_challenge_error)?;
-        tx.commit()
-            .await
-            .map_err(|_| RequestNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        tx.commit().await.map_err(|source| {
+            RequestNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
 
         // A suppression is deliberately indistinguishable from a newly accepted
         // request to callers. The DB transaction has already committed before mail I/O.
@@ -202,19 +202,17 @@ where
                 Err(RequestNewsletterSubscriptionError::EmailAcceptanceUnknown),
             ),
         };
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| RequestNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            RequestNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
         self.challenges
             .in_transaction(&mut tx)
             .record_send_outcome(challenge_id, send_status, self.clock.now_utc())
             .await
             .map_err(map_request_challenge_error)?;
-        tx.commit()
-            .await
-            .map_err(|_| RequestNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        tx.commit().await.map_err(|source| {
+            RequestNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
 
         request_result
     }

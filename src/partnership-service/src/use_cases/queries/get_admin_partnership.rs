@@ -56,9 +56,9 @@ pub enum GetAdminPartnershipError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -113,11 +113,10 @@ where
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| GetAdminPartnershipError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                GetAdminPartnershipError::BeginTransactionFailed(Box::new(source))
+            })?;
         authorize_admin(context, &mut tx, &self.admins).await?;
         let result = self
             .reader
@@ -126,9 +125,9 @@ where
             .await?
             .ok_or(GetAdminPartnershipError::NotFound)?;
 
-        tx.commit()
-            .await
-            .map_err(|_| GetAdminPartnershipError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            GetAdminPartnershipError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result)
     }
 }
@@ -207,7 +206,9 @@ mod tests {
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
             if self.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             lock(&self.state).commits += 1;
             Ok(())
@@ -220,7 +221,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if self.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             lock(&self.state).begins += 1;
             Ok(FakeTransaction {
@@ -487,7 +490,7 @@ mod tests {
         .await;
         assert!(matches!(
             begin_result,
-            Err(GetAdminPartnershipError::BeginTransactionFailed)
+            Err(GetAdminPartnershipError::BeginTransactionFailed(_))
         ));
 
         let commit_state = Arc::new(Mutex::new(State::default()));
@@ -507,7 +510,7 @@ mod tests {
         .await;
         assert!(matches!(
             commit_result,
-            Err(GetAdminPartnershipError::CommitTransactionFailed)
+            Err(GetAdminPartnershipError::CommitTransactionFailed(_))
         ));
     }
 }

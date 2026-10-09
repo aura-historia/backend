@@ -49,9 +49,9 @@ pub enum SetUserStripeCustomerIdError {
         source: BoxError,
     },
     #[error("failed to begin set user stripe customer id transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit set user stripe customer id transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -109,11 +109,9 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| SetUserStripeCustomerIdError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            SetUserStripeCustomerIdError::BeginTransactionFailed(Box::new(source))
+        })?;
         let mut users = self.users.in_transaction(&mut tx);
         let domain_primitives::versioned::Versioned {
             value: mut user,
@@ -129,9 +127,9 @@ where
         }
         drop(users);
 
-        tx.commit()
-            .await
-            .map_err(|_| SetUserStripeCustomerIdError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            SetUserStripeCustomerIdError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         tracing::info!(
             event = "user.stripe_customer_id_set",

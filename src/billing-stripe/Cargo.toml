@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 user-core = { workspace = true }
+user-service = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 application = { workspace = true }
 async-trait = { workspace = true }
 billing-service = { workspace = true }
@@ -15,4 +17,4 @@ thiserror = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util"] }

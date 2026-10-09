@@ -66,7 +66,8 @@ pub async fn put_newsletter_subscription(
         Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
         Err(error) => {
             let error = match error {
-                user_service::use_cases::RequestNewsletterSubscriptionError::TemporarilyUnavailable
+                user_service::use_cases::RequestNewsletterSubscriptionError::TransactionFailed(_)
+                | user_service::use_cases::RequestNewsletterSubscriptionError::TemporarilyUnavailable
                 | user_service::use_cases::RequestNewsletterSubscriptionError::EmailTemporarilyRejected
                 | user_service::use_cases::RequestNewsletterSubscriptionError::EmailAcceptanceUnknown => {
                     ApiError::service_unavailable(NEWSLETTER_TEMPORARILY_UNAVAILABLE)

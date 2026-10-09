@@ -1,34 +1,29 @@
+use crate::ports::stripe_subscription_sync::{
+    StripeCustomerSubscriptionReader, StripeSubscriptionEvent, StripeSubscriptionEventObservation,
+    StripeSubscriptionEventStore, StripeSubscriptionEventStoreFactory, StripeSubscriptionSyncError,
+};
 use crate::ports::{
-    UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory,
-    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+    UserRepository, UserRepositoryError, UserRepositoryFactory, UserTierEntitlements,
+    UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
 use application::error::BoxError;
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
-use user_core::stripe_customer_id::StripeCustomerId;
-use user_core::tier::UserTier;
-use user_core::user_id::UserId;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ApplyStripeSubscriptionTarget {
-    User(UserId),
-    StripeCustomer(StripeCustomerId),
-}
+pub type ApplyStripeSubscriptionCommand = StripeSubscriptionEvent;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ApplyStripeSubscriptionCommand {
-    pub target: ApplyStripeSubscriptionTarget,
-    pub tier: UserTier,
-    pub associate_stripe_customer_id: Option<StripeCustomerId>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ApplyStripeSubscriptionResult {
-    pub view: UserDetailsView,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyStripeSubscriptionResult {
+    Applied,
+    AlreadyApplied,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApplyStripeSubscriptionError {
+    #[error(transparent)]
+    Synchronization(#[from] StripeSubscriptionSyncError),
+    #[error("Stripe customer belongs to a different user")]
+    CustomerOwnershipConflict,
     #[error("authenticated actor required to apply Stripe subscription")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -68,9 +63,9 @@ pub enum ApplyStripeSubscriptionError {
         source: BoxError,
     },
     #[error("failed to begin apply Stripe subscription transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit apply Stripe subscription transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -82,28 +77,34 @@ pub trait ApplyStripeSubscriptionUseCase: Send + Sync {
     ) -> Result<ApplyStripeSubscriptionResult, ApplyStripeSubscriptionError>;
 }
 
-pub struct ApplyStripeSubscriptionHandler<U, R, E> {
+pub struct ApplyStripeSubscriptionHandler<U, R, E, S, P> {
     unit_of_work: U,
     users: R,
     tier_entitlements: E,
+    events: S,
+    provider: P,
 }
 
-impl<U, R, E> ApplyStripeSubscriptionHandler<U, R, E> {
-    pub fn new(unit_of_work: U, users: R, tier_entitlements: E) -> Self {
+impl<U, R, E, S, P> ApplyStripeSubscriptionHandler<U, R, E, S, P> {
+    pub fn new(unit_of_work: U, users: R, tier_entitlements: E, events: S, provider: P) -> Self {
         Self {
             unit_of_work,
             users,
             tier_entitlements,
+            events,
+            provider,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> ApplyStripeSubscriptionUseCase for ApplyStripeSubscriptionHandler<U, R, E>
+impl<U, R, E, S, P> ApplyStripeSubscriptionUseCase for ApplyStripeSubscriptionHandler<U, R, E, S, P>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
     E: UserTierEntitlementsFactory<U::Tx>,
+    S: StripeSubscriptionEventStoreFactory<U::Tx>,
+    P: StripeCustomerSubscriptionReader,
 {
     #[tracing::instrument(
         name = "apply_stripe_subscription",
@@ -111,6 +112,9 @@ where
         fields(
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
+            stripe_event_id = tracing::field::Empty,
+            stripe_subscription_id = tracing::field::Empty,
+            stripe_customer_id = tracing::field::Empty,
             request_id = %context.request_id,
             correlation_id = %context.correlation_id,
         )
@@ -129,20 +133,62 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyStripeSubscriptionError::BeginTransactionFailed)?;
+        if !valid_id(&command.event_id, "evt_")
+            || !valid_id(&command.subscription_id, "sub_")
+            || !valid_id(command.customer_id.as_ref(), "cus_")
+        {
+            return Err(StripeSubscriptionSyncError::InvalidEvent.into());
+        }
+        let span = tracing::Span::current();
+        span.record("stripe_event_id", command.event_id.as_str());
+        span.record("stripe_subscription_id", command.subscription_id.as_str());
+        span.record("stripe_customer_id", command.customer_id.as_ref());
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyStripeSubscriptionError::BeginTransactionFailed(Box::new(source))
+        })?;
+        let observed = self
+            .events
+            .in_transaction(&mut tx)
+            .observe(&command)
+            .await?;
+        tx.commit().await.map_err(|source| {
+            ApplyStripeSubscriptionError::CommitTransactionFailed(Box::new(source))
+        })?;
+        let StripeSubscriptionEventObservation::Pending { revision } = observed else {
+            return Ok(ApplyStripeSubscriptionResult::AlreadyApplied);
+        };
 
-        let user_id = match &command.target {
-            ApplyStripeSubscriptionTarget::User(user_id) => *user_id,
-            ApplyStripeSubscriptionTarget::StripeCustomer(stripe_customer_id) => self
-                .users
-                .in_transaction(&mut tx)
-                .find_by_stripe_customer_id(stripe_customer_id)
-                .await?
-                .map(|user| user.value.id())
+        let current = self.provider.read(&command.customer_id).await?;
+
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyStripeSubscriptionError::BeginTransactionFailed(Box::new(source))
+        })?;
+        if self
+            .events
+            .in_transaction(&mut tx)
+            .complete(&command, revision)
+            .await?
+            == StripeSubscriptionEventObservation::Applied
+        {
+            tx.commit().await.map_err(|source| {
+                ApplyStripeSubscriptionError::CommitTransactionFailed(Box::new(source))
+            })?;
+            return Ok(ApplyStripeSubscriptionResult::AlreadyApplied);
+        }
+        let existing = self
+            .users
+            .in_transaction(&mut tx)
+            .find_by_stripe_customer_id(&command.customer_id)
+            .await?;
+        let user_id = match existing {
+            Some(user) => {
+                if current.user_id.is_some_and(|id| id != user.value.id()) {
+                    return Err(ApplyStripeSubscriptionError::CustomerOwnershipConflict);
+                }
+                user.value.id()
+            }
+            None => current
+                .user_id
                 .ok_or(ApplyStripeSubscriptionError::UserNotFound)?,
         };
 
@@ -162,14 +208,11 @@ where
             .await?
             .ok_or(ApplyStripeSubscriptionError::UserNotFound)?;
 
-        let tier_changed = user.change_tier(command.tier).changed();
-        let customer_changed = command
-            .associate_stripe_customer_id
-            .map(|stripe_customer_id| {
-                user.change_stripe_customer_id(Some(stripe_customer_id))
-                    .changed()
-            })
-            .unwrap_or(false);
+        let tier_changed = user.change_tier(current.tier).changed();
+        let customer_changed = user
+            .associate_stripe_customer_id(command.customer_id)
+            .map_err(|_| ApplyStripeSubscriptionError::CustomerOwnershipConflict)?
+            .changed();
 
         if tier_changed || customer_changed {
             user = self
@@ -186,9 +229,9 @@ where
                 .await?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|_| ApplyStripeSubscriptionError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ApplyStripeSubscriptionError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         tracing::info!(
             event = "user.stripe_subscription_applied",
@@ -201,9 +244,7 @@ where
             outcome = "success",
         );
 
-        Ok(ApplyStripeSubscriptionResult {
-            view: UserDetailsView::from(&user),
-        })
+        Ok(ApplyStripeSubscriptionResult::Applied)
     }
 }
 
@@ -251,9 +292,19 @@ impl From<UserRepositoryError> for ApplyStripeSubscriptionError {
     }
 }
 
+fn valid_id(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|suffix| {
+        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use user_core::stripe_customer_id::StripeCustomerId;
+    use user_core::tier::UserTier;
+    use user_core::user_id::UserId;
+
     use crate::ports::{UserRepository, UserStorageVersion, VersionedUser};
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
@@ -432,20 +483,71 @@ mod tests {
         }
     }
 
+    fn event(customer: &str) -> ApplyStripeSubscriptionCommand {
+        StripeSubscriptionEvent {
+            event_id: "evt_test".to_owned(),
+            subscription_id: "sub_test".to_owned(),
+            customer_id: StripeCustomerId::from(customer),
+            fingerprint: [1; 32],
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StripeCustomerSubscriptionReader for Fakes {
+        async fn read(
+            &self,
+            _: &StripeCustomerId,
+        ) -> Result<
+            crate::ports::stripe_subscription_sync::StripeCustomerSubscriptionState,
+            StripeSubscriptionSyncError,
+        > {
+            Ok(
+                crate::ports::stripe_subscription_sync::StripeCustomerSubscriptionState {
+                    user_id: lock(&self.0).user.as_ref().map(|user| user.value.id()),
+                    tier: UserTier::Pro,
+                },
+            )
+        }
+    }
+
+    struct FakeEvents;
+    impl StripeSubscriptionEventStoreFactory<FakeTx> for Fakes {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut FakeTx,
+        ) -> impl StripeSubscriptionEventStore + 'tx {
+            FakeEvents
+        }
+    }
+    #[async_trait::async_trait]
+    impl StripeSubscriptionEventStore for FakeEvents {
+        async fn observe(
+            &mut self,
+            _: &StripeSubscriptionEvent,
+        ) -> Result<StripeSubscriptionEventObservation, StripeSubscriptionSyncError> {
+            Ok(StripeSubscriptionEventObservation::Pending { revision: 0 })
+        }
+        async fn complete(
+            &mut self,
+            event: &StripeSubscriptionEvent,
+            _: u64,
+        ) -> Result<StripeSubscriptionEventObservation, StripeSubscriptionSyncError> {
+            self.observe(event).await
+        }
+    }
+
     #[tokio::test]
     async fn should_reject_non_system_principal_before_starting_stripe_subscription_transaction() {
         let fakes = Fakes::default();
-        let result =
-            ApplyStripeSubscriptionHandler::new(fakes.clone(), fakes.clone(), fakes.clone())
-                .execute(
-                    &context(Principal::Anonymous),
-                    ApplyStripeSubscriptionCommand {
-                        target: ApplyStripeSubscriptionTarget::User(UserId::new()),
-                        tier: UserTier::Pro,
-                        associate_stripe_customer_id: None,
-                    },
-                )
-                .await;
+        let result = ApplyStripeSubscriptionHandler::new(
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+        )
+        .execute(&context(Principal::Anonymous), event("cus_1"))
+        .await;
 
         assert!(matches!(
             result,
@@ -460,22 +562,20 @@ mod tests {
         let fakes = Fakes::default();
         lock(&fakes.0).user = Some(user(user_id, UserTier::Free, None));
 
-        let result =
-            ApplyStripeSubscriptionHandler::new(fakes.clone(), fakes.clone(), fakes.clone())
-                .execute(
-                    &context(Principal::System),
-                    ApplyStripeSubscriptionCommand {
-                        target: ApplyStripeSubscriptionTarget::User(user_id),
-                        tier: UserTier::Pro,
-                        associate_stripe_customer_id: Some(StripeCustomerId::from("cus_1")),
-                    },
-                )
-                .await;
+        let result = ApplyStripeSubscriptionHandler::new(
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+        )
+        .execute(&context(Principal::System), event("cus_1"))
+        .await;
 
-        assert!(matches!(result, Ok(ref result) if result.view.tier == UserTier::Pro));
+        assert!(matches!(result, Ok(ApplyStripeSubscriptionResult::Applied)));
         let state = lock(&fakes.0);
-        assert_eq!(1, state.begins);
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.begins);
+        assert_eq!(2, state.commits);
         assert_eq!(1, state.lock_calls);
         assert_eq!(1, state.update_calls);
         assert_eq!(1, state.reconcile_calls);
@@ -487,19 +587,15 @@ mod tests {
         let fakes = Fakes::default();
         lock(&fakes.0).user = Some(user(user_id, UserTier::Pro, Some("cus_1")));
 
-        let result =
-            ApplyStripeSubscriptionHandler::new(fakes.clone(), fakes.clone(), fakes.clone())
-                .execute(
-                    &context(Principal::System),
-                    ApplyStripeSubscriptionCommand {
-                        target: ApplyStripeSubscriptionTarget::StripeCustomer(
-                            StripeCustomerId::from("cus_1"),
-                        ),
-                        tier: UserTier::Pro,
-                        associate_stripe_customer_id: None,
-                    },
-                )
-                .await;
+        let result = ApplyStripeSubscriptionHandler::new(
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+        )
+        .execute(&context(Principal::System), event("cus_1"))
+        .await;
 
         assert!(result.is_ok());
         let state = lock(&fakes.0);
@@ -507,33 +603,29 @@ mod tests {
         assert_eq!(1, state.lock_calls);
         assert_eq!(0, state.update_calls);
         assert_eq!(0, state.reconcile_calls);
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.commits);
     }
 
     #[tokio::test]
     async fn should_not_commit_when_stripe_customer_has_no_user() {
         let fakes = Fakes::default();
-        let result =
-            ApplyStripeSubscriptionHandler::new(fakes.clone(), fakes.clone(), fakes.clone())
-                .execute(
-                    &context(Principal::System),
-                    ApplyStripeSubscriptionCommand {
-                        target: ApplyStripeSubscriptionTarget::StripeCustomer(
-                            StripeCustomerId::from("cus_missing"),
-                        ),
-                        tier: UserTier::Free,
-                        associate_stripe_customer_id: None,
-                    },
-                )
-                .await;
+        let result = ApplyStripeSubscriptionHandler::new(
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+            fakes.clone(),
+        )
+        .execute(&context(Principal::System), event("cus_missing"))
+        .await;
 
         assert!(matches!(
             result,
             Err(ApplyStripeSubscriptionError::UserNotFound)
         ));
         let state = lock(&fakes.0);
-        assert_eq!(1, state.begins);
+        assert_eq!(2, state.begins);
         assert_eq!(1, state.find_by_customer_calls);
-        assert_eq!(0, state.commits);
+        assert_eq!(1, state.commits);
     }
 }

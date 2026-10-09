@@ -1,6 +1,6 @@
 use crate::ports::{ListingSourceDetails, ListingSourceDetailsReader, ListingSourceReadError};
 use application::{
-    error::{BoxError, static_error},
+    error::BoxError,
     operation_context::{OperationContext, Principal},
 };
 use listing_source_core::{ListingSourceId, ListingSourceSlugId};
@@ -106,10 +106,10 @@ where
                 | CheckUserAdminError::Internal { source } => {
                     GetListingSourceError::Internal { source }
                 }
-                CheckUserAdminError::BeginTransactionFailed
-                | CheckUserAdminError::CommitTransactionFailed => GetListingSourceError::Internal {
-                    source: static_error("check user admin transaction failed"),
-                },
+                CheckUserAdminError::BeginTransactionFailed(source)
+                | CheckUserAdminError::CommitTransactionFailed(source) => {
+                    GetListingSourceError::Internal { source }
+                }
             }),
     }
 }

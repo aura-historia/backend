@@ -90,9 +90,9 @@ pub enum UpdateAuctionError {
         source: BoxError,
     },
     #[error("failed to begin update auction transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update auction transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -163,7 +163,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| UpdateAuctionError::BeginTransactionFailed)?;
+            .map_err(|source| UpdateAuctionError::BeginTransactionFailed(Box::new(source)))?;
         let stored = self
             .auctions
             .in_transaction(&mut tx)
@@ -197,7 +197,7 @@ where
         };
         tx.commit()
             .await
-            .map_err(|_| UpdateAuctionError::CommitTransactionFailed)?;
+            .map_err(|source| UpdateAuctionError::CommitTransactionFailed(Box::new(source)))?;
         tracing::info!(
             event = "auction.updated",
             actor_type = context.principal.kind(),
@@ -287,11 +287,9 @@ fn map_admin_error(error: CheckUserAdminError) -> UpdateAuctionError {
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => UpdateAuctionError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => {
-            UpdateAuctionError::TemporarilyUnavailable {
-                source: static_error("check user admin transaction failed"),
-            }
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            UpdateAuctionError::TemporarilyUnavailable { source }
         }
     }
 }

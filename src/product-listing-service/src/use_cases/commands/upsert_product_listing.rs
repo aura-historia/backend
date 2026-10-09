@@ -112,9 +112,9 @@ pub enum UpsertProductListingError {
         source: BoxError,
     },
     #[error("failed to begin upsert product listing transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit upsert product listing transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 #[async_trait::async_trait]
 pub trait UpsertProductListingUseCase: Send + Sync {
@@ -386,19 +386,17 @@ where
         let mut source_race_retried = false;
         let mut slug_attempts = 0;
         loop {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                UpsertProductListingError::BeginTransactionFailed(Box::new(source))
+            })?;
             match self
                 .apply_in_transaction(&mut tx, context, &command, id)
                 .await
             {
                 Ok(result) => {
-                    tx.commit()
-                        .await
-                        .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
+                    tx.commit().await.map_err(|source| {
+                        UpsertProductListingError::CommitTransactionFailed(Box::new(source))
+                    })?;
                     return Ok(result);
                 }
                 Err(AttemptError::SourceRace) if !source_race_retried => {

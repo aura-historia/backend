@@ -12,7 +12,9 @@ use user_postgres::{
     SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker,
     SqlxNewsletterConfirmationChallengesRepository,
 };
-use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
+use user_service::ports::marketing_consent_intents::{
+    ConsentWorkerClaimOutcome, MarketingConsentIntentWorker,
+};
 use user_service::ports::{
     NewNewsletterConfirmationChallenge, NewsletterConfirmationChallenge,
     NewsletterConfirmationChallenges, NewsletterConfirmationChallengesFactory,
@@ -168,10 +170,10 @@ async fn failed_confirmation_commit_rolls_back_grant_intent_and_challenge_update
         .await
         .unwrap();
 
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::TemporarilyUnavailable),
-        result
-    );
+    assert!(matches!(
+        result,
+        Err(ConfirmNewsletterSubscriptionError::TransactionFailed(_))
+    ));
     let user_consent: (bool, i64) = sqlx::query_as(
         "SELECT marketing_email_consent, marketing_email_consent_revision FROM users WHERE user_id = $1",
     )
@@ -468,10 +470,10 @@ async fn expiry_boundary_and_provider_withdrawal_reject_unconfirmed_proofs_witho
         consent_repo,
         FixedClock(created_at + Duration::hours(24)),
     );
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        handler.execute(expired_token.as_str()).await
-    );
+    assert!(matches!(
+        handler.execute(expired_token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
 
     let pending_email = email("doi-provider-withdrawal@example.test");
     let (outcome, _, pending_token) = create_challenge(
@@ -496,10 +498,10 @@ async fn expiry_boundary_and_provider_withdrawal_reject_unconfirmed_proofs_witho
         consent_repo,
         FixedClock(created_at + Duration::seconds(1)),
     );
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        handler.execute(pending_token.as_str()).await
-    );
+    assert!(matches!(
+        handler.execute(pending_token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -538,10 +540,10 @@ async fn sibling_links_cannot_create_independent_email_only_grants() {
         FixedClock(now),
     );
     handler.execute(first_token.as_str()).await.unwrap();
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        handler.execute(second_token.as_str()).await
-    );
+    assert!(matches!(
+        handler.execute(second_token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
 
     let states: Vec<(Option<OffsetDateTime>, Option<OffsetDateTime>)> = sqlx::query_as(
         "SELECT confirmed_at, invalidated_at FROM newsletter_subscription_confirmations WHERE confirmation_id = ANY($1) ORDER BY confirmation_id",
@@ -624,10 +626,10 @@ async fn email_only_proof_binds_exact_existing_user_but_deleted_binding_never_be
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        handler.execute(deleted_token.as_str()).await
-    );
+    assert!(matches!(
+        handler.execute(deleted_token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
     let invalidated_at: Option<OffsetDateTime> = sqlx::query_scalar(
         "SELECT invalidated_at FROM newsletter_subscription_confirmations WHERE confirmation_id = $1",
     )
@@ -765,14 +767,14 @@ async fn unknown_malformed_and_mismatched_user_proofs_fail_without_granting_cons
     let malformed = handler.execute("malformed-token").await;
     let unknown = RawNewsletterConfirmationToken::from_entropy([0x7b; 32]);
     let unknown_result = handler.execute(unknown.as_str()).await;
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        malformed
-    );
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        unknown_result
-    );
+    assert!(matches!(
+        malformed,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
+    assert!(matches!(
+        unknown_result,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
 
     let original_user_id = UserId::new();
     let replacement_user_id = UserId::new();
@@ -791,10 +793,10 @@ async fn unknown_malformed_and_mismatched_user_proofs_fail_without_granting_cons
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidPersistedState),
-        handler.execute(token.as_str()).await
-    );
+    assert!(matches!(
+        handler.execute(token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidPersistedState)
+    ));
     let consent_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM marketing_email_consent_sync_intents WHERE email IN ($1, $2)",
     )
@@ -908,10 +910,10 @@ async fn expired_cleanup_is_bounded_and_retains_confirmed_replay_rows() {
         SqlxMarketingConsentIntentRepository::new(),
         FixedClock(now),
     );
-    assert_eq!(
-        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation),
-        replay.execute(expired_token.as_str()).await
-    );
+    assert!(matches!(
+        replay.execute(expired_token.as_str()).await,
+        Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation)
+    ));
     let after: i64 =
         sqlx::query_scalar("SELECT count(*) FROM marketing_email_consent_sync_intents")
             .fetch_one(&pool)

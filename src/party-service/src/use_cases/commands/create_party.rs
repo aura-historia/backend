@@ -47,9 +47,9 @@ pub enum CreatePartyError {
         source: BoxError,
     },
     #[error("failed to begin create party transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit create party transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -114,7 +114,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| CreatePartyError::BeginTransactionFailed)?;
+            .map_err(|source| CreatePartyError::BeginTransactionFailed(Box::new(source)))?;
 
         if self
             .parties
@@ -137,7 +137,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| CreatePartyError::CommitTransactionFailed)?;
+            .map_err(|source| CreatePartyError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "party.created",
@@ -181,11 +181,9 @@ fn map_admin_error(error: CheckUserAdminError) -> CreatePartyError {
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => CreatePartyError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => {
-            CreatePartyError::TemporarilyUnavailable {
-                source: static_error("check user admin transaction failed"),
-            }
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            CreatePartyError::TemporarilyUnavailable { source }
         }
     }
 }
@@ -234,7 +232,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
+            let mut state = self.0.lock().map_err(|_| {
+                TransactionError::CommitFailed(application::error::static_error(
+                    "test transaction failure",
+                ))
+            })?;
             state.commits += 1;
             Ok(())
         }

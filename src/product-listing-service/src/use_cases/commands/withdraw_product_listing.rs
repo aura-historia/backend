@@ -48,9 +48,9 @@ pub enum WithdrawProductListingError {
         source: BoxError,
     },
     #[error("failed to begin withdraw product listing transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit withdraw product listing transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -106,15 +106,13 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| WithdrawProductListingError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            WithdrawProductListingError::BeginTransactionFailed(Box::new(source))
+        })?;
         let (result, current_event_id) = self.apply_in_tx(&mut tx, context, target).await?;
-        tx.commit()
-            .await
-            .map_err(|_| WithdrawProductListingError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            WithdrawProductListingError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(event = "product_listing.withdrawn", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %result.product_listing_id, event_id = ?current_event_id, outcome = "success");
         Ok(result)
     }

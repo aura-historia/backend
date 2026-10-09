@@ -35,9 +35,9 @@ pub enum GetOwnUserError {
         source: BoxError,
     },
     #[error("failed to begin get own user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit get own user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -91,7 +91,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| GetOwnUserError::BeginTransactionFailed)?;
+            .map_err(|source| GetOwnUserError::BeginTransactionFailed(Box::new(source)))?;
         let result = self
             .reader
             .in_transaction(&mut tx)
@@ -100,7 +100,7 @@ where
             .ok_or(GetOwnUserError::NotFound)?;
         tx.commit()
             .await
-            .map_err(|_| GetOwnUserError::CommitTransactionFailed)?;
+            .map_err(|source| GetOwnUserError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(result)
     }

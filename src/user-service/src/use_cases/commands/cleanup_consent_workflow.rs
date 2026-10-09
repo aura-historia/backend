@@ -6,8 +6,10 @@ use crate::ports::{
 use application::transaction::{Transaction, UnitOfWork};
 use time::OffsetDateTime;
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum CleanupConsentWorkflowError {
+    #[error("transaction failed")]
+    TransactionFailed(#[source] application::error::BoxError),
     #[error("cleanup batch size must be between 1 and 1000")]
     InvalidBatchSize,
     #[error("consent workflow cleanup unavailable")]
@@ -90,7 +92,7 @@ where
             .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)?;
         tx.commit()
             .await
-            .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)?;
+            .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))?;
         tracing::info!(
             event = "consent_workflow.cleanup_target",
             target = "unconfirmed_challenges",
@@ -125,7 +127,7 @@ where
         self.unit_of_work
             .begin()
             .await
-            .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)
+            .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))
     }
 
     async fn run_maintenance(
@@ -151,7 +153,7 @@ where
         drop(cleanup);
         tx.commit()
             .await
-            .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)?;
+            .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))?;
         tracing::info!(
             event = "consent_workflow.cleanup_target",
             target = target.label(),

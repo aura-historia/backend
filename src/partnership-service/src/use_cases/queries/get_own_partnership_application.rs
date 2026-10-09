@@ -34,9 +34,9 @@ pub enum GetOwnPartnershipApplicationError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 #[async_trait::async_trait]
 pub trait GetOwnPartnershipApplicationUseCase: Send + Sync {
@@ -76,20 +76,18 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
                 return Err(GetOwnPartnershipApplicationError::Forbidden);
             }
         };
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| GetOwnPartnershipApplicationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            GetOwnPartnershipApplicationError::BeginTransactionFailed(Box::new(source))
+        })?;
         let app = self
             .applications
             .in_transaction(&mut tx)
             .find_by_user_and_id(user, request.application_id)
             .await?
             .ok_or(GetOwnPartnershipApplicationError::NotFound)?;
-        tx.commit()
-            .await
-            .map_err(|_| GetOwnPartnershipApplicationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            GetOwnPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(PartnershipApplicationView {
             id: app.value.id(),
             applicant_user_id: app.value.applicant_user_id(),
@@ -181,7 +179,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -196,7 +196,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begin_attempts += 1;
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.begins += 1;
             state.next_transaction_id += 1;
@@ -608,7 +610,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GetOwnPartnershipApplicationError::BeginTransactionFailed)
+            Err(GetOwnPartnershipApplicationError::BeginTransactionFailed(_))
         ));
         let state = lock(&state);
         assert_eq!(1, state.begin_attempts);
@@ -639,7 +641,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GetOwnPartnershipApplicationError::CommitTransactionFailed)
+            Err(GetOwnPartnershipApplicationError::CommitTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(1, state.find_calls);

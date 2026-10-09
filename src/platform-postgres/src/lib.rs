@@ -482,14 +482,14 @@ impl UnitOfWork for SqlxUnitOfWork {
                 );
                 Ok(SqlxTransaction { transaction })
             }
-            Err(_) => {
+            Err(source) => {
                 warn!(
                     metric = "postgres_pool_acquire",
                     outcome = "failure",
                     duration_ms = started_at.elapsed().as_millis() as u64,
                     "Postgres transaction connection acquisition failed"
                 );
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(Box::new(source)))
             }
         }
     }
@@ -501,7 +501,7 @@ impl Transaction for SqlxTransaction {
         self.transaction
             .commit()
             .await
-            .map_err(|_| TransactionError::CommitFailed)
+            .map_err(|source| TransactionError::CommitFailed(Box::new(source)))
     }
 }
 

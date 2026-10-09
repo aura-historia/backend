@@ -2,7 +2,7 @@ use crate::ports::{
     PartyDeletionBlocker, PartyRepository, PartyRepositoryError, PartyRepositoryFactory,
 };
 use application::{
-    error::{BoxError, static_error},
+    error::BoxError,
     operation_context::{OperationContext, Principal},
     transaction::{Transaction, UnitOfWork},
 };
@@ -44,9 +44,9 @@ pub enum DeletePartyError {
         source: BoxError,
     },
     #[error("failed to begin delete party transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit delete party transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -106,7 +106,7 @@ where
                 .unit_of_work
                 .begin()
                 .await
-                .map_err(|_| DeletePartyError::BeginTransactionFailed)?;
+                .map_err(|source| DeletePartyError::BeginTransactionFailed(Box::new(source)))?;
             let stored = self
                 .parties
                 .in_transaction(&mut tx)
@@ -134,7 +134,7 @@ where
                 .await?;
             tx.commit()
                 .await
-                .map_err(|_| DeletePartyError::CommitTransactionFailed)?;
+                .map_err(|source| DeletePartyError::CommitTransactionFailed(Box::new(source)))?;
             Ok(())
         }
         .await;
@@ -175,8 +175,8 @@ fn delete_outcome(result: &Result<(), DeletePartyError>) -> &'static str {
         Err(DeletePartyError::TemporarilyUnavailable { .. }) => "persistence_unavailable",
         Err(DeletePartyError::InvalidPersistedState { .. }) => "invalid_persisted_state",
         Err(DeletePartyError::Internal { .. }) => "internal_failure",
-        Err(DeletePartyError::BeginTransactionFailed) => "begin_failed",
-        Err(DeletePartyError::CommitTransactionFailed) => "commit_failed",
+        Err(DeletePartyError::BeginTransactionFailed(_)) => "begin_failed",
+        Err(DeletePartyError::CommitTransactionFailed(_)) => "commit_failed",
     }
 }
 
@@ -204,11 +204,9 @@ where
                 }
                 CheckUserAdminError::InvalidReadModel { source }
                 | CheckUserAdminError::Internal { source } => DeletePartyError::Internal { source },
-                CheckUserAdminError::BeginTransactionFailed
-                | CheckUserAdminError::CommitTransactionFailed => {
-                    DeletePartyError::TemporarilyUnavailable {
-                        source: static_error("check user admin transaction failed"),
-                    }
+                CheckUserAdminError::BeginTransactionFailed(source)
+                | CheckUserAdminError::CommitTransactionFailed(source) => {
+                    DeletePartyError::TemporarilyUnavailable { source }
                 }
             }),
     }

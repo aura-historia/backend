@@ -1,7 +1,7 @@
 use crate::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
 };
-use application::error::{BoxError, static_error};
+use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
@@ -72,9 +72,9 @@ pub enum SearchListingSourcesError {
         source: BoxError,
     },
     #[error("failed to begin listing source search transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit listing source search transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -130,15 +130,13 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| SearchListingSourcesError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            SearchListingSourcesError::BeginTransactionFailed(Box::new(source))
+        })?;
         let result = self.reader.in_transaction(&mut tx).search(&request).await?;
-        tx.commit()
-            .await
-            .map_err(|_| SearchListingSourcesError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            SearchListingSourcesError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         Ok(result)
     }
@@ -175,11 +173,9 @@ fn map_admin_error(error: CheckUserAdminError) -> SearchListingSourcesError {
         | CheckUserAdminError::Internal { source } => {
             SearchListingSourcesError::Internal { source }
         }
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => {
-            SearchListingSourcesError::TemporarilyUnavailable {
-                source: static_error("check user admin transaction failed"),
-            }
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            SearchListingSourcesError::TemporarilyUnavailable { source }
         }
     }
 }

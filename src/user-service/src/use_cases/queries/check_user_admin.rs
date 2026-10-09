@@ -32,9 +32,9 @@ pub enum CheckUserAdminError {
         source: BoxError,
     },
     #[error("failed to begin check user admin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit check user admin transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -89,14 +89,14 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| CheckUserAdminError::BeginTransactionFailed)?;
+            .map_err(|source| CheckUserAdminError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut reader = self.reader.in_transaction(&mut tx);
             require_admin_actor(context, &mut reader).await?;
         }
         tx.commit()
             .await
-            .map_err(|_| CheckUserAdminError::CommitTransactionFailed)?;
+            .map_err(|source| CheckUserAdminError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(CheckUserAdminResult)
     }

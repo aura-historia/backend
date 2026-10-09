@@ -1,4 +1,5 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
+use billing_stripe::StripeSubscriptionReader;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
@@ -9,8 +10,11 @@ use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
-use stripe_lambda::{StripeProductTierMap, handler};
-use user_postgres::{SqlxUserRepositoryFactory, SqlxUserTierEntitlementsFactory};
+use stripe_lambda::handler;
+use user_postgres::{
+    SqlxStripeSubscriptionEventStoreFactory, SqlxUserRepositoryFactory,
+    SqlxUserTierEntitlementsFactory,
+};
 use user_service::use_cases::ApplyStripeSubscriptionHandler;
 
 #[tokio::main]
@@ -22,10 +26,11 @@ async fn main() -> Result<(), Error> {
     let credentials = postgres_credentials_provider_from_env()
         .await
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
-    let tier_map = StripeProductTierMap {
-        pro_product_listing_id: required_config_from_env("STRIPE_PRO_PRODUCT_ID")?,
-        ultimate_product_listing_id: required_config_from_env("STRIPE_ULTIMATE_PRODUCT_ID")?,
-    };
+    let provider = StripeSubscriptionReader::new(
+        required_config_from_env("STRIPE_API_KEY")?,
+        required_config_from_env("STRIPE_PRO_PRODUCT_ID")?,
+        required_config_from_env("STRIPE_ULTIMATE_PRODUCT_ID")?,
+    )?;
     let subscriptions = Arc::new(VersionedCompositionCache::new());
 
     log_cold_start("stripe-lambda", initialization_started_at);
@@ -34,7 +39,7 @@ async fn main() -> Result<(), Error> {
         move |event: LambdaEvent<EventBridgeEvent<Value>>| {
             let postgres = postgres.clone();
             let credentials = Arc::clone(&credentials);
-            let tier_map = tier_map.clone();
+            let provider = provider.clone();
             let subscriptions = Arc::clone(&subscriptions);
             async move {
                 log_invocation_start("stripe-lambda", &event.context);
@@ -54,11 +59,13 @@ async fn main() -> Result<(), Error> {
                             SqlxUnitOfWork::new(pool),
                             SqlxUserRepositoryFactory::new(),
                             SqlxUserTierEntitlementsFactory::new(),
+                            SqlxStripeSubscriptionEventStoreFactory,
+                            provider,
                         ))
                     })
                     .await?;
 
-                handler(event, subscriptions.value(), &tier_map).await
+                handler(event, subscriptions.value()).await
             }
         },
     ))

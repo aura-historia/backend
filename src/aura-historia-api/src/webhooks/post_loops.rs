@@ -72,11 +72,11 @@ pub async fn post_loops(
                 .into_response()
         }
         Ok(Err(ApplyLoopsPreferenceEventError::InvalidEventTime)) => invalid_body().into_response(),
-        Ok(Err(ApplyLoopsPreferenceEventError::Retryable)) | Err(_) => {
-            ApiError::service_unavailable(LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE)
-                .with_detail("Webhook processing must be retried.")
-                .into_response()
-        }
+        Ok(Err(ApplyLoopsPreferenceEventError::TransactionFailed(_)))
+        | Ok(Err(ApplyLoopsPreferenceEventError::Retryable))
+        | Err(_) => ApiError::service_unavailable(LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE)
+            .with_detail("Webhook processing must be retried.")
+            .into_response(),
     }
 }
 
@@ -169,7 +169,7 @@ mod tests {
     struct RecordingUseCase {
         calls: Arc<AtomicUsize>,
         hashes: Arc<Mutex<Vec<[u8; 32]>>>,
-        result: Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError>,
+        result: Arc<Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError>>,
         delay: Duration,
     }
 
@@ -180,7 +180,7 @@ mod tests {
             Self {
                 calls: Arc::new(AtomicUsize::new(0)),
                 hashes: Arc::new(Mutex::new(Vec::new())),
-                result,
+                result: Arc::new(result),
                 delay: Duration::ZERO,
             }
         }
@@ -203,7 +203,20 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner())
                 .push(*command.verification.raw_body_sha256.as_bytes());
             tokio::time::sleep(self.delay).await;
-            self.result
+            match &*self.result {
+                Ok(outcome) => Ok(*outcome),
+                Err(ApplyLoopsPreferenceEventError::Retryable) => {
+                    Err(ApplyLoopsPreferenceEventError::Retryable)
+                }
+                Err(ApplyLoopsPreferenceEventError::InvalidEventTime) => {
+                    Err(ApplyLoopsPreferenceEventError::InvalidEventTime)
+                }
+                Err(ApplyLoopsPreferenceEventError::TransactionFailed(_)) => {
+                    Err(ApplyLoopsPreferenceEventError::TransactionFailed(
+                        application::error::static_error("test transaction failure"),
+                    ))
+                }
+            }
         }
     }
 

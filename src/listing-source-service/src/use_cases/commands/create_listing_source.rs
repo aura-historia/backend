@@ -76,9 +76,9 @@ pub enum CreateListingSourceError {
         source: BoxError,
     },
     #[error("failed to begin create listing source transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit create listing source transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -137,11 +137,10 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CreateListingSourceError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                CreateListingSourceError::BeginTransactionFailed(Box::new(source))
+            })?;
         let operator_party_id = match command.operator {
             ListingSourceOperator::Existing(id) => {
                 self.parties
@@ -183,9 +182,9 @@ where
             .insert(&source, &command.ingestion_configuration)
             .await
             .map_err(CreateListingSourceError::from)?;
-        tx.commit()
-            .await
-            .map_err(|_| CreateListingSourceError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            CreateListingSourceError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         tracing::info!(
             event = "listing_source.created",
@@ -228,11 +227,9 @@ where
                 | CheckUserAdminError::Internal { source } => {
                     CreateListingSourceError::Internal { source }
                 }
-                CheckUserAdminError::BeginTransactionFailed
-                | CheckUserAdminError::CommitTransactionFailed => {
-                    CreateListingSourceError::TemporarilyUnavailable {
-                        source: static_error("check user admin transaction failed"),
-                    }
+                CheckUserAdminError::BeginTransactionFailed(source)
+                | CheckUserAdminError::CommitTransactionFailed(source) => {
+                    CreateListingSourceError::TemporarilyUnavailable { source }
                 }
             }),
     }
@@ -315,7 +312,11 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             self.state
                 .lock()
-                .map_err(|_| TransactionError::CommitFailed)?
+                .map_err(|_| {
+                    TransactionError::CommitFailed(application::error::static_error(
+                        "test transaction failure",
+                    ))
+                })?
                 .commits += 1;
             Ok(())
         }

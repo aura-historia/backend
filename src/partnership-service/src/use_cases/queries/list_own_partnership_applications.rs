@@ -35,9 +35,9 @@ pub enum ListOwnPartnershipApplicationsError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 #[async_trait::async_trait]
 pub trait ListOwnPartnershipApplicationsUseCase: Send + Sync {
@@ -76,19 +76,17 @@ impl<U: UnitOfWork, R: PartnershipApplicationReaderFactory<U::Tx>>
             }
             _ => return Err(ListOwnPartnershipApplicationsError::Forbidden),
         }
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ListOwnPartnershipApplicationsError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ListOwnPartnershipApplicationsError::BeginTransactionFailed(Box::new(source))
+        })?;
         let items = self
             .reader
             .in_transaction(&mut tx)
             .list_by_user(request.user_id)
             .await?;
-        tx.commit()
-            .await
-            .map_err(|_| ListOwnPartnershipApplicationsError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ListOwnPartnershipApplicationsError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(ListOwnPartnershipApplicationsResult { items })
     }
 }
@@ -165,7 +163,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -180,7 +180,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begin_attempts += 1;
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.begins += 1;
             state.next_transaction_id += 1;
@@ -524,7 +526,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ListOwnPartnershipApplicationsError::BeginTransactionFailed)
+            Err(ListOwnPartnershipApplicationsError::BeginTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(1, state.begin_attempts);
@@ -547,7 +551,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ListOwnPartnershipApplicationsError::CommitTransactionFailed)
+            Err(ListOwnPartnershipApplicationsError::CommitTransactionFailed(_))
         ));
         let state = lock(&state);
         assert_eq!(1, state.list_calls);

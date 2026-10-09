@@ -16086,13 +16086,13 @@ components:
           type: string
           maxLength: 64
           nullable: true
-          description: New first name.
+          description: New first name (truncated to 64 Unicode characters).
           example: Ada
         lastName:
           type: string
           maxLength: 64
           nullable: true
-          description: New last name.
+          description: New last name (truncated to 64 Unicode characters).
           example: Lovelace
         language:
           allOf:
@@ -16137,13 +16137,13 @@ components:
           type: string
           maxLength: 64
           nullable: true
-          description: New first name (max 64 characters)
+          description: New first name (truncated to 64 Unicode characters)
           example: Jane
         lastName:
           type: string
           maxLength: 64
           nullable: true
-          description: New last name (max 64 characters)
+          description: New last name (truncated to 64 Unicode characters)
           example: Smith
         language:
           allOf:

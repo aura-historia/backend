@@ -226,7 +226,9 @@ mod tests {
             Ok(SyncMarketingConsentIntentResult::AlreadyTerminal),
             Ok(SyncMarketingConsentIntentResult::Retryable),
             Ok(SyncMarketingConsentIntentResult::Missing),
-            Err(SyncMarketingConsentIntentError::Transaction),
+            Err(SyncMarketingConsentIntentError::Transaction(
+                application::error::static_error("test transaction failure"),
+            )),
         ]);
         let response = handler(
             events([

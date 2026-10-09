@@ -7,7 +7,9 @@ use user_postgres::{
     SqlxConsentWorkflowCleanup, SqlxMarketingConsentIntentWorker,
     SqlxNewsletterConfirmationChallengesRepository,
 };
-use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
+use user_service::ports::marketing_consent_intents::{
+    ConsentWorkerClaimOutcome, MarketingConsentIntentWorker,
+};
 use user_service::ports::{
     ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory, NewsletterConfirmationClock,
 };

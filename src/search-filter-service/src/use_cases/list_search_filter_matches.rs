@@ -97,9 +97,9 @@ pub enum ListSearchFilterMatchesError {
         source: FxRateSnapshotError,
     },
     #[error("failed to begin matched-product FX transaction")]
-    BeginPricingTransactionFailed,
+    BeginPricingTransactionFailed(#[source] BoxError),
     #[error("failed to commit matched-product FX transaction")]
-    CommitPricingTransactionFailed,
+    CommitPricingTransactionFailed(#[source] BoxError),
 
     #[error("matched product could not be redacted")]
     HiddenProductListingRedactionFailed {
@@ -209,11 +209,9 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         let valuation_at = OffsetDateTime::now_utc();
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ListSearchFilterMatchesError::BeginPricingTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ListSearchFilterMatchesError::BeginPricingTransactionFailed(Box::new(source))
+        })?;
         let pricing_snapshots =
             pricing_snapshots(&self.fx_rates, &mut tx, &factual_details, valuation_at).await?;
         let mut product_listings = factual_details
@@ -222,9 +220,9 @@ where
                 present_with_pricing_snapshot(factual_details, &pricing_snapshots, request.currency)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        tx.commit()
-            .await
-            .map_err(|_| ListSearchFilterMatchesError::CommitPricingTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ListSearchFilterMatchesError::CommitPricingTransactionFailed(Box::new(source))
+        })?;
 
         for product in &mut product_listings {
             let is_hidden = product

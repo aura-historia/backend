@@ -39,9 +39,9 @@ pub enum AdminGetUserError {
         source: BoxError,
     },
     #[error("failed to begin admin get user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit admin get user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -102,7 +102,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| AdminGetUserError::BeginTransactionFailed)?;
+            .map_err(|source| AdminGetUserError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut reader = self.admin_reader.in_transaction(&mut tx);
             require_admin_actor(context, &mut reader).await?;
@@ -115,7 +115,7 @@ where
             .ok_or(AdminGetUserError::NotFound)?;
         tx.commit()
             .await
-            .map_err(|_| AdminGetUserError::CommitTransactionFailed)?;
+            .map_err(|source| AdminGetUserError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(result)
     }

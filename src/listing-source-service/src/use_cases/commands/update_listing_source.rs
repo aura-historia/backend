@@ -1,6 +1,6 @@
 use crate::ports::*;
 use application::{
-    error::{BoxError, static_error},
+    error::BoxError,
     operation_context::{OperationContext, Principal},
     patch_field::PatchField,
     transaction::{Transaction, UnitOfWork},
@@ -75,9 +75,9 @@ pub enum UpdateListingSourceError {
         source: BoxError,
     },
     #[error("failed to begin update listing source transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update listing source transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -133,11 +133,10 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateListingSourceError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                UpdateListingSourceError::BeginTransactionFailed(Box::new(source))
+            })?;
         let stored = self
             .sources
             .in_transaction(&mut tx)
@@ -162,9 +161,9 @@ where
                 slug_id: source.slug_id().clone(),
             }
         };
-        tx.commit()
-            .await
-            .map_err(|_| UpdateListingSourceError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            UpdateListingSourceError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(event = "listing_source.updated", actor_type = context.principal.kind(), actor_id = %context.principal.label(), listing_source_id = %result.listing_source_id, listing_source_slug_id = %result.slug_id, changed = outcome.changed(), outcome = "success");
         Ok(result)
     }
@@ -250,11 +249,9 @@ where
                 | CheckUserAdminError::Internal { source } => {
                     UpdateListingSourceError::Internal { source }
                 }
-                CheckUserAdminError::BeginTransactionFailed
-                | CheckUserAdminError::CommitTransactionFailed => {
-                    UpdateListingSourceError::TemporarilyUnavailable {
-                        source: static_error("check user admin transaction failed"),
-                    }
+                CheckUserAdminError::BeginTransactionFailed(source)
+                | CheckUserAdminError::CommitTransactionFailed(source) => {
+                    UpdateListingSourceError::TemporarilyUnavailable { source }
                 }
             }),
     }
@@ -282,6 +279,7 @@ impl From<ListingSourceRepositoryError> for UpdateListingSourceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::error::static_error;
     use application::{
         operation_context::{CorrelationId, RequestId},
         transaction::TransactionError,
@@ -306,7 +304,11 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             self.0
                 .lock()
-                .map_err(|_| TransactionError::CommitFailed)?
+                .map_err(|_| {
+                    TransactionError::CommitFailed(application::error::static_error(
+                        "test transaction failure",
+                    ))
+                })?
                 .commits += 1;
             Ok(())
         }

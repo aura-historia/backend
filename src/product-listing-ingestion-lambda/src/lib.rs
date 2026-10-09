@@ -391,8 +391,12 @@ mod tests {
                     ),
                 )),
                 Mode::Complete => Ok(ProductListingIngestionCompletion::AlreadyCompleted),
-                Mode::Failure => Err(ProductListingIngestionError::BeginTransactionFailed),
-                Mode::CommitUnknown => Err(ProductListingIngestionError::CommitTransactionFailed),
+                Mode::Failure => Err(ProductListingIngestionError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
+                Mode::CommitUnknown => Err(ProductListingIngestionError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
                 Mode::MissingTarget => Err(ProductListingIngestionError::Update(
                     UpdateProductListingError::NotFound,
                 )),

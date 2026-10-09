@@ -61,9 +61,9 @@ pub enum CreateUserError {
         source: BoxError,
     },
     #[error("failed to begin create user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit create user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -122,7 +122,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| CreateUserError::BeginTransactionFailed)?;
+            .map_err(|source| CreateUserError::BeginTransactionFailed(Box::new(source)))?;
 
         let user = match self
             .users
@@ -141,7 +141,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| CreateUserError::CommitTransactionFailed)?;
+            .map_err(|source| CreateUserError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.created",
@@ -387,7 +387,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock(&self.state);
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 state.commits += 1;
                 Ok(())
@@ -403,7 +405,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begins += 1;
             if state.begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -618,7 +622,7 @@ mod tests {
                     },
                 )
                 .await,
-            |error| matches!(error, CreateUserError::BeginTransactionFailed),
+            |error| matches!(error, CreateUserError::BeginTransactionFailed(_)),
         );
 
         let commit_uow = FakeUnitOfWork::default();
@@ -635,7 +639,7 @@ mod tests {
                     },
                 )
                 .await,
-            |error| matches!(error, CreateUserError::CommitTransactionFailed),
+            |error| matches!(error, CreateUserError::CommitTransactionFailed(_)),
         );
     }
 

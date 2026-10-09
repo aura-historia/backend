@@ -1,15 +1,15 @@
+use super::{
+    ConsentIntentSource, ConsentIntentStatus, ConsentSubject, MarketingConsentIntentClaim,
+    MarketingConsentPersistenceError, SqlxMarketingConsentIntentRepository,
+    SqlxMarketingConsentIntentWorker,
+};
+use crate::SqlxUserRepositoryFactory;
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use serde_email::Email;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::{marketing_consent_sync_intent_id::MarketingConsentSyncIntentId, user_id::UserId};
-use user_postgres::{
-    ConsentIntentFinalization, ConsentIntentSource, ConsentIntentStatus, ConsentSubject,
-    MarketingConsentIntentClaim, MarketingConsentPersistenceError,
-    SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker,
-    SqlxUserRepositoryFactory,
-};
 use user_service::ports::marketing_consent_intents::{
     ConsentWorkerClaimOutcome, ConsentWorkerFinalization, ConsentWorkerRecheckOutcome,
     ConsentWorkerTerminalStatus, MarketingConsentIntentWorker,
@@ -47,7 +47,6 @@ async fn claim(
         ConsentWorkerClaimOutcome::Claimed(claim) => claim,
         _ => panic!("requested intent was not claimed"),
     };
-    // Retain legacy receipt/read assertions while exercising only the typed-ID claimant.
     let intent = SqlxMarketingConsentIntentRepository::new()
         .find_by_source_key(tx, &claimed.intent.source_key)
         .await
@@ -404,7 +403,7 @@ async fn verified_user_proofs_are_atomic_replay_safe_and_revision_fenced() {
             .finalize(
                 &mut tx,
                 &claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -461,7 +460,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
             .finalize(
                 &mut tx,
                 &first,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 first.lease_expires_at - Duration::seconds(1)
@@ -490,7 +489,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
             .finalize(
                 &mut tx,
                 &first,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -518,7 +517,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
             .finalize(
                 &mut tx,
                 &next,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -545,7 +544,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
     assert_eq!(revoke.intent_id, claim.intent.intent_id);
     tx.commit().await.unwrap();
     let completed_at = OffsetDateTime::now_utc();
-    let applied = ConsentIntentFinalization::Applied {
+    let applied = ConsentWorkerFinalization::Applied {
         provider_contact_id: Some("contact-1"),
     };
     let mut tx = uow.begin().await.unwrap();
@@ -568,7 +567,7 @@ async fn email_only_lease_receipt_and_provider_backsync_cancellation() {
             .finalize(
                 &mut tx,
                 &claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 completed_at
@@ -978,7 +977,7 @@ async fn deletion_cancels_user_grant_and_preserves_user_revoke() {
             .finalize(
                 &mut tx,
                 &grant_claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -1018,7 +1017,7 @@ async fn deletion_cancels_user_grant_and_preserves_user_revoke() {
             .finalize(
                 &mut tx,
                 &revoke_claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -1076,7 +1075,7 @@ async fn deleted_address_revoke_cannot_withdraw_a_new_owners_consent() {
             .finalize(
                 &mut tx,
                 &claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None
                 },
                 OffsetDateTime::now_utc()
@@ -1401,7 +1400,7 @@ async fn finalize_exact_retry_keeps_receipt_and_conflicting_completion_cannot_su
     tx.commit().await.unwrap();
 
     let completed_at = OffsetDateTime::now_utc();
-    let applied = ConsentIntentFinalization::Applied {
+    let applied = ConsentWorkerFinalization::Applied {
         provider_contact_id: Some("contact-receipt"),
     };
     let mut tx = uow.begin().await.unwrap();
@@ -1449,7 +1448,7 @@ async fn finalize_exact_retry_keeps_receipt_and_conflicting_completion_cannot_su
             .finalize(
                 &mut tx,
                 &claim,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: Some("different-contact")
                 },
                 completed_at
@@ -1462,7 +1461,7 @@ async fn finalize_exact_retry_keeps_receipt_and_conflicting_completion_cannot_su
             .finalize(
                 &mut tx,
                 &claim,
-                ConsentIntentFinalization::Failed {
+                ConsentWorkerFinalization::Failed {
                     error_code: "provider_failed"
                 },
                 completed_at
@@ -2203,7 +2202,7 @@ async fn provider_withdrawal_racing_user_grant_schedules_one_revoke_and_replays_
             .finalize(
                 &mut tx,
                 &in_flight,
-                ConsentIntentFinalization::Applied {
+                ConsentWorkerFinalization::Applied {
                     provider_contact_id: None,
                 },
                 OffsetDateTime::now_utc()

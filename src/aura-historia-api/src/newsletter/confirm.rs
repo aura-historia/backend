@@ -32,7 +32,8 @@ pub async fn confirm_newsletter_subscription(
                 user_service::use_cases::ConfirmNewsletterSubscriptionError::InvalidConfirmation => {
                     ApiError::bad_request(NEWSLETTER_CONFIRMATION_INVALID)
                 }
-                user_service::use_cases::ConfirmNewsletterSubscriptionError::TemporarilyUnavailable => {
+                user_service::use_cases::ConfirmNewsletterSubscriptionError::TransactionFailed(_)
+                | user_service::use_cases::ConfirmNewsletterSubscriptionError::TemporarilyUnavailable => {
                     ApiError::service_unavailable(NEWSLETTER_TEMPORARILY_UNAVAILABLE)
                 }
                 user_service::use_cases::ConfirmNewsletterSubscriptionError::InvalidPersistedState => {

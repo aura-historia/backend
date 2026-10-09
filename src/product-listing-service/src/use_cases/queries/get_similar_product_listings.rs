@@ -49,9 +49,9 @@ pub enum GetSimilarProductListingsError {
     #[error("similarity search is unavailable")]
     SimilaritySearchUnavailable,
     #[error("failed to begin get similar products transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit get similar products transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
     #[error("no persisted FX snapshot is available for similar product pricing")]
     PricingFxSnapshotMissing,
     #[error("FX snapshot lookup is temporarily unavailable for similar product pricing")]
@@ -175,11 +175,9 @@ where
         request: GetSimilarProductListingsRequest,
     ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
         let valuation_at = OffsetDateTime::now_utc();
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| GetSimilarProductListingsError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            GetSimilarProductListingsError::BeginTransactionFailed(Box::new(source))
+        })?;
         let seed = self
             .embedding_reader
             .in_transaction(&mut tx)
@@ -188,9 +186,9 @@ where
             .ok_or(GetSimilarProductListingsError::NotFound)?;
 
         let Some(embedding) = seed.embedding else {
-            tx.commit()
-                .await
-                .map_err(|_| GetSimilarProductListingsError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                GetSimilarProductListingsError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             return Ok(GetSimilarProductListingsResult::EmbeddingPending);
         };
@@ -208,9 +206,9 @@ where
                 },
             )?;
 
-        tx.commit()
-            .await
-            .map_err(|_| GetSimilarProductListingsError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            GetSimilarProductListingsError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         let products = self
             .similar_products_reader
@@ -441,7 +439,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if lock_state(&self.state).begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -456,7 +456,9 @@ mod tests {
             let mut state = lock_state(&self.state);
             state.commit_count += 1;
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }

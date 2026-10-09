@@ -847,12 +847,16 @@ mod tests {
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                ApiError::from(ListAdminPartnershipsError::BeginTransactionFailed),
+                ApiError::from(ListAdminPartnershipsError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                ApiError::from(ListAdminPartnershipsError::CommitTransactionFailed),
+                ApiError::from(ListAdminPartnershipsError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),

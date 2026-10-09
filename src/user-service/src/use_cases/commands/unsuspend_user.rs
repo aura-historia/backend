@@ -57,9 +57,9 @@ pub enum UnsuspendUserError {
         source: BoxError,
     },
     #[error("failed to begin unsuspend user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit unsuspend user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -120,7 +120,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| UnsuspendUserError::BeginTransactionFailed)?;
+            .map_err(|source| UnsuspendUserError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut admin_reader =
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
@@ -148,7 +148,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| UnsuspendUserError::CommitTransactionFailed)?;
+            .map_err(|source| UnsuspendUserError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.unsuspended",

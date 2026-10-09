@@ -55,9 +55,9 @@ pub enum ListAdminAccessTokensError {
         source: BoxError,
     },
     #[error("failed to begin list admin access tokens transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit list admin access tokens transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -121,11 +121,9 @@ where
         let result = async {
             require_admin_actor_credential(context, CredentialCapability::AccessTokensRead)?;
 
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| ListAdminAccessTokensError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                ListAdminAccessTokensError::BeginTransactionFailed(Box::new(source))
+            })?;
             {
                 let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
                 require_admin_actor(context, &mut admin_reader).await?;
@@ -147,9 +145,9 @@ where
                 .in_transaction(&mut tx)
                 .list_for_user(request.user_id, cursor)
                 .await?;
-            tx.commit()
-                .await
-                .map_err(|_| ListAdminAccessTokensError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                ListAdminAccessTokensError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             Ok(result.map_item(AccessTokenView::from))
         }

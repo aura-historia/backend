@@ -104,6 +104,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 30,
     environment: (context) => ({
+      STRIPE_API_KEY: ssmValue(`/stripe/${context.config.stage}/api-key`),
       STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
       STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
     }),

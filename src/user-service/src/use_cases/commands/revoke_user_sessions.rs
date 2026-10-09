@@ -47,9 +47,9 @@ pub enum RevokeUserSessionsError {
         source: BoxError,
     },
     #[error("failed to begin revoke user sessions transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit revoke user sessions transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -112,11 +112,9 @@ where
         let result = async {
             require_admin_actor_credential(context, CredentialCapability::UsersWrite)?;
 
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| RevokeUserSessionsError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                RevokeUserSessionsError::BeginTransactionFailed(Box::new(source))
+            })?;
             {
                 let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
                 require_admin_actor(context, &mut admin_reader).await?;
@@ -127,9 +125,9 @@ where
                 .find_by_user_id(command.user_id)
                 .await?
                 .ok_or(RevokeUserSessionsError::UserNotFound)?;
-            tx.commit()
-                .await
-                .map_err(|_| RevokeUserSessionsError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                RevokeUserSessionsError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             self.session_revoker.revoke_sessions(&identity).await?;
             Ok(RevokeUserSessionsResult {

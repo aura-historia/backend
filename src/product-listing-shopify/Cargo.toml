@@ -1,0 +1,19 @@
+[package]
+name = "product-listing-shopify"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+listing-source-service = { workspace = true }
+product-listing-normalization = { workspace = true }
+product-listing-service = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
+
+[dev-dependencies]
+listing-source-core = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }

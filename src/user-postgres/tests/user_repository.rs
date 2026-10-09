@@ -14,10 +14,9 @@ use user_core::tier::UserTier;
 use user_core::user::{
     NewUser, RehydratedUserState, User, UserAccount, UserPreferences, UserProfile,
 };
-use user_postgres::{
-    ConsentIntentSource, SqlxMarketingConsentIntentRepository, SqlxUserRepositoryFactory,
-};
+use user_postgres::{SqlxMarketingConsentIntentRepository, SqlxUserRepositoryFactory};
 use user_service::ports::{
+    ConsentIntentSource, MarketingConsentIntents, MarketingConsentIntentsFactory,
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
     UserStorageVersion,
 };
@@ -67,19 +66,23 @@ async fn should_insert_find_update_user_in_postgres() {
     let account_email = user.email().clone();
     user.grant_marketing_email_consent(&account_email)
         .expect("matching user email should be accepted");
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut tx,
-            user.id(),
-            loaded_by_id.version,
-            &account_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "user-repository-test-consent",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut tx);
+        let consent_user = intents.find_user_by_id(user.id()).await.unwrap().unwrap();
+        assert_eq!(loaded_by_id.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "user-repository-test-consent",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     let consented = users
         .in_transaction(&mut tx)
         .find_by_id(user.id())
@@ -219,19 +222,23 @@ async fn ordinary_user_updates_preserve_consent() {
             .await,
         Err(UserRepositoryError::ConcurrencyConflict)
     ));
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut tx,
-            user.id(),
-            inserted.version,
-            &account_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "preserve-consent",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut tx);
+        let consent_user = intents.find_user_by_id(user.id()).await.unwrap().unwrap();
+        assert_eq!(inserted.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "preserve-consent",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     let consented = users
         .in_transaction(&mut tx)
         .find_by_id(user.id())
@@ -306,19 +313,27 @@ async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
     consented
         .grant_marketing_email_consent(&consented_email)
         .expect("matching account email should be accepted");
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut consent_tx,
-            consented.id(),
-            current.version,
-            &consented_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "consent-race",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut consent_tx);
+        let consent_user = intents
+            .find_user_by_id(consented.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "consent-race",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     commit(consent_tx).await;
 
     let stale_result = users

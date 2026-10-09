@@ -67,9 +67,9 @@ pub enum GrantPartnershipMembershipError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -136,11 +136,9 @@ where
         }
 
         let result = async {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| GrantPartnershipMembershipError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                GrantPartnershipMembershipError::BeginTransactionFailed(Box::new(source))
+            })?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
 
@@ -162,9 +160,9 @@ where
                 .add_member(command.user_id, command.partnership_id)
                 .await?;
 
-            tx.commit()
-                .await
-                .map_err(|_| GrantPartnershipMembershipError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                GrantPartnershipMembershipError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             Ok(GrantPartnershipMembershipResult {
                 outcome: match outcome {
@@ -340,7 +338,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -354,7 +354,9 @@ mod tests {
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             let mut state = lock(&self.state);
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.begins += 1;
             Ok(FakeTransaction {
@@ -787,7 +789,7 @@ mod tests {
             .await;
         assert!(matches!(
             begin_result,
-            Err(GrantPartnershipMembershipError::BeginTransactionFailed)
+            Err(GrantPartnershipMembershipError::BeginTransactionFailed(_))
         ));
 
         let (mut commit_state, partnership_id, user_id) = valid_state();
@@ -804,7 +806,7 @@ mod tests {
             .await;
         assert!(matches!(
             commit_result,
-            Err(GrantPartnershipMembershipError::CommitTransactionFailed)
+            Err(GrantPartnershipMembershipError::CommitTransactionFailed(_))
         ));
         assert_eq!(1, lock(&commit_state).commit_attempts);
     }

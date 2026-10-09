@@ -232,3 +232,6 @@ fn classify_status(status: StatusCode) -> StripeBillingError {
         StripeBillingError::Rejected { source }
     }
 }
+
+mod subscriptions;
+pub use subscriptions::StripeSubscriptionReader;

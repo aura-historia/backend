@@ -57,9 +57,9 @@ pub enum CreateAccessTokenError {
         source: BoxError,
     },
     #[error("failed to begin create access token transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit create access token transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -122,18 +122,17 @@ where
             expires: command.expires,
         });
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CreateAccessTokenError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                CreateAccessTokenError::BeginTransactionFailed(Box::new(source))
+            })?;
         self.repository
             .in_transaction(&mut tx)
             .insert(&access_token)
             .await?;
         tx.commit()
             .await
-            .map_err(|_| CreateAccessTokenError::CommitTransactionFailed)?;
+            .map_err(|source| CreateAccessTokenError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "access_token.created",

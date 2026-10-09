@@ -61,9 +61,9 @@ pub enum ChangeUserRoleError {
         source: BoxError,
     },
     #[error("failed to begin change user role transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit change user role transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -124,7 +124,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| ChangeUserRoleError::BeginTransactionFailed)?;
+            .map_err(|source| ChangeUserRoleError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut admin_reader =
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
@@ -174,7 +174,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| ChangeUserRoleError::CommitTransactionFailed)?;
+            .map_err(|source| ChangeUserRoleError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.role_changed",
@@ -451,7 +451,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock(&self.state);
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 state.commits += 1;
                 Ok(())
@@ -467,7 +469,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begins += 1;
             if state.begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -625,7 +629,7 @@ mod tests {
                 },
             )
             .await,
-            |error| matches!(error, ChangeUserRoleError::BeginTransactionFailed),
+            |error| matches!(error, ChangeUserRoleError::BeginTransactionFailed(_)),
         );
 
         let commit_uow = FakeUnitOfWork::default();
@@ -647,7 +651,7 @@ mod tests {
                     },
                 )
                 .await,
-            |error| matches!(error, ChangeUserRoleError::CommitTransactionFailed),
+            |error| matches!(error, ChangeUserRoleError::CommitTransactionFailed(_)),
         );
     }
 

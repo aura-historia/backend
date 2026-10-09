@@ -13,7 +13,9 @@ use product_listing_ingestion_sqs::{
     with_publication_deadline,
 };
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
-use shopify_lambda::{ShopifyProductListingProcessor, handler, publication_deadline};
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
+use product_listing_shopify::ShopifyProductPayloadDecoder;
+use shopify_lambda::{handler, publication_deadline};
 use std::{sync::Arc, time::Instant};
 
 #[tokio::main]
@@ -54,13 +56,14 @@ async fn main() -> Result<(), Error> {
                             .connect()
                             .await
                             .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
-                        Ok::<_, Error>(ShopifyProductListingProcessor::new(
+                        Ok::<_, Error>(ProcessShopifyProductListingHandler::new(
                             SqlxListingSourceReaders::new(pool),
                             SubmitInternalProductListingIngestionHandler::new(
                                 ScopedSqsProductListingIngestionPublisher::new(
                                     SqsProductListingIngestionPublisher::new(sqs_client, queue_url),
                                 ),
                             ),
+                            ShopifyProductPayloadDecoder,
                         ))
                     })
                     .await?;
