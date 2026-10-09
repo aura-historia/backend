@@ -167,9 +167,12 @@ metadata may establish an unbound user's association but cannot replace another 
 or contradict an existing user's association.
 
 Before running the updated consumer, apply the Stripe receipt migration and provide its
-`STRIPE_API_KEY` configuration using the existing stage credential reference. That key
-needs customer and subscription read access. No transaction stays open across Stripe I/O;
-a failed application rolls back its receipt and revision together with business changes.
+`STRIPE_API_KEY` configuration using the existing stage credential reference. The consumer
+and billing API share that key: restricted permissions must preserve customer creation
+and Checkout/billing-portal session creation, plus customer and subscription reads.
+The key, product/price identifiers and event destination must use the same Stripe account
+and test/live environment. No transaction stays open across Stripe I/O; a failed
+application rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 
