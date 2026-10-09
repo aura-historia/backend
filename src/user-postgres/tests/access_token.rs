@@ -41,7 +41,21 @@ async fn should_insert_find_by_id_find_by_hash_and_update_access_token_in_postgr
         user.id(),
         raw.clone(),
         "repository token",
-        HashSet::from([Scope::UsersRead]),
+        HashSet::from([
+            Scope::UsersRead,
+            Scope::AuctionsWrite,
+            Scope::ListingSourcesRead,
+            Scope::PartiesRead,
+            Scope::PartiesWrite,
+            Scope::PartnershipApplicationsRead,
+            Scope::PartnershipApplicationsWrite,
+            Scope::PartnershipsRead,
+            Scope::PartnershipsWrite,
+            Scope::AdminOverviewRead,
+            Scope::SearchFiltersRead,
+            Scope::NotificationsRead,
+            Scope::NotificationsWrite,
+        ]),
         None,
     );
 

@@ -7,7 +7,7 @@ use crate::{
 };
 use application::{
     error::{BoxError, static_error},
-    operation_context::OperationContext,
+    operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
 use auction_core::{
@@ -122,6 +122,17 @@ where
         context: &OperationContext,
         command: CreateAuctionCommand,
     ) -> Result<CreateAuctionResult, CreateAuctionError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::AuctionsWrite)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    CreateAuctionError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    CreateAuctionError::Forbidden
+                }
+            })?;
         super::super::queries::get_auction::ensure_admin(
             context,
             &self.check_user_admin,
@@ -584,5 +595,35 @@ mod tests {
         assert_eq!((state.inserts, state.event_appends), (1, 1));
         assert_eq!(state.repository_transaction_ids, vec![1]);
         assert_eq!(state.event_transaction_ids, vec![1]);
+    }
+    #[tokio::test]
+    async fn should_require_write_scope_before_admin_check_or_transaction() {
+        for (capabilities, allowed) in [
+            (std::collections::BTreeSet::new(), false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AuctionsRead]),
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AuctionsWrite]),
+                true,
+            ),
+        ] {
+            let state = Arc::new(Mutex::new(State::default()));
+
+            let mut context = context();
+            context.principal = Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities,
+            };
+            let result = handler(&state).execute(&context, command()).await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(CreateAuctionError::Forbidden)));
+            }
+            let state = lock(&state);
+            assert_eq!(usize::from(allowed), state.admin_checks);
+            assert_eq!(usize::from(allowed), state.begins);
+        }
     }
 }

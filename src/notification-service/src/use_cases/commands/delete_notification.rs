@@ -1,5 +1,7 @@
 use crate::ports::notification_deleter::{NotificationDeleteError, NotificationDeleter};
-use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use notification_core::notification_id::NotificationId;
 use user_core::user_id::UserId;
 
@@ -88,6 +90,7 @@ where
 fn notification_owner(context: &OperationContext) -> Result<UserId, DeleteNotificationError> {
     context
         .require()
+        .credential_capability(CredentialCapability::NotificationsWrite)
         .any_user()
         .authorize::<DeleteNotificationError>()?;
 
@@ -248,5 +251,36 @@ mod tests {
             result,
             Err(DeleteNotificationError::DeleteFailed(_))
         ));
+    }
+    #[test]
+    fn should_require_notification_scope_for_delegated_owner() {
+        let user_id = UserId::new();
+        for (capabilities, allowed) in [
+            (std::collections::BTreeSet::new(), false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::NotificationsRead]),
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::NotificationsWrite]),
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id,
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = notification_owner(&context);
+            assert_eq!(allowed, result.is_ok());
+            if allowed {
+                assert_eq!(user_id, result.expect("authorized owner"));
+            } else {
+                assert!(matches!(result, Err(DeleteNotificationError::Forbidden)));
+            }
+        }
     }
 }

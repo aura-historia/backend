@@ -4,7 +4,7 @@ use crate::{
 };
 use application::{
     error::BoxError,
-    operation_context::OperationContext,
+    operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use user_service::ports::UserAdminReaderFactory;
@@ -191,6 +191,17 @@ where
         &self,
         context: &OperationContext,
     ) -> Result<AdminOverview, GetAdminOverviewError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::AdminOverviewRead)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    GetAdminOverviewError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    GetAdminOverviewError::Forbidden
+                }
+            })?;
         if let Some(actor_id) = context.principal.actor_id() {
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
@@ -533,5 +544,49 @@ mod tests {
             Err(GetAdminOverviewError::ReaderTemporarilyUnavailable { .. })
         ));
         assert_eq!(0, lock(&state).commits);
+    }
+    #[tokio::test]
+    async fn should_require_overview_scope_before_role_read_or_transaction() {
+        for (capabilities, role, allowed) in [
+            (std::collections::BTreeSet::new(), UserRole::Admin, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::UsersRead]),
+                UserRole::Admin,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AdminOverviewRead]),
+                UserRole::User,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AdminOverviewRead]),
+                UserRole::Admin,
+                true,
+            ),
+        ] {
+            let scoped = capabilities.contains(&CredentialCapability::AdminOverviewRead);
+            let user_id = UserId::new();
+            let state = Arc::new(Mutex::new(State::default()));
+            let result = handler(
+                Arc::clone(&state),
+                AdminOverview::default(),
+                Some(UserAdminActorView { user_id, role }),
+                None,
+            )
+            .execute(&context(Principal::DelegatedUser {
+                user_id,
+                capabilities,
+            }))
+            .await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(GetAdminOverviewError::Forbidden)));
+            }
+            let state = lock(&state);
+            assert_eq!(usize::from(scoped), state.begins);
+            assert_eq!(usize::from(scoped), state.admin_reads);
+            assert_eq!(usize::from(allowed), state.overview_reads);
+        }
     }
 }

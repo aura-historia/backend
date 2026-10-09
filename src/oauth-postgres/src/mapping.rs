@@ -187,6 +187,18 @@ fn scope_to_db(scope: Scope) -> String {
 fn scope_from_db(value: &str) -> Result<Scope, OAuthRowMappingError> {
     match value {
         "auctions:read" => Ok(Scope::AuctionsRead),
+        "auctions:write" => Ok(Scope::AuctionsWrite),
+        "listing-sources:read" => Ok(Scope::ListingSourcesRead),
+        "parties:read" => Ok(Scope::PartiesRead),
+        "parties:write" => Ok(Scope::PartiesWrite),
+        "partnership-applications:read" => Ok(Scope::PartnershipApplicationsRead),
+        "partnership-applications:write" => Ok(Scope::PartnershipApplicationsWrite),
+        "partnerships:read" => Ok(Scope::PartnershipsRead),
+        "partnerships:write" => Ok(Scope::PartnershipsWrite),
+        "admin-overview:read" => Ok(Scope::AdminOverviewRead),
+        "search-filters:read" => Ok(Scope::SearchFiltersRead),
+        "notifications:read" => Ok(Scope::NotificationsRead),
+        "notifications:write" => Ok(Scope::NotificationsWrite),
         "product-listings:write" => Ok(Scope::ProductListingsWrite),
         "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
         "users:read" => Ok(Scope::UsersRead),
@@ -240,7 +252,7 @@ mod tests {
             scopes,
             parse_scopes(vec!["auctions:read".to_owned()]).expect("canonical scope")
         );
-        for invalid in ["auction:read", "AUCTIONS:READ", "auctions:write"] {
+        for invalid in ["auction:read", "AUCTIONS:READ", "auctions:delete"] {
             assert!(matches!(
                 scope_from_db(invalid),
                 Err(OAuthRowMappingError::InvalidScope(_))
@@ -464,5 +476,34 @@ mod tests {
             VersionedOAuthClient::try_from(row),
             Err(OAuthRowMappingError::InvalidVersion(_))
         ));
+    }
+    #[test]
+    fn should_round_trip_new_credential_scopes() {
+        for (scope, value) in [
+            (Scope::AuctionsWrite, "auctions:write"),
+            (Scope::ListingSourcesRead, "listing-sources:read"),
+            (Scope::PartiesRead, "parties:read"),
+            (Scope::PartiesWrite, "parties:write"),
+            (
+                Scope::PartnershipApplicationsRead,
+                "partnership-applications:read",
+            ),
+            (
+                Scope::PartnershipApplicationsWrite,
+                "partnership-applications:write",
+            ),
+            (Scope::PartnershipsRead, "partnerships:read"),
+            (Scope::PartnershipsWrite, "partnerships:write"),
+            (Scope::AdminOverviewRead, "admin-overview:read"),
+            (Scope::SearchFiltersRead, "search-filters:read"),
+            (Scope::NotificationsRead, "notifications:read"),
+            (Scope::NotificationsWrite, "notifications:write"),
+        ] {
+            assert_eq!(
+                HashSet::from([scope]),
+                parse_scopes(vec![value.to_owned()]).expect("canonical scope")
+            );
+            assert_eq!(value, scope.as_str());
+        }
     }
 }

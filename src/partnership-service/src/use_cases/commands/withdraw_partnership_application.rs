@@ -1,7 +1,9 @@
 use crate::ports::*;
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use partnership_core::{
@@ -77,6 +79,17 @@ impl<U: UnitOfWork, A: PartnershipApplicationRepositoryFactory<U::Tx>>
         context: &OperationContext,
         command: WithdrawPartnershipApplicationCommand,
     ) -> Result<WithdrawPartnershipApplicationResult, WithdrawPartnershipApplicationError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsWrite)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    WithdrawPartnershipApplicationError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    WithdrawPartnershipApplicationError::Forbidden
+                }
+            })?;
         let user = match context.principal {
             Principal::User(user) | Principal::DelegatedUser { user_id: user, .. } => user,
             Principal::Anonymous => {
@@ -473,7 +486,9 @@ mod tests {
             .execute(
                 &context(Principal::DelegatedUser {
                     user_id: applicant_user_id,
-                    capabilities: BTreeSet::new(),
+                    capabilities: BTreeSet::from([
+                        CredentialCapability::PartnershipApplicationsWrite,
+                    ]),
                 }),
                 command(application_id),
             )
@@ -519,7 +534,7 @@ mod tests {
             Principal::User(actor_user_id),
             Principal::DelegatedUser {
                 user_id: actor_user_id,
-                capabilities: BTreeSet::new(),
+                capabilities: BTreeSet::from([CredentialCapability::PartnershipApplicationsWrite]),
             },
         ] {
             let state = Arc::new(Mutex::new(State {

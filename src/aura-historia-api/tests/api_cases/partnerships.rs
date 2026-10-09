@@ -262,8 +262,7 @@ async fn should_return_safe_admin_partnership_summary_without_cache() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let (status, body, cache_control) = get_partnerships(&token, &[("size", "1")]).await;
 
@@ -336,8 +335,7 @@ async fn should_filter_admin_partnerships_by_party_member_and_listing_source() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     for (field, value) in [
         ("partyId", matching_party.to_string()),
@@ -387,8 +385,7 @@ async fn should_follow_admin_partnership_cursor_with_typed_id_tie_breaking() {
     expected.sort_by(|left, right| right.cmp(left));
 
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let (status, first_body, first_cache_control) =
         get_partnerships(&token, &[("size", "2")]).await;
@@ -416,8 +413,7 @@ async fn should_follow_admin_partnership_cursor_with_typed_id_tie_breaking() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_empty_admin_partnership_collection_with_zero_size() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
     let missing_party = PartyId::new().to_string();
 
     let (status, body, cache_control) =
@@ -433,8 +429,7 @@ async fn should_return_empty_admin_partnership_collection_with_zero_size() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_admin_partnership_query_values_with_field_errors() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
     let partnership_id = PartnershipId::new();
     let party_id = PartyId::new();
     let user_id = UserId::new();
@@ -517,8 +512,7 @@ async fn should_reject_invalid_admin_partnership_query_values_with_field_errors(
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_non_admin_admin_partnership_collection_access() {
     let user_id = seed_user("USER").await;
-    let token =
-        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(user_id).await);
 
     let (status, body, cache_control) = get_partnerships(&token, &[]).await;
 
@@ -553,8 +547,7 @@ async fn should_return_bounded_admin_partnership_detail_with_current_references(
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
     let mut expected_member_ids = [member_one, member_two];
     expected_member_ids.sort();
     let mut expected_listing_source_ids = [listing_source_one, listing_source_two];
@@ -617,8 +610,7 @@ async fn should_return_empty_admin_partnership_detail_associations() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let (status, body, cache_control) =
         get_partnership_detail(&token, &partnership_id.to_string()).await;
@@ -635,8 +627,7 @@ async fn should_return_empty_admin_partnership_detail_associations() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_admin_partnership_path_ids() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
     let partnership_id = PartnershipId::new();
     let user_id = UserId::new();
     let listing_source_id = ListingSourceId::new();
@@ -717,8 +708,7 @@ async fn should_reject_noncanonical_admin_partnership_path_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_admin_partnership_detail() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let (status, body, cache_control) =
         get_partnership_detail(&token, &PartnershipId::new().to_string()).await;
@@ -735,8 +725,7 @@ async fn should_return_not_found_for_missing_admin_partnership_detail() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_non_admin_admin_partnership_detail_access() {
     let user_id = seed_user("USER").await;
-    let token =
-        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(user_id).await);
 
     let (status, body, cache_control) =
         get_partnership_detail(&token, &PartnershipId::new().to_string()).await;
@@ -757,8 +746,7 @@ async fn should_grant_admin_partnership_membership_idempotently() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     for _ in 0..2 {
         let response = put_partnership_member(
@@ -801,8 +789,7 @@ async fn should_revoke_admin_partnership_membership_idempotently_and_preserve_re
     seed_partnership_membership(target_user_id, listing_source_id).await;
     seed_operator_partnership_listing_source_grant(listing_source_id).await;
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(partnerships_token(admin_id).await);
     let partner_token = String::from(
         seed_access_token_for(
             target_user_id,
@@ -939,8 +926,7 @@ async fn should_grant_admin_partnership_listing_source_idempotently_and_enable_p
         .await;
     seed_partnership_membership(partner_id, listing_source_id).await;
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(partnerships_token(admin_id).await);
     let partner_token = String::from(
         seed_access_token_for(
             partner_id,
@@ -1012,8 +998,7 @@ async fn should_revoke_admin_partnership_listing_source_idempotently_and_preserv
     seed_partnership_membership(partner_id, listing_source_id).await;
     seed_operator_partnership_listing_source_grant(listing_source_id).await;
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(partnerships_token(admin_id).await);
     let partner_token = String::from(
         seed_access_token_for(
             partner_id,
@@ -1160,8 +1145,7 @@ async fn should_reject_admin_listing_source_grant_for_a_different_party() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = put_partnership_listing_source_grant(
         &token,
@@ -1203,8 +1187,7 @@ async fn should_return_not_found_for_missing_admin_listing_source_grant_targets(
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = put_partnership_listing_source_grant(
         &token,
@@ -1257,8 +1240,7 @@ async fn should_reject_non_admin_partnership_listing_source_grant() {
             datetime!(2026-08-19 12:00 UTC),
         )
         .await;
-    let token =
-        String::from(seed_access_token_for(actor_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(actor_id).await);
 
     let response = put_partnership_listing_source_grant(
         &token,
@@ -1289,8 +1271,7 @@ async fn should_return_not_found_for_missing_admin_listing_source_grant_revoke_t
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = delete_partnership_listing_source_grant(
         &token,
@@ -1345,8 +1326,7 @@ async fn should_reject_non_admin_partnership_listing_source_grant_revoke() {
         )
         .await;
     seed_operator_partnership_listing_source_grant(listing_source_id).await;
-    let token =
-        String::from(seed_access_token_for(partner_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(partner_id).await);
 
     let response = delete_partnership_listing_source_grant(
         &token,
@@ -1387,8 +1367,7 @@ async fn should_return_user_not_found_when_grant_target_is_missing() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = put_partnership_member(
         &token,
@@ -1416,8 +1395,7 @@ async fn should_return_user_not_found_when_grant_target_is_missing() {
 async fn should_return_partnership_not_found_when_grant_partnership_is_missing() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = put_partnership_member(
         &token,
@@ -1453,8 +1431,7 @@ async fn should_reject_non_admin_partnership_membership_grant() {
         &[],
     )
     .await;
-    let token =
-        String::from(seed_access_token_for(actor_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(actor_id).await);
 
     let response = put_partnership_member(
         &token,
@@ -1484,8 +1461,7 @@ async fn should_return_user_not_found_when_revoke_target_is_missing() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = delete_partnership_member(
         &token,
@@ -1513,8 +1489,7 @@ async fn should_return_user_not_found_when_revoke_target_is_missing() {
 async fn should_return_partnership_not_found_when_revoke_partnership_is_missing() {
     let target_user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(admin_id).await);
 
     let response = delete_partnership_member(
         &token,
@@ -1550,8 +1525,7 @@ async fn should_reject_non_admin_partnership_membership_revoke() {
         &[],
     )
     .await;
-    let token =
-        String::from(seed_access_token_for(actor_id, std::collections::HashSet::new()).await);
+    let token = String::from(partnerships_token(actor_id).await);
 
     let response = delete_partnership_member(
         &token,
@@ -1585,8 +1559,7 @@ async fn should_dissolve_partnership_idempotently_revoke_access_and_preserve_his
     seed_partnership_membership(partner_id, listing_source_id).await;
     seed_operator_partnership_listing_source_grant(listing_source_id).await;
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(partnerships_token(admin_id).await);
     let partner_token = String::from(
         seed_access_token_for(
             partner_id,
@@ -1701,11 +1674,9 @@ async fn should_dissolve_partnership_idempotently_revoke_access_and_preserve_his
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_missing_and_non_admin_partnership_dissolution() {
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(partnerships_token(admin_id).await);
     let user_id = seed_user("USER").await;
-    let user_token =
-        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
+    let user_token = String::from(partnerships_token(user_id).await);
 
     let response = delete_partnership(&admin_token, "psh_not-a-typeid").await;
     let (status, body) = json_response(response).await;
@@ -1740,4 +1711,14 @@ async fn should_reject_invalid_missing_and_non_admin_partnership_dissolution() {
     let response = delete_partnership(&user_token, &partnership_id.to_string()).await;
     let (status, body) = json_response(response).await;
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+async fn partnerships_token(
+    user_id: user_core::user_id::UserId,
+) -> user_core::access_token::RawAccessToken {
+    seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::PartnershipsRead, Scope::PartnershipsWrite]),
+    )
+    .await
 }

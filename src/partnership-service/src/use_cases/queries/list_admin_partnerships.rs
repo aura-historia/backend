@@ -4,7 +4,7 @@ use crate::{
 };
 use application::{
     error::BoxError,
-    operation_context::OperationContext,
+    operation_context::{CredentialCapability, OperationContext},
     pagination::{Cursor, CursoredResult},
     transaction::{Transaction, UnitOfWork},
 };
@@ -123,6 +123,10 @@ where
         context: &OperationContext,
         request: ListAdminPartnershipsRequest,
     ) -> Result<ListAdminPartnershipsResult, ListAdminPartnershipsError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipsRead)
+            .map_err(|_| ListAdminPartnershipsError::Forbidden)?;
         if let Some(actor_id) = context.principal.actor_id() {
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
@@ -619,10 +623,61 @@ mod tests {
         let state = state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        assert_eq!(1, state.begins);
+        assert_eq!(0, state.begins);
         assert_eq!(0, state.admin_bindings);
         assert_eq!(0, state.reader_bindings);
         assert_eq!(0, state.searches);
         assert_eq!(0, state.commits);
+    }
+    #[tokio::test]
+    async fn should_require_read_scope_and_admin_role() {
+        for (capabilities, role, allowed) in [
+            (std::collections::BTreeSet::new(), UserRole::Admin, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartnershipsWrite]),
+                UserRole::Admin,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartnershipsRead]),
+                UserRole::User,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartnershipsRead]),
+                UserRole::Admin,
+                true,
+            ),
+        ] {
+            let scoped = capabilities.contains(&CredentialCapability::PartnershipsRead);
+            let user_id = UserId::new();
+            let state = Arc::new(Mutex::new(State::default()));
+            let result = handler(
+                Arc::clone(&state),
+                Some(UserAdminActorView { user_id, role }),
+                None,
+                false,
+                false,
+                2,
+            )
+            .execute(
+                &context(Principal::DelegatedUser {
+                    user_id,
+                    capabilities,
+                }),
+                request(2),
+            )
+            .await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(ListAdminPartnershipsError::Forbidden)));
+            }
+            let state = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            assert_eq!(usize::from(scoped), state.begins);
+            assert_eq!(usize::from(allowed), state.searches);
+            assert_eq!(usize::from(allowed), state.commits);
+        }
     }
 }

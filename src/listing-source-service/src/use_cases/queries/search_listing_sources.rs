@@ -2,7 +2,9 @@ use crate::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
 };
 use application::error::BoxError;
-use application::operation_context::{OperationContext, Principal};
+use application::operation_context::{
+    CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+};
 use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::sort::Sort;
@@ -149,6 +151,17 @@ async fn ensure_admin_or_internal<A>(
 where
     A: CheckUserAdminUseCase,
 {
+    context
+        .principal
+        .require_credential_capability(CredentialCapability::ListingSourcesRead)
+        .map_err(|error| match error {
+            CredentialAuthorizationError::AuthenticationRequired(_) => {
+                SearchListingSourcesError::AuthenticatedActorRequired
+            }
+            CredentialAuthorizationError::InsufficientCapability { .. } => {
+                SearchListingSourcesError::Forbidden
+            }
+        })?;
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(_) | Principal::DelegatedUser { .. } => check_user_admin
@@ -380,5 +393,60 @@ mod tests {
         assert_eq!(0, state.begins);
         assert_eq!(0, state.searches);
         assert_eq!(0, state.commits);
+    }
+    struct ScopeAdminCheck(bool);
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for ScopeAdminCheck {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: CheckUserAdminRequest,
+        ) -> Result<
+            user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
+            CheckUserAdminError,
+        > {
+            if self.0 {
+                Ok(user_service::use_cases::queries::check_user_admin::CheckUserAdminResult)
+            } else {
+                Err(CheckUserAdminError::Forbidden)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_require_matching_scope_and_admin_role() {
+        for (capabilities, admin, allowed) in [
+            (std::collections::BTreeSet::new(), true, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
+                true,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesRead]),
+                false,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesRead]),
+                true,
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id: user_core::user_id::UserId::new(),
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = ensure_admin_or_internal(&context, &ScopeAdminCheck(admin)).await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(SearchListingSourcesError::Forbidden)));
+            }
+        }
     }
 }

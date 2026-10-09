@@ -784,7 +784,7 @@ async fn should_reject_noncanonical_object_ids_in_search_filter_body() {
 async fn search_filters_token(user_id: user_core::user_id::UserId) -> RawAccessToken {
     seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::SearchFiltersWrite]),
+        std::collections::HashSet::from([Scope::SearchFiltersRead, Scope::SearchFiltersWrite]),
     )
     .await
 }

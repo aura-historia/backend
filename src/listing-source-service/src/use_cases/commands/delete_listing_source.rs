@@ -4,7 +4,9 @@ use crate::ports::{
 };
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use listing_source_core::ListingSourceId;
@@ -194,6 +196,17 @@ async fn ensure_admin<A>(
 where
     A: CheckUserAdminUseCase,
 {
+    context
+        .principal
+        .require_credential_capability(CredentialCapability::ListingSourcesWrite)
+        .map_err(|error| match error {
+            CredentialAuthorizationError::AuthenticationRequired(_) => {
+                DeleteListingSourceError::AuthenticatedActorRequired
+            }
+            CredentialAuthorizationError::InsufficientCapability { .. } => {
+                DeleteListingSourceError::Forbidden
+            }
+        })?;
     match context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::Anonymous => Err(DeleteListingSourceError::AuthenticatedActorRequired),
@@ -799,5 +812,60 @@ mod tests {
             ),
             (1, 1, 1, 0)
         );
+    }
+    struct ScopeAdminCheck(bool);
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for ScopeAdminCheck {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: CheckUserAdminRequest,
+        ) -> Result<
+            user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
+            CheckUserAdminError,
+        > {
+            if self.0 {
+                Ok(user_service::use_cases::queries::check_user_admin::CheckUserAdminResult)
+            } else {
+                Err(CheckUserAdminError::Forbidden)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_require_matching_scope_and_admin_role() {
+        for (capabilities, admin, allowed) in [
+            (std::collections::BTreeSet::new(), true, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesRead]),
+                true,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
+                false,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
+                true,
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id: user_core::user_id::UserId::new(),
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = ensure_admin(&context, &ScopeAdminCheck(admin)).await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(DeleteListingSourceError::Forbidden)));
+            }
+        }
     }
 }

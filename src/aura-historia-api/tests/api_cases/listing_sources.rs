@@ -364,8 +364,7 @@ async fn should_delete_unused_listing_source_and_reject_a_repeat() {
     .await
     .unwrap_or_else(|error| panic!("failed to seed listing-source grant: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
         "{}/api/v1/admin/listing-sources/{listing_source_id}",
@@ -489,8 +488,7 @@ async fn should_preserve_live_and_withdrawn_product_listing_source_dependencies_
     )
     .unwrap_or_else(|error| panic!("ProductListing fixture must reference UUIDv7: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let delete_path = format!(
         "{}/api/v1/admin/listing-sources/{listing_source_id}",
         AURA_API.base_url()
@@ -554,7 +552,7 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
         )
         .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -636,8 +634,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
 
@@ -711,8 +708,7 @@ async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
 
@@ -773,7 +769,7 @@ async fn should_follow_listing_source_cursor_with_deterministic_sorting() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_empty_listing_source_collection_when_no_source_matches() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -797,8 +793,7 @@ async fn should_return_empty_listing_source_collection_when_no_source_matches() 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_listing_source_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
 
@@ -891,7 +886,7 @@ async fn should_reject_invalid_listing_source_search_query_values() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_listing_source_collection_for_non_admin() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(user_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -920,7 +915,7 @@ async fn should_return_listing_source_detail_for_admin_without_provider_secrets(
         )
         .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -966,7 +961,7 @@ async fn should_return_listing_source_detail_for_admin_without_provider_secrets(
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_listing_source_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
     let listing_source_id = ListingSourceId::new();
 
     for invalid_id in [
@@ -1001,7 +996,7 @@ async fn should_reject_noncanonical_listing_source_detail_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_listing_source_detail() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -1044,7 +1039,7 @@ async fn should_require_admin_for_listing_source_detail() {
     );
 
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(user_id).await;
     let non_admin = client
         .get(path)
         .bearer_auth(String::from(token))
@@ -1066,8 +1061,7 @@ async fn should_require_admin_for_listing_source_detail() {
 async fn should_create_listing_source_for_existing_party_at_admin_route() {
     let party_id = seed_party("Existing Listing Source Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
 
@@ -1132,7 +1126,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
     let party_id = PartyId::new();
 
     for invalid_id in [
@@ -1172,8 +1166,7 @@ async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_listing_source_with_new_party_without_echoing_webhook_secret() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
 
@@ -1239,7 +1232,7 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
 async fn should_require_nested_woocommerce_secret_on_admin_create() {
     let party_id = seed_party("Missing WooCommerce Secret Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -1269,7 +1262,7 @@ async fn should_require_nested_woocommerce_secret_on_admin_create() {
 async fn should_reject_listing_source_create_for_non_admin() {
     let party_id = seed_party("Unauthorized Listing Source Operator", None, None).await;
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(user_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -1296,7 +1289,7 @@ async fn should_reject_listing_source_create_for_non_admin() {
 async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_source() {
     let party_id = seed_party("Invalid Secret Listing Source Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -1328,8 +1321,7 @@ async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_sou
 async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
     let party_id = seed_party("Shopify Conflict Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
     let client = reqwest::Client::new();
 
@@ -1376,8 +1368,7 @@ async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
 async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     let listing_source_id = seed_listing_source().await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
         "{}/api/v1/admin/listing-sources/{listing_source_id}",
@@ -1623,8 +1614,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
 async fn should_reject_listing_source_update_when_configuration_is_invalid() {
     let listing_source_id = seed_listing_source().await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!(
         "{}/api/v1/admin/listing-sources/{listing_source_id}",
@@ -2091,17 +2081,23 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
         "INVALID_OBJECT_ID",
     );
 
-    let no_scope_token =
-        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
-    let no_scope = client
-        .put(&path)
-        .bearer_auth(no_scope_token)
-        .json(&json!({"domain": "merchant.example"}))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to test missing delegated scope: {error}"));
-    let (status, body) = json_response(no_scope).await;
-    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    seed_partnership_membership(user_id, listing_source_id.into_uuid()).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id.into_uuid()).await;
+    for scopes in [
+        std::collections::HashSet::new(),
+        std::collections::HashSet::from([Scope::ListingSourcesRead]),
+    ] {
+        let no_scope_token = String::from(seed_access_token_for(user_id, scopes).await);
+        let no_scope = client
+            .put(&path)
+            .bearer_auth(no_scope_token)
+            .json(&json!({"domain": "merchant.example"}))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to test missing delegated scope: {error}"));
+        let (status, body) = json_response(no_scope).await;
+        assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    }
 
     let missing_grant_user = seed_user("USER").await;
     let no_grant_token = String::from(
@@ -2126,8 +2122,7 @@ async fn should_require_listing_source_scope_and_partnership_access_for_provider
 async fn should_map_listing_source_update_provider_conflict_to_conflict() {
     let party_id = seed_party("ListingSource Update Conflict Operator", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
     let create_path = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
     let duplicate_domain = "duplicate-update-shop.example";
@@ -2194,7 +2189,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_listing_source_update() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -2243,7 +2238,7 @@ async fn should_require_admin_for_listing_source_update() {
     );
 
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = listing_sources_token(user_id).await;
     let non_admin = client
         .patch(path)
         .bearer_auth(String::from(token))
@@ -2287,4 +2282,14 @@ async fn should_reject_legacy_listing_source_create_method() {
         .unwrap_or_else(|error| panic!("failed to call legacy listing-source route: {error}"));
 
     assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+}
+
+async fn listing_sources_token(
+    user_id: user_core::user_id::UserId,
+) -> user_core::access_token::RawAccessToken {
+    seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::ListingSourcesRead, Scope::ListingSourcesWrite]),
+    )
+    .await
 }

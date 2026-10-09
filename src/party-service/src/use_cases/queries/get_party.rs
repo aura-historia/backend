@@ -1,6 +1,8 @@
 use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory, StoredParty};
 use application::error::{BoxError, static_error};
-use application::operation_context::{OperationContext, Principal};
+use application::operation_context::{
+    CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+};
 use application::transaction::{Transaction, UnitOfWork};
 use party_core::{
     party::PartyContact, party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId,
@@ -155,6 +157,15 @@ async fn ensure_admin_or_internal<A>(
 where
     A: CheckUserAdminUseCase,
 {
+    context
+        .principal
+        .require_credential_capability(CredentialCapability::PartiesRead)
+        .map_err(|error| match error {
+            CredentialAuthorizationError::AuthenticationRequired(_) => {
+                GetPartyError::AuthenticatedActorRequired
+            }
+            CredentialAuthorizationError::InsufficientCapability { .. } => GetPartyError::Forbidden,
+        })?;
     match context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(_) | Principal::DelegatedUser { .. } => check_user_admin
@@ -198,6 +209,66 @@ impl From<PartyRepositoryError> for GetPartyError {
             PartyRepositoryError::ConcurrencyConflict => Self::Internal {
                 source: static_error("unexpected party read concurrency conflict"),
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct ScopeAdminCheck(bool);
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for ScopeAdminCheck {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: CheckUserAdminRequest,
+        ) -> Result<
+            user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
+            CheckUserAdminError,
+        > {
+            if self.0 {
+                Ok(user_service::use_cases::queries::check_user_admin::CheckUserAdminResult)
+            } else {
+                Err(CheckUserAdminError::Forbidden)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_require_matching_scope_and_admin_role() {
+        for (capabilities, admin, allowed) in [
+            (std::collections::BTreeSet::new(), true, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartiesWrite]),
+                true,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartiesRead]),
+                false,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::PartiesRead]),
+                true,
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id: user_core::user_id::UserId::new(),
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = ensure_admin_or_internal(&context, &ScopeAdminCheck(admin)).await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(GetPartyError::Forbidden)));
+            }
         }
     }
 }

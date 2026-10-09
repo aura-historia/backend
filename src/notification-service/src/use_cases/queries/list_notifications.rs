@@ -2,7 +2,9 @@ use crate::ports::notification_list_reader::{
     NotificationListCursor, NotificationListReadError, NotificationListReader,
 };
 use crate::presentation::NotificationPresentationPreferences;
-use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use localization::Language;
 use notification_core::notification_id::NotificationId;
 use notification_core::{
@@ -110,6 +112,7 @@ where
 fn notification_owner(context: &OperationContext) -> Result<UserId, ListNotificationsError> {
     context
         .require()
+        .credential_capability(CredentialCapability::NotificationsRead)
         .any_user()
         .authorize::<ListNotificationsError>()?;
 
@@ -129,6 +132,42 @@ impl From<OperationAuthorizationError> for ListNotificationsError {
             }
             OperationAuthorizationError::Forbidden
             | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn should_require_notification_scope_for_delegated_owner() {
+        let user_id = UserId::new();
+        for (capabilities, allowed) in [
+            (std::collections::BTreeSet::new(), false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::NotificationsWrite]),
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::NotificationsRead]),
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: Principal::DelegatedUser {
+                    user_id,
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = notification_owner(&context);
+            assert_eq!(allowed, result.is_ok());
+            if allowed {
+                assert_eq!(user_id, result.expect("authorized owner"));
+            } else {
+                assert!(matches!(result, Err(ListNotificationsError::Forbidden)));
+            }
         }
     }
 }

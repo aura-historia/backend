@@ -1,7 +1,9 @@
 use crate::ports::*;
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use user_core::user_id::UserId;
@@ -68,6 +70,17 @@ impl<U: UnitOfWork, R: PartnershipApplicationReaderFactory<U::Tx>>
         context: &OperationContext,
         request: ListOwnPartnershipApplicationsRequest,
     ) -> Result<ListOwnPartnershipApplicationsResult, ListOwnPartnershipApplicationsError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsRead)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    ListOwnPartnershipApplicationsError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    ListOwnPartnershipApplicationsError::Forbidden
+                }
+            })?;
         match context.principal {
             Principal::User(id) | Principal::DelegatedUser { user_id: id, .. }
                 if id == request.user_id => {}
@@ -365,7 +378,9 @@ mod tests {
             .execute(
                 &context(Principal::DelegatedUser {
                     user_id,
-                    capabilities: BTreeSet::new(),
+                    capabilities: BTreeSet::from([
+                        CredentialCapability::PartnershipApplicationsRead,
+                    ]),
                 }),
                 request(user_id),
             )
@@ -428,7 +443,7 @@ mod tests {
             Principal::User(actor_user_id),
             Principal::DelegatedUser {
                 user_id: actor_user_id,
-                capabilities: BTreeSet::new(),
+                capabilities: BTreeSet::from([CredentialCapability::PartnershipApplicationsRead]),
             },
         ] {
             let state = Arc::new(Mutex::new(State::default()));
