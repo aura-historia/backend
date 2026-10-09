@@ -493,8 +493,10 @@ fn localized_description(
 }
 
 fn title(value: &str) -> Result<Title, SourceRowMappingError> {
-    let title = Title::from(value);
-    (!title.as_ref().is_empty() && title.as_ref() == value)
+    let title = crate::title::decode_title(value).map_err(|_| {
+        SourceRowMappingError::invalid("persisted product search-filter match title is invalid")
+    })?;
+    (!title.as_ref().is_empty())
         .then_some(title)
         .ok_or_else(|| {
             SourceRowMappingError::invalid("persisted product search-filter match title is invalid")

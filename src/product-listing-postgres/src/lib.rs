@@ -16,6 +16,7 @@ pub mod product_listing_repository;
 pub mod product_listing_translation_source_reader;
 pub mod product_listing_translation_writer;
 pub mod readers;
+mod title;
 mod url;
 
 pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;

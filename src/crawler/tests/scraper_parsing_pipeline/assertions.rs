@@ -9,6 +9,7 @@ use crawler::scraper::normalization::product_normalization_service::{
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 
 use money::Currency;
+use product_listing_core::title::Title;
 use scraper::Html;
 
 use url::Url;
@@ -86,6 +87,11 @@ pub async fn assert_normalized(
         "source_listing_id"
     );
     assert_eq!(result.title.payload.as_ref(), expected.title, "title");
+    assert_eq!(
+        result.title.payload,
+        Title::from(result.title.payload.as_ref()),
+        "normalized title must remain stable when reconstructed"
+    );
     assert_eq!(
         result.description.as_ref().map(|d| d.payload.as_ref()),
         expected.description.as_deref(),

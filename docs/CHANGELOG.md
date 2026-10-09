@@ -8,6 +8,11 @@ Only document REST API contract changes here. No internal changes.
 - Added admin-only `GET /api/v1/admin/auctions` with `query`, `listingSourceId`, `sourceAuctionId`, `format`, `reportedStatus`, `sort`, `order`, `size`, and opaque `searchAfter`. It returns complete `AuctionAdminData` rows regardless of status or listing visibility; `listingSourceId` plus `sourceAuctionId` resolves create conflicts. NUL-containing search text and cursor name keys are rejected with `400 BAD_QUERY_PARAMETER_VALUE`. Results and errors are `no-store`.
 - Public `GET /api/v1/auctions` now accepts `sort=created|scheduled` and `order=asc|desc`. The default remains newest-created-first and preserves legacy cursors; scheduled sorting requires `timeRole`, defaults to ascending, sorts missing instants last without a window, and scopes its cursor to sort/order. Anonymous cache policy remains unchanged.
 
+## 2026-10-09 — Stable ProductListing title reads
+
+- ProductListing titles preserve truncation ellipses across normalization and persistence. Removing sentence-final punctuation also removes exposed outer whitespace.
+- Details and history can read the bounded trailing-whitespace titles emitted by the earlier constructor. History payloads, public IDs and slugs are preserved; response shapes are unchanged.
+
 ## 2026-10-09 — Consistent profile-name normalization (#1984)
 
 - Profile-name JSON input now uses the existing `FirstName`/`LastName` constructors. Names are consistently truncated to 64 Unicode characters before persistence; the documented maximum and wire shape are unchanged.

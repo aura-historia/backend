@@ -13536,6 +13536,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
+          description: Original normalized title. Truncation ellipses remain stable; legacy constructor trailing whitespace is presented trimmed.
         productDescription:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -14338,7 +14339,9 @@ components:
         sourceListingId:
           type: string
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
+          description: Normalized discovery title, with legacy constructor trailing whitespace presented trimmed without rewriting the stored event.
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
         description:
           $ref: "#/components/schemas/LocalizedTextData"
         pricing:
