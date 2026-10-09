@@ -4,7 +4,6 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use product_listing_core::{
     product_listing_event::ProductListingEventPayload, product_listing_id::ProductListingId,
-    title::Title,
 };
 use product_listing_service::ports::{
     ProductListingTranslationSource, ProductListingTranslationSourceEvent,
@@ -100,8 +99,9 @@ impl TryFrom<ProductListingTranslationSourceRow> for ProductListingTranslationSo
         let event = translation_event(&row)?;
         let (title, title_language) = match (row.title_text, row.title_language) {
             (Some(raw_title), Some(raw_language)) => {
-                let title = Title::from(raw_title.as_str());
-                if title.as_ref().is_empty() || title.as_ref() != raw_title {
+                let title = crate::title::decode_title(&raw_title)
+                    .map_err(|_| mapping_error("persisted product translation title is invalid"))?;
+                if title.as_ref().is_empty() {
                     return Err(mapping_error(
                         "persisted product translation title is invalid",
                     ));

@@ -75,6 +75,14 @@ Enrichment is separate from aggregate changes and public domain history. Persist
 
 Title and description are optional creation-only inputs. Upsert of an existing listing preserves them. Availability, main price and estimates use tri-state patches: omitted preserves, `null` clears, a value sets. Absent response availability is explicit `null`.
 
+Title normalization is idempotent: truncation ellipses remain stable, and removing
+sentence-final periods also removes exposed outer whitespace. Shortened ellipses
+from prior rehydration remain readable. PostgreSQL title decoders also accept
+bounded, otherwise-canonical titles with trailing whitespace emitted by the old
+constructor, presenting the canonical value without rewriting immutable history.
+Leading whitespace, case/punctuation changes and overlength persisted titles still
+fail validation. This compatibility does not regenerate public IDs or slugs.
+
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
 Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).

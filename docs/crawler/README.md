@@ -46,7 +46,7 @@ Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr
 
 ## Boundaries
 
-- [ListingSource contract](../party-and-listing-source.md) owns business source identity and `WEB_CRAWL` configuration.
+- [ListingSource API contract](../swagger.yaml) defines business source identity and `WEB_CRAWL` configuration.
 - [ProductListing event flow](../events/flow.md#productlisting-write-flow) owns raw capture and normalization.
 - [Workspace architecture](../arch.md) owns dependency and authority rules.
 - [Networking](networking.md), [scheduling and retries](scheduling-and-retries.md), [extraction and review](extraction-and-review.md), and [operations](operations.md) define crawler-specific contracts.

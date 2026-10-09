@@ -6,10 +6,21 @@ string_newtype!(
     derives(serde::Serialize, serde::Deserialize)
 );
 
+impl Title {
+    pub const MAX_CHARS: usize = 128;
+}
+
 impl From<&str> for Title {
     fn from(s: &str) -> Self {
-        let s = s.trim();
-        let s = s.strip_suffix('.').unwrap_or(s);
+        let mut s = s.trim();
+        // Keep ellipses, including shortened ellipses in previously persisted titles.
+        // Removing sentence punctuation can expose whitespace or another sentence period.
+        while !s.ends_with("..") {
+            let Some(without_period) = s.strip_suffix('.') else {
+                break;
+            };
+            s = without_period.trim_end();
+        }
 
         let mut chars = s.chars();
         let capitalized: String = match chars.next() {
@@ -20,14 +31,13 @@ impl From<&str> for Title {
             }
         };
 
-        const MAX_CHARS: usize = 128;
         const ELLIPSIS: &str = "...";
         const ELLIPSIS_CHAR_LEN: usize = 3;
 
-        if capitalized.chars().count() > MAX_CHARS {
+        if capitalized.chars().count() > Self::MAX_CHARS {
             let truncated: String = capitalized
                 .chars()
-                .take(MAX_CHARS - ELLIPSIS_CHAR_LEN)
+                .take(Self::MAX_CHARS - ELLIPSIS_CHAR_LEN)
                 .collect();
             Title(truncated + ELLIPSIS)
         } else {
@@ -116,6 +126,35 @@ mod tests {
     fn should_handle_title_with_period() {
         let title = Title::from("Hello World.");
         assert_eq!(title.as_ref(), "Hello World");
+    }
+
+    #[test]
+    fn should_preserve_ellipsis_on_repeated_normalization() {
+        for raw in [
+            "a".repeat(200),
+            "ä".repeat(200),
+            "Title...".to_owned(),
+            "Title..".to_owned(),
+        ] {
+            let title = Title::from(raw.as_str());
+            assert_eq!(title, Title::from(title.as_ref()));
+        }
+    }
+
+    #[test]
+    fn should_trim_whitespace_exposed_by_terminal_periods() {
+        for raw in [
+            "hello world .",
+            "hello world . .",
+            "hello world\t.",
+            "hello world... .",
+        ] {
+            let title = Title::from(raw);
+            assert_eq!(title.as_ref(), title.as_ref().trim());
+            assert_eq!(title, Title::from(title.as_ref()));
+        }
+        assert_eq!(Title::from("hello world .").as_ref(), "Hello world");
+        assert_eq!(Title::from("hello world... .").as_ref(), "Hello world...");
     }
 
     #[test]
