@@ -124,6 +124,16 @@ enum PersistedCurrency {
     Sgd,
     Chf,
     Zar,
+    Sek,
+    Dkk,
+    Nok,
+    Krw,
+    Inr,
+    Twd,
+    Huf,
+    Ron,
+    Mxn,
+    Thb,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -651,6 +661,16 @@ fn price_data_from_price(price: ProductListingPrice) -> PersistedProductListingP
         Currency::Sgd => PersistedCurrency::Sgd,
         Currency::Chf => PersistedCurrency::Chf,
         Currency::Zar => PersistedCurrency::Zar,
+        Currency::Sek => PersistedCurrency::Sek,
+        Currency::Dkk => PersistedCurrency::Dkk,
+        Currency::Nok => PersistedCurrency::Nok,
+        Currency::Krw => PersistedCurrency::Krw,
+        Currency::Inr => PersistedCurrency::Inr,
+        Currency::Twd => PersistedCurrency::Twd,
+        Currency::Huf => PersistedCurrency::Huf,
+        Currency::Ron => PersistedCurrency::Ron,
+        Currency::Mxn => PersistedCurrency::Mxn,
+        Currency::Thb => PersistedCurrency::Thb,
     };
     PersistedProductListingPrice::Monetary {
         currency,
@@ -682,6 +702,16 @@ fn price_from_data(price: PersistedProductListingPrice) -> ProductListingPrice {
         PersistedCurrency::Sgd => Currency::Sgd,
         PersistedCurrency::Chf => Currency::Chf,
         PersistedCurrency::Zar => Currency::Zar,
+        PersistedCurrency::Sek => Currency::Sek,
+        PersistedCurrency::Dkk => Currency::Dkk,
+        PersistedCurrency::Nok => Currency::Nok,
+        PersistedCurrency::Krw => Currency::Krw,
+        PersistedCurrency::Inr => Currency::Inr,
+        PersistedCurrency::Twd => Currency::Twd,
+        PersistedCurrency::Huf => Currency::Huf,
+        PersistedCurrency::Ron => Currency::Ron,
+        PersistedCurrency::Mxn => Currency::Mxn,
+        PersistedCurrency::Thb => Currency::Thb,
     };
     ProductListingPrice::Monetary(Price::new(MonetaryAmount::from(amount), currency))
 }

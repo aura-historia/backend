@@ -285,7 +285,7 @@ fn product_listing_document(
             "cad": amount, "nzd": amount, "cny": amount, "brl": amount,
             "pln": amount, "try": amount, "jpy": amount, "czk": amount,
             "rub": amount, "aed": amount, "sar": amount, "hkd": amount,
-            "sgd": amount, "chf": amount, "zar": amount
+            "sgd": amount, "chf": amount, "zar": amount, "sek": amount, "dkk": amount, "nok": amount, "krw": amount, "inr": amount, "twd": amount, "huf": amount, "ron": amount, "mxn": amount, "thb": amount
         })
     });
     let sale_observed_at = seed

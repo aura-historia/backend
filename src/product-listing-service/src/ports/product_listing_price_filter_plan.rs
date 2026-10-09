@@ -236,7 +236,10 @@ mod tests {
                             &snapshot,
                             money::Price::new(amount.into(), source_currency),
                         )?
-                        .amount_in(target_currency);
+                        .amount_in(target_currency)
+                        .ok_or(
+                            fxrate_core::FxRateSnapshotError::MissingQuote(target_currency),
+                        )?;
                         let saved_filter_membership = range
                             .min
                             .is_none_or(|minimum| percolated_amount >= u64::from(minimum))

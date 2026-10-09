@@ -91,7 +91,17 @@
                     "hkd": { "type": "unsigned_long" },
                     "sgd": { "type": "unsigned_long" },
                     "chf": { "type": "unsigned_long" },
-                    "zar": { "type": "unsigned_long" }
+                    "zar": { "type": "unsigned_long" },
+                    "sek": { "type": "unsigned_long" },
+                    "dkk": { "type": "unsigned_long" },
+                    "nok": { "type": "unsigned_long" },
+                    "krw": { "type": "unsigned_long" },
+                    "inr": { "type": "unsigned_long" },
+                    "twd": { "type": "unsigned_long" },
+                    "huf": { "type": "unsigned_long" },
+                    "ron": { "type": "unsigned_long" },
+                    "mxn": { "type": "unsigned_long" },
+                    "thb": { "type": "unsigned_long" }
                 }
             },
             "saleObservationFxRateId": {

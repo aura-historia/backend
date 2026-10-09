@@ -747,6 +747,16 @@ fn currency_code(currency: Currency) -> &'static str {
         Currency::Sgd => "SGD",
         Currency::Chf => "CHF",
         Currency::Zar => "ZAR",
+        Currency::Sek => "SEK",
+        Currency::Dkk => "DKK",
+        Currency::Nok => "NOK",
+        Currency::Krw => "KRW",
+        Currency::Inr => "INR",
+        Currency::Twd => "TWD",
+        Currency::Huf => "HUF",
+        Currency::Ron => "RON",
+        Currency::Mxn => "MXN",
+        Currency::Thb => "THB",
     }
 }
 
@@ -771,6 +781,16 @@ fn sale_price_field_for(currency: Currency) -> &'static str {
         Currency::Sgd => "salePrices.sgd",
         Currency::Chf => "salePrices.chf",
         Currency::Zar => "salePrices.zar",
+        Currency::Sek => "salePrices.sek",
+        Currency::Dkk => "salePrices.dkk",
+        Currency::Nok => "salePrices.nok",
+        Currency::Krw => "salePrices.krw",
+        Currency::Inr => "salePrices.inr",
+        Currency::Twd => "salePrices.twd",
+        Currency::Huf => "salePrices.huf",
+        Currency::Ron => "salePrices.ron",
+        Currency::Mxn => "salePrices.mxn",
+        Currency::Thb => "salePrices.thb",
     }
 }
 
@@ -918,6 +938,16 @@ mod tests {
             sgd: 100,
             chf: 100,
             zar: 100,
+            sek: Some(100),
+            dkk: Some(100),
+            nok: Some(100),
+            krw: Some(100),
+            inr: Some(100),
+            twd: Some(100),
+            huf: Some(100),
+            ron: Some(100),
+            mxn: Some(100),
+            thb: Some(100),
         }
     }
 

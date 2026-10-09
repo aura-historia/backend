@@ -50,6 +50,16 @@ pub enum Currency {
     Sgd,
     Chf,
     Zar,
+    Sek,
+    Dkk,
+    Nok,
+    Krw,
+    Inr,
+    Twd,
+    Huf,
+    Ron,
+    Mxn,
+    Thb,
 }
 
 impl Currency {
@@ -121,6 +131,16 @@ impl Currency {
             Currency::Sgd => "S$",
             Currency::Chf => "CHF",
             Currency::Zar => "R",
+            Currency::Sek => "SEK",
+            Currency::Dkk => "DKK",
+            Currency::Nok => "NOK",
+            Currency::Krw => "₩",
+            Currency::Inr => "₹",
+            Currency::Twd => "NT$",
+            Currency::Huf => "Ft",
+            Currency::Ron => "lei",
+            Currency::Mxn => "MX$",
+            Currency::Thb => "฿",
         }
     }
 
@@ -131,7 +151,12 @@ impl Currency {
             | Currency::Pln
             | Currency::Try
             | Currency::Czk
-            | Currency::Rub => ",",
+            | Currency::Rub
+            | Currency::Sek
+            | Currency::Dkk
+            | Currency::Nok
+            | Currency::Huf
+            | Currency::Ron => ",",
             Currency::Gbp
             | Currency::Usd
             | Currency::Aud
@@ -144,7 +169,12 @@ impl Currency {
             | Currency::Hkd
             | Currency::Sgd
             | Currency::Chf
-            | Currency::Zar => ".",
+            | Currency::Zar
+            | Currency::Krw
+            | Currency::Inr
+            | Currency::Twd
+            | Currency::Mxn
+            | Currency::Thb => ".",
         }
     }
 
@@ -158,6 +188,11 @@ impl Currency {
                 | Currency::Rub
                 | Currency::Aed
                 | Currency::Sar
+                | Currency::Sek
+                | Currency::Dkk
+                | Currency::Nok
+                | Currency::Huf
+                | Currency::Ron
         )
     }
 
@@ -188,6 +223,16 @@ impl Currency {
             Currency::Sgd => "SGD",
             Currency::Chf => "CHF",
             Currency::Zar => "ZAR",
+            Currency::Sek => "SEK",
+            Currency::Dkk => "DKK",
+            Currency::Nok => "NOK",
+            Currency::Krw => "KRW",
+            Currency::Inr => "INR",
+            Currency::Twd => "TWD",
+            Currency::Huf => "HUF",
+            Currency::Ron => "RON",
+            Currency::Mxn => "MXN",
+            Currency::Thb => "THB",
         }
     }
 }
@@ -199,7 +244,7 @@ pub trait HasMinorUnitExponent {
 impl HasMinorUnitExponent for Currency {
     fn minor_unit_exponent(&self) -> MinorUnitExponent {
         match self {
-            Currency::Jpy => MinorUnitExponent(0),
+            Currency::Jpy | Currency::Krw => MinorUnitExponent(0),
             _ => MinorUnitExponent(2),
         }
     }
@@ -216,5 +261,26 @@ mod tests {
             assert_eq!(Some(currency), Currency::from_code(currency.as_str()));
         }
         assert_eq!(None, Currency::from_code("eur"));
+    }
+    #[test]
+    fn should_format_added_currencies_with_iso_minor_units() {
+        for (currency, exponent, expected) in [
+            (Currency::Sek, 2, "123,45 SEK"),
+            (Currency::Dkk, 2, "123,45 DKK"),
+            (Currency::Nok, 2, "123,45 NOK"),
+            (Currency::Krw, 0, "₩12345"),
+            (Currency::Inr, 2, "₹123.45"),
+            (Currency::Twd, 2, "NT$123.45"),
+            (Currency::Huf, 2, "123,45 Ft"),
+            (Currency::Ron, 2, "123,45 lei"),
+            (Currency::Mxn, 2, "MX$123.45"),
+            (Currency::Thb, 2, "฿123.45"),
+        ] {
+            assert_eq!(MinorUnitExponent(exponent), currency.minor_unit_exponent());
+            assert_eq!(
+                expected,
+                Price::new(12345_u64.into(), currency).format_human_readable()
+            );
+        }
     }
 }
