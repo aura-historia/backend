@@ -35,6 +35,7 @@ use user_service::ports::{
     NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender, NewsletterProfile,
 };
 
+const CONFIGURATION_SET: &str = "aura-historia-ephemeral-email";
 const TEMPLATE_KEY: &str = "ephemeral/test-commit/mjml/newsletter/confirmation/en.html";
 const TEMPLATE: &str = "<html><body>{{#if first_name}}Hello {{first_name}}{{else}}Hello{{/if}}<a href=\"{{confirmation_url}}\">Confirm subscription</a></body></html>";
 
@@ -103,8 +104,11 @@ impl HttpConnector for ReplayHttp {
                         .to_string()
                         .contains("/v2/email/outbound-emails")
                 );
-                serde_json::from_slice(request.body().bytes().expect("SES JSON request body"))
-                    .expect("valid SES JSON request")
+                let body: Value =
+                    serde_json::from_slice(request.body().bytes().expect("SES JSON request body"))
+                        .expect("valid SES JSON request");
+                assert_eq!(body["ConfigurationSetName"], CONFIGURATION_SET);
+                body
             }
         };
         let mut state = self.state.lock().unwrap();
@@ -194,6 +198,7 @@ fn sender_with_ses_timeout(
         "test-templates",
         "sender@example.test",
         "reply@example.test",
+        CONFIGURATION_SET,
         "ephemeral",
         "test-commit",
         "http://127.0.0.1:3000",
@@ -239,6 +244,7 @@ async fn sends_signed_ses_payload_with_confirmation_link_and_accepts_receipt() {
         request["Destination"]["ToAddresses"],
         json!(["reader@example.test"])
     );
+    assert_eq!(request["ConfigurationSetName"], CONFIGURATION_SET);
     assert_eq!(request["FromEmailAddress"], "sender@example.test");
     assert_eq!(request["ReplyToAddresses"], json!(["reply@example.test"]));
     assert!(

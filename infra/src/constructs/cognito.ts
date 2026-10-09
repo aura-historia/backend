@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import type * as ses from "aws-cdk-lib/aws-ses";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Construct } from "constructs";
@@ -8,6 +9,7 @@ import { ssmValue, type CognitoIdentityProviderConfig, type StageConfig } from "
 
 export interface IdentityProps {
   readonly config: StageConfig;
+  readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly stageName: string;
   readonly postConfirmationLambda: lambda.Function;
   readonly preSignUpLambda?: lambda.Function;
@@ -125,7 +127,7 @@ export class Identity extends Construct {
 
     if (props.config.cognitoEmail) {
       cfnUserPool.addPropertyOverride("EmailConfiguration", {
-        ConfigurationSet: props.config.cognitoEmail.configurationSet,
+        ConfigurationSet: props.emailConfigurationSet.configurationSetName,
         EmailSendingAccount: "DEVELOPER",
         From: props.config.cognitoEmail.from,
         ReplyToEmailAddress: props.config.cognitoEmail.replyTo,

@@ -668,7 +668,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["COMMIT_SHA", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+      ["COMMIT_SHA", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
     const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));
@@ -681,6 +681,22 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Effect: "Allow",
       }),
     ]));
+    const sesStatements = statements.filter((statement: { Action: unknown }) =>
+      JSON.stringify(statement.Action).includes("ses:"),
+    );
+    expect(sesStatements).toHaveLength(1);
+    expect(sesStatements[0].Action).toBe("ses:SendEmail");
+    expect(sesStatements[0].Resource).toHaveLength(2);
+    expect(JSON.stringify(sesStatements[0].Resource)).toContain("identity/notify.aura-historia.com");
+    const [configurationSetId] = Object.keys(compute.findResources("AWS::SES::ConfigurationSet"));
+    expect(sesStatements[0].Resource[1]).toEqual({
+      "Fn::Join": ["", [
+        "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
+        { Ref: "AWS::AccountId" }, ":configuration-set/", { Ref: configurationSetId },
+      ]],
+    });
+    expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("identity/*");
+    expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("configuration-set/*");
     expect(JSON.stringify(statements)).not.toContain("ses:*");
     expect(JSON.stringify(statements)).not.toContain("sqs:PurgeQueue");
     expect(JSON.stringify(statements)).not.toContain("StartMessageMoveTask");

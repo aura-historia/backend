@@ -50,32 +50,38 @@ pub struct NewsletterConfirmationEmailConfig {
     bucket: String,
     from: String,
     reply_to: String,
+    configuration_set: String,
     stage: String,
     commit: String,
     frontend_origin: Url,
 }
 
 impl NewsletterConfirmationEmailConfig {
+    /// `configuration_set` is a required trusted deployment setting, never user input.
     /// `frontend_origin` is a trusted deployment setting, never a request redirect.
     /// Real stages have pinned HTTPS origins; local/ephemeral require HTTP loopback.
     pub fn new(
         bucket: impl Into<String>,
         from: impl Into<String>,
         reply_to: impl Into<String>,
+        configuration_set: impl Into<String>,
         stage: impl Into<String>,
         commit: impl Into<String>,
         frontend_origin: &str,
     ) -> Result<Self, NewsletterConfirmationEmailConfigError> {
-        let (bucket, from, reply_to, stage, commit) = (
+        let (bucket, from, reply_to, configuration_set, stage, commit) = (
             bucket.into(),
             from.into(),
             reply_to.into(),
+            configuration_set.into(),
             stage.into(),
             commit.into(),
         );
         if bucket.trim().is_empty()
             || from.trim().is_empty()
             || reply_to.trim().is_empty()
+            || configuration_set.len() > 64
+            || !safe_key_component(&configuration_set)
             || !safe_key_component(&stage)
             || !safe_key_component(&commit)
         {
@@ -119,6 +125,7 @@ impl NewsletterConfirmationEmailConfig {
             bucket,
             from,
             reply_to,
+            configuration_set,
             stage,
             commit,
             frontend_origin: origin,
@@ -341,6 +348,7 @@ impl SesNewsletterConfirmationEmailSender {
                 .send_email()
                 .from_email_address(&self.config.from)
                 .reply_to_addresses(&self.config.reply_to)
+                .configuration_set_name(&self.config.configuration_set)
                 .destination(
                     Destination::builder()
                         .to_addresses(email.recipient.to_string())
@@ -476,6 +484,7 @@ mod tests {
             "bucket",
             "from@example.test",
             "reply@example.test",
+            "aura-historia-test-email",
             stage,
             "abc123",
             origin,
@@ -511,12 +520,64 @@ mod tests {
                 "bucket",
                 "from",
                 "reply",
+                "aura-historia-test-email",
                 "../prod",
                 "abc123",
                 "https://aura-historia.com"
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn requires_valid_ses_configuration_set_names_without_normalization() {
+        let with_configuration_set = |name: &str| {
+            NewsletterConfirmationEmailConfig::new(
+                "bucket",
+                "from@example.test",
+                "reply@example.test",
+                name,
+                "dev",
+                "abc123",
+                "https://stage.aura-historia.com",
+            )
+        };
+        for name in [
+            "aura-historia-dev-email",
+            "Az09_-",
+            "_",
+            "-",
+            &"a".repeat(64),
+        ] {
+            let config = with_configuration_set(name)
+                .unwrap_or_else(|_| panic!("valid SES configuration set rejected"));
+            assert_eq!(config.configuration_set, name);
+        }
+        for name in [
+            "",
+            " ",
+            " aura-historia-dev-email",
+            "aura-historia-dev-email ",
+            "invalid.name",
+            "invalid/name",
+            "invalid:name",
+            "invalid\nname",
+            "invalid\tname",
+            "café",
+            &"a".repeat(65),
+        ] {
+            let Err(error) = with_configuration_set(name) else {
+                panic!("invalid SES configuration set accepted");
+            };
+            assert_eq!(
+                error,
+                NewsletterConfirmationEmailConfigError::InvalidConfiguration
+            );
+            assert_eq!(
+                error.to_string(),
+                "invalid newsletter confirmation email configuration"
+            );
+        }
     }
 
     #[test]

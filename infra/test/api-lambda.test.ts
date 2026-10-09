@@ -61,6 +61,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
     "COMMIT_SHA",
+    "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET",
     "NEWSLETTER_CONFIRMATION_EMAIL_FROM",
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO",
     "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN",
@@ -248,7 +249,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     }
   });
 
-  test("grants API only the newsletter templates and approved SES identity", () => {
+  test("grants API only the newsletter templates and approved SES identity and configuration set", () => {
     const template = computeTemplate(stage);
     const api = apiFunction(template, stage);
     const roleId = (api.Properties.Role as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0];
@@ -273,8 +274,17 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 
     expect(sesStatements).toHaveLength(1);
     expect(sesStatements[0].Action).toBe("ses:SendEmail");
+    expect(sesStatements[0].Resource).toHaveLength(2);
     expect(JSON.stringify(sesStatements[0].Resource)).toContain("identity/notify.aura-historia.com");
+    const [configurationSetId] = Object.keys(template.findResources("AWS::SES::ConfigurationSet"));
+    expect((sesStatements[0].Resource as unknown[])[1]).toEqual({
+      "Fn::Join": ["", [
+        "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
+        { Ref: "AWS::AccountId" }, ":configuration-set/", { Ref: configurationSetId },
+      ]],
+    });
     expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("identity/*");
+    expect(JSON.stringify(sesStatements[0].Resource)).not.toContain("configuration-set/*");
     expect(JSON.stringify(sesStatements[0].Action)).not.toContain("ses:*");
   });
 

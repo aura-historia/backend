@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
@@ -226,6 +227,7 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
 export class ApplicationComputeStack extends cdk.Stack {
   readonly lambdas: Lambdas;
   readonly identity: Identity;
+  readonly emailConfigurationSet: ses.ConfigurationSet;
   readonly eventing: Eventing;
   readonly periodicMatcher?: PeriodicMatcher;
   readonly scheduledEcsCluster?: ecs.Cluster;
@@ -242,8 +244,35 @@ export class ApplicationComputeStack extends cdk.Stack {
     const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
     const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
 
+    this.emailConfigurationSet = new ses.ConfigurationSet(this, "EmailConfigurationSet", {
+      configurationSetName: config.notificationEmail.configurationSet,
+      reputationMetrics: true,
+    });
+    // Rollback sources and outstanding sender versions may still reference this set in either stage.
+    this.emailConfigurationSet.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+    const emailMetrics = this.emailConfigurationSet.addEventDestination("CloudWatchMetrics", {
+      destination: ses.EventDestination.cloudWatchDimensions([{
+        name: "stage",
+        source: ses.CloudWatchDimensionSource.MESSAGE_TAG,
+        // Senders omit this tag; the stage default keeps metrics low-cardinality and non-sensitive.
+        defaultValue: stageName,
+      }]),
+      events: [
+        ses.EmailSendingEvent.SEND,
+        ses.EmailSendingEvent.DELIVERY,
+        ses.EmailSendingEvent.BOUNCE,
+        ses.EmailSendingEvent.COMPLAINT,
+        ses.EmailSendingEvent.DELIVERY_DELAY,
+        ses.EmailSendingEvent.RENDERING_FAILURE,
+        ses.EmailSendingEvent.OPEN,
+        ses.EmailSendingEvent.CLICK,
+        ses.EmailSendingEvent.SUBSCRIPTION,
+      ],
+    });
+
     this.lambdas = new Lambdas(this, "Lambdas", {
       config,
+      emailConfigurationSet: this.emailConfigurationSet,
       parameters,
       artifactBucket,
       mailTemplateBucket,
@@ -255,10 +284,14 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     this.identity = new Identity(this, "Identity", {
       config,
+      emailConfigurationSet: this.emailConfigurationSet,
       stageName,
       postConfirmationLambda: this.lambdas.functions.postConfirmation,
       preSignUpLambda: this.lambdas.functions.preSignUp,
     });
+    this.identity.userPool.node.addDependency(emailMetrics);
+    this.lambdas.functions.auraHistoriaApi.node.addDependency(emailMetrics);
+    this.lambdas.functions.notificationDelivery.node.addDependency(emailMetrics);
     addUserPoolEnvironment(
       this.lambdas.functions,
       this.identity.userPool.userPoolId,

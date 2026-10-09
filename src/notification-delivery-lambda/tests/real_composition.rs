@@ -259,6 +259,12 @@ async fn provider(
     let aws = test_api::localstack::get_aws_config().await;
     let s3 = S3Client::from_conf(S3ConfigBuilder::from(aws).force_path_style(true).build());
     let bucket = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    let ses = SesClient::new(aws);
+    let configuration_set = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    ses.create_configuration_set()
+        .configuration_set_name(&configuration_set)
+        .send()
+        .await?;
     let stage = "test";
     let commit = uuid::Uuid::new_v4().simple().to_string();
     s3.create_bucket()
@@ -285,14 +291,15 @@ async fn provider(
         .await?;
     Ok((
         s3,
-        SesClient::new(aws),
+        ses,
         EmailDeliveryConfig::new(
             bucket,
             "no-reply@notify.aura-historia.test",
             "contact@aura-historia.test",
+            configuration_set,
             stage.to_owned(),
             commit,
-        ),
+        )?,
     ))
 }
 

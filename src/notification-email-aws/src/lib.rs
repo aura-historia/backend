@@ -3,4 +3,4 @@ mod sender;
 mod template_mapping;
 mod template_reader;
 
-pub use sender::{EmailDeliveryConfig, SesNotificationChannelSender};
+pub use sender::{EmailDeliveryConfig, EmailDeliveryConfigError, SesNotificationChannelSender};

@@ -255,6 +255,8 @@ pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
 pub const NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV: &str = "NEWSLETTER_CONFIRMATION_EMAIL_FROM";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO";
+pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
+    "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
@@ -404,6 +406,10 @@ impl ApiConfig {
             required_config(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV)?,
+            required_config(
+                &mut get,
+                NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+            )?,
             required_config(&mut get, STAGE_ENV)?,
             required_config(&mut get, COMMIT_SHA_ENV)?,
             &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
@@ -2233,6 +2239,10 @@ mod tests {
                 NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV,
                 "contact@example.test".to_owned(),
             ),
+            (
+                NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+                "aura-historia-ephemeral-email".to_owned(),
+            ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
             (
@@ -2256,6 +2266,82 @@ mod tests {
         .expect("expected Loops config");
 
         assert!(expected_loops == config.loops);
+    }
+
+    #[test]
+    fn should_require_newsletter_confirmation_email_configuration_set() {
+        let mut missing = valid_api_config_values();
+        missing.remove(NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV
+            })
+        ));
+
+        for value in ["", "   ", "\t\n"] {
+            let mut blank = valid_api_config_values();
+            blank.insert(
+                NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+                value.to_owned(),
+            );
+            assert!(matches!(
+                ApiConfig::from_getter(|name| blank.get(name).cloned()),
+                Err(ApiConfigError::MissingRequiredConfig {
+                    name: NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn should_validate_newsletter_confirmation_email_configuration_set_without_fallback() {
+        for value in [
+            " aura-historia-ephemeral-email",
+            "aura-historia-ephemeral-email ",
+            "invalid.name",
+            "invalid/name",
+            "café",
+            &"a".repeat(65),
+        ] {
+            let mut invalid = valid_api_config_values();
+            invalid.insert(
+                NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+                value.to_owned(),
+            );
+            let Err(error) = ApiConfig::from_getter(|name| invalid.get(name).cloned()) else {
+                panic!("invalid SES configuration set unexpectedly accepted");
+            };
+            assert!(matches!(
+                error,
+                ApiConfigError::NewsletterConfirmationEmailConfig(
+                    user_email_aws::NewsletterConfirmationEmailConfigError::InvalidConfiguration
+                )
+            ));
+            assert!(!error.to_string().contains(value));
+            assert!(!format!("{error:?}").contains(value));
+        }
+
+        for value in ["Custom_Set-09", &"a".repeat(64)] {
+            let mut values = valid_api_config_values();
+            values.insert(
+                NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+                value.to_owned(),
+            );
+            let config = ApiConfig::from_getter(|name| values.get(name).cloned())
+                .unwrap_or_else(|error| panic!("valid API config rejected: {error}"));
+            let expected = NewsletterConfirmationEmailConfig::new(
+                "test-mail-templates",
+                "Aura Historia <newsletter@example.test>",
+                "contact@example.test",
+                value,
+                "ephemeral",
+                "test-commit",
+                "http://127.0.0.1:3000",
+            )
+            .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));
+            assert!(config.newsletter_confirmation_email == expected);
+        }
     }
 
     #[test]
