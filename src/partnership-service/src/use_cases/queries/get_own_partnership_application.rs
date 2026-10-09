@@ -1,7 +1,9 @@
 use crate::ports::*;
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use partnership_core::partnership_application_id::PartnershipApplicationId;
@@ -67,6 +69,17 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
         context: &OperationContext,
         request: GetOwnPartnershipApplicationRequest,
     ) -> Result<GetOwnPartnershipApplicationResult, GetOwnPartnershipApplicationError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsRead)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    GetOwnPartnershipApplicationError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    GetOwnPartnershipApplicationError::Forbidden
+                }
+            })?;
         let user = match context.principal {
             Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => id,
             Principal::Anonymous => {
@@ -415,7 +428,9 @@ mod tests {
             .execute(
                 &context(Principal::DelegatedUser {
                     user_id,
-                    capabilities: BTreeSet::new(),
+                    capabilities: BTreeSet::from([
+                        CredentialCapability::PartnershipApplicationsRead,
+                    ]),
                 }),
                 GetOwnPartnershipApplicationRequest { application_id },
             )
@@ -494,7 +509,7 @@ mod tests {
             Principal::User(actor_user_id),
             Principal::DelegatedUser {
                 user_id: actor_user_id,
-                capabilities: BTreeSet::new(),
+                capabilities: BTreeSet::from([CredentialCapability::PartnershipApplicationsRead]),
             },
         ] {
             let state = Arc::new(Mutex::new(State {

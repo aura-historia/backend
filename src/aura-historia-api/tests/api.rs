@@ -17,6 +17,8 @@ mod async_product_listing_ingestion;
 mod auctions;
 #[path = "api_cases/billing.rs"]
 mod billing;
+#[path = "api_cases/credential_scopes.rs"]
+mod credential_scopes;
 #[path = "api_cases/listing_sources.rs"]
 mod listing_sources;
 #[path = "api_cases/loops_webhook.rs"]

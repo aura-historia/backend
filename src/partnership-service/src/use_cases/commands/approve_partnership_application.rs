@@ -4,7 +4,7 @@ use crate::{
 };
 use application::{
     error::{BoxError, static_error},
-    operation_context::OperationContext,
+    operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
 use listing_source_core::{ListingSource, ListingSourceId, NewListingSource};
@@ -151,6 +151,10 @@ where
         context: &OperationContext,
         command: ApprovePartnershipApplicationCommand,
     ) -> Result<ApprovePartnershipApplicationResult, ApprovePartnershipApplicationError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsWrite)
+            .map_err(|_| ApprovePartnershipApplicationError::Forbidden)?;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             ApprovePartnershipApplicationError::BeginTransactionFailed(Box::new(source))
         })?;
@@ -2210,5 +2214,37 @@ mod tests {
         assert_eq!(0, state.application_updates);
         assert_eq!(0, state.notification_calls);
         assert_eq!(0, state.committed);
+    }
+    #[tokio::test]
+    async fn should_reject_missing_or_read_scope_before_admin_read_or_transaction() {
+        for capabilities in [
+            std::collections::BTreeSet::new(),
+            std::collections::BTreeSet::from([CredentialCapability::PartnershipApplicationsRead]),
+        ] {
+            let state = Arc::new(Mutex::new(FakeState::default()));
+            let context = OperationContext {
+                principal: application::operation_context::Principal::DelegatedUser {
+                    user_id: user_core::user_id::UserId::new(),
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            let result = handler(Arc::clone(&state))
+                .execute(
+                    &context,
+                    ApprovePartnershipApplicationCommand {
+                        application_id: PartnershipApplicationId::new(),
+                    },
+                )
+                .await;
+            assert!(matches!(
+                result,
+                Err(ApprovePartnershipApplicationError::Forbidden)
+            ));
+            let state = lock(&state);
+            assert_eq!(0, state.begun);
+            assert_eq!(0, state.admin_reads);
+        }
     }
 }

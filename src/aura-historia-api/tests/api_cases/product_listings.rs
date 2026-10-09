@@ -143,7 +143,16 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
 
     let path = "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Cached%20source%20freshness%20candidate";
     let admin_id = seed_user("ADMIN").await;
-    let token = String::from(seed_access_token_for(admin_id, HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            HashSet::from([
+                user_core::access_token::Scope::ListingSourcesRead,
+                user_core::access_token::Scope::ListingSourcesWrite,
+            ]),
+        )
+        .await,
+    );
     let (initial_response, _) = get_json_from(AURA_API_WITH_SEARCH_CACHES.base_url(), path).await;
     let (initial_status, initial_body) = json_response(initial_response).await;
     assert_eq!(
@@ -379,7 +388,13 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     assert_product_view_urls(&before_body["item"], raw_url, aura_url);
 
     let admin_id = seed_user("ADMIN").await;
-    let token = String::from(seed_access_token_for(admin_id, HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            HashSet::from([user_core::access_token::Scope::ListingSourcesWrite]),
+        )
+        .await,
+    );
     let update_response = reqwest::Client::new()
         .patch(format!(
             "{}/api/v1/admin/listing-sources/{listing_source_id}",

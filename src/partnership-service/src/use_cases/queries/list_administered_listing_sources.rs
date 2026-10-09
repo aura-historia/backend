@@ -1,7 +1,9 @@
 use crate::ports::*;
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
 };
 use user_core::user_id::UserId;
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +61,17 @@ impl<A: ListingSourceAuthorization> ListAdministeredListingSourcesUseCase
         context: &OperationContext,
         request: ListAdministeredListingSourcesRequest,
     ) -> Result<ListAdministeredListingSourcesResult, ListAdministeredListingSourcesError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::ListingSourcesRead)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    ListAdministeredListingSourcesError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    ListAdministeredListingSourcesError::Forbidden
+                }
+            })?;
         match context.principal {
             Principal::User(id) | Principal::DelegatedUser { user_id: id, .. }
                 if id == request.user_id => {}

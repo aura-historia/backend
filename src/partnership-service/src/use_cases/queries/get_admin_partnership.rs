@@ -6,7 +6,7 @@ use crate::{
 };
 use application::{
     error::BoxError,
-    operation_context::OperationContext,
+    operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
 use listing_source_core::ListingSourceId;
@@ -109,6 +109,10 @@ where
         context: &OperationContext,
         request: GetAdminPartnershipRequest,
     ) -> Result<AdminPartnershipDetailsView, GetAdminPartnershipError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipsRead)
+            .map_err(|_| GetAdminPartnershipError::Forbidden)?;
         if let Some(actor_id) = context.principal.actor_id() {
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }

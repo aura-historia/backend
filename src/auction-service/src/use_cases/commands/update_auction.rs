@@ -7,7 +7,7 @@ use crate::{
 };
 use application::{
     error::{BoxError, static_error},
-    operation_context::OperationContext,
+    operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
     patch_field::PatchField,
     transaction::{Transaction, UnitOfWork},
 };
@@ -146,6 +146,17 @@ where
         context: &OperationContext,
         command: UpdateAuctionCommand,
     ) -> Result<UpdateAuctionResult, UpdateAuctionError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::AuctionsWrite)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    UpdateAuctionError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    UpdateAuctionError::Forbidden
+                }
+            })?;
         super::super::queries::get_auction::ensure_admin(
             context,
             &self.check_user_admin,
@@ -759,5 +770,37 @@ mod tests {
             Some(datetime!(2026-10-18 16:03 UTC)),
             auction.schedule().live_starts()
         );
+    }
+    #[tokio::test]
+    async fn should_require_write_scope_before_admin_check_or_transaction() {
+        for (capabilities, allowed) in [
+            (std::collections::BTreeSet::new(), false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AuctionsRead]),
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::AuctionsWrite]),
+                true,
+            ),
+        ] {
+            let state = Arc::new(Mutex::new(State::default()));
+            let stored = stored_auction();
+            let command = command(stored.auction.id(), stored.version);
+            lock(&state).finds.push_back(Some(stored));
+            let mut context = context();
+            context.principal = Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities,
+            };
+            let result = handler(&state).execute(&context, command).await;
+            assert_eq!(allowed, result.is_ok());
+            if !allowed {
+                assert!(matches!(result, Err(UpdateAuctionError::Forbidden)));
+            }
+            let state = lock(&state);
+            assert_eq!(usize::from(allowed), state.admin_checks);
+            assert_eq!(usize::from(allowed), state.begins);
+        }
     }
 }

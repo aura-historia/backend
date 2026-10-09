@@ -76,6 +76,18 @@ fn parse_scope_with_field(
         "product-listings:write" => Scope::ProductListingsWrite,
         "listing-sources:write" => Scope::ListingSourcesWrite,
         "auctions:read" => Scope::AuctionsRead,
+        "auctions:write" => Scope::AuctionsWrite,
+        "listing-sources:read" => Scope::ListingSourcesRead,
+        "parties:read" => Scope::PartiesRead,
+        "parties:write" => Scope::PartiesWrite,
+        "partnership-applications:read" => Scope::PartnershipApplicationsRead,
+        "partnership-applications:write" => Scope::PartnershipApplicationsWrite,
+        "partnerships:read" => Scope::PartnershipsRead,
+        "partnerships:write" => Scope::PartnershipsWrite,
+        "admin-overview:read" => Scope::AdminOverviewRead,
+        "search-filters:read" => Scope::SearchFiltersRead,
+        "notifications:read" => Scope::NotificationsRead,
+        "notifications:write" => Scope::NotificationsWrite,
         "users:read" => Scope::UsersRead,
         "users:write" => Scope::UsersWrite,
         "access-tokens:read" => Scope::AccessTokensRead,
@@ -147,7 +159,7 @@ mod tests {
             "auction:read",
             "AUCTIONS_READ",
             "auctions:READ",
-            "auctions:write",
+            "auctions:delete",
         ] {
             assert!(parse_scopes([value.to_owned()]).is_err(), "{value}");
             assert!(parse_scope_string(Some(value), "scope").is_err(), "{value}");
@@ -168,5 +180,39 @@ mod tests {
                 .unwrap_or_else(|_| unreachable!())
         );
         assert_eq!("listing-sources:write", scope_string(&expected));
+    }
+    #[test]
+    fn should_round_trip_new_credential_scopes() {
+        for (scope, value) in [
+            (Scope::AuctionsWrite, "auctions:write"),
+            (Scope::ListingSourcesRead, "listing-sources:read"),
+            (Scope::PartiesRead, "parties:read"),
+            (Scope::PartiesWrite, "parties:write"),
+            (
+                Scope::PartnershipApplicationsRead,
+                "partnership-applications:read",
+            ),
+            (
+                Scope::PartnershipApplicationsWrite,
+                "partnership-applications:write",
+            ),
+            (Scope::PartnershipsRead, "partnerships:read"),
+            (Scope::PartnershipsWrite, "partnerships:write"),
+            (Scope::AdminOverviewRead, "admin-overview:read"),
+            (Scope::SearchFiltersRead, "search-filters:read"),
+            (Scope::NotificationsRead, "notifications:read"),
+            (Scope::NotificationsWrite, "notifications:write"),
+        ] {
+            let expected = HashSet::from([scope]);
+            assert_eq!(
+                expected,
+                parse_scopes([value.to_owned()]).unwrap_or_else(|_| panic!("{value}"))
+            );
+            assert_eq!(
+                expected,
+                parse_scope_string(Some(value), "scope").unwrap_or_else(|_| panic!("{value}"))
+            );
+            assert_eq!(value, scope_string(&expected));
+        }
     }
 }

@@ -2,6 +2,13 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-09 — Delegated credential scope coverage (#1993)
+
+- Admin Auction create/update require `auctions:write`; Party reads/writes require `parties:read`/`parties:write`; private ListingSource reads and admin writes require `listing-sources:read`/`listing-sources:write`; the admin overview requires `admin-overview:read`.
+- PartnershipApplication reads (own and admin) require `partnership-applications:read`; submission, withdrawal, review and decisions require `partnership-applications:write`. Admin Partnership reads and mutations require `partnerships:read` and `partnerships:write` respectively.
+- Private notification reads require `notifications:read`; seen-state updates and deletion require `notifications:write`. SearchFilter and match reads now require `search-filters:read`; writes still require `search-filters:write`. A write scope does not imply read access.
+- These scopes are accepted by access-token and OAuth flows. Missing delegated scopes return `403 FORBIDDEN` before protected work. Admin roles and ownership checks still apply. Cognito callers keep their existing authorization policy. Existing credentials and OAuth grants are not broadened automatically; explicitly grant the required scopes. Apply the credential registry migration before issuing credentials with new scopes.
+
 ## 2026-10-09 — Auction admin search and public schedule ordering (#1991)
 
 - Added canonical access-token/OAuth scope `auctions:read`. Both admin Auction GET endpoints now require it for delegated tokens, in addition to administrator authority; missing capability returns `403 FORBIDDEN`. Cognito authorization, admin create/update, and public reads are unchanged. Existing token and OAuth grants are not broadened automatically; grant the scope explicitly where needed.

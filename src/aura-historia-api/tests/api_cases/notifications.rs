@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use user_core::access_token::RawAccessToken;
+use user_core::access_token::{RawAccessToken, Scope};
 use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -772,7 +772,11 @@ fn notification_path(notification_id: NotificationId) -> String {
 }
 
 async fn notification_token(user_id: UserId) -> RawAccessToken {
-    seed_access_token_for(user_id, HashSet::new()).await
+    seed_access_token_for(
+        user_id,
+        HashSet::from([Scope::NotificationsRead, Scope::NotificationsWrite]),
+    )
+    .await
 }
 
 async fn seed_notification(user_id: UserId, seen: bool) -> NotificationId {

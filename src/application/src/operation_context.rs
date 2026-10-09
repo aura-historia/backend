@@ -417,6 +417,42 @@ mod tests {
     fn should_render_all_capabilities_as_oauth_scope_strings() {
         for (capability, scope) in [
             (CredentialCapability::AuctionsRead, "auctions:read"),
+            (CredentialCapability::AuctionsWrite, "auctions:write"),
+            (
+                CredentialCapability::ListingSourcesRead,
+                "listing-sources:read",
+            ),
+            (CredentialCapability::PartiesRead, "parties:read"),
+            (CredentialCapability::PartiesWrite, "parties:write"),
+            (
+                CredentialCapability::PartnershipApplicationsRead,
+                "partnership-applications:read",
+            ),
+            (
+                CredentialCapability::PartnershipApplicationsWrite,
+                "partnership-applications:write",
+            ),
+            (CredentialCapability::PartnershipsRead, "partnerships:read"),
+            (
+                CredentialCapability::PartnershipsWrite,
+                "partnerships:write",
+            ),
+            (
+                CredentialCapability::AdminOverviewRead,
+                "admin-overview:read",
+            ),
+            (
+                CredentialCapability::SearchFiltersRead,
+                "search-filters:read",
+            ),
+            (
+                CredentialCapability::NotificationsRead,
+                "notifications:read",
+            ),
+            (
+                CredentialCapability::NotificationsWrite,
+                "notifications:write",
+            ),
             (
                 CredentialCapability::ProductListingsWrite,
                 "product-listings:write",

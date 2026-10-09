@@ -1,4 +1,5 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
+use user_core::access_token::Scope;
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_party, seed_user};
 use listing_source_core::ListingSourceId;
@@ -11,7 +12,7 @@ async fn should_delete_unused_party_and_return_not_found_when_repeated() {
     let party_id = seed_party("Delete Party", None, None).await;
     let unrelated_id = seed_party("Unrelated Party", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
     let client = reqwest::Client::new();
     let url = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
 
@@ -66,7 +67,7 @@ async fn should_return_party_summary_for_admin_with_no_store_cache_control() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
@@ -120,7 +121,7 @@ async fn should_filter_parties_by_name_and_contact_query() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
@@ -145,7 +146,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
     let second_id = seed_party("Cursor Party B", None, None).await;
     let third_id = seed_party("Cursor Party C", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
     let client = reqwest::Client::new();
 
     let first = client
@@ -205,7 +206,7 @@ async fn should_follow_party_cursor_with_deterministic_sorting() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_empty_party_collection_when_no_party_matches() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
@@ -224,7 +225,7 @@ async fn should_return_empty_party_collection_when_no_party_matches() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_party_search_query_values() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
     let client = reqwest::Client::new();
 
     let invalid_sort = client
@@ -287,7 +288,7 @@ async fn should_reject_invalid_party_search_query_values() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_party_collection_for_non_admin() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = parties_token(user_id).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
@@ -303,7 +304,7 @@ async fn should_reject_party_collection_for_non_admin() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_party_with_identity_location_and_contact() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
@@ -351,8 +352,7 @@ async fn should_create_party_with_identity_location_and_contact() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_party_with_each_optional_contact_variant() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
     let cases = [
         (json!({"name": "Party without contact"}), json!({})),
@@ -395,8 +395,7 @@ async fn should_create_party_with_each_optional_contact_variant() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_party_create_names() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
 
     for name in [
@@ -439,7 +438,7 @@ async fn should_reject_party_create_without_admin_authorization() {
     );
 
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = parties_token(user_id).await;
     let non_admin = reqwest::Client::new()
         .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(token))
@@ -465,7 +464,7 @@ async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -503,7 +502,7 @@ async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_party_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
     let party_id = PartyId::new();
 
     for invalid_id in [
@@ -535,7 +534,7 @@ async fn should_reject_noncanonical_party_detail_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_party_detail() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -576,7 +575,7 @@ async fn should_require_admin_authentication_for_party_detail() {
     );
 
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = parties_token(user_id).await;
     let non_admin = client
         .get(path)
         .bearer_auth(String::from(token))
@@ -601,8 +600,7 @@ async fn should_update_party_name_and_contact_with_tri_state_patch() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
     let original_slug = json!(format!("api-acceptance-party-{}", party_id.as_uuid()));
@@ -675,8 +673,7 @@ async fn should_update_party_name_and_contact_with_tri_state_patch() {
 async fn should_reject_invalid_party_update_values() {
     let party_id = seed_party("Patch Validation Party", None, None).await;
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(parties_token(admin_id).await);
     let client = reqwest::Client::new();
     let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
 
@@ -720,7 +717,7 @@ async fn should_reject_invalid_party_update_values() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_party_update() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -764,7 +761,7 @@ async fn should_require_admin_authentication_for_party_update() {
     );
 
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = parties_token(user_id).await;
     let non_admin = client
         .patch(path)
         .bearer_auth(String::from(token))
@@ -784,7 +781,7 @@ async fn should_require_admin_authentication_for_party_update() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_malformed_party_update_id() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = parties_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -805,4 +802,14 @@ async fn should_reject_malformed_party_update_id() {
         "INVALID_OBJECT_ID",
     );
     assert_eq!(json!({"field": "partyId", "type": "PATH"}), body["source"]);
+}
+
+async fn parties_token(
+    user_id: user_core::user_id::UserId,
+) -> user_core::access_token::RawAccessToken {
+    seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::PartiesRead, Scope::PartiesWrite]),
+    )
+    .await
 }

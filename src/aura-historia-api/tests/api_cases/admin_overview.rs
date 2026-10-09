@@ -27,8 +27,13 @@ async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, O
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_empty_admin_overview_with_no_store() {
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AdminOverviewRead]),
+        )
+        .await,
+    );
 
     let (status, body, cache_control) = get_overview(&token).await;
 
@@ -102,8 +107,13 @@ async fn should_aggregate_representative_admin_overview_counts() {
         timestamp,
     )
     .await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AdminOverviewRead]),
+        )
+        .await,
+    );
 
     let (status, body, cache_control) = get_overview(&token).await;
 
@@ -138,7 +148,11 @@ async fn should_aggregate_representative_admin_overview_counts() {
 async fn should_reject_non_admin_overview_request() {
     let user_id = seed_user("USER").await;
     let token = String::from(
-        seed_access_token_for(user_id, std::collections::HashSet::<Scope>::new()).await,
+        seed_access_token_for(
+            user_id,
+            std::collections::HashSet::from([Scope::AdminOverviewRead]),
+        )
+        .await,
     );
 
     let (status, body, cache_control) = get_overview(&token).await;

@@ -4,7 +4,7 @@ use crate::{
 };
 use application::{
     error::BoxError,
-    operation_context::OperationContext,
+    operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
 use partnership_core::partnership_application_id::PartnershipApplicationId;
@@ -74,6 +74,10 @@ impl<
         context: &OperationContext,
         request: GetPartnershipApplicationRequest,
     ) -> Result<GetPartnershipApplicationResult, GetPartnershipApplicationError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsRead)
+            .map_err(|_| GetPartnershipApplicationError::Forbidden)?;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             GetPartnershipApplicationError::BeginTransactionFailed(Box::new(source))
         })?;
@@ -691,7 +695,7 @@ mod tests {
             Err(GetPartnershipApplicationError::Forbidden)
         ));
         let state = lock(&state);
-        assert_eq!(1, state.begins);
+        assert_eq!(0, state.begins);
         assert_eq!(0, state.admin_reads);
         assert_eq!(0, state.application_reads);
         assert_eq!(0, state.commits);

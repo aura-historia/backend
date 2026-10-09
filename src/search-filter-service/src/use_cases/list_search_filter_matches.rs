@@ -341,7 +341,7 @@ fn authorize_owner(
 ) -> Result<(), ListSearchFilterMatchesError> {
     context
         .require()
-        .credential_capability(CredentialCapability::SearchFiltersWrite)
+        .credential_capability(CredentialCapability::SearchFiltersRead)
         .user(&user_id)
         .service_or_system()
         .authorize::<ListSearchFilterMatchesError>()
@@ -818,5 +818,37 @@ mod tests {
         assert_eq!(0, state.find_by_id_requests);
         assert_eq!(0, state.commit_count);
         Ok(())
+    }
+    #[test]
+    fn should_require_read_scope_and_ownership_for_search_filter_reads() {
+        let user_id = UserId::new();
+        for (capabilities, owner, allowed) in [
+            (std::collections::BTreeSet::new(), user_id, false),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::SearchFiltersWrite]),
+                user_id,
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::SearchFiltersRead]),
+                UserId::new(),
+                false,
+            ),
+            (
+                std::collections::BTreeSet::from([CredentialCapability::SearchFiltersRead]),
+                user_id,
+                true,
+            ),
+        ] {
+            let context = OperationContext {
+                principal: application::operation_context::Principal::DelegatedUser {
+                    user_id,
+                    capabilities,
+                },
+                request_id: application::operation_context::RequestId::new("scope-test"),
+                correlation_id: application::operation_context::CorrelationId::new("scope-test"),
+            };
+            assert_eq!(allowed, authorize_owner(&context, owner).is_ok());
+        }
     }
 }

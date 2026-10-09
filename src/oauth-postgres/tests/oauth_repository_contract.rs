@@ -455,7 +455,7 @@ fn oauth_client(client_id: OAuthClientId, name: &str) -> Result<OAuthClient, url
         policy_uri: Url::parse("https://dummy.example.test/policy")?,
         client_uri: Url::parse("https://dummy.example.test")?,
         logo_uri: Url::parse("https://dummy.example.test/logo.svg")?,
-        scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
+        scopes: credential_scopes(),
     }))
 }
 
@@ -470,7 +470,7 @@ fn authorization_code(
             client_id,
             user_id,
             redirect_uri: Url::parse("https://dummy.example.test/oauth/callback")?,
-            scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
+            scopes: credential_scopes(),
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
             expires: now + Duration::minutes(5),
@@ -506,7 +506,7 @@ fn third_party_exchange_code_grant() -> ThirdPartyExchangeCodeGrant {
         access_token_id: user_core::access_token::AccessTokenId::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: Some(now + Duration::minutes(10)),
-        scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
+        scopes: credential_scopes(),
         expires: now + Duration::minutes(5),
     })
 }
@@ -620,4 +620,23 @@ async fn client_secret_columns(
     .fetch_one(pool)
     .await
     .map_err(Into::into)
+}
+
+fn credential_scopes() -> HashSet<Scope> {
+    HashSet::from([
+        Scope::ProductListingsWrite,
+        Scope::AuctionsRead,
+        Scope::AuctionsWrite,
+        Scope::ListingSourcesRead,
+        Scope::PartiesRead,
+        Scope::PartiesWrite,
+        Scope::PartnershipApplicationsRead,
+        Scope::PartnershipApplicationsWrite,
+        Scope::PartnershipsRead,
+        Scope::PartnershipsWrite,
+        Scope::AdminOverviewRead,
+        Scope::SearchFiltersRead,
+        Scope::NotificationsRead,
+        Scope::NotificationsWrite,
+    ])
 }

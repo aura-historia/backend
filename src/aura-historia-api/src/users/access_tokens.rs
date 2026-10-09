@@ -457,6 +457,18 @@ fn parse_scopes(values: HashSet<String>) -> Result<HashSet<Scope>, ApiError> {
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
             "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
             "auctions:read" => Ok(Scope::AuctionsRead),
+            "auctions:write" => Ok(Scope::AuctionsWrite),
+            "listing-sources:read" => Ok(Scope::ListingSourcesRead),
+            "parties:read" => Ok(Scope::PartiesRead),
+            "parties:write" => Ok(Scope::PartiesWrite),
+            "partnership-applications:read" => Ok(Scope::PartnershipApplicationsRead),
+            "partnership-applications:write" => Ok(Scope::PartnershipApplicationsWrite),
+            "partnerships:read" => Ok(Scope::PartnershipsRead),
+            "partnerships:write" => Ok(Scope::PartnershipsWrite),
+            "admin-overview:read" => Ok(Scope::AdminOverviewRead),
+            "search-filters:read" => Ok(Scope::SearchFiltersRead),
+            "notifications:read" => Ok(Scope::NotificationsRead),
+            "notifications:write" => Ok(Scope::NotificationsWrite),
             "users:read" => Ok(Scope::UsersRead),
             "users:write" => Ok(Scope::UsersWrite),
             "access-tokens:read" => Ok(Scope::AccessTokensRead),
@@ -659,7 +671,7 @@ mod tests {
             "auction:read",
             "AUCTIONS_READ",
             "auctions:READ",
-            "auctions:write",
+            "auctions:delete",
         ] {
             assert!(
                 parse_scopes(HashSet::from([value.to_owned()])).is_err(),
@@ -673,5 +685,34 @@ mod tests {
         let scopes = parse_scopes(HashSet::from(["unsupported:scope".to_owned()]));
 
         assert!(scopes.is_err());
+    }
+    #[test]
+    fn should_round_trip_new_credential_scopes() {
+        for (scope, value) in [
+            (Scope::AuctionsWrite, "auctions:write"),
+            (Scope::ListingSourcesRead, "listing-sources:read"),
+            (Scope::PartiesRead, "parties:read"),
+            (Scope::PartiesWrite, "parties:write"),
+            (
+                Scope::PartnershipApplicationsRead,
+                "partnership-applications:read",
+            ),
+            (
+                Scope::PartnershipApplicationsWrite,
+                "partnership-applications:write",
+            ),
+            (Scope::PartnershipsRead, "partnerships:read"),
+            (Scope::PartnershipsWrite, "partnerships:write"),
+            (Scope::AdminOverviewRead, "admin-overview:read"),
+            (Scope::SearchFiltersRead, "search-filters:read"),
+            (Scope::NotificationsRead, "notifications:read"),
+            (Scope::NotificationsWrite, "notifications:write"),
+        ] {
+            assert_eq!(
+                HashSet::from([scope]),
+                parse_scopes(HashSet::from([value.to_owned()])).expect("canonical scope")
+            );
+            assert_eq!(value, scope.as_str());
+        }
     }
 }

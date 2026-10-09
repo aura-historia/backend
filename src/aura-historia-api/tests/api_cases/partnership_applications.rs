@@ -12,6 +12,7 @@ use party_core::party_id::PartyId;
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
 use time::{OffsetDateTime, macros::datetime};
+use user_core::access_token::Scope;
 use user_core::user_id::UserId;
 
 fn existing_proposal(listing_source_id: ListingSourceId) -> serde_json::Value {
@@ -47,7 +48,7 @@ async fn seed_approved_partnership_application(
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_submission_that_references_a_missing_listing_source() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(user_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -77,7 +78,7 @@ async fn should_reject_submission_that_references_a_missing_listing_source() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_listing_source_ids_in_submission_body() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(user_id).await;
     let listing_source_id = ListingSourceId::new();
 
     for invalid_id in [
@@ -128,7 +129,7 @@ async fn should_get_admin_partnership_application_detail_with_approval_reference
         )
         .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -183,7 +184,7 @@ async fn should_get_admin_partnership_application_detail_with_approval_reference
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_noncanonical_admin_partnership_application_detail_ids() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
     let application_id = PartnershipApplicationId::new();
 
     for invalid_id in [
@@ -224,7 +225,7 @@ async fn should_reject_noncanonical_admin_partnership_application_detail_ids() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_admin_partnership_application_detail() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -255,7 +256,7 @@ async fn should_return_not_found_for_missing_admin_partnership_application_detai
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_non_admin_partnership_application_detail_access() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(user_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -290,7 +291,7 @@ async fn should_mark_submitted_partnership_application_in_review_as_admin() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -332,7 +333,7 @@ async fn should_return_conflict_when_marking_non_submitted_partnership_applicati
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -357,7 +358,7 @@ async fn should_return_conflict_when_marking_non_submitted_partnership_applicati
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_when_marking_missing_partnership_application_in_review() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -397,7 +398,7 @@ async fn should_reject_non_admin_mark_in_review() {
     )
     .await;
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(user_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -431,7 +432,7 @@ async fn should_remove_legacy_mark_in_review_route() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .patch(format!(
@@ -459,7 +460,7 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -484,8 +485,11 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
     assert_eq!(json!("APPROVED"), body["state"]);
     assert_eq!(json!(listing_source_id), body["approvedListingSourceId"]);
 
-    let applicant_listing_sources_token =
-        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let applicant_listing_sources_token = seed_access_token_for(
+        applicant_user_id,
+        std::collections::HashSet::from([Scope::ListingSourcesRead]),
+    )
+    .await;
     let listing_sources_response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_listing_sources_token))
@@ -502,8 +506,11 @@ async fn should_approve_an_in_review_partnership_application_on_the_admin_decisi
             .any(|item| item["listingSourceId"] == json!(listing_source_id))
     }));
 
-    let applicant_notifications_token =
-        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let applicant_notifications_token = seed_access_token_for(
+        applicant_user_id,
+        std::collections::HashSet::from([Scope::NotificationsRead]),
+    )
+    .await;
     let notifications_response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_notifications_token))
@@ -545,7 +552,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -571,7 +578,11 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     assert!(body["approvedPartnershipId"].is_null());
     assert!(body["approvedListingSourceId"].is_null());
 
-    let admin_read_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_read_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::PartiesRead]),
+    )
+    .await;
     let parties_response = reqwest::Client::new()
         .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
         .bearer_auth(String::from(admin_read_token))
@@ -584,8 +595,11 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     assert_eq!(reqwest::StatusCode::OK, parties_status);
     assert_eq!(Some(0), parties_body["items"].as_array().map(Vec::len));
 
-    let applicant_listing_sources_token =
-        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let applicant_listing_sources_token = seed_access_token_for(
+        applicant_user_id,
+        std::collections::HashSet::from([Scope::ListingSourcesRead]),
+    )
+    .await;
     let listing_sources_response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_listing_sources_token))
@@ -598,8 +612,11 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
     assert_eq!(reqwest::StatusCode::OK, listing_sources_status);
     assert_eq!(Some(0), listing_sources_body.as_array().map(Vec::len));
 
-    let applicant_notifications_token =
-        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let applicant_notifications_token = seed_access_token_for(
+        applicant_user_id,
+        std::collections::HashSet::from([Scope::NotificationsRead]),
+    )
+    .await;
     let notifications_response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
         .bearer_auth(String::from(applicant_notifications_token))
@@ -621,7 +638,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_an_arbitrary_partnership_application_decision_value() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -662,7 +679,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -684,8 +701,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 
-    let verification_token =
-        seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let verification_token = partnership_applications_token(admin_id).await;
     let detail_response = reqwest::Client::new()
         .get(format!(
             "{}/api/v1/admin/partnership-applications/{application_id}",
@@ -704,7 +720,7 @@ async fn should_reject_a_partnership_application_decision_outside_in_review() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_a_missing_admin_partnership_application_decision() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -752,7 +768,7 @@ async fn should_reject_non_admin_partnership_application_decision() {
     )
     .await;
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(user_id).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -797,7 +813,7 @@ async fn should_list_filtered_admin_partnership_application_summaries_without_se
     )
     .await;
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
     let applicant_user_id = applicant_user_id.to_string();
     let listing_source_id = listing_source_id.to_string();
 
@@ -897,7 +913,7 @@ async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps
     let mut expected_ids = ids.clone();
     expected_ids.sort_by(|left, right| right.cmp(left));
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
     let client = reqwest::Client::new();
     let path = format!(
         "{}/api/v1/admin/partnership-applications",
@@ -957,7 +973,7 @@ async fn should_follow_admin_partnership_application_cursor_with_tied_timestamps
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_empty_admin_partnership_application_collection() {
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = partnership_applications_token(admin_id).await;
 
     let response = reqwest::Client::new()
         .get(format!(
@@ -986,7 +1002,7 @@ async fn should_return_empty_admin_partnership_application_collection() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_queries_and_non_admin_collection_access() {
     let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_token = partnership_applications_token(admin_id).await;
     let client = reqwest::Client::new();
     let path = format!(
         "{}/api/v1/admin/partnership-applications",
@@ -1085,7 +1101,7 @@ async fn should_reject_invalid_queries_and_non_admin_collection_access() {
     }
 
     let user_id = seed_user("USER").await;
-    let user_token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let user_token = partnership_applications_token(user_id).await;
     let response = client
         .get(&path)
         .bearer_auth(String::from(user_token))
@@ -1101,4 +1117,17 @@ async fn should_reject_invalid_queries_and_non_admin_collection_access() {
 
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+async fn partnership_applications_token(
+    user_id: user_core::user_id::UserId,
+) -> user_core::access_token::RawAccessToken {
+    seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([
+            Scope::PartnershipApplicationsRead,
+            Scope::PartnershipApplicationsWrite,
+        ]),
+    )
+    .await
 }

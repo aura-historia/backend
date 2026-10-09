@@ -1,7 +1,9 @@
 use crate::ports::*;
 use application::{
     error::BoxError,
-    operation_context::{OperationContext, Principal},
+    operation_context::{
+        CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use partnership_core::{
@@ -79,6 +81,17 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
         context: &OperationContext,
         command: SubmitPartnershipApplicationCommand,
     ) -> Result<SubmitPartnershipApplicationResult, SubmitPartnershipApplicationError> {
+        context
+            .principal
+            .require_credential_capability(CredentialCapability::PartnershipApplicationsWrite)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    SubmitPartnershipApplicationError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    SubmitPartnershipApplicationError::Forbidden
+                }
+            })?;
         authorize(context, command.applicant_user_id)?;
         let application = PartnershipApplication::submit(NewPartnershipApplication {
             id: PartnershipApplicationId::new(),
@@ -420,7 +433,9 @@ mod tests {
             .execute(
                 &context(Principal::DelegatedUser {
                     user_id: applicant_user_id,
-                    capabilities: BTreeSet::new(),
+                    capabilities: BTreeSet::from([
+                        CredentialCapability::PartnershipApplicationsWrite,
+                    ]),
                 }),
                 command(applicant_user_id, proposal()),
             )
@@ -593,7 +608,9 @@ mod tests {
             .execute(
                 &context(Principal::DelegatedUser {
                     user_id: actor_user_id,
-                    capabilities: BTreeSet::new(),
+                    capabilities: BTreeSet::from([
+                        CredentialCapability::PartnershipApplicationsWrite,
+                    ]),
                 }),
                 command(applicant_user_id, proposal()),
             )
@@ -659,6 +676,32 @@ mod tests {
             assert_eq!(1, state.insert_calls);
             assert_eq!(0, state.commit_attempts);
             assert_eq!(0, state.commits);
+        }
+    }
+    #[tokio::test]
+    async fn should_reject_missing_or_read_scope_before_submitting() {
+        let user_id = UserId::new();
+        for capabilities in [
+            BTreeSet::new(),
+            BTreeSet::from([CredentialCapability::PartnershipApplicationsRead]),
+        ] {
+            let state = Arc::new(Mutex::new(State::default()));
+            let result = handler(Arc::clone(&state))
+                .execute(
+                    &context(Principal::DelegatedUser {
+                        user_id,
+                        capabilities,
+                    }),
+                    command(user_id, proposal()),
+                )
+                .await;
+            assert!(matches!(
+                result,
+                Err(SubmitPartnershipApplicationError::Forbidden)
+            ));
+            let state = lock(&state);
+            assert_eq!(0, state.begin_attempts);
+            assert_eq!(0, state.insert_calls);
         }
     }
 }

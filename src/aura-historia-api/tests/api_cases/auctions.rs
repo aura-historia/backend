@@ -19,7 +19,11 @@ async fn should_create_get_and_update_auction_as_administrator() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsWrite]),
+    )
+    .await;
     let read_token = seed_access_token_for(
         admin_id,
         std::collections::HashSet::from([Scope::AuctionsRead]),
@@ -153,7 +157,11 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsWrite]),
+    )
+    .await;
     let admin_read_token = seed_access_token_for(
         admin_id,
         std::collections::HashSet::from([Scope::AuctionsRead]),
@@ -231,7 +239,11 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     );
 
     let user_id = seed_user("USER").await;
-    let user_token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let user_token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::AuctionsWrite]),
+    )
+    .await;
     let forbidden = client
         .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
         .bearer_auth(String::from(user_token))
@@ -410,8 +422,13 @@ async fn should_enforce_auction_read_scope_after_api_issuance_and_updates() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let write_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let write_token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AuctionsWrite]),
+        )
+        .await,
+    );
     let owner_token = api_support::cognito_access_token_for_test_user(admin_id);
     let client = reqwest::Client::new();
     let auction_id = create_admin_search_auction(
@@ -476,8 +493,13 @@ async fn should_forbid_non_admin_auction_reads_even_with_scope_without_caching()
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let admin_token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let admin_token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AuctionsWrite]),
+        )
+        .await,
+    );
     let client = reqwest::Client::new();
     let auction_id = create_admin_search_auction(
         &client,
@@ -513,7 +535,7 @@ async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_return
     let token = String::from(
         seed_access_token_for(
             admin_id,
-            std::collections::HashSet::from([Scope::AuctionsRead]),
+            std::collections::HashSet::from([Scope::AuctionsRead, Scope::AuctionsWrite]),
         )
         .await,
     );
@@ -633,7 +655,7 @@ async fn should_filter_and_page_admin_auctions_with_scoped_deterministic_sort() 
     let token = String::from(
         seed_access_token_for(
             admin_id,
-            std::collections::HashSet::from([Scope::AuctionsRead]),
+            std::collections::HashSet::from([Scope::AuctionsRead, Scope::AuctionsWrite]),
         )
         .await,
     );
@@ -856,8 +878,13 @@ async fn should_page_public_scheduled_auctions_with_scoped_json_cursors_and_anon
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AuctionsWrite]),
+        )
+        .await,
+    );
     let client = reqwest::Client::new();
     let pool = get_postgres_client().await;
     let from = time::macros::datetime!(2026-10-18 16:00 UTC);
@@ -1006,7 +1033,11 @@ async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anony
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsWrite]),
+    )
+    .await;
     let client = reqwest::Client::new();
     let created = client
         .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
@@ -1101,7 +1132,11 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let admin_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsWrite]),
+    )
+    .await;
     let client = reqwest::Client::new();
     let source_auction_id = "f12-typed-membership";
 
