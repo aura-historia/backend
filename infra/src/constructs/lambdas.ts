@@ -5,6 +5,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as path from "node:path";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import type * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
 import { MAIL_TEMPLATE_BUCKET_NAME, ssmValue } from "../config";
@@ -17,6 +18,7 @@ import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } 
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
+  readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly commitSha: string;
   readonly searchFilterClassifierModel: string;
   readonly searchFilterMatchShouldShowThresholdBps: string;
@@ -246,6 +248,7 @@ export type LambdaFunctions = Record<LambdaKey, lambda.Function>;
 
 export interface LambdasProps {
   readonly config: StageConfig;
+  readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly parameters: ApplicationParameters;
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
@@ -307,6 +310,7 @@ export class Lambdas extends Construct {
     );
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
+      emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
       searchFilterClassifierModel: props.parameters.searchFilterClassifierModel,
       searchFilterMatchShouldShowThresholdBps:
@@ -598,13 +602,22 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],
   }));
-  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
-    actions: ["ses:SendEmail"],
-    resources: [cdk.Stack.of(props.mailTemplateBucket).formatArn({
+  // Both senders explicitly select the managed stage-local set, not the shared identity's default.
+  const sesSendResources = [
+    cdk.Stack.of(props.mailTemplateBucket).formatArn({
       service: "ses",
       resource: "identity",
       resourceName: props.config.notificationEmail.identityDomain,
-    })],
+    }),
+    cdk.Stack.of(props.mailTemplateBucket).formatArn({
+      service: "ses",
+      resource: "configuration-set",
+      resourceName: props.emailConfigurationSet.configurationSetName,
+    }),
+  ];
+  functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["ses:SendEmail"],
+    resources: sesSendResources,
   }));
   functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
@@ -614,11 +627,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   }));
   functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
     actions: ["ses:SendEmail"],
-    resources: [cdk.Stack.of(props.mailTemplateBucket).formatArn({
-      service: "ses",
-      resource: "identity",
-      resourceName: props.config.notificationEmail.identityDomain,
-    })],
+    resources: sesSendResources,
   }));
 
   if (props.postgres.secretArn) {
@@ -692,6 +701,7 @@ function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<st
 function notificationDeliveryEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     COMMIT_SHA: context.commitSha,
+    NOTIFICATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NOTIFICATION_EMAIL_FROM: context.config.notificationEmail.from,
     NOTIFICATION_EMAIL_REPLY_TO: context.config.notificationEmail.replyTo,
     S3_BUCKET_NAME_TEMPLATES: MAIL_TEMPLATE_BUCKET_NAME,
@@ -724,6 +734,7 @@ function apiEnvironment(context: LambdaEnvironmentContext): Record<string, strin
     COMMIT_SHA: context.commitSha,
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
+    NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,
     NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO: config.notificationEmail.replyTo,
     NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: config.isProd

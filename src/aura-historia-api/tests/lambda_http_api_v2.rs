@@ -604,6 +604,10 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV,
             "contact@example.test",
         ),
+        (
+            aura_historia_api::NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
+            "aura-historia-ephemeral-email",
+        ),
         (aura_historia_api::STAGE_ENV, "ephemeral"),
         (aura_historia_api::COMMIT_SHA_ENV, "lambda-test-commit"),
         (

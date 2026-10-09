@@ -132,7 +132,24 @@ resource ownership. [Log-group adoption](infra.md#manual-operations) is a separa
 
 Before traffic, verify the shared purpose-list ID, signing configuration/public endpoint,
 SES identity and isolated recipient access, pinned confirmation templates and frontend
-confirmation URL. Configuration and mocks do not prove live provider acceptance.
+confirmation URL. Application senders and Cognito explicitly select their stage's
+CDK-owned SES configuration set; sender roles need scoped send permission for the
+approved identity and selected set. Do not rely on or change the shared identity's
+externally owned default to configure a stage. Configuration and mocks do not prove
+live provider acceptance.
+
+Create the managed set and metrics destination before switching consumers. During a
+live cutover, preserve narrowly scoped permissions for old consumers until their
+versions/in-flight sends drain, then remove the transitional grant. Keep the legacy
+set/default for other consumers until their ownership and usage are reviewed.
+CloudWatch event metrics use a non-sensitive stage dimension; update monitoring to
+that dimension rather than mixing environments. Reputation/event metrics retain
+CloudWatch costs; no recipient, proof or rendered-mail logging is introduced.
+
+Managed sets are retained for outstanding versions and rollback safety. A rollback
+that removes a set from its stack can leave the physical name orphaned; inspect and
+recover/import ownership before deploying it again, rather than deleting it or
+changing the shared identity. A forward fix is preferable to a pre-cutover rollback.
 For confirmation failures, correlate request IDs with preparation/SES failure categories
 and the terminal use-case error. Never enable raw SDK, recipient, proof or rendered-mail
 logging to diagnose delivery; an ambiguous send must not be blindly replayed.

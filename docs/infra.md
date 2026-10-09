@@ -291,8 +291,10 @@ CloudFormation recovery before release. A usable `UPDATE_ROLLBACK_COMPLETE` or
 `IMPORT_COMPLETE` may be deployed after inspecting resource ownership and stack
 completeness; status alone does not prove readiness. Failed creation cannot simply
 be updated. Inventory
-retained buckets, queues, repositories and log groups before cleanup/import;
-normal workflows neither import nor delete them. Inspect already active mappings
+retained buckets, queues, repositories, log groups and SES configuration sets before
+cleanup/import; normal workflows neither import nor delete them. Stage-owned email
+configuration-set cutover and retained-name recovery requirements are documented in
+[marketing consent](marketing-consent.md#operations-and-recovery). Inspect already active mappings
 and schedules after partial creation. If only output lookup failed, verify actual
 stack state and redo missing checks instead of blindly redeploying.
 

@@ -58,6 +58,7 @@ export type CognitoIdentityProviderConfig =
   | CognitoFacebookIdentityProviderConfig;
 
 export interface NotificationEmailConfig {
+  readonly configurationSet: string;
   readonly from: string;
   readonly identityDomain: string;
   readonly replyTo: string;
@@ -141,6 +142,7 @@ export function isStageName(value: string): value is StageName {
 export function stageConfig(stage: StageName): StageConfig {
   if (!isStageName(stage)) throw new Error(`Unsupported CDK stage '${stage}'.`);
   const isProd = stage === "prod";
+  const emailConfigurationSetName = `aura-historia-${stage}-email`;
 
   const apiDomainName = isProd ? "api.aura-historia.com" : "api.stage.aura-historia.com";
   const apiCloudFrontAliases = [apiDomainName];
@@ -201,12 +203,13 @@ export function stageConfig(stage: StageName): StageConfig {
       },
     ],
     cognitoEmail: {
-      configurationSet: "my-first-configuration-set",
+      configurationSet: emailConfigurationSetName,
       from: "Aura Historia <auth@notify.aura-historia.com>",
       identityDomain: "notify.aura-historia.com",
       replyTo: "contact@aura-historia.com",
     },
     notificationEmail: {
+      configurationSet: emailConfigurationSetName,
       from: ssmValue(`/notifications/${stage}/email-from`),
       identityDomain: "notify.aura-historia.com",
       replyTo: ssmValue(`/notifications/${stage}/email-reply-to`),

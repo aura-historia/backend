@@ -48,7 +48,19 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+// Enable classic SES alongside the SESv2 send/identity fixture for configuration-set setup.
+struct ClassicSes;
+
+#[async_trait::async_trait]
+impl IntegrationTestService for ClassicSes {
+    fn service_names(&self) -> &'static [&'static str] {
+        &["ses"]
+    }
+
+    async fn set_up(&self) {}
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), ClassicSes])]
 async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_duplicate_is_noop() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -93,7 +105,7 @@ async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_dupli
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), ClassicSes])]
 async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -125,7 +137,7 @@ async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), ClassicSes])]
 async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -259,6 +271,42 @@ async fn provider(
     let aws = test_api::localstack::get_aws_config().await;
     let s3 = S3Client::from_conf(S3ConfigBuilder::from(aws).force_path_style(true).build());
     let bucket = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    let ses = SesClient::new(aws);
+    let configuration_set = format!("lambda-delivery-{}", uuid::Uuid::new_v4());
+    // LocalStack 2026.07.6 only implements configuration-set creation through
+    // classic SES. Sends still use the real SESv2 adapter and this named set.
+    let created = std::process::Command::new("aws")
+        .args([
+            "--endpoint-url",
+            test_api::localstack::get_endpoint_url(),
+            "--region",
+            "eu-central-1",
+            "--cli-connect-timeout",
+            "5",
+            "--cli-read-timeout",
+            "10",
+            "--no-cli-pager",
+            "ses",
+            "create-configuration-set",
+            "--configuration-set",
+            &format!("Name={configuration_set}"),
+        ])
+        .env("AWS_ACCESS_KEY_ID", "test")
+        .env("AWS_SECRET_ACCESS_KEY", "test")
+        .env_remove("AWS_SESSION_TOKEN")
+        .env_remove("AWS_PROFILE")
+        .env("AWS_CONFIG_FILE", "/dev/null")
+        .env("AWS_SHARED_CREDENTIALS_FILE", "/dev/null")
+        .env("AWS_MAX_ATTEMPTS", "1")
+        .env("AWS_CLI_AUTO_PROMPT", "off")
+        .output()?;
+    if !created.status.success() {
+        return Err(std::io::Error::other(format!(
+            "LocalStack classic SES configuration-set creation failed: {}",
+            String::from_utf8_lossy(&created.stderr)
+        ))
+        .into());
+    }
     let stage = "test";
     let commit = uuid::Uuid::new_v4().simple().to_string();
     s3.create_bucket()
@@ -285,14 +333,15 @@ async fn provider(
         .await?;
     Ok((
         s3,
-        SesClient::new(aws),
+        ses,
         EmailDeliveryConfig::new(
             bucket,
             "no-reply@notify.aura-historia.test",
             "contact@aura-historia.test",
+            configuration_set,
             stage.to_owned(),
             commit,
-        ),
+        )?,
     ))
 }
 
