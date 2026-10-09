@@ -166,6 +166,7 @@ fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, AccessTokenRowMap
     values
         .into_iter()
         .map(|value| match value.as_str() {
+            "auctions:read" => Ok(Scope::AuctionsRead),
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
             "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
             "users:read" => Ok(Scope::UsersRead),
@@ -233,6 +234,22 @@ mod tests {
             parse_scopes(vec!["listing-sources:write".to_owned()])
                 .unwrap_or_else(|_| unreachable!())
         );
+    }
+
+    #[test]
+    fn should_round_trip_canonical_auction_read_scope() {
+        let scopes = HashSet::from([Scope::AuctionsRead]);
+        assert_eq!(vec!["auctions:read"], scope_values(&scopes));
+        assert_eq!(
+            scopes,
+            parse_scopes(vec!["auctions:read".to_owned()]).expect("canonical scope")
+        );
+        for invalid in ["auction:read", "AUCTIONS:READ", "auctions:write"] {
+            assert!(matches!(
+                parse_scopes(vec![invalid.to_owned()]),
+                Err(AccessTokenRowMappingError::InvalidScope(_))
+            ));
+        }
     }
 
     fn persisted_ids(case: PersistedObjectIdCase) -> (Uuid, Uuid, Uuid) {

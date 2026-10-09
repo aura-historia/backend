@@ -197,6 +197,7 @@ paths:
     get:
       summary: Search Auctions for administration
       operationId: adminSearchAuctions
+      description: Administrator authority is required. Delegated Aura access tokens also require `auctions:read`; Cognito users do not require a delegated scope. Success and errors are always `no-store`.
       tags: [Auctions]
       security:
         - BearerAuth: []
@@ -257,7 +258,8 @@ paths:
           {
             description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
           }
-        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "403":
+          description: Administrator authority and delegated `auctions:read` capability required (`FORBIDDEN`).
         "503":
           {
             description: Auction search temporarily unavailable (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
@@ -308,6 +310,7 @@ paths:
     get:
       summary: Get Auction administration detail
       operationId: getAdminAuction
+      description: Administrator authority is required. Delegated Aura access tokens also require `auctions:read`; Cognito users do not require a delegated scope. Success and errors are always `no-store`.
       tags: [Auctions]
       security:
         - BearerAuth: []
@@ -334,7 +337,8 @@ paths:
           {
             description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
           }
-        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "403":
+          description: Administrator authority and delegated `auctions:read` capability required (`FORBIDDEN`).
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
         "503":
           {
@@ -15008,6 +15012,7 @@ components:
     AccessTokenScopeData:
       type: string
       enum:
+        - auctions:read
         - product-listings:write
         - listing-sources:write
         - users:read

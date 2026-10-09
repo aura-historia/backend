@@ -72,6 +72,7 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
     match scope {
         Scope::ProductListingsWrite => CredentialCapability::ProductListingsWrite,
         Scope::ListingSourcesWrite => CredentialCapability::ListingSourcesWrite,
+        Scope::AuctionsRead => CredentialCapability::AuctionsRead,
         Scope::UsersRead => CredentialCapability::UsersRead,
         Scope::UsersWrite => CredentialCapability::UsersWrite,
         Scope::AccessTokensRead => CredentialCapability::AccessTokensRead,
@@ -214,6 +215,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_authenticate_auction_read_scope_as_a_delegated_capability()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let token = String::from(RawAccessToken::new());
+        let (use_case, _calls) = use_case(FakeTokenOutcome::Success {
+            user_id,
+            scopes: HashSet::from([Scope::AuctionsRead]),
+        });
+        let authenticator = AuraAccessTokenAuthenticator::new(use_case);
+
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
+
+        assert_eq!(
+            TransportPrincipal::User {
+                user_id,
+                auth_method: AuthMethod::AuraAccessToken,
+                capabilities: BTreeSet::from([CredentialCapability::AuctionsRead]),
+            },
+            principal
+        );
+        assert_eq!(
+            Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::AuctionsRead]),
+            },
+            principal.operation_context(metadata()).principal
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_opaque_access_token_when_malformed() {
         let (use_case, calls) = use_case(FakeTokenOutcome::Success {
             user_id: UserId::new(),
@@ -262,6 +294,7 @@ mod tests {
                 Scope::ListingSourcesWrite,
                 CredentialCapability::ListingSourcesWrite,
             ),
+            (Scope::AuctionsRead, CredentialCapability::AuctionsRead),
             (Scope::UsersRead, CredentialCapability::UsersRead),
             (Scope::UsersWrite, CredentialCapability::UsersWrite),
             (

@@ -54,6 +54,10 @@ async fn should_consume_authorization_code_once_and_allow_one_concurrent_consume
         insert_authorization_code(pool.clone(), code.clone()).await?;
 
         let first = consume_authorization_code(pool.clone(), code_value).await?;
+        assert_eq!(
+            code.scopes(),
+            first.as_ref().expect("persisted code").scopes()
+        );
         assert!(
             first.is_some(),
             "the first authorization-code consumer must receive the code"
@@ -105,6 +109,10 @@ async fn should_consume_third_party_exchange_code_once_and_allow_one_concurrent_
         insert_third_party_exchange_code(pool.clone(), grant.clone()).await?;
 
         let first = consume_third_party_exchange_code(pool.clone(), code_value).await?;
+        assert_eq!(
+            grant.scopes(),
+            first.as_ref().expect("persisted grant").scopes()
+        );
         assert!(
             first.is_some(),
             "the first third-party exchange-code consumer must receive the grant"
@@ -181,6 +189,7 @@ async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
         let pool = get_postgres_client().await;
         let client = oauth_client(OAuthClientId::new(), "versioned-client")?;
         let inserted = insert_oauth_client(pool.clone(), &client).await?;
+        assert_eq!(client.scopes(), inserted.value.scopes());
         assert!(inserted.created > OffsetDateTime::UNIX_EPOCH);
         assert_eq!(inserted.created, inserted.updated);
 
@@ -446,7 +455,7 @@ fn oauth_client(client_id: OAuthClientId, name: &str) -> Result<OAuthClient, url
         policy_uri: Url::parse("https://dummy.example.test/policy")?,
         client_uri: Url::parse("https://dummy.example.test")?,
         logo_uri: Url::parse("https://dummy.example.test/logo.svg")?,
-        scopes: HashSet::from([Scope::ProductListingsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
     }))
 }
 
@@ -461,7 +470,7 @@ fn authorization_code(
             client_id,
             user_id,
             redirect_uri: Url::parse("https://dummy.example.test/oauth/callback")?,
-            scopes: HashSet::from([Scope::ProductListingsWrite]),
+            scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
             expires: now + Duration::minutes(5),
@@ -484,7 +493,7 @@ async fn seed_access_token_for_grant(
     .bind(hashed.short_token())
     .bind(hashed.long_token_hash())
     .bind("third-party exchange test token")
-    .bind(vec!["product-listings:write"])
+    .bind(grant.scopes().iter().copied().map(Scope::as_str).collect::<Vec<_>>())
     .execute(pool)
     .await?;
     Ok(())
@@ -497,7 +506,7 @@ fn third_party_exchange_code_grant() -> ThirdPartyExchangeCodeGrant {
         access_token_id: user_core::access_token::AccessTokenId::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: Some(now + Duration::minutes(10)),
-        scopes: HashSet::from([Scope::ProductListingsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite, Scope::AuctionsRead]),
         expires: now + Duration::minutes(5),
     })
 }

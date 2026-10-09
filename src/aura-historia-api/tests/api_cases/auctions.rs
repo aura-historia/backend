@@ -12,7 +12,7 @@ use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde_json::json;
 
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
-use user_core::access_token::Scope;
+use user_core::access_token::{AccessTokenId, Scope};
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_get_and_update_auction_as_administrator() {
@@ -20,6 +20,11 @@ async fn should_create_get_and_update_auction_as_administrator() {
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let read_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsRead]),
+    )
+    .await;
     let client = reqwest::Client::new();
 
     let created = client
@@ -74,7 +79,7 @@ async fn should_create_get_and_update_auction_as_administrator() {
             "{}/api/v1/admin/auctions/{auction_id}",
             AURA_API.base_url()
         ))
-        .bearer_auth(String::from(token.clone()))
+        .bearer_auth(String::from(read_token))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get Auction: {error}"));
@@ -149,6 +154,11 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
     let admin_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let admin_read_token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::AuctionsRead]),
+    )
+    .await;
     let client = reqwest::Client::new();
     let body = json!({
         "listingSourceId": source_id,
@@ -189,7 +199,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
                 "{}/api/v1/admin/auctions/{invalid_id}",
                 AURA_API.base_url()
             ))
-            .bearer_auth(String::from(admin_token.clone()))
+            .bearer_auth(String::from(admin_read_token.clone()))
             .send()
             .await
             .unwrap_or_else(|error| panic!("failed to get invalid Auction ID: {error}"));
@@ -208,7 +218,7 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
             AURA_API.base_url(),
             AuctionId::new()
         ))
-        .bearer_auth(String::from(admin_token.clone()))
+        .bearer_auth(String::from(admin_read_token))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get missing Auction: {error}"));
@@ -297,15 +307,200 @@ async fn admin_auction_search(
     (status, body, cache_control)
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_forbid_non_admin_auction_search_without_caching() {
-    let user_id = seed_user("USER").await;
-    let token =
-        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
-    let client = reqwest::Client::new();
-    let (status, body, cache_control) = admin_auction_search(&client, &token, &[]).await;
-    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+async fn assert_admin_auction_reads(
+    client: &reqwest::Client,
+    token: &str,
+    source_id: ListingSourceId,
+    auction_id: AuctionId,
+    expected_status: reqwest::StatusCode,
+) {
+    let (status, body, cache_control) =
+        admin_auction_search(client, token, &[("listingSourceId", source_id.to_string())]).await;
     assert_eq!(Some("no-store".to_owned()), cache_control);
+    if expected_status == reqwest::StatusCode::OK {
+        assert_eq!(expected_status, status, "response body: {body}");
+        assert_eq!(json!(1), body["size"]);
+        assert_eq!(json!(auction_id.to_string()), body["items"][0]["auctionId"]);
+    } else {
+        assert_problem(status, &body, expected_status, "FORBIDDEN");
+    }
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/admin/auctions/{auction_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+        .expect("get admin Auction details for scope regression");
+    assert_eq!(
+        Some("no-store"),
+        response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+    let (status, body) = json_response(response).await;
+    if expected_status == reqwest::StatusCode::OK {
+        assert_eq!(expected_status, status, "response body: {body}");
+        assert_eq!(json!(auction_id.to_string()), body["auctionId"]);
+    } else {
+        assert_problem(status, &body, expected_status, "FORBIDDEN");
+    }
+}
+
+async fn assert_access_token_scope_readback(
+    client: &reqwest::Client,
+    owner_token: &str,
+    access_token_id: AccessTokenId,
+    scopes: &[&str],
+) {
+    let response = client
+        .get(format!(
+            "{}/api/v1/me/access-tokens/{access_token_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(owner_token)
+        .send()
+        .await
+        .expect("read back Auction scope token metadata");
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+    assert_eq!(json!(access_token_id.to_string()), body["accessTokenId"]);
+    assert_eq!(json!(scopes), body["scopes"]);
+    assert!(body.get("accessToken").is_none());
+}
+
+async fn issue_auction_test_token(
+    client: &reqwest::Client,
+    owner_token: &str,
+    scopes: &[&str],
+) -> (AccessTokenId, String) {
+    let response = client
+        .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .bearer_auth(owner_token)
+        .json(&json!({"name": "Auction read scope regression", "scopes": scopes}))
+        .send()
+        .await
+        .expect("issue Auction scope token through the API");
+    assert_eq!(
+        Some("no-store"),
+        response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    let access_token_id = body["accessTokenId"]
+        .as_str()
+        .and_then(|value| AccessTokenId::try_from(value).ok())
+        .expect("issued token has a canonical AccessToken ID");
+    let token = body["accessToken"]
+        .as_str()
+        .expect("issued token has its one-time plaintext")
+        .to_owned();
+    assert_access_token_scope_readback(client, owner_token, access_token_id, scopes).await;
+    (access_token_id, token)
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_enforce_auction_read_scope_after_api_issuance_and_updates() {
+    let source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
+    let admin_id = seed_user("ADMIN").await;
+    let write_token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let owner_token = api_support::cognito_access_token_for_test_user(admin_id);
+    let client = reqwest::Client::new();
+    let auction_id = create_admin_search_auction(
+        &client,
+        &write_token,
+        source_id,
+        "auction-read-scope-regression",
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    assert_admin_auction_reads(
+        &client,
+        &owner_token,
+        source_id,
+        auction_id,
+        reqwest::StatusCode::OK,
+    )
+    .await;
+    let (access_token_id, token) =
+        issue_auction_test_token(&client, &owner_token, &["auctions:read"]).await;
+    assert_admin_auction_reads(
+        &client,
+        &token,
+        source_id,
+        auction_id,
+        reqwest::StatusCode::OK,
+    )
+    .await;
+
+    for (scopes, expected_status) in [
+        (&[][..], reqwest::StatusCode::FORBIDDEN),
+        (&["users:read"][..], reqwest::StatusCode::FORBIDDEN),
+        (&["auctions:read"][..], reqwest::StatusCode::OK),
+    ] {
+        let response = client
+            .patch(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+            .bearer_auth(&owner_token)
+            .json(&json!({"accessTokenId": access_token_id, "scopes": scopes}))
+            .send()
+            .await
+            .expect("update Auction scope token through the API");
+        assert_eq!(
+            Some("no-store"),
+            response
+                .headers()
+                .get(reqwest::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+        let (status, body) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(json!(scopes), body["scopes"]);
+        assert_access_token_scope_readback(&client, &owner_token, access_token_id, scopes).await;
+        assert_admin_auction_reads(&client, &token, source_id, auction_id, expected_status).await;
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_forbid_non_admin_auction_reads_even_with_scope_without_caching() {
+    let source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let auction_id = create_admin_search_auction(
+        &client,
+        &admin_token,
+        source_id,
+        "auction-read-role-regression",
+        None,
+        None,
+        None,
+    )
+    .await;
+    let user_id = seed_user("USER").await;
+    let owner_token = api_support::cognito_access_token_for_test_user(user_id);
+    let (_, token) = issue_auction_test_token(&client, &owner_token, &["auctions:read"]).await;
+
+    assert_admin_auction_reads(
+        &client,
+        &token,
+        source_id,
+        auction_id,
+        reqwest::StatusCode::FORBIDDEN,
+    )
+    .await;
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -315,8 +510,13 @@ async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_return
     let other_source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid second ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AuctionsRead]),
+        )
+        .await,
+    );
     let client = reqwest::Client::new();
     let auction_id = create_admin_search_auction(
         &client,
@@ -430,8 +630,13 @@ async fn should_filter_and_page_admin_auctions_with_scoped_deterministic_sort() 
     let source_id = ListingSourceId::try_from(seed_listing_source().await)
         .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
     let admin_id = seed_user("ADMIN").await;
-    let token =
-        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AuctionsRead]),
+        )
+        .await,
+    );
     let client = reqwest::Client::new();
     let first = create_admin_search_auction(
         &client,

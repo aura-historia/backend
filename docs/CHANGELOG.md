@@ -4,6 +4,7 @@ Only document REST API contract changes here. No internal changes.
 
 ## 2026-10-09 — Auction admin search and public schedule ordering (#1991)
 
+- Added canonical access-token/OAuth scope `auctions:read`. Both admin Auction GET endpoints now require it for delegated tokens, in addition to administrator authority; missing capability returns `403 FORBIDDEN`. Cognito authorization, admin create/update, and public reads are unchanged. Existing token and OAuth grants are not broadened automatically; grant the scope explicitly where needed.
 - Added admin-only `GET /api/v1/admin/auctions` with `query`, `listingSourceId`, `sourceAuctionId`, `format`, `reportedStatus`, `sort`, `order`, `size`, and opaque `searchAfter`. It returns complete `AuctionAdminData` rows regardless of status or listing visibility; `listingSourceId` plus `sourceAuctionId` resolves create conflicts. NUL-containing search text and cursor name keys are rejected with `400 BAD_QUERY_PARAMETER_VALUE`. Results and errors are `no-store`.
 - Public `GET /api/v1/auctions` now accepts `sort=created|scheduled` and `order=asc|desc`. The default remains newest-created-first and preserves legacy cursors; scheduled sorting requires `timeRole`, defaults to ascending, sorts missing instants last without a window, and scopes its cursor to sort/order. Anonymous cache policy remains unchanged.
 

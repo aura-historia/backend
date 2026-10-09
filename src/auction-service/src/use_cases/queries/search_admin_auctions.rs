@@ -6,7 +6,9 @@ use crate::{
     use_cases::queries::get_auction::{AuctionAdminDetailsView, ensure_admin},
 };
 use application::{
-    error::BoxError, operation_context::OperationContext, pagination::CursoredResult,
+    error::BoxError,
+    operation_context::{CredentialAuthorizationError, CredentialCapability, OperationContext},
+    pagination::CursoredResult,
 };
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminUseCase,
@@ -77,6 +79,16 @@ where
         context: &OperationContext,
         request: AdminAuctionSearchRequest,
     ) -> Result<SearchAdminAuctionsResult, SearchAdminAuctionsError> {
+        context
+            .require_credential_capability(CredentialCapability::AuctionsRead)
+            .map_err(|error| match error {
+                CredentialAuthorizationError::AuthenticationRequired(_) => {
+                    SearchAdminAuctionsError::AuthenticatedActorRequired
+                }
+                CredentialAuthorizationError::InsufficientCapability { .. } => {
+                    SearchAdminAuctionsError::Forbidden
+                }
+            })?;
         ensure_admin(
             context,
             &self.check_user_admin,
@@ -159,11 +171,13 @@ mod tests {
     use application::pagination::Cursor;
     use auction_core::AuctionId;
     use domain_primitives::sort::SortOrder;
+    use std::collections::BTreeSet;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
     use time::OffsetDateTime;
+    use user_core::user_id::UserId;
     use user_service::use_cases::queries::check_user_admin::{
         CheckUserAdminRequest, CheckUserAdminResult,
     };
@@ -184,16 +198,24 @@ mod tests {
         }
     }
 
-    struct RejectNonAdmin;
+    struct AdminCheckFake {
+        calls: Arc<AtomicUsize>,
+        is_admin: bool,
+    }
 
     #[async_trait::async_trait]
-    impl CheckUserAdminUseCase for RejectNonAdmin {
+    impl CheckUserAdminUseCase for AdminCheckFake {
         async fn execute(
             &self,
             _context: &OperationContext,
             _request: CheckUserAdminRequest,
         ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
-            Err(CheckUserAdminError::Forbidden)
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.is_admin {
+                Ok(CheckUserAdminResult)
+            } else {
+                Err(CheckUserAdminError::Forbidden)
+            }
         }
     }
 
@@ -206,26 +228,157 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn denies_unauthenticated_and_non_admin_users_before_reading() {
+    async fn allows_delegated_admin_with_auctions_read_scope() {
         let reads = Arc::new(AtomicUsize::new(0));
-        let handler =
-            SearchAdminAuctionsHandler::new(CountingReader(reads.clone()), RejectNonAdmin);
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: true,
+            },
+        );
+        let result = handler
+            .execute(
+                &context(Principal::DelegatedUser {
+                    user_id: UserId::new(),
+                    capabilities: BTreeSet::from([CredentialCapability::AuctionsRead]),
+                }),
+                request(),
+            )
+            .await
+            .expect("scoped admin can search auctions");
+
+        assert_eq!(CursoredResult::default(), result);
+        assert_eq!(1, admin_checks.load(Ordering::SeqCst));
+        assert_eq!(1, reads.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn denies_delegated_users_without_auctions_read_before_admin_check_or_reading() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: true,
+            },
+        );
+
+        for capabilities in [
+            BTreeSet::new(),
+            BTreeSet::from([CredentialCapability::UsersRead]),
+        ] {
+            assert!(matches!(
+                handler
+                    .execute(
+                        &context(Principal::DelegatedUser {
+                            user_id: UserId::new(),
+                            capabilities,
+                        }),
+                        request(),
+                    )
+                    .await,
+                Err(SearchAdminAuctionsError::Forbidden)
+            ));
+            assert_eq!(0, admin_checks.load(Ordering::SeqCst));
+            assert_eq!(0, reads.load(Ordering::SeqCst));
+        }
+    }
+
+    #[tokio::test]
+    async fn denies_non_admin_users_before_reading() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: false,
+            },
+        );
+
+        for principal in [
+            Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::from([CredentialCapability::AuctionsRead]),
+            },
+            Principal::User(UserId::new()),
+        ] {
+            assert!(matches!(
+                handler.execute(&context(principal), request()).await,
+                Err(SearchAdminAuctionsError::Forbidden)
+            ));
+        }
+        assert_eq!(2, admin_checks.load(Ordering::SeqCst));
+        assert_eq!(0, reads.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn denies_anonymous_before_admin_check_or_reading() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: true,
+            },
+        );
+
         assert!(matches!(
             handler
                 .execute(&context(Principal::Anonymous), request())
                 .await,
             Err(SearchAdminAuctionsError::AuthenticatedActorRequired)
         ));
-        assert!(matches!(
-            handler
-                .execute(
-                    &context(Principal::User(user_core::user_id::UserId::new())),
-                    request()
-                )
-                .await,
-            Err(SearchAdminAuctionsError::Forbidden)
-        ));
+        assert_eq!(0, admin_checks.load(Ordering::SeqCst));
         assert_eq!(0, reads.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn allows_first_party_admin_without_delegated_scopes() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: true,
+            },
+        );
+        let result = handler
+            .execute(&context(Principal::User(UserId::new())), request())
+            .await
+            .expect("first-party admin can search auctions");
+
+        assert_eq!(CursoredResult::default(), result);
+        assert_eq!(1, admin_checks.load(Ordering::SeqCst));
+        assert_eq!(1, reads.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn allows_service_and_system_without_admin_check() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let admin_checks = Arc::new(AtomicUsize::new(0));
+        let handler = SearchAdminAuctionsHandler::new(
+            CountingReader(reads.clone()),
+            AdminCheckFake {
+                calls: admin_checks.clone(),
+                is_admin: false,
+            },
+        );
+
+        for principal in [Principal::Service("test-service".into()), Principal::System] {
+            let result = handler
+                .execute(&context(principal), request())
+                .await
+                .expect("trusted principal can search auctions");
+            assert_eq!(CursoredResult::default(), result);
+        }
+        assert_eq!(0, admin_checks.load(Ordering::SeqCst));
+        assert_eq!(2, reads.load(Ordering::SeqCst));
     }
 
     fn request() -> AdminAuctionSearchRequest {

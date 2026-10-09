@@ -186,6 +186,7 @@ fn scope_to_db(scope: Scope) -> String {
 
 fn scope_from_db(value: &str) -> Result<Scope, OAuthRowMappingError> {
     match value {
+        "auctions:read" => Ok(Scope::AuctionsRead),
         "product-listings:write" => Ok(Scope::ProductListingsWrite),
         "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
         "users:read" => Ok(Scope::UsersRead),
@@ -229,6 +230,22 @@ mod tests {
             parse_scopes(vec!["listing-sources:write".to_owned()])
                 .unwrap_or_else(|_| unreachable!())
         );
+    }
+
+    #[test]
+    fn should_round_trip_canonical_auction_read_scope() {
+        let scopes = HashSet::from([Scope::AuctionsRead]);
+        assert_eq!(vec!["auctions:read".to_owned()], scope_values(&scopes));
+        assert_eq!(
+            scopes,
+            parse_scopes(vec!["auctions:read".to_owned()]).expect("canonical scope")
+        );
+        for invalid in ["auction:read", "AUCTIONS:READ", "auctions:write"] {
+            assert!(matches!(
+                scope_from_db(invalid),
+                Err(OAuthRowMappingError::InvalidScope(_))
+            ));
+        }
     }
 
     fn oauth_client_view_row(client_id: Uuid) -> OAuthClientViewRow {

@@ -456,6 +456,7 @@ fn parse_scopes(values: HashSet<String>) -> Result<HashSet<Scope>, ApiError> {
         .map(|value| match value.as_str() {
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
             "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
+            "auctions:read" => Ok(Scope::AuctionsRead),
             "users:read" => Ok(Scope::UsersRead),
             "users:write" => Ok(Scope::UsersWrite),
             "access-tokens:read" => Ok(Scope::AccessTokensRead),
@@ -640,6 +641,31 @@ mod tests {
             scopes,
             Ok(scopes) if scopes == HashSet::from([Scope::ListingSourcesWrite])
         ));
+    }
+
+    #[test]
+    fn should_accept_canonical_auctions_read_scope() {
+        let scopes = parse_scopes(HashSet::from(["auctions:read".to_owned()]));
+
+        assert!(matches!(
+            scopes,
+            Ok(scopes) if scopes == HashSet::from([Scope::AuctionsRead])
+        ));
+    }
+
+    #[test]
+    fn should_reject_noncanonical_auctions_read_scopes() {
+        for value in [
+            "auction:read",
+            "AUCTIONS_READ",
+            "auctions:READ",
+            "auctions:write",
+        ] {
+            assert!(
+                parse_scopes(HashSet::from([value.to_owned()])).is_err(),
+                "{value}"
+            );
+        }
     }
 
     #[test]

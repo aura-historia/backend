@@ -75,6 +75,7 @@ fn parse_scope_with_field(
     let scope = match value {
         "product-listings:write" => Scope::ProductListingsWrite,
         "listing-sources:write" => Scope::ListingSourcesWrite,
+        "auctions:read" => Scope::AuctionsRead,
         "users:read" => Scope::UsersRead,
         "users:write" => Scope::UsersWrite,
         "access-tokens:read" => Scope::AccessTokensRead,
@@ -123,6 +124,35 @@ pub(crate) fn required_form<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_parse_canonical_auction_read_for_oauth_scopes() {
+        let expected = HashSet::from([Scope::AuctionsRead]);
+
+        assert_eq!(
+            expected,
+            parse_scopes(["auctions:read".to_owned()]).unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!(
+            expected,
+            parse_scope_string(Some("auctions:read"), "scope").unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!("auctions:read", scope_string(&expected));
+        assert_eq!(vec!["auctions:read".to_owned()], scope_strings(expected));
+    }
+
+    #[test]
+    fn should_reject_noncanonical_auction_read_for_oauth_scopes() {
+        for value in [
+            "auction:read",
+            "AUCTIONS_READ",
+            "auctions:READ",
+            "auctions:write",
+        ] {
+            assert!(parse_scopes([value.to_owned()]).is_err(), "{value}");
+            assert!(parse_scope_string(Some(value), "scope").is_err(), "{value}");
+        }
+    }
 
     #[test]
     fn should_parse_listing_source_write_for_oauth_scopes() {
