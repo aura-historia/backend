@@ -11,6 +11,7 @@ handlebars = { workspace = true }
 localization = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "time"] }
+tracing = { workspace = true }
 url = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
@@ -23,3 +24,4 @@ html-escape = { workspace = true }
 mrml = { workspace = true }
 serde-email = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
+tracing-subscriber = { workspace = true, features = ["json"] }

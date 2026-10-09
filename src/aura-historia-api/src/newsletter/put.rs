@@ -65,6 +65,11 @@ pub async fn put_newsletter_subscription(
     {
         Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
         Err(error) => {
+            tracing::warn!(
+                event = "newsletter_subscription.request_failed",
+                error = %error,
+                "Newsletter subscription request failed"
+            );
             let error = match error {
                 user_service::use_cases::RequestNewsletterSubscriptionError::TransactionFailed(_)
                 | user_service::use_cases::RequestNewsletterSubscriptionError::TemporarilyUnavailable

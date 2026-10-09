@@ -24,6 +24,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tracing::instrument::WithSubscriber;
 use user_core::{
     first_name::FirstName, newsletter_confirmation::RawNewsletterConfirmationToken,
     newsletter_confirmation_id::NewsletterConfirmationId,
@@ -459,4 +460,129 @@ async fn stalled_s3_request_is_bounded_by_adapter_deadline_without_ses_send() {
     assert!(start.elapsed() >= Duration::from_secs(2));
     assert_eq!(s3_http.paths().len(), 1);
     assert!(ses_http.requests().is_empty());
+}
+
+#[derive(Clone, Default)]
+struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedLogs {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_payloads() {
+    for (template_reply, ses_reply, phase, category) in [
+        (
+            Reply::Response(404, "<Error><Code>NoSuchKey</Code></Error>"),
+            None,
+            "preparation",
+            "TemplateMissing",
+        ),
+        (
+            Reply::Response(200, "{{{first_name}}}{{confirmation_url}}"),
+            None,
+            "preparation",
+            "TemplateInvalid",
+        ),
+        (
+            Reply::Response(200, TEMPLATE),
+            Some(Reply::Response(
+                403,
+                r#"{"__type":"AccessDeniedException","message":"private-provider-detail reader@example.test"}"#,
+            )),
+            "ses",
+            "AccessDenied",
+        ),
+        (
+            Reply::Response(200, TEMPLATE),
+            Some(Reply::Response(
+                400,
+                r#"{"__type":"MessageRejected","message":"private-provider-detail reader@example.test"}"#,
+            )),
+            "ses",
+            "MessageRejected",
+        ),
+        (
+            Reply::Response(200, TEMPLATE),
+            Some(Reply::Response(
+                400,
+                r#"{"__type":"private-provider-detail","message":"reader@example.test"}"#,
+            )),
+            "ses",
+            "OtherServiceError",
+        ),
+        (
+            Reply::Response(200, TEMPLATE),
+            Some(Reply::IoFailure),
+            "ses",
+            "TransportFailure",
+        ),
+        (
+            Reply::Response(200, TEMPLATE),
+            Some(Reply::Response(200, r#"{}"#)),
+            "ses",
+            "MissingReceipt",
+        ),
+    ] {
+        let logs = CapturedLogs::default();
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .without_time()
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(move || writer.clone())
+            .finish();
+        let message = email(Some("private-recipient-name"));
+        let token = message.token.as_str().to_owned();
+        let confirmation_id = message.confirmation_id.to_string();
+        let s3_http = ReplayHttp::new(Service::S3, [template_reply]);
+        let ses_http = ReplayHttp::new(Service::Ses, ses_reply);
+        let outcome = sender(s3_http, ses_http.clone())
+            .send(message)
+            .with_subscriber(subscriber)
+            .await;
+        let expected = if matches!(category, "TransportFailure" | "MissingReceipt") {
+            NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
+        } else {
+            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
+                retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
+            }
+        };
+        assert_eq!(outcome, expected);
+        assert_eq!(ses_http.requests().len(), usize::from(phase == "ses"));
+        let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        let events: Vec<Value> = output
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|event| event["fields"]["event"] == "newsletter_confirmation_email.failed")
+            .collect();
+        assert_eq!(
+            events.len(),
+            1,
+            "expected a categorized failure for {category}"
+        );
+        assert_eq!(events[0]["fields"]["phase"], phase);
+        assert_eq!(events[0]["fields"]["failure_category"], category);
+        for private in [
+            "reader@example.test",
+            "private-recipient-name",
+            "private-provider-detail",
+            "http://127.0.0.1:3000",
+            "Confirm subscription",
+            token.as_str(),
+            confirmation_id.as_str(),
+        ] {
+            assert!(
+                !output.contains(private),
+                "failure log exposed private data"
+            );
+        }
+    }
 }

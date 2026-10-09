@@ -133,6 +133,9 @@ resource ownership. [Log-group adoption](infra.md#manual-operations) is a separa
 Before traffic, verify the shared purpose-list ID, signing configuration/public endpoint,
 SES identity and isolated recipient access, pinned confirmation templates and frontend
 confirmation URL. Configuration and mocks do not prove live provider acceptance.
+For confirmation failures, correlate request IDs with preparation/SES failure categories
+and the terminal use-case error. Never enable raw SDK, recipient, proof or rendered-mail
+logging to diagnose delivery; an ambiguous send must not be blindly replayed.
 
 Monitor queue age/DLQs, intent outcomes, cleanup and API/webhook latency/errors alongside
 Loops retry/failure history and endpoint enablement. No receipt can exist for a pre-commit

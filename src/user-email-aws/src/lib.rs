@@ -5,7 +5,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::{
     Client as SesClient,
     config::retry::RetryConfig,
-    error::SdkError,
+    error::{ProvideErrorMetadata, SdkError},
     operation::send_email::{SendEmailError, SendEmailOutput},
     types::{Body, Content, Destination, EmailContent, Message},
 };
@@ -302,18 +302,34 @@ impl SesNewsletterConfirmationEmailSender {
         let language = EmailLanguage::resolve(email.profile.language);
         let body = match self.rendered_body(language, &email).await {
             Ok(body) => body,
-            Err(PreparationFailure::TemplateUnavailable) => {
-                return rejected(NewsletterConfirmationEmailRetryability::Retryable);
+            Err(failure) => {
+                tracing::warn!(
+                    event = "newsletter_confirmation_email.failed",
+                    phase = "preparation",
+                    failure_category = ?failure,
+                    "Newsletter confirmation email preparation failed"
+                );
+                let retryability = if failure == PreparationFailure::TemplateUnavailable {
+                    NewsletterConfirmationEmailRetryability::Retryable
+                } else {
+                    NewsletterConfirmationEmailRetryability::NotRetryable
+                };
+                return rejected(retryability);
             }
-            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
         };
         let subject = match Content::builder().data(language.subject()).build() {
             Ok(content) => content,
-            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
+            Err(_) => {
+                log_ses_failure("SubjectConstructionFailure", None);
+                return rejected(NewsletterConfirmationEmailRetryability::NotRetryable);
+            }
         };
         let html = match Content::builder().data(body).build() {
             Ok(content) => content,
-            Err(_) => return rejected(NewsletterConfirmationEmailRetryability::NotRetryable),
+            Err(_) => {
+                log_ses_failure("BodyConstructionFailure", None);
+                return rejected(NewsletterConfirmationEmailRetryability::NotRetryable);
+            }
         };
         let message = Message::builder()
             .subject(subject)
@@ -337,7 +353,10 @@ impl SesNewsletterConfirmationEmailSender {
         match response {
             Ok(Ok(receipt)) => accepted_receipt(&receipt),
             Ok(Err(error)) => classify_ses_error(&error),
-            Err(_) => NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown,
+            Err(_) => {
+                log_ses_failure("DeadlineExceeded", None);
+                NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
+            }
         }
     }
 }
@@ -359,11 +378,54 @@ fn accepted_receipt(response: &SendEmailOutput) -> NewsletterConfirmationEmailSe
     {
         NewsletterConfirmationEmailSendOutcome::Accepted
     } else {
+        log_ses_failure("MissingReceipt", None);
         NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
     }
 }
 
+fn log_ses_failure(category: &'static str, http_status: Option<u16>) {
+    tracing::warn!(
+        event = "newsletter_confirmation_email.failed",
+        phase = "ses",
+        failure_category = category,
+        http_status = ?http_status,
+        "Newsletter confirmation SES send failed"
+    );
+}
+
+fn ses_failure_category(error: &SdkError<SendEmailError>) -> &'static str {
+    match error {
+        SdkError::ConstructionFailure(_) => "ConstructionFailure",
+        SdkError::TimeoutError(_) => "SdkTimeout",
+        SdkError::DispatchFailure(_) => "TransportFailure",
+        SdkError::ResponseError(_) => "InvalidResponse",
+        SdkError::ServiceError(response) => match response.err().code() {
+            Some("AccessDenied" | "AccessDeniedException") => "AccessDenied",
+            Some("BadRequestException") => "BadRequest",
+            Some("MessageRejected") => "MessageRejected",
+            Some("AccountSuspendedException") => "AccountSuspended",
+            Some("MailFromDomainNotVerifiedException") => "MailFromDomainNotVerified",
+            Some("NotFoundException") => "NotFound",
+            Some("SendingPausedException") => "SendingPaused",
+            Some("TooManyRequestsException" | "LimitExceededException") => "Throttled",
+            Some("InvalidClientTokenId" | "ExpiredToken" | "ExpiredTokenException") => {
+                "InvalidCredentials"
+            }
+            Some("SignatureDoesNotMatch" | "InvalidSignatureException") => "InvalidSignature",
+            _ => "OtherServiceError",
+        },
+        _ => "OtherSdkError",
+    }
+}
+
 fn classify_ses_error(error: &SdkError<SendEmailError>) -> NewsletterConfirmationEmailSendOutcome {
+    // Allowlist categories instead of logging provider messages or arbitrary error-code strings.
+    log_ses_failure(
+        ses_failure_category(error),
+        error
+            .raw_response()
+            .map(|response| response.status().as_u16()),
+    );
     match error {
         SdkError::ConstructionFailure(_) => {
             rejected(NewsletterConfirmationEmailRetryability::NotRetryable)
