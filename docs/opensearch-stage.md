@@ -43,6 +43,9 @@ random-password users mapped only to their role. Role names use `reader`,
 `product_projector`, `filter_projector`, `percolator` (filenames use hyphens).
 Reader searches; projectors index only their own documents; percolator searches
 filters and manages PITs. None receives administration or index-management rights.
+Single-document indexing also requires the internal `indices:data/write/bulk*`
+actions, scoped to the projector's own index. Do not substitute the broader `write`
+or `index` action groups: they also grant mapping or other document-write rights.
 
 Only after confirming the indices/pipeline are absent, apply the fresh-install assets:
 

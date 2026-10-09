@@ -25,6 +25,67 @@ checks and omissions. Keep payloads, credentials and personal content out of evi
    ownership, drained/preserved work and rollback posture are proven. Rollback needs a
    compatible artifact and a coordinated mapping/backlog plan, not removed legacy source.
 
+## First CDC start on a new stage
+
+CDK configures the source endpoint's slot name and a stopped CDC-only task. Neither
+Deploy nor Migrate creates the PostgreSQL slot or starts capture. Do this once under the
+approved activation plan, not on every deployment.
+
+1. Verify account/stage, deployed release, endpoint connection tests, selected tables,
+   router mapping and retained failure destinations. Confirm the task has never started
+   and has no recovery checkpoint. The source login must inherit the `rds_replication`
+   capability: verify `pg_has_role(current_user, 'rds_replication', 'USAGE')` through
+   its connection. Membership alone is insufficient when its grant is non-inherited.
+   Inventory existing selected-source rows and old consumers; CDC-only capture does not backfill those rows.
+2. Through an authenticated private PostgreSQL connection, inspect the configured slot:
+
+   ```sql
+   SELECT slot_name, slot_type, plugin, database, active, restart_lsn, confirmed_flush_lsn, wal_status
+   FROM pg_replication_slots
+   WHERE slot_name = '<approved-slot-name>';
+   ```
+
+   An absent slot on an approved new stage needs explicit creation and reconciliation
+   of preexisting state. An unexpectedly missing slot on a previously running stage
+   is recovery: stop and use a fenced replay/rebuild plan. Never automatically recreate
+   a lost slot or treat a configured endpoint slot name as proof that the slot exists.
+3. For approved new capture only, use a database administrator or an identity with
+   the required slot-creation privileges. Create the configured slot with the configured
+   plugin; the current DMS endpoint uses PostgreSQL `test_decoding`:
+
+   ```sql
+   SELECT * FROM pg_create_logical_replication_slot('<approved-slot-name>', 'test_decoding');
+   ```
+
+   Requery the slot. Require the correct database/plugin, an inactive healthy logical
+   slot, and non-null restart/confirmed positions. Record its actual `confirmed_flush_lsn`;
+   do not substitute the current WAL position or a timestamp. Start promptly and monitor
+   retained WAL while capture is stopped.
+4. Start the existing task from the recorded position:
+
+   ```sh
+   aws dms start-replication-task \
+     --region <stage-region> \
+     --replication-task-arn <existing-task-arn> \
+     --start-replication-task-type start-replication \
+     --cdc-start-position <confirmed-flush-lsn>
+   ```
+
+   Confirm running state, source-slot activity and checkpoint progress. Subsequent
+   recovery uses `resume-processing` and the task checkpoint, not a fresh first start.
+5. Reconcile approved preexisting state through its owning consumer contract. A guarded
+   no-op update can wake a current saved-filter projection without changing its values,
+   version or timestamps; verify row identity/version and unchanged business state.
+   This is not a general backfill method for immutable history or notification intents.
+   Recheck source inventory at the capture boundary; additional preexisting work needs
+   its own reconciliation plan.
+6. Trace a real selected-source change through DMS, Kinesis, confirmed router publication,
+   SQS and the owning worker's completed outcome. Connection tests, control records,
+   an enabled mapping or a successful invocation alone do not prove completion. Check
+   lag, retained WAL, queue/DLQ custody and router archive failures without exporting
+   payloads or consuming live messages for inspection. Record safe evidence and remove
+   temporary query infrastructure and its credentials access.
+
 ## Failure custody and controlled redrive
 
 | Failure location | What to inspect |

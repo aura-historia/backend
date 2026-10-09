@@ -375,6 +375,16 @@ fn classify_dms_control(
         Some("") => return DmsKinesisRecordClassification::Invalid("empty control operation"),
         Some(operation) => operation,
     };
+    if operation == "create-table"
+        && metadata.schema_name.as_deref() == Some("")
+        && metadata.table_name.as_deref() == Some("awsdms_apply_exceptions")
+    {
+        return if control.get("table-def").is_some_and(Value::is_object) {
+            DmsKinesisRecordClassification::InformationalControl
+        } else {
+            DmsKinesisRecordClassification::Invalid("control table definition")
+        };
+    }
     let schema = match metadata.schema_name.as_deref() {
         None => return DmsKinesisRecordClassification::Invalid("missing control schema"),
         Some("") => return DmsKinesisRecordClassification::Invalid("empty control schema"),
@@ -1135,6 +1145,50 @@ mod tests {
                     "accepted {field}={value}"
                 );
             }
+        }
+        assert!(publisher.bodies.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn dms_apply_exceptions_create_table_is_informational_and_scoped() {
+        let (router, publisher) = fanout();
+        let record = serde_json::json!({
+            "control": {"table-def": {"columns": []}},
+            "metadata": {
+                "record-type": "control",
+                "operation": "create-table",
+                "schema-name": "",
+                "table-name": "awsdms_apply_exceptions"
+            }
+        });
+        let prepared = router
+            .prepare_dms_kinesis_record(record.to_string().as_bytes())
+            .unwrap();
+        assert!(prepared.publications.is_empty());
+        for (field, replacement) in [
+            ("record-type", "data"),
+            ("operation", "drop-table"),
+            ("operation", "add-column"),
+            ("schema-name", "public"),
+            ("table-name", "unknown_table"),
+            ("table-name", "search_filters"),
+        ] {
+            let mut invalid = record.clone();
+            invalid["metadata"][field] = Value::String(replacement.into());
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(invalid.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        for control in [serde_json::json!({}), serde_json::json!({"table-def": []})] {
+            let mut invalid = record.clone();
+            invalid["control"] = control;
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(invalid.to_string().as_bytes())
+                    .is_err()
+            );
         }
         assert!(publisher.bodies.lock().unwrap().is_empty());
     }

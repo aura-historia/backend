@@ -51,7 +51,10 @@ validates the complete route and encoded jobs before any send, and checkpoints o
 once every required publication is confirmed. Partial or uncertain fanout can duplicate
 jobs. Failure stops at the earliest unconfirmed sequence; safe non-trigger operations
 and informational controls produce no jobs. Invalid rows and incompatible schema
-controls retain failure custody rather than being silently skipped.
+controls retain failure custody rather than being silently skipped. The DMS-generated
+`create-table` control for `awsdms_apply_exceptions` in the empty target schema is
+informational and creates no jobs; this exception does not accept its data records,
+other schema operations or unknown tables.
 
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
