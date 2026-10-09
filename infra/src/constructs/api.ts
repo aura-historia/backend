@@ -96,7 +96,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/auctions/{auction_id}", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/overview", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources", ["GET", "POST"]),
