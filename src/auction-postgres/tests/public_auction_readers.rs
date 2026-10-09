@@ -6,6 +6,7 @@ use auction_service::ports::{
     PublicAuctionDetailsReader,
 };
 use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::sort::SortOrder;
 use listing_source_core::ListingSourceId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{OffsetDateTime, macros::datetime};
@@ -13,15 +14,29 @@ use time::{OffsetDateTime, macros::datetime};
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_filter_directory_by_schedule_role_with_half_open_bounds() {
+async fn should_filter_and_page_directory_by_schedule_role_with_half_open_bounds() {
     let pool = get_postgres_client().await;
     let source_id = seed_listing_source(&pool, "directory-schedule-source").await;
     let from = datetime!(2026-10-18 16:00 UTC);
     let to = datetime!(2026-10-18 17:00 UTC);
     let included = seed_auction(&pool, source_id, "directory-included", 0).await;
+    let tie_a = seed_auction(&pool, source_id, "directory-tie-a", 0).await;
+    let tie_b = seed_auction(&pool, source_id, "directory-tie-b", 0).await;
+    let excluded_lower = seed_auction(&pool, source_id, "directory-lower", 0).await;
     let excluded_upper = seed_auction(&pool, source_id, "directory-upper", 0).await;
+    let _null = seed_auction(&pool, source_id, "directory-null", 0).await;
     let wrong_role = seed_auction(&pool, source_id, "directory-wrong-role", 0).await;
     seed_schedule(&pool, included, "LIVE_STARTS", from).await;
+    for id in [tie_a, tie_b] {
+        seed_schedule(&pool, id, "LIVE_STARTS", datetime!(2026-10-18 16:30 UTC)).await;
+    }
+    seed_schedule(
+        &pool,
+        excluded_lower,
+        "LIVE_STARTS",
+        datetime!(2026-10-18 15:59:59 UTC),
+    )
+    .await;
     seed_schedule(&pool, excluded_upper, "LIVE_STARTS", to).await;
     seed_schedule(&pool, wrong_role, "SCHEDULED_END", from).await;
 
@@ -44,13 +59,122 @@ async fn should_filter_directory_by_schedule_role_with_half_open_bounds() {
         .await
         .unwrap_or_else(|error| panic!("failed to list auction directory: {error:?}"));
 
-    assert_eq!(
-        vec![included],
-        page.items
-            .into_iter()
-            .map(|item| item.auction_id)
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(3, page.items.len());
+    for id in [included, tie_a, tie_b] {
+        assert!(page.items.iter().any(|item| item.auction_id == id));
+    }
+
+    let mut ties = [tie_a, tie_b];
+    ties.sort_by(|left, right| left.as_uuid().cmp(right.as_uuid()));
+    for (order, expected) in [
+        (SortOrder::Asc, [included, ties[0], ties[1]]),
+        (SortOrder::Desc, [ties[1], ties[0], included]),
+    ] {
+        assert_single_item_directory_pages(
+            &reader,
+            ListAuctionsDirectoryRequest {
+                listing_source_id: Some(source_id),
+                schedule: Some(AuctionInstantScheduleFilter {
+                    role: AuctionSchedulePoint::LiveStarts,
+                    range: RangeQuery {
+                        min: Some(from),
+                        max: Some(to),
+                    },
+                }),
+                sort: Some(AuctionSchedulePoint::LiveStarts),
+                order: Some(order),
+                ..Default::default()
+            },
+            &expected,
+        )
+        .await;
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_page_scheduled_directory_in_both_orders_with_nulls_last_and_id_ties() {
+    let pool = get_postgres_client().await;
+    let source_id = seed_listing_source(&pool, "directory-scheduled-page-source").await;
+    let early = seed_auction(&pool, source_id, "schedule-early", 0).await;
+    let tie_a = seed_auction(&pool, source_id, "schedule-tie-a", 0).await;
+    let tie_b = seed_auction(&pool, source_id, "schedule-tie-b", 0).await;
+    let null_a = seed_auction(&pool, source_id, "schedule-null-a", 0).await;
+    let null_b = seed_auction(&pool, source_id, "schedule-null-b", 0).await;
+    seed_schedule(&pool, early, "LIVE_STARTS", datetime!(2026-10-18 15:00 UTC)).await;
+    seed_schedule(&pool, tie_a, "LIVE_STARTS", datetime!(2026-10-18 16:00 UTC)).await;
+    seed_schedule(&pool, tie_b, "LIVE_STARTS", datetime!(2026-10-18 16:00 UTC)).await;
+    let reader = SqlxAuctionDirectoryReader::new(pool);
+    let mut ties = [tie_a, tie_b];
+    ties.sort_by(|left, right| left.as_uuid().cmp(right.as_uuid()));
+    let mut nulls = [null_a, null_b];
+    nulls.sort_by(|left, right| left.as_uuid().cmp(right.as_uuid()));
+    for (order, expected) in [
+        (
+            SortOrder::Asc,
+            vec![early, ties[0], ties[1], nulls[0], nulls[1]],
+        ),
+        (
+            SortOrder::Desc,
+            vec![ties[1], ties[0], early, nulls[1], nulls[0]],
+        ),
+    ] {
+        assert_single_item_directory_pages(
+            &reader,
+            ListAuctionsDirectoryRequest {
+                listing_source_id: Some(source_id),
+                sort: Some(AuctionSchedulePoint::LiveStarts),
+                order: Some(order),
+                ..Default::default()
+            },
+            &expected,
+        )
+        .await;
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_page_created_directory_in_both_orders_with_timestamp_ties() {
+    let pool = get_postgres_client().await;
+    let source_id = seed_listing_source(&pool, "directory-created-page-source").await;
+    let ids = [
+        seed_auction(&pool, source_id, "created-one", 0).await,
+        seed_auction(&pool, source_id, "created-two", 0).await,
+        seed_auction(&pool, source_id, "created-three", 0).await,
+        seed_auction(&pool, source_id, "created-four", 0).await,
+    ];
+    for (id, created) in [
+        (ids[0], datetime!(2026-01-01 00:00 UTC)),
+        (ids[1], datetime!(2026-01-02 00:00 UTC)),
+        (ids[2], datetime!(2026-01-01 00:00 UTC)),
+        (ids[3], datetime!(2026-01-02 00:00 UTC)),
+    ] {
+        sqlx::query("UPDATE auctions SET created = $1 WHERE auction_id = $2")
+            .bind(created)
+            .bind(id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to set creation instant: {error}"));
+    }
+    let reader = SqlxAuctionDirectoryReader::new(pool);
+    let mut early = [ids[0], ids[2]];
+    early.sort_by(|left, right| left.as_uuid().cmp(right.as_uuid()));
+    let mut late = [ids[1], ids[3]];
+    late.sort_by(|left, right| left.as_uuid().cmp(right.as_uuid()));
+    for (order, expected) in [
+        (SortOrder::Asc, [early[0], early[1], late[0], late[1]]),
+        (SortOrder::Desc, [late[1], late[0], early[1], early[0]]),
+    ] {
+        assert_single_item_directory_pages(
+            &reader,
+            ListAuctionsDirectoryRequest {
+                listing_source_id: Some(source_id),
+                order: Some(order),
+                ..Default::default()
+            },
+            &expected,
+        )
+        .await;
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -92,6 +216,43 @@ async fn should_return_none_for_missing_public_auction_details() {
         .unwrap_or_else(|error| panic!("failed to query missing public auction: {error:?}"));
 
     assert!(details.is_none());
+}
+
+async fn assert_single_item_directory_pages(
+    reader: &SqlxAuctionDirectoryReader,
+    mut request: ListAuctionsDirectoryRequest,
+    expected: &[AuctionId],
+) {
+    request.cursor = Some(Cursor {
+        size: 1,
+        search_after: None,
+    });
+    for (index, expected_id) in expected.iter().enumerate() {
+        let page = reader
+            .list(&request)
+            .await
+            .unwrap_or_else(|error| panic!("failed to page auction directory: {error:?}"));
+        assert_eq!(
+            vec![*expected_id],
+            page.items
+                .iter()
+                .map(|item| item.auction_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(1, page.cursor.size);
+        assert_eq!(
+            index + 1 < expected.len(),
+            page.cursor.search_after.is_some()
+        );
+        if let Some(after) = page.cursor.search_after.as_ref() {
+            assert_eq!(*expected_id, after.auction_id);
+            assert_eq!(request.scope(), after.scope);
+            if request.sort == Some(AuctionSchedulePoint::LiveStarts) {
+                assert_eq!(page.items[0].schedule.live_starts(), after.scheduled);
+            }
+        }
+        request.cursor = Some(page.cursor);
+    }
 }
 
 async fn seed_listing_source(pool: &sqlx::PgPool, slug: &str) -> ListingSourceId {

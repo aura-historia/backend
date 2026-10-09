@@ -22,6 +22,7 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
+use domain_primitives::sort::SortOrder;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -258,6 +259,8 @@ struct DirectoryQuery {
     format: Option<String>,
     reported_status: Option<String>,
     time_role: Option<String>,
+    sort: Option<String>,
+    order: Option<String>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     from: Option<OffsetDateTime>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -274,13 +277,21 @@ impl DirectoryQuery {
             .transpose()?;
         let format = parse_auction_format(self.format)?;
         let reported_status = parse_auction_status(self.reported_status)?;
-        let schedule = parse_schedule_filter(self.time_role, self.from, self.to)?;
+        let role = self.time_role.as_deref().map(schedule_point).transpose()?;
+        let sort = parse_directory_sort(self.sort.as_deref(), role)?;
+        let order = self
+            .order
+            .map(|value| parse_directory_order(&value))
+            .transpose()?;
+        let schedule = parse_schedule_filter(role, self.from, self.to, sort.is_some())?;
         let cursor = self.search_after.map(parse_directory_cursor).transpose()?;
         Ok(ListAuctionsDirectoryRequest {
             listing_source_id,
             format,
             reported_status,
             schedule,
+            sort,
+            order,
             cursor: Some(Cursor {
                 size: self.page_size.unwrap_or(21),
                 search_after: cursor,
@@ -299,6 +310,23 @@ fn schedule_point(value: &str) -> Result<AuctionSchedulePoint, ApiError> {
     }
 }
 
+fn parse_directory_sort(
+    value: Option<&str>,
+    role: Option<AuctionSchedulePoint>,
+) -> Result<Option<AuctionSchedulePoint>, ApiError> {
+    match value.unwrap_or("created") {
+        "created" => Ok(None),
+        "scheduled" => role
+            .map(Some)
+            .ok_or_else(|| query_error("sort=scheduled requires timeRole.")),
+        _ => Err(query_error("sort must be created or scheduled.")),
+    }
+}
+
+fn parse_directory_order(value: &str) -> Result<SortOrder, ApiError> {
+    SortOrder::try_from(value).map_err(|_| query_error("order must be asc or desc."))
+}
+
 fn query_error(detail: &'static str) -> ApiError {
     ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(detail)
 }
@@ -309,7 +337,29 @@ struct DirectoryCursorData {
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     auction_id: String,
+    // The outer Option distinguishes a missing field from a null schedule instant.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_nullable_scheduled",
+        deserialize_with = "deserialize_nullable_scheduled"
+    )]
+    scheduled: Option<Option<OffsetDateTime>>,
     scope: DirectoryCursorScopeData,
+}
+
+fn serialize_nullable_scheduled<S: serde::Serializer>(
+    value: &Option<Option<OffsetDateTime>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let scheduled = value.as_ref().copied().flatten();
+    time::serde::rfc3339::option::serialize(&scheduled, serializer)
+}
+
+fn deserialize_nullable_scheduled<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<OffsetDateTime>>, D::Error> {
+    time::serde::rfc3339::option::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -319,6 +369,10 @@ struct DirectoryCursorScopeData {
     format: Option<String>,
     reported_status: Option<String>,
     time_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    order: Option<SortOrder>,
     #[serde(with = "time::serde::rfc3339::option")]
     from: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -327,6 +381,12 @@ struct DirectoryCursorScopeData {
 
 impl DirectoryCursorData {
     fn try_into_cursor(self) -> Result<AuctionDirectoryCursor, ApiError> {
+        let scope = self.scope.try_into_scope()?;
+        if scope.sort.is_some() != self.scheduled.is_some() {
+            return Err(query_error(
+                "searchAfter scheduled instant does not match its sort scope.",
+            ));
+        }
         Ok(AuctionDirectoryCursor {
             created: self.created,
             auction_id: parse_query_object_id(
@@ -334,7 +394,8 @@ impl DirectoryCursorData {
                 "searchAfter.auctionId",
                 "Auction",
             )?,
-            scope: self.scope.try_into_scope()?,
+            scheduled: self.scheduled.flatten(),
+            scope,
         })
     }
 }
@@ -351,6 +412,15 @@ fn parse_directory_cursor(value: String) -> Result<AuctionDirectoryCursor, ApiEr
 
 impl DirectoryCursorScopeData {
     fn try_into_scope(self) -> Result<AuctionDirectoryScope, ApiError> {
+        let role = self.time_role.as_deref().map(schedule_point).transpose()?;
+        let sort = parse_directory_sort(self.sort.as_deref(), role)?;
+        let order = match (sort, self.order) {
+            (Some(_), None) => {
+                return Err(query_error("scheduled searchAfter scope requires order."));
+            }
+            (None, Some(SortOrder::Desc)) => None,
+            (_, order) => order,
+        };
         Ok(AuctionDirectoryScope {
             listing_source_id: self
                 .listing_source_id
@@ -364,7 +434,9 @@ impl DirectoryCursorScopeData {
                 .transpose()?,
             format: parse_auction_format(self.format)?,
             reported_status: parse_auction_status(self.reported_status)?,
-            schedule: parse_schedule_filter(self.time_role, self.from, self.to)?,
+            schedule: parse_schedule_filter(role, self.from, self.to, sort.is_some())?,
+            sort,
+            order,
         })
     }
 }
@@ -377,13 +449,19 @@ impl From<AuctionDirectoryScope> for DirectoryCursorScopeData {
                 schedule.range.min,
                 schedule.range.max,
             ),
-            None => (None, None, None),
+            None => (
+                value.sort.map(|role| schedule_role_code(role).to_owned()),
+                None,
+                None,
+            ),
         };
         Self {
             listing_source_id: value.listing_source_id.map(|value| value.to_string()),
             format: value.format.map(|value| value.as_str().to_owned()),
             reported_status: value.reported_status.map(|value| value.as_str().to_owned()),
             time_role,
+            sort: value.sort.map(|_| "scheduled".to_owned()),
+            order: value.order,
             from,
             to,
         }
@@ -411,21 +489,23 @@ fn parse_auction_status(value: Option<String>) -> Result<Option<AuctionReportedS
 }
 
 fn parse_schedule_filter(
-    time_role: Option<String>,
+    time_role: Option<AuctionSchedulePoint>,
     from: Option<OffsetDateTime>,
     to: Option<OffsetDateTime>,
+    allow_unbounded: bool,
 ) -> Result<Option<AuctionInstantScheduleFilter>, ApiError> {
     match (time_role, from, to) {
         (None, None, None) => Ok(None),
+        (Some(_), None, None) if allow_unbounded => Ok(None),
         (Some(role), Some(from), Some(to)) => Ok(Some(AuctionInstantScheduleFilter {
-            role: schedule_point(&role)?,
+            role,
             range: domain_primitives::query::range_query::RangeQuery {
                 min: Some(from),
                 max: Some(to),
             },
         })),
         _ => Err(query_error(
-            "timeRole, from, and to must be supplied together.",
+            "timeRole, from, and to must be supplied together unless sorting by scheduled.",
         )),
     }
 }
@@ -519,6 +599,7 @@ impl From<auction_service::ports::ListAuctionsDirectoryResult> for PublicAuction
             search_after: value.cursor.search_after.map(|cursor| DirectoryCursorData {
                 created: cursor.created,
                 auction_id: cursor.auction_id.to_string(),
+                scheduled: cursor.scope.sort.map(|_| cursor.scheduled),
                 scope: cursor.scope.into(),
             }),
             items: value
@@ -579,6 +660,7 @@ impl From<ListAuctionsError> for ApiError {
     fn from(error: ListAuctionsError) -> Self {
         match error {
             ListAuctionsError::IncompleteScheduleInstantRange
+            | ListAuctionsError::ScheduledSortRoleMismatch
             | ListAuctionsError::InvalidScheduleInstantRange
             | ListAuctionsError::CursorScopeMismatch => {
                 ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
@@ -878,6 +960,27 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn should_reject_invalid_directory_sort_parameters_without_store()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for query in [
+            "sort=scheduled",
+            "sort=bogus",
+            "order=bogus",
+            "sort=scheduled&timeRole=LIVE_STARTS&to=2026-01-01T00%3A00%3A00Z",
+        ] {
+            let response = app(FakeCatalogue::default())
+                .oneshot(Request::get(format!("/api/v1/auctions?{query}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(StatusCode::BAD_REQUEST, response.status(), "{query}");
+            assert_eq!(
+                "private, no-store",
+                response.headers()[header::CACHE_CONTROL]
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn should_parse_catalogue_cursor_as_complete_json_string()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -918,6 +1021,8 @@ mod tests {
 
         assert_eq!(auction_id, cursor.auction_id);
         assert_eq!(None, cursor.scope.listing_source_id);
+        assert_eq!(None, cursor.scope.sort);
+        assert_eq!(None, cursor.scheduled);
         Ok(())
     }
 
@@ -946,11 +1051,14 @@ mod tests {
         let directory_json = serde_json::to_string(&DirectoryCursorData {
             created: OffsetDateTime::UNIX_EPOCH,
             auction_id: auction_id.to_string(),
+            scheduled: None,
             scope: DirectoryCursorScopeData {
                 listing_source_id: None,
                 format: None,
                 reported_status: None,
                 time_role: None,
+                sort: None,
+                order: None,
                 from: None,
                 to: None,
             },
@@ -966,6 +1074,121 @@ mod tests {
         )?;
         assert_eq!(auction_id, directory_cursor.auction_id);
         assert_eq!(OffsetDateTime::UNIX_EPOCH, directory_cursor.created);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_directory_sort_order_and_unbounded_schedule()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let default = serde_qs::from_str::<DirectoryQuery>("")?.try_into_request()?;
+        assert_eq!(None, default.sort);
+        assert_eq!(SortOrder::Desc, default.order());
+        assert_eq!(None, default.scope().order);
+
+        let scheduled =
+            serde_qs::from_str::<DirectoryQuery>("sort=scheduled&timeRole=LIVE_STARTS")?
+                .try_into_request()?;
+        assert_eq!(Some(AuctionSchedulePoint::LiveStarts), scheduled.sort);
+        assert_eq!(SortOrder::Asc, scheduled.order());
+        assert_eq!(None, scheduled.schedule);
+        assert_eq!(Some(SortOrder::Asc), scheduled.scope().order);
+
+        let descending = serde_qs::from_str::<DirectoryQuery>(
+            "sort=scheduled&timeRole=SCHEDULED_END&order=desc",
+        )?
+        .try_into_request()?;
+        assert_eq!(SortOrder::Desc, descending.order());
+        let ascending_created =
+            serde_qs::from_str::<DirectoryQuery>("sort=created&order=asc")?.try_into_request()?;
+        assert_eq!(SortOrder::Asc, ascending_created.order());
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_directory_sort_and_partial_schedule_ranges() {
+        for query in [
+            "sort=scheduled",
+            "sort=unexpected",
+            "order=up",
+            "timeRole=LIVE_STARTS",
+            "sort=scheduled&timeRole=LIVE_STARTS&from=2026-01-01T00%3A00%3A00Z",
+            "from=2026-01-01T00%3A00%3A00Z",
+        ] {
+            let parsed = serde_qs::from_str::<DirectoryQuery>(query)
+                .unwrap_or_else(|error| panic!("failed to parse {query}: {error}"));
+            assert!(parsed.try_into_request().is_err(), "accepted {query}");
+        }
+    }
+
+    #[test]
+    fn should_round_trip_nullable_scheduled_cursor_and_reject_missing_instant()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let auction_id = AuctionId::new();
+        let cursor = DirectoryCursorData {
+            created: OffsetDateTime::UNIX_EPOCH,
+            auction_id: auction_id.to_string(),
+            scheduled: Some(None),
+            scope: DirectoryCursorScopeData {
+                listing_source_id: None,
+                format: None,
+                reported_status: None,
+                time_role: Some("LIVE_STARTS".to_owned()),
+                sort: Some("scheduled".to_owned()),
+                order: Some(SortOrder::Asc),
+                from: None,
+                to: None,
+            },
+        };
+        let value = serde_json::to_value(&cursor)?;
+        assert!(
+            value
+                .get("scheduled")
+                .is_some_and(serde_json::Value::is_null)
+        );
+        let parsed = parse_directory_cursor(value.to_string())?;
+        assert_eq!(None, parsed.scheduled);
+        assert_eq!(Some(AuctionSchedulePoint::LiveStarts), parsed.scope.sort);
+        assert!(
+            parse_directory_cursor(
+                serde_json::json!({
+                    "created": "1970-01-01T00:00:00Z", "auctionId": auction_id.to_string(),
+                    "scope": value["scope"]
+                })
+                .to_string()
+            )
+            .is_err()
+        );
+        let instant = time::macros::datetime!(2026-01-01 00:00 UTC);
+        let mut cursor = cursor;
+        cursor.scheduled = Some(Some(instant));
+        assert_eq!(
+            Some(instant),
+            parse_directory_cursor(serde_json::to_string(&cursor)?)?.scheduled
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_legacy_directory_cursor_json_shape() -> Result<(), Box<dyn std::error::Error>> {
+        let cursor = DirectoryCursorData {
+            created: OffsetDateTime::UNIX_EPOCH,
+            auction_id: AuctionId::new().to_string(),
+            scheduled: None,
+            scope: DirectoryCursorScopeData {
+                listing_source_id: None,
+                format: None,
+                reported_status: None,
+                time_role: None,
+                sort: None,
+                order: None,
+                from: None,
+                to: None,
+            },
+        };
+        let value = serde_json::to_value(cursor)?;
+        assert!(value.get("scheduled").is_none());
+        assert!(value["scope"].get("sort").is_none());
+        assert!(value["scope"].get("order").is_none());
         Ok(())
     }
 

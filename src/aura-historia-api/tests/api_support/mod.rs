@@ -3,15 +3,15 @@ use admin_overview_service::GetAdminOverviewHandler;
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use auction_postgres::{
-    SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
-    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
-    SqlxPublicAuctionDetailsReader,
+    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader,
+    SqlxAuctionEventAppenderFactory, SqlxAuctionReferenceValidatorFactory,
+    SqlxAuctionRepositoryFactory, SqlxPublicAuctionDetailsReader,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
     queries::{
         get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
-        list_auctions::ListAuctionsHandler,
+        list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
     },
 };
 use aura_historia_api::auth::{
@@ -1338,6 +1338,13 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxAuctionRepositoryFactory::new(),
             SqlxAuctionEventAppenderFactory::new(),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(SearchAdminAuctionsHandler::new(
+            SqlxAdminAuctionSearchReader::new(pool.clone()),
             CheckUserAdminHandler::new(
                 unit_of_work.clone(),
                 user_postgres::SqlxUserAdminReaderFactory::new(),

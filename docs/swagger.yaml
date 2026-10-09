@@ -117,6 +117,14 @@ paths:
           }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
+        - name: sort
+          in: query
+          description: "`created` sorts by creation time; `scheduled` requires `timeRole` and sorts on that role's instant, with missing instants last when no window is specified."
+          schema: { type: string, enum: [created, scheduled], default: created }
+        - name: order
+          in: query
+          description: Defaults to `desc` for created and `asc` for scheduled.
+          schema: { type: string, enum: [asc, desc] }
         - {
             name: pageSize,
             in: query,
@@ -124,11 +132,11 @@ paths:
           }
         - name: searchAfter
           in: query
-          description: Complete returned JSON cursor. Its scope must exactly match the source, format, reported-status, and exact-time filters of this request.
+          description: Complete returned JSON cursor. Its scope must match the source, format, reported-status, exact-time filters, sort and order of this request.
           schema: { type: string }
       responses:
         "200":
-          description: "Bounded newest-first Auction directory. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
+          description: "Bounded Auction directory, newest-created-first by default. Scheduled order uses the chosen role instant, with Auction ID as the final tie-breaker. Anonymous successful 200 responses without Authorization use `public, max-age=0, s-maxage=60, stale-if-error=0`; requests with any Authorization header and all non-200 responses use `private, no-store`."
           content:
             application/json:
               schema:
@@ -186,6 +194,74 @@ paths:
         "400": { description: Invalid Auction ID or cursor. }
         "404": { description: Auction missing (`AUCTION_NOT_FOUND`). }
   /api/v1/admin/auctions:
+    get:
+      summary: Search Auctions for administration
+      operationId: adminSearchAuctions
+      tags: [Auctions]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: query
+          in: query
+          description: NUL-free, case-insensitive literal substring of the localized Auction name or sourceAuctionId.
+          schema: { type: string }
+        - { name: listingSourceId, in: query, schema: { type: string } }
+        - name: sourceAuctionId
+          in: query
+          description: Exact source-scoped Auction key, trimmed as on create. Combine with listingSourceId to locate a create conflict.
+          schema: { type: string }
+        - {
+            name: format,
+            in: query,
+            schema: { $ref: "#/components/schemas/AuctionFormatData" },
+          }
+        - {
+            name: reportedStatus,
+            in: query,
+            schema: { $ref: "#/components/schemas/AuctionReportedStatusData" },
+          }
+        - name: sort
+          in: query
+          description: Supply both sort and order to override the default updated/descending ordering.
+          schema:
+            { type: string, enum: [name, created, updated], default: updated }
+        - name: order
+          in: query
+          description: Supply both sort and order to override the default updated/descending ordering.
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: size
+          in: query
+          description: Requested page limit, clamped to 1–100.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 21 }
+        - name: searchAfter
+          in: query
+          description: Opaque cursor from the preceding page. Filters, sort and order must match the request that issued it.
+          schema: { type: string }
+      responses:
+        "200":
+          description: "All matching Auctions, regardless of status or visible listing count. Always `Cache-Control: no-store`."
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "#/components/schemas/AdminAuctionSearchCollectionData",
+                }
+        "400":
+          description: Invalid filter, sort, or cursor (`BAD_QUERY_PARAMETER_VALUE`, `BAD_SORT_VALUE`, or `INVALID_OBJECT_ID`).
+        "401":
+          {
+            description: Missing or invalid credentials (`INVALID_CREDENTIALS`).,
+          }
+        "403": { description: Administrator authority required (`FORBIDDEN`). }
+        "503":
+          {
+            description: Auction search temporarily unavailable (`AUCTION_TEMPORARILY_UNAVAILABLE`).,
+          }
     post:
       summary: Create a source-scoped Auction (admin)
       operationId: createAdminAuction
@@ -2282,7 +2358,7 @@ paths:
           in: header
           required: true
           description: Unix timestamp covered by the Loops signature; stale proofs are rejected.
-          schema: { type: string, pattern: '^[0-9]{1,20}$' }
+          schema: { type: string, pattern: "^[0-9]{1,20}$" }
         - name: webhook-signature
           in: header
           required: true
@@ -2301,7 +2377,12 @@ paths:
                 eventName:
                   type: string
                   description: Supported event names are listed in the operation description; verified unknown names are ignored and receipted.
-                eventTime: { type: integer, format: int64, description: Provider event time in Unix seconds. }
+                eventTime:
+                  {
+                    type: integer,
+                    format: int64,
+                    description: Provider event time in Unix seconds.,
+                  }
                 contactIdentity:
                   type: object
                   description: Required for supported contact and email events; verified unknown event names may be safely ignored without it.
@@ -2334,37 +2415,63 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 400, title: Bad Request, error: LOOPS_WEBHOOK_INVALID_BODY }
+              example:
+                {
+                  status: 400,
+                  title: Bad Request,
+                  error: LOOPS_WEBHOOK_INVALID_BODY,
+                }
         "401":
           description: Missing, invalid, stale, or ambiguous Loops proof. The response does not distinguish authentication failures. Uses `LOOPS_WEBHOOK_UNAUTHORIZED`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 401, title: Unauthorized, error: LOOPS_WEBHOOK_UNAUTHORIZED }
+              example:
+                {
+                  status: 401,
+                  title: Unauthorized,
+                  error: LOOPS_WEBHOOK_UNAUTHORIZED,
+                }
         "409":
           description: A verified delivery identifier was previously committed with different body bytes. Uses `LOOPS_WEBHOOK_CONFLICT`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 409, title: Conflict, error: LOOPS_WEBHOOK_CONFLICT }
+              example:
+                { status: 409, title: Conflict, error: LOOPS_WEBHOOK_CONFLICT }
         "413":
           description: Request body exceeds 64 KiB. Uses `LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 413, title: Payload Too Large, error: LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE }
+              example:
+                {
+                  status: 413,
+                  title: Payload Too Large,
+                  error: LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE,
+                }
         "500":
           description: Redacted internal signing-secret or cryptographic configuration failure. Uses `LOOPS_WEBHOOK_INTERNAL_ERROR`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 500, title: Internal Server Error, error: LOOPS_WEBHOOK_INTERNAL_ERROR }
+              example:
+                {
+                  status: 500,
+                  title: Internal Server Error,
+                  error: LOOPS_WEBHOOK_INTERNAL_ERROR,
+                }
         "503":
           description: Temporary persistence/provider-reader failure or exceeded processing budget. Retry the delivery. Uses `LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
-              example: { status: 503, title: Service Unavailable, error: LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE }
+              example:
+                {
+                  status: 503,
+                  title: Service Unavailable,
+                  error: LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE,
+                }
   /api/v1/product-listings/by-slug/{productListingTitleSlugId}:
     get:
       summary: Get a single product by title slug
@@ -15011,7 +15118,8 @@ components:
           example: "2026-09-30T00:00:00Z"
     OwnAccessTokenData:
       type: object
-      description: "Secret-free metadata for an access token owned by the authenticated user.
+      description:
+        "Secret-free metadata for an access token owned by the authenticated user.
 
         List, get, and update responses omit the bearer token entirely; the plaintext is only returned by
         the create operation.
@@ -15056,7 +15164,8 @@ components:
           example: "2026-06-30T00:00:00Z"
     CreatedAccessTokenData:
       type: object
-      description: "Minimal access-token creation result. The plaintext bearer token is returned only once.
+      description:
+        "Minimal access-token creation result. The plaintext bearer token is returned only once.
 
         Subsequent list, get, and update operations return secret-free metadata without any token value.
 
@@ -15080,7 +15189,8 @@ components:
           example: aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
     PostAccessTokenData:
       type: object
-      description: "Request body for creating an Aura Historia access token. `scopes` is required, including
+      description:
+        "Request body for creating an Aura Historia access token. `scopes` is required, including
 
         when the requested scope set is empty. `expires` is optional.
 
@@ -18045,6 +18155,20 @@ components:
           type: string
         slugId:
           type: string
+    AdminAuctionSearchCollectionData:
+      type: object
+      additionalProperties: false
+      required: [items, size]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuctionAdminData" }
+        size:
+          type: integer
+          description: Number of items returned on this page.
+        searchAfter:
+          type: string
+          description: Opaque cursor, omitted on the terminal page.
     PublicAuctionDirectoryCursorData:
       type: object
       additionalProperties: false
@@ -18055,6 +18179,11 @@ components:
           format: date-time
         auctionId:
           type: string
+        scheduled:
+          type: string
+          format: date-time
+          nullable: true
+          description: Present for scheduled sorting; null if the selected role instant is missing. Omitted for created sorting.
         scope:
           $ref: "#/components/schemas/PublicAuctionDirectoryCursorScopeData"
     PublicAuctionDirectoryCursorScopeData:
@@ -18077,6 +18206,14 @@ components:
           type: string
           enum: [BIDDING_OPENS, LIVE_STARTS, LOTS_BEGIN_CLOSING, SCHEDULED_END]
           nullable: true
+        sort:
+          type: string
+          enum: [scheduled]
+          description: Omitted for the default created ordering.
+        order:
+          type: string
+          enum: [asc, desc]
+          description: Omitted for the default created/descending ordering.
         from:
           type: string
           format: date-time

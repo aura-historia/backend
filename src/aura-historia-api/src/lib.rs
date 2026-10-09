@@ -40,15 +40,15 @@ use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
 use admin_overview_service::GetAdminOverviewHandler;
 use auction_postgres::{
-    SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxAuctionEventAppenderFactory,
-    SqlxAuctionReferenceValidatorFactory, SqlxAuctionRepositoryFactory,
-    SqlxPublicAuctionDetailsReader,
+    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader,
+    SqlxAuctionEventAppenderFactory, SqlxAuctionReferenceValidatorFactory,
+    SqlxAuctionRepositoryFactory, SqlxPublicAuctionDetailsReader,
 };
 use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionHandler, update_auction::UpdateAuctionHandler},
     queries::{
         get_auction::GetAuctionHandler, get_public_auction::GetPublicAuctionHandler,
-        list_auctions::ListAuctionsHandler,
+        list_auctions::ListAuctionsHandler, search_admin_auctions::SearchAdminAuctionsHandler,
     },
 };
 use axum::Router;
@@ -813,7 +813,8 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
             Router::new()
                 .route(
                     "/api/v1/admin/auctions",
-                    post(auctions::create_auction::create_auction),
+                    get(auctions::search_admin_auctions::search_admin_auctions)
+                        .post(auctions::create_auction::create_auction),
                 )
                 .route(
                     "/api/v1/admin/auctions/{auction_id}",
@@ -1185,6 +1186,10 @@ async fn app_state_from_config_and_pool(
     );
     let get_auction = GetAuctionHandler::new(
         SqlxAuctionDetailsReader::new(pool.clone()),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let search_admin_auctions = SearchAdminAuctionsHandler::new(
+        SqlxAdminAuctionSearchReader::new(pool.clone()),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let get_public_auction =
@@ -1841,6 +1846,7 @@ async fn app_state_from_config_and_pool(
             Arc::new(create_auction),
             Arc::new(get_auction),
             Arc::new(update_auction),
+            Arc::new(search_admin_auctions),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_public_auctions(PublicAuctionsState::new(

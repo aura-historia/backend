@@ -1,3 +1,4 @@
+pub mod admin_auction_search_reader;
 mod auction_details_reader;
 mod auction_directory_reader;
 mod auction_event_appender;

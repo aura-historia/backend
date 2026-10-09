@@ -241,6 +241,561 @@ async fn should_reject_duplicate_key_invalid_id_and_non_admin_auction_requests()
     );
 }
 
+async fn create_admin_search_auction(
+    client: &reqwest::Client,
+    token: &str,
+    source_id: ListingSourceId,
+    source_auction_id: &str,
+    name: Option<&str>,
+    format: Option<&str>,
+    reported_status: Option<&str>,
+) -> AuctionId {
+    let response = client
+        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .bearer_auth(token)
+        .json(&json!({
+            "listingSourceId": source_id,
+            "sourceAuctionId": source_auction_id,
+            "name": name.map(|text| json!({ "language": "en", "text": text })),
+            "format": format,
+            "reportedStatus": reported_status
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create Auction search fixture: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(
+        reqwest::StatusCode::CREATED,
+        status,
+        "response body: {body}"
+    );
+    body["auctionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Auction fixture has no auctionId: {body}"))
+        .parse::<AuctionId>()
+        .unwrap_or_else(|error| panic!("invalid created Auction ID: {error}"))
+}
+
+async fn admin_auction_search(
+    client: &reqwest::Client,
+    token: &str,
+    parameters: &[(&str, String)],
+) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
+    let response = client
+        .get(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .bearer_auth(token)
+        .query(parameters)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to search admin Auctions: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+    (status, body, cache_control)
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_forbid_non_admin_auction_search_without_caching() {
+    let user_id = seed_user("USER").await;
+    let token =
+        String::from(seed_access_token_for(user_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let (status, body, cache_control) = admin_auction_search(&client, &token, &[]).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_find_the_exact_source_scoped_conflict_with_admin_data_and_returned_size() {
+    let source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
+    let other_source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid second ListingSource ID: {error}"));
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let auction_id = create_admin_search_auction(
+        &client,
+        &token,
+        source_id,
+        " conflict / 42 ",
+        Some("Auction to locate"),
+        Some("LIVE"),
+        None,
+    )
+    .await;
+    let other_id = create_admin_search_auction(
+        &client,
+        &token,
+        other_source_id,
+        "conflict / 42",
+        None,
+        None,
+        None,
+    )
+    .await;
+    let _prefix_id = create_admin_search_auction(
+        &client,
+        &token,
+        source_id,
+        "conflict / 42-extra",
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    let duplicate = client
+        .post(format!("{}/api/v1/admin/auctions", AURA_API.base_url()))
+        .bearer_auth(&token)
+        .json(&json!({ "listingSourceId": source_id, "sourceAuctionId": " conflict / 42 " }))
+        .send()
+        .await
+        .expect("duplicate Auction request");
+    let (duplicate_status, duplicate_body) = json_response(duplicate).await;
+    assert_problem(
+        duplicate_status,
+        &duplicate_body,
+        reqwest::StatusCode::CONFLICT,
+        "CONFLICT",
+    );
+
+    let update = client
+        .patch(format!("{}/api/v1/admin/auctions/{auction_id}", AURA_API.base_url()))
+        .bearer_auth(&token)
+        .json(&json!({ "expectedVersion": 1, "name": { "language": "en", "text": "Renamed auction" } }))
+        .send().await.expect("update Auction fixture");
+    let (update_status, update_body) = json_response(update).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        update_status,
+        "response body: {update_body}"
+    );
+    assert_eq!(json!(2), update_body["expectedVersion"]);
+
+    let (status, body, cache_control) = admin_auction_search(
+        &client,
+        &token,
+        &[
+            ("listingSourceId", source_id.to_string()),
+            ("sourceAuctionId", " conflict / 42 ".to_owned()),
+            ("size", "100".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(
+        json!(1),
+        body["size"],
+        "size is the returned item count, not the limit"
+    );
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(json!(auction_id.to_string()), body["items"][0]["auctionId"]);
+    assert_eq!(
+        json!(source_id.to_string()),
+        body["items"][0]["listingSourceId"]
+    );
+    assert_eq!(json!("conflict / 42"), body["items"][0]["sourceAuctionId"]);
+    assert_eq!(json!("Renamed auction"), body["items"][0]["name"]["text"]);
+    assert_eq!(json!(2), body["items"][0]["expectedVersion"]);
+    assert!(body.get("searchAfter").is_none());
+
+    let (other_status, other_body, _) = admin_auction_search(
+        &client,
+        &token,
+        &[
+            ("listingSourceId", other_source_id.to_string()),
+            ("sourceAuctionId", "conflict / 42".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        other_status,
+        "response body: {other_body}"
+    );
+    assert_eq!(
+        json!(other_id.to_string()),
+        other_body["items"][0]["auctionId"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_filter_and_page_admin_auctions_with_scoped_deterministic_sort() {
+    let source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let first = create_admin_search_auction(
+        &client,
+        &token,
+        source_id,
+        "f19-alpha-a",
+        Some("Alpha"),
+        Some("LIVE"),
+        Some("ENDED"),
+    )
+    .await;
+    let second = create_admin_search_auction(
+        &client,
+        &token,
+        source_id,
+        "f19-alpha-b",
+        Some("alpha"),
+        Some("LIVE"),
+        Some("ENDED"),
+    )
+    .await;
+    let zulu = create_admin_search_auction(
+        &client,
+        &token,
+        source_id,
+        "f19-zulu",
+        Some("Zulu"),
+        Some("TIMED"),
+        Some("SCHEDULED"),
+    )
+    .await;
+    let unnamed =
+        create_admin_search_auction(&client, &token, source_id, "f19-unnamed", None, None, None)
+            .await;
+
+    // Fixed instants exercise time ordering and the Auction ID tie-breaker without timing assumptions.
+    let pool = get_postgres_client().await;
+    for (id, created, updated) in [
+        (
+            first,
+            time::macros::datetime!(2026-01-01 00:00 UTC),
+            time::macros::datetime!(2026-01-02 00:00 UTC),
+        ),
+        (
+            second,
+            time::macros::datetime!(2026-01-01 00:00 UTC),
+            time::macros::datetime!(2026-01-02 00:00 UTC),
+        ),
+        (
+            zulu,
+            time::macros::datetime!(2026-01-02 00:00 UTC),
+            time::macros::datetime!(2026-01-03 00:00 UTC),
+        ),
+        (
+            unnamed,
+            time::macros::datetime!(2026-01-03 00:00 UTC),
+            time::macros::datetime!(2026-01-01 00:00 UTC),
+        ),
+    ] {
+        sqlx::query("UPDATE auctions SET created = $1, updated = $2 WHERE auction_id = $3")
+            .bind(created)
+            .bind(updated)
+            .bind(id.as_uuid())
+            .execute(&pool)
+            .await
+            .expect("set deterministic Auction search instants");
+    }
+
+    let source = source_id.to_string();
+    let (filtered_status, filtered, _) = admin_auction_search(
+        &client,
+        &token,
+        &[
+            ("listingSourceId", source.clone()),
+            ("query", "ALPH".to_owned()),
+            ("format", "LIVE".to_owned()),
+            ("reportedStatus", "ENDED".to_owned()),
+            ("size", "1000".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        filtered_status,
+        "response body: {filtered}"
+    );
+    assert_eq!(json!(2), filtered["size"]);
+    let filtered_ids = filtered["items"]
+        .as_array()
+        .expect("filtered items")
+        .iter()
+        .map(|item| item["auctionId"].as_str().expect("Auction ID").to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        filtered_ids.contains(&first.to_string()) && filtered_ids.contains(&second.to_string())
+    );
+
+    for (sort, order, expected) in [
+        (
+            "name",
+            "asc",
+            vec![first.min(second), first.max(second), zulu, unnamed],
+        ),
+        (
+            "name",
+            "desc",
+            vec![zulu, first.max(second), first.min(second), unnamed],
+        ),
+        (
+            "created",
+            "asc",
+            vec![first.min(second), first.max(second), zulu, unnamed],
+        ),
+        (
+            "updated",
+            "desc",
+            vec![zulu, first.max(second), first.min(second), unnamed],
+        ),
+    ] {
+        let mut after: Option<String> = None;
+        let mut seen = Vec::new();
+        loop {
+            let mut parameters = vec![
+                ("listingSourceId", source.clone()),
+                ("sort", sort.to_owned()),
+                ("order", order.to_owned()),
+                ("size", "1".to_owned()),
+            ];
+            if let Some(cursor) = &after {
+                parameters.push(("searchAfter", cursor.clone()));
+            }
+            let (status, body, cache_control) =
+                admin_auction_search(&client, &token, &parameters).await;
+            assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+            assert_eq!(Some("no-store".to_owned()), cache_control);
+            assert_eq!(json!(1), body["size"]);
+            seen.push(
+                body["items"][0]["auctionId"]
+                    .as_str()
+                    .expect("Auction ID")
+                    .parse::<AuctionId>()
+                    .expect("valid Auction ID"),
+            );
+            after = body["searchAfter"].as_str().map(str::to_owned);
+            if after.is_none() {
+                break;
+            }
+            assert!(seen.len() < 5, "cursor must terminate without duplicates");
+        }
+        assert_eq!(expected, seen, "sort={sort}, order={order}");
+    }
+
+    let (page_status, page, _) = admin_auction_search(
+        &client,
+        &token,
+        &[
+            ("listingSourceId", source.clone()),
+            ("sort", "name".to_owned()),
+            ("order", "asc".to_owned()),
+            ("size", "1".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        page_status,
+        "response body: {page}"
+    );
+    let cursor = page["searchAfter"].as_str().expect("nonterminal cursor");
+    for parameters in [
+        vec![
+            ("listingSourceId", source.clone()),
+            ("sort", "name".to_owned()),
+            ("order", "desc".to_owned()),
+            ("searchAfter", cursor.to_owned()),
+        ],
+        vec![
+            ("listingSourceId", source.clone()),
+            ("format", "LIVE".to_owned()),
+            ("sort", "name".to_owned()),
+            ("order", "asc".to_owned()),
+            ("searchAfter", cursor.to_owned()),
+        ],
+    ] {
+        let (status, body, cache_control) =
+            admin_auction_search(&client, &token, &parameters).await;
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_QUERY_PARAMETER_VALUE",
+        );
+        assert_eq!(Some("no-store".to_owned()), cache_control);
+    }
+
+    // A lone sort or order does not override the default updated/descending scope.
+    for parameters in [
+        vec![
+            ("listingSourceId", source.clone()),
+            ("sort", "name".to_owned()),
+            ("size", "1".to_owned()),
+        ],
+        vec![
+            ("listingSourceId", source.clone()),
+            ("order", "asc".to_owned()),
+            ("size", "1".to_owned()),
+        ],
+    ] {
+        let (status, body, _) = admin_auction_search(&client, &token, &parameters).await;
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(json!(zulu.to_string()), body["items"][0]["auctionId"]);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_page_public_scheduled_auctions_with_scoped_json_cursors_and_anonymous_caching() {
+    let source_id = ListingSourceId::try_from(seed_listing_source().await)
+        .unwrap_or_else(|error| panic!("invalid seeded ListingSource ID: {error}"));
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let pool = get_postgres_client().await;
+    let from = time::macros::datetime!(2026-10-18 16:00 UTC);
+    let to = time::macros::datetime!(2026-10-18 17:00 UTC);
+    let tied = time::macros::datetime!(2026-10-18 16:30 UTC);
+    let mut ids = Vec::new();
+    for (key, instant) in [
+        (
+            "scheduled-below",
+            Some(time::macros::datetime!(2026-10-18 15:59:59 UTC)),
+        ),
+        ("scheduled-from", Some(from)),
+        ("scheduled-tie-a", Some(tied)),
+        ("scheduled-tie-b", Some(tied)),
+        ("scheduled-to", Some(to)),
+        ("scheduled-null-a", None),
+        ("scheduled-null-b", None),
+    ] {
+        let id =
+            create_admin_search_auction(&client, &token, source_id, key, None, None, None).await;
+        sqlx::query("UPDATE auctions SET live_starts_at = $1 WHERE auction_id = $2")
+            .bind(instant)
+            .bind(id.as_uuid())
+            .execute(&pool)
+            .await
+            .expect("set deterministic public Auction schedule");
+        ids.push(id);
+    }
+    let [below, at_from, tie_a, tie_b, at_to, null_a, null_b]: [AuctionId; 7] =
+        ids.try_into().expect("seven scheduled Auction fixtures");
+    let url = format!("{}/api/v1/auctions", AURA_API.base_url());
+    let source = source_id.to_string();
+    let mut scope_cursor = None;
+    for window in [false, true] {
+        for order in ["asc", "desc"] {
+            let mut expected = if window {
+                vec![at_from, tie_a.min(tie_b), tie_a.max(tie_b)]
+            } else {
+                vec![below, at_from, tie_a.min(tie_b), tie_a.max(tie_b), at_to]
+            };
+            if order == "desc" {
+                expected.reverse();
+            }
+            if !window {
+                let mut nulls = [null_a.min(null_b), null_a.max(null_b)];
+                if order == "desc" {
+                    nulls.reverse();
+                }
+                expected.extend(nulls);
+            }
+            let mut after: Option<serde_json::Value> = None;
+            for (index, expected_id) in expected.iter().enumerate() {
+                let mut parameters = vec![
+                    ("listingSourceId", source.clone()),
+                    ("sort", "scheduled".to_owned()),
+                    ("timeRole", "LIVE_STARTS".to_owned()),
+                    ("order", order.to_owned()),
+                    ("pageSize", "1".to_owned()),
+                ];
+                if window {
+                    parameters.extend([
+                        ("from", "2026-10-18T16:00:00Z".to_owned()),
+                        ("to", "2026-10-18T17:00:00Z".to_owned()),
+                    ]);
+                }
+                if let Some(cursor) = &after {
+                    parameters.push((
+                        "searchAfter",
+                        serde_json::to_string(cursor).expect("serialize complete directory cursor"),
+                    ));
+                }
+                let response = client
+                    .get(&url)
+                    .query(&parameters)
+                    .send()
+                    .await
+                    .expect("page public scheduled Auctions");
+                let cache_control = response
+                    .headers()
+                    .get(reqwest::header::CACHE_CONTROL)
+                    .and_then(|value| value.to_str().ok())
+                    .map(ToOwned::to_owned);
+                let (status, body) = json_response(response).await;
+                assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+                assert_eq!(
+                    Some("public, max-age=0, s-maxage=60, stale-if-error=0".to_owned()),
+                    cache_control
+                );
+                assert_eq!(json!(1), body["pageSize"]);
+                let items = body["items"].as_array().expect("directory items");
+                assert_eq!(1, items.len(), "window={window}, order={order}: {body}");
+                assert_eq!(
+                    json!(expected_id.to_string()),
+                    items[0]["auctionId"],
+                    "window={window}, order={order}, page={index}"
+                );
+                after = body.get("searchAfter").cloned();
+                assert_eq!(index + 1 < expected.len(), after.is_some());
+                if let Some(cursor) = &after {
+                    assert!(
+                        cursor.is_object(),
+                        "expected complete JSON cursor: {cursor}"
+                    );
+                    assert_eq!(items[0]["schedule"]["liveStarts"], cursor["scheduled"]);
+                }
+                if !window && order == "asc" && index == 0 {
+                    scope_cursor = after.clone();
+                }
+            }
+        }
+    }
+
+    let cursor = serde_json::to_string(&scope_cursor.expect("nonterminal ascending cursor"))
+        .expect("serialize complete directory cursor");
+    for (order, role) in [("desc", "LIVE_STARTS"), ("asc", "SCHEDULED_END")] {
+        let response = client
+            .get(&url)
+            .query(&[
+                ("listingSourceId", source.clone()),
+                ("sort", "scheduled".to_owned()),
+                ("timeRole", role.to_owned()),
+                ("order", order.to_owned()),
+                ("pageSize", "1".to_owned()),
+                ("searchAfter", cursor.clone()),
+            ])
+            .send()
+            .await
+            .expect("reject public directory cursor scope mismatch");
+        let cache_control = response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
+        let (status, body) = json_response(response).await;
+        assert_eq!(
+            reqwest::StatusCode::BAD_REQUEST,
+            status,
+            "response body: {body}"
+        );
+        assert_eq!(Some("private, no-store".to_owned()), cache_control);
+    }
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_browse_public_auction_directory_detail_and_empty_catalogue_anonymously() {
     let source_id = ListingSourceId::try_from(seed_listing_source().await)

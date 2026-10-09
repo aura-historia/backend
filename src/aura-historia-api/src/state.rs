@@ -5,7 +5,7 @@ use auction_service::use_cases::{
     commands::{create_auction::CreateAuctionUseCase, update_auction::UpdateAuctionUseCase},
     queries::{
         get_auction::GetAuctionUseCase, get_public_auction::GetPublicAuctionUseCase,
-        list_auctions::ListAuctionsUseCase,
+        list_auctions::ListAuctionsUseCase, search_admin_auctions::SearchAdminAuctionsUseCase,
     },
 };
 use billing_service::use_cases::{
@@ -287,6 +287,7 @@ pub struct AuctionsState {
     pub(crate) create: Arc<dyn CreateAuctionUseCase>,
     pub(crate) get: Arc<dyn GetAuctionUseCase>,
     pub(crate) update: Arc<dyn UpdateAuctionUseCase>,
+    pub(crate) search: Arc<dyn SearchAdminAuctionsUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -295,12 +296,14 @@ impl AuctionsState {
         create: Arc<dyn CreateAuctionUseCase>,
         get: Arc<dyn GetAuctionUseCase>,
         update: Arc<dyn UpdateAuctionUseCase>,
+        search: Arc<dyn SearchAdminAuctionsUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             create,
             get,
             update,
+            search,
             authenticator,
         }
     }

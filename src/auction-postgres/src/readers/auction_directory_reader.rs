@@ -3,12 +3,13 @@ use application::{
     error::{BoxError, box_error},
     pagination::{Cursor, CursoredResult},
 };
-use auction_core::AuctionSchedulePoint;
+use auction_core::{AuctionSchedule, AuctionSchedulePoint};
 use auction_service::ports::{
     AuctionDirectoryCursor, AuctionDirectoryReadError, AuctionDirectoryReader,
     ListAuctionsDirectoryRequest, ListAuctionsDirectoryResult, PublicAuctionDirectoryItem,
     PublicAuctionDirectorySourceSummary,
 };
+use domain_primitives::sort::SortOrder;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
@@ -83,17 +84,8 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
             "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, request)?;
-        if let Some(search_after) = cursor.search_after {
-            builder
-                .push(" AND (a.created, a.auction_id) < (")
-                .push_bind(search_after.created)
-                .push(", ")
-                .push_bind(search_after.auction_id.as_uuid())
-                .push(")");
-        }
-        builder
-            .push(" ORDER BY a.created DESC, a.auction_id DESC LIMIT ")
-            .push_bind(limit);
+        push_pagination(&mut builder, request, cursor.search_after.as_ref());
+        builder.push(" LIMIT ").push_bind(limit);
 
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
         let mut rows = builder
@@ -115,6 +107,9 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
             AuctionDirectoryCursor {
                 created: item.created,
                 auction_id: item.auction_id,
+                scheduled: request
+                    .sort
+                    .and_then(|role| schedule_instant(&item.schedule, role)),
                 scope: request.scope(),
             }
         });
@@ -163,6 +158,88 @@ fn push_filters(
             .push_bind(max);
     }
     Ok(())
+}
+
+fn push_pagination(
+    builder: &mut QueryBuilder<Postgres>,
+    request: &ListAuctionsDirectoryRequest,
+    search_after: Option<&AuctionDirectoryCursor>,
+) {
+    let comparison = match request.order() {
+        SortOrder::Asc => ">",
+        SortOrder::Desc => "<",
+    };
+    let direction = match request.order() {
+        SortOrder::Asc => " ASC",
+        SortOrder::Desc => " DESC",
+    };
+    if let Some(role) = request.sort {
+        let column = schedule_column(role);
+        if let Some(after) = search_after {
+            if let Some(instant) = after.scheduled {
+                builder
+                    .push(" AND (a.")
+                    .push(column)
+                    .push(" ")
+                    .push(comparison)
+                    .push(" ")
+                    .push_bind(instant)
+                    .push(" OR (a.")
+                    .push(column)
+                    .push(" = ")
+                    .push_bind(instant)
+                    .push(" AND a.auction_id ")
+                    .push(comparison)
+                    .push(" ")
+                    .push_bind(after.auction_id.as_uuid())
+                    .push(") OR a.")
+                    .push(column)
+                    .push(" IS NULL)");
+            } else {
+                builder
+                    .push(" AND a.")
+                    .push(column)
+                    .push(" IS NULL AND a.auction_id ")
+                    .push(comparison)
+                    .push(" ")
+                    .push_bind(after.auction_id.as_uuid());
+            }
+        }
+        builder
+            .push(" ORDER BY a.")
+            .push(column)
+            .push(direction)
+            .push(" NULLS LAST, a.auction_id")
+            .push(direction);
+    } else {
+        if let Some(after) = search_after {
+            builder
+                .push(" AND (a.created, a.auction_id) ")
+                .push(comparison)
+                .push(" (")
+                .push_bind(after.created)
+                .push(", ")
+                .push_bind(after.auction_id.as_uuid())
+                .push(")");
+        }
+        builder
+            .push(" ORDER BY a.created")
+            .push(direction)
+            .push(", a.auction_id")
+            .push(direction);
+    }
+}
+
+fn schedule_instant(
+    schedule: &AuctionSchedule,
+    role: AuctionSchedulePoint,
+) -> Option<time::OffsetDateTime> {
+    match role {
+        AuctionSchedulePoint::BiddingOpens => schedule.bidding_opens(),
+        AuctionSchedulePoint::LiveStarts => schedule.live_starts(),
+        AuctionSchedulePoint::LotsBeginClosing => schedule.lots_begin_closing(),
+        AuctionSchedulePoint::ScheduledEnd => schedule.scheduled_end(),
+    }
 }
 
 fn schedule_column(role: AuctionSchedulePoint) -> &'static str {

@@ -15,7 +15,9 @@ pub enum ListAuctionsError {
     IncompleteScheduleInstantRange,
     #[error("Auction schedule instant filter must have an increasing range")]
     InvalidScheduleInstantRange,
-    #[error("Auction directory cursor belongs to another filter scope")]
+    #[error("Auction directory scheduled sort requires a matching time role")]
+    ScheduledSortRoleMismatch,
+    #[error("Auction directory cursor belongs to another filter or sort scope")]
     CursorScopeMismatch,
     #[error("Auction directory is temporarily unavailable")]
     TemporarilyUnavailable {
@@ -79,6 +81,14 @@ where
 fn validate_and_bound(
     mut request: ListAuctionsRequest,
 ) -> Result<ListAuctionsRequest, ListAuctionsError> {
+    if request.sort.is_some_and(|role| {
+        request
+            .schedule
+            .as_ref()
+            .is_some_and(|schedule| schedule.role != role)
+    }) {
+        return Err(ListAuctionsError::ScheduledSortRoleMismatch);
+    }
     if let Some(schedule) = request.schedule.as_ref() {
         let (Some(min), Some(max)) = (schedule.range.min, schedule.range.max) else {
             return Err(ListAuctionsError::IncompleteScheduleInstantRange);
@@ -175,11 +185,14 @@ mod tests {
                 search_after: Some(AuctionDirectoryCursor {
                     created: datetime!(2026-01-01 00:00 UTC),
                     auction_id: AuctionId::new(),
+                    scheduled: None,
                     scope: AuctionDirectoryScope {
                         listing_source_id: None,
                         format: Some(auction_core::AuctionFormat::Live),
                         reported_status: None,
                         schedule: None,
+                        sort: None,
+                        order: None,
                     },
                 }),
             }),
@@ -189,6 +202,96 @@ mod tests {
         assert!(matches!(
             validate_and_bound(request),
             Err(ListAuctionsError::CursorScopeMismatch)
+        ));
+    }
+
+    #[test]
+    fn should_reject_a_cursor_for_another_sort_or_order() {
+        let scheduled = AuctionSchedulePoint::LiveStarts;
+        let cursor = AuctionDirectoryCursor {
+            created: datetime!(2026-01-01 00:00 UTC),
+            scheduled: None,
+            auction_id: AuctionId::new(),
+            scope: AuctionDirectoryScope {
+                listing_source_id: None,
+                format: None,
+                reported_status: None,
+                schedule: None,
+                sort: Some(scheduled),
+                order: Some(domain_primitives::sort::SortOrder::Asc),
+            },
+        };
+        for (sort, order) in [
+            (None, None),
+            (
+                Some(scheduled),
+                Some(domain_primitives::sort::SortOrder::Desc),
+            ),
+            (Some(AuctionSchedulePoint::ScheduledEnd), None),
+        ] {
+            let request = ListAuctionsRequest {
+                sort,
+                order,
+                cursor: Some(Cursor {
+                    size: 21,
+                    search_after: Some(cursor.clone()),
+                }),
+                ..Default::default()
+            };
+            assert!(matches!(
+                validate_and_bound(request),
+                Err(ListAuctionsError::CursorScopeMismatch)
+            ));
+        }
+    }
+
+    #[test]
+    fn should_default_to_created_desc_and_scheduled_asc() {
+        let created = ListAuctionsRequest::default();
+        assert_eq!(domain_primitives::sort::SortOrder::Desc, created.order());
+        assert_eq!(None, created.scope().order);
+        let scheduled = ListAuctionsRequest {
+            sort: Some(AuctionSchedulePoint::LiveStarts),
+            ..Default::default()
+        };
+        assert_eq!(domain_primitives::sort::SortOrder::Asc, scheduled.order());
+        assert_eq!(Some(scheduled.order()), scheduled.scope().order);
+    }
+
+    #[test]
+    fn should_accept_legacy_cursor_with_explicit_created_desc() {
+        let request = ListAuctionsRequest {
+            order: Some(domain_primitives::sort::SortOrder::Desc),
+            cursor: Some(Cursor {
+                size: 21,
+                search_after: Some(AuctionDirectoryCursor {
+                    created: datetime!(2026-01-01 00:00 UTC),
+                    auction_id: AuctionId::new(),
+                    scheduled: None,
+                    scope: ListAuctionsRequest::default().scope(),
+                }),
+            }),
+            ..Default::default()
+        };
+        assert!(validate_and_bound(request).is_ok());
+    }
+
+    #[test]
+    fn should_reject_conflicting_scheduled_sort_and_filter_roles() {
+        let request = ListAuctionsRequest {
+            sort: Some(AuctionSchedulePoint::LiveStarts),
+            schedule: Some(AuctionInstantScheduleFilter {
+                role: AuctionSchedulePoint::ScheduledEnd,
+                range: RangeQuery {
+                    min: Some(datetime!(2026-01-01 00:00 UTC)),
+                    max: Some(datetime!(2026-01-02 00:00 UTC)),
+                },
+            }),
+            ..Default::default()
+        };
+        assert!(matches!(
+            validate_and_bound(request),
+            Err(ListAuctionsError::ScheduledSortRoleMismatch)
         ));
     }
 

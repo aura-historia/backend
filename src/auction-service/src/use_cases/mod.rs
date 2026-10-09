@@ -19,3 +19,7 @@ pub use queries::list_auctions::{
     ListAuctionsError, ListAuctionsHandler, ListAuctionsRequest, ListAuctionsResult,
     ListAuctionsUseCase,
 };
+pub use queries::search_admin_auctions::{
+    SearchAdminAuctionsError, SearchAdminAuctionsHandler, SearchAdminAuctionsResult,
+    SearchAdminAuctionsUseCase,
+};

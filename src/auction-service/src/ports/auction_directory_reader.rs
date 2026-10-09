@@ -6,7 +6,7 @@ use auction_core::{
     AuctionFormat, AuctionId, AuctionName, AuctionReportedStatus, AuctionSchedule,
     AuctionSchedulePoint,
 };
-use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::{query::range_query::RangeQuery, sort::SortOrder};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::{Language, Localized};
 use time::OffsetDateTime;
@@ -17,12 +17,18 @@ pub struct AuctionDirectoryScope {
     pub format: Option<AuctionFormat>,
     pub reported_status: Option<AuctionReportedStatus>,
     pub schedule: Option<AuctionInstantScheduleFilter>,
+    /// None selects created; Some selects the instant for that schedule role.
+    pub sort: Option<AuctionSchedulePoint>,
+    /// None is the legacy created/descending scope.
+    pub order: Option<SortOrder>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuctionDirectoryCursor {
     pub created: OffsetDateTime,
     pub auction_id: AuctionId,
+    /// Nullable because auctions without the selected schedule instant sort last.
+    pub scheduled: Option<OffsetDateTime>,
     pub scope: AuctionDirectoryScope,
 }
 
@@ -40,16 +46,29 @@ pub struct ListAuctionsDirectoryRequest {
     pub format: Option<AuctionFormat>,
     pub reported_status: Option<AuctionReportedStatus>,
     pub schedule: Option<AuctionInstantScheduleFilter>,
+    /// None selects created; Some selects the instant for that schedule role.
+    pub sort: Option<AuctionSchedulePoint>,
+    pub order: Option<SortOrder>,
     pub cursor: Option<Cursor<AuctionDirectoryCursor>>,
 }
 
 impl ListAuctionsDirectoryRequest {
+    pub fn order(&self) -> SortOrder {
+        self.order.unwrap_or(if self.sort.is_some() {
+            SortOrder::Asc
+        } else {
+            SortOrder::Desc
+        })
+    }
+
     pub fn scope(&self) -> AuctionDirectoryScope {
         AuctionDirectoryScope {
             listing_source_id: self.listing_source_id,
             format: self.format,
             reported_status: self.reported_status,
             schedule: self.schedule.clone(),
+            sort: self.sort,
+            order: (self.sort.is_some() || self.order() != SortOrder::Desc).then_some(self.order()),
         }
     }
 }
@@ -61,7 +80,7 @@ pub struct PublicAuctionDirectorySourceSummary {
     pub name: ListingSourceName,
 }
 
-/// Compact public Auction data for the fixed newest-first directory.
+/// Compact public Auction data for the directory.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicAuctionDirectoryItem {
     pub auction_id: AuctionId,

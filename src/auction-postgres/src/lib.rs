@@ -9,6 +9,7 @@ mod repository_factory;
 pub use auction_event_appender::SqlxAuctionEventAppenderFactory;
 pub use auction_reference_validator::SqlxAuctionReferenceValidatorFactory;
 pub use readers::{
-    SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader, SqlxPublicAuctionDetailsReader,
+    SqlxAdminAuctionSearchReader, SqlxAuctionDetailsReader, SqlxAuctionDirectoryReader,
+    SqlxPublicAuctionDetailsReader,
 };
 pub use repository_factory::SqlxAuctionRepositoryFactory;
