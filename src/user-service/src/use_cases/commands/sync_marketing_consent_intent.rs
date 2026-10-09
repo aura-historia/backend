@@ -36,12 +36,17 @@ impl SyncMarketingConsentIntentResult {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum SyncMarketingConsentIntentError {
     #[error("consent intent persistence unavailable")]
     Persistence,
     #[error("consent intent transaction outcome is unconfirmed")]
-    Transaction,
+    Transaction(#[source] application::error::BoxError),
+    #[error("consent intent reconciliation retry limit reached")]
+    ReconciliationExhausted {
+        #[source]
+        source: Option<application::error::BoxError>,
+    },
     #[error("invalid persisted consent intent")]
     InvalidPersistedState,
 }
@@ -88,7 +93,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            .map_err(|source| SyncMarketingConsentIntentError::Transaction(Box::new(source)))?;
         let claim = self
             .worker
             .claim_by_id(&mut tx, intent_id)
@@ -96,21 +101,21 @@ where
             .map_err(map_persistence_error)?;
         match claim {
             ConsentWorkerClaimOutcome::Claimed(claim) => {
-                tx.commit()
-                    .await
-                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                tx.commit().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
                 self.execute_claim(claim).await
             }
             ConsentWorkerClaimOutcome::Missing => {
-                tx.commit()
-                    .await
-                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                tx.commit().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
                 Ok(SyncMarketingConsentIntentResult::Missing)
             }
             ConsentWorkerClaimOutcome::Deferred { .. } => {
-                tx.commit()
-                    .await
-                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                tx.commit().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
                 Ok(SyncMarketingConsentIntentResult::Deferred)
             }
             ConsentWorkerClaimOutcome::Terminal(status) => {
@@ -119,9 +124,9 @@ where
                     // Ask the coordinator to durably confirm or schedule any repair before ACK.
                     self.repair_raced_grant(&mut tx, intent_id).await?;
                 }
-                tx.commit()
-                    .await
-                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                tx.commit().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
                 Ok(terminal_result(status))
             }
         }
@@ -147,7 +152,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            .map_err(|source| SyncMarketingConsentIntentError::Transaction(Box::new(source)))?;
         let preflight = self
             .worker
             .recheck(&mut tx, &claim)
@@ -155,7 +160,7 @@ where
             .map_err(map_persistence_error)?;
         tx.commit()
             .await
-            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            .map_err(|source| SyncMarketingConsentIntentError::Transaction(Box::new(source)))?;
 
         let ready = match preflight {
             ConsentWorkerRecheckOutcome::Ready(intent) => intent,
@@ -169,16 +174,14 @@ where
                         .current_state(&claim.intent.email)
                         .await
                         .map_err(map_provider_error)?;
-                    let mut tx = self
-                        .unit_of_work
-                        .begin()
-                        .await
-                        .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                    let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                        SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                    })?;
                     self.repair_raced_grant(&mut tx, claim.intent.intent_id)
                         .await?;
-                    tx.commit()
-                        .await
-                        .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                    tx.commit().await.map_err(|source| {
+                        SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                    })?;
                 }
                 return Ok(terminal_result(status));
             }
@@ -289,39 +292,43 @@ where
     ) -> Result<SyncMarketingConsentIntentResult, SyncMarketingConsentIntentError> {
         let completed_at = OffsetDateTime::now_utc();
         let mut replay_only = false;
+        let mut last_error = None;
         // A commit response can be lost after PostgreSQL committed. Retry this exact result
         // tuple and timestamp only; never repeat the Loops operation while saving its receipt.
         for _ in 0..2 {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            let mut tx =
+                self.unit_of_work.begin().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
             if replay_only {
                 let confirmed = self
                     .finalize(&mut tx, claim, receipt.as_finalization(), completed_at)
                     .await;
                 match confirmed {
                     Ok(true) => {
-                        tx.commit()
-                            .await
-                            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                        tx.commit().await.map_err(|source| {
+                            SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                        })?;
                         return Ok(receipt.result());
                     }
                     Ok(false) => {
                         self.repair_if_grant_lost_fence(&mut tx, claim).await?;
-                        tx.commit()
-                            .await
-                            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                        tx.commit().await.map_err(|source| {
+                            SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                        })?;
                         return Ok(SyncMarketingConsentIntentResult::Deferred);
                     }
-                    Err(_) => continue,
+                    Err(source) => {
+                        last_error = Some(application::error::box_error(source));
+                        continue;
+                    }
                 }
             }
 
             let recheck = match self.worker.recheck(&mut tx, claim).await {
                 Ok(recheck) => recheck,
-                Err(_) => {
+                Err(source) => {
+                    last_error = Some(application::error::box_error(source));
                     replay_only = true;
                     continue;
                 }
@@ -333,39 +340,43 @@ where
                         .await
                     {
                         Ok(finalized) => finalized,
-                        Err(_) => {
+                        Err(source) => {
+                            last_error = Some(application::error::box_error(source));
                             replay_only = true;
                             continue;
                         }
                     };
                     if !finalized {
                         self.repair_if_grant_lost_fence(&mut tx, claim).await?;
-                        tx.commit()
-                            .await
-                            .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                        tx.commit().await.map_err(|source| {
+                            SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                        })?;
                         return Ok(SyncMarketingConsentIntentResult::Deferred);
                     }
                     match tx.commit().await {
                         Ok(()) => return Ok(receipt.result()),
-                        Err(_) => replay_only = true,
+                        Err(source) => {
+                            last_error = Some(application::error::box_error(source));
+                            replay_only = true;
+                        }
                     }
                 }
                 ConsentWorkerRecheckOutcome::Terminal(status) => {
                     self.repair_if_grant_lost_fence(&mut tx, claim).await?;
-                    tx.commit()
-                        .await
-                        .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                    tx.commit().await.map_err(|source| {
+                        SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                    })?;
                     return Ok(terminal_result(status));
                 }
                 ConsentWorkerRecheckOutcome::Missing | ConsentWorkerRecheckOutcome::LeaseLost => {
-                    tx.commit()
-                        .await
-                        .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                    tx.commit().await.map_err(|source| {
+                        SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                    })?;
                     return Ok(SyncMarketingConsentIntentResult::Deferred);
                 }
             }
         }
-        Err(SyncMarketingConsentIntentError::Transaction)
+        Err(SyncMarketingConsentIntentError::ReconciliationExhausted { source: last_error })
     }
 
     async fn release_for_retry(
@@ -373,32 +384,32 @@ where
         claim: &ConsentWorkerClaim,
         reason_code: &str,
     ) -> Result<SyncMarketingConsentIntentResult, SyncMarketingConsentIntentError> {
+        let mut last_error = None;
         // A commit error has an unknown outcome. Retry this exact lease/reason in a
         // fresh transaction: persistence confirms an already-committed marker or
         // reapplies the release if the first transaction rolled back.
         for _ in 0..2 {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+            let mut tx =
+                self.unit_of_work.begin().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
             let released = self
                 .worker
                 .release_for_retry(&mut tx, claim, reason_code)
                 .await
                 .map_err(map_persistence_error)?;
             if !released {
-                tx.commit()
-                    .await
-                    .map_err(|_| SyncMarketingConsentIntentError::Transaction)?;
+                tx.commit().await.map_err(|source| {
+                    SyncMarketingConsentIntentError::Transaction(Box::new(source))
+                })?;
                 return Ok(SyncMarketingConsentIntentResult::Deferred);
             }
             match tx.commit().await {
                 Ok(()) => return Ok(SyncMarketingConsentIntentResult::Retryable),
-                Err(_) => continue,
+                Err(source) => last_error = Some(application::error::box_error(source)),
             }
         }
-        Err(SyncMarketingConsentIntentError::Transaction)
+        Err(SyncMarketingConsentIntentError::ReconciliationExhausted { source: last_error })
     }
 
     async fn finalize(
@@ -588,16 +599,18 @@ mod tests {
 
     struct TestTx {
         commits: Arc<AtomicUsize>,
-        unconfirmed_commit: Option<usize>,
+        unconfirmed_commits: Vec<usize>,
     }
 
     #[async_trait::async_trait]
     impl Transaction for TestTx {
         async fn commit(self) -> Result<(), TransactionError> {
             let commit_number = self.commits.fetch_add(1, Ordering::SeqCst) + 1;
-            if self.unconfirmed_commit == Some(commit_number) {
+            if self.unconfirmed_commits.contains(&commit_number) {
                 // Model a commit that reached PostgreSQL but whose response was lost.
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }
@@ -607,14 +620,14 @@ mod tests {
     #[derive(Default)]
     struct TestUnitOfWork {
         commits: Arc<AtomicUsize>,
-        unconfirmed_commit: Option<usize>,
+        unconfirmed_commits: Vec<usize>,
     }
 
     impl TestUnitOfWork {
         fn with_unconfirmed_commit(commit_number: usize) -> Self {
             Self {
                 commits: Arc::new(AtomicUsize::new(0)),
-                unconfirmed_commit: Some(commit_number),
+                unconfirmed_commits: vec![commit_number],
             }
         }
     }
@@ -626,7 +639,7 @@ mod tests {
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             Ok(TestTx {
                 commits: Arc::clone(&self.commits),
-                unconfirmed_commit: self.unconfirmed_commit,
+                unconfirmed_commits: self.unconfirmed_commits.clone(),
             })
         }
     }
@@ -958,7 +971,10 @@ mod tests {
 
         let result = use_case.execute(claim.intent.intent_id).await;
 
-        assert_eq!(Ok(SyncMarketingConsentIntentResult::Blocked), result);
+        assert!(matches!(
+            result,
+            Ok(SyncMarketingConsentIntentResult::Blocked)
+        ));
         assert_eq!(0, use_case.provider.grants.load(Ordering::SeqCst));
         assert_eq!(
             vec!["BLOCKED"],
@@ -994,7 +1010,10 @@ mod tests {
 
         let result = use_case.execute(claim.intent.intent_id).await;
 
-        assert_eq!(Ok(SyncMarketingConsentIntentResult::Blocked), result);
+        assert!(matches!(
+            result,
+            Ok(SyncMarketingConsentIntentResult::Blocked)
+        ));
         assert_eq!(1, repairs.load(Ordering::SeqCst));
         assert!(use_case.worker.finalizations.lock().unwrap().is_empty());
     }
@@ -1024,7 +1043,10 @@ mod tests {
 
         let result = use_case.execute(claim.intent.intent_id).await;
 
-        assert_eq!(Ok(SyncMarketingConsentIntentResult::Blocked), result);
+        assert!(matches!(
+            result,
+            Ok(SyncMarketingConsentIntentResult::Blocked)
+        ));
         assert_eq!(1, repairs.load(Ordering::SeqCst));
     }
 
@@ -1041,10 +1063,10 @@ mod tests {
         );
         let use_case = handler(worker, provider);
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Retryable),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Retryable)
+        ));
         assert_eq!(vec!["THROTTLED"], *use_case.worker.releases.lock().unwrap());
     }
 
@@ -1072,10 +1094,10 @@ mod tests {
             provider,
         );
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Retryable),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Retryable)
+        ));
         assert_eq!(4, commits.load(Ordering::SeqCst));
         assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
         assert_eq!(0, use_case.provider.grant_writes.load(Ordering::SeqCst));
@@ -1087,6 +1109,46 @@ mod tests {
         assert_eq!(claim.lease_token, release_calls[0].lease_token);
         assert_eq!(claim.attempt_count, release_calls[0].attempt_count);
         assert_eq!("THROTTLED", release_calls[0].reason_code);
+    }
+
+    #[tokio::test]
+    async fn exhausted_release_retries_preserve_the_last_commit_cause() {
+        use std::error::Error;
+
+        let claim = test_claim(1);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [ConsentWorkerRecheckOutcome::Ready(claim.intent.clone())],
+        );
+        let provider = TestProvider::new(
+            [],
+            Err(MarketingEmailConsentError::Throttled { status: Some(429) }),
+        );
+        let use_case = SyncMarketingConsentIntentHandler::new(
+            TestUnitOfWork {
+                unconfirmed_commits: vec![3, 4],
+                ..Default::default()
+            },
+            worker,
+            TestIntentsFactory {
+                repairs: Arc::new(AtomicUsize::new(0)),
+            },
+            provider,
+        );
+
+        let error = use_case.execute(claim.intent.intent_id).await.unwrap_err();
+        assert!(matches!(
+            &error,
+            SyncMarketingConsentIntentError::ReconciliationExhausted { .. }
+        ));
+        let transaction = error.source().unwrap();
+        assert!(transaction.is::<TransactionError>());
+        assert_eq!(
+            "test transaction failure",
+            transaction.source().unwrap().to_string()
+        );
+        assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
+        assert_eq!(2, use_case.worker.release_calls.lock().unwrap().len());
     }
 
     #[tokio::test]
@@ -1117,18 +1179,18 @@ mod tests {
         );
         let use_case = handler(worker, provider);
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Retryable),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Retryable)
+        ));
         assert_eq!(
             vec!["PREWRITE_PROTOCOL"],
             *use_case.worker.releases.lock().unwrap()
         );
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Applied),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Applied)
+        ));
         assert_eq!(2, use_case.provider.grants.load(Ordering::SeqCst));
         assert_eq!(1, use_case.provider.grant_writes.load(Ordering::SeqCst));
     }
@@ -1154,10 +1216,10 @@ mod tests {
         );
         let use_case = handler(worker, provider);
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Applied),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Applied)
+        ));
         assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
         assert!(use_case.worker.releases.lock().unwrap().is_empty());
         assert_eq!(
@@ -1193,10 +1255,10 @@ mod tests {
             provider,
         );
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Applied),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Applied)
+        ));
         assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
         assert_eq!(4, commits.load(Ordering::SeqCst));
         let calls = use_case.worker.finalization_calls.lock().unwrap();
@@ -1225,10 +1287,10 @@ mod tests {
         );
         let use_case = handler(worker, provider);
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Applied),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Applied)
+        ));
         assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
         let calls = use_case.worker.finalization_calls.lock().unwrap();
         assert_eq!(2, calls.len());
@@ -1262,10 +1324,10 @@ mod tests {
             provider,
         );
 
-        assert_eq!(
-            Ok(SyncMarketingConsentIntentResult::Deferred),
-            use_case.execute(claim.intent.intent_id).await
-        );
+        assert!(matches!(
+            use_case.execute(claim.intent.intent_id).await,
+            Ok(SyncMarketingConsentIntentResult::Deferred)
+        ));
         assert_eq!(1, use_case.provider.grants.load(Ordering::SeqCst));
         assert_eq!(1, repairs.load(Ordering::SeqCst));
     }

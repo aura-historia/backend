@@ -42,9 +42,9 @@ pub enum DeleteOwnedSearchFilterError {
         source: BoxError,
     },
     #[error("failed to begin search filter transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit search filter transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -92,11 +92,9 @@ where
         command: DeleteOwnedSearchFilterCommand,
     ) -> Result<DeleteOwnedSearchFilterResult, DeleteOwnedSearchFilterError> {
         authorize_owner(context, command.user_id)?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| DeleteOwnedSearchFilterError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            DeleteOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
+        })?;
         let filter = self
             .filters
             .in_transaction(&mut tx)
@@ -110,9 +108,9 @@ where
             .delete(filter.filter.id())
             .await
             .map_err(delete_error)?;
-        tx.commit()
-            .await
-            .map_err(|_| DeleteOwnedSearchFilterError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            DeleteOwnedSearchFilterError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(
             event = "search_filter.deleted",
             actor_type = context.principal.kind(),

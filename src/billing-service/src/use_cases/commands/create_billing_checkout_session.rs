@@ -252,11 +252,10 @@ impl From<GetOwnUserError> for CreateBillingCheckoutSessionError {
             GetOwnUserError::Internal { source } | GetOwnUserError::InvalidReadModel { source } => {
                 Self::Internal { source }
             }
-            GetOwnUserError::BeginTransactionFailed | GetOwnUserError::CommitTransactionFailed => {
-                Self::TemporarilyUnavailable {
-                    source: Box::new(error),
-                }
-            }
+            GetOwnUserError::BeginTransactionFailed(_)
+            | GetOwnUserError::CommitTransactionFailed(_) => Self::TemporarilyUnavailable {
+                source: Box::new(error),
+            },
         }
     }
 }

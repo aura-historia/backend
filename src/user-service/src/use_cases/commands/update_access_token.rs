@@ -65,9 +65,9 @@ pub enum UpdateAccessTokenError {
         source: BoxError,
     },
     #[error("failed to begin update access token transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update access token transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -120,11 +120,10 @@ where
         let principal = context.principal.require_authenticated()?.clone();
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateAccessTokenError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                UpdateAccessTokenError::BeginTransactionFailed(Box::new(source))
+            })?;
         let mut repository = self.repository.in_transaction(&mut tx);
         let domain_primitives::versioned::Versioned {
             value: mut access_token,
@@ -141,7 +140,7 @@ where
         drop(repository);
         tx.commit()
             .await
-            .map_err(|_| UpdateAccessTokenError::CommitTransactionFailed)?;
+            .map_err(|source| UpdateAccessTokenError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "access_token.updated",

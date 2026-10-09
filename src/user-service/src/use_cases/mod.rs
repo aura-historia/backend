@@ -10,7 +10,7 @@ pub use commands::apply_loops_preference_event::{
 };
 pub use commands::apply_stripe_subscription::{
     ApplyStripeSubscriptionCommand, ApplyStripeSubscriptionError, ApplyStripeSubscriptionHandler,
-    ApplyStripeSubscriptionResult, ApplyStripeSubscriptionTarget, ApplyStripeSubscriptionUseCase,
+    ApplyStripeSubscriptionResult, ApplyStripeSubscriptionUseCase,
 };
 pub use commands::associate_user_stripe_customer_id::{
     AssociateUserStripeCustomerIdCommand, AssociateUserStripeCustomerIdError,

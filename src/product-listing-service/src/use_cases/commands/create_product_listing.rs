@@ -110,9 +110,9 @@ pub enum CreateProductListingError {
         source: BoxError,
     },
     #[error("failed to begin create product listing transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit create product listing transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -291,11 +291,9 @@ where
         let product_listing_id = ProductListingId::new();
         for attempt in 1..=MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
             let title_slug_id = self.generate_title_slug_id(&command)?;
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| CreateProductListingError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                CreateProductListingError::BeginTransactionFailed(Box::new(source))
+            })?;
             match self
                 .apply_in_transaction(
                     &mut tx,
@@ -307,9 +305,9 @@ where
                 .await
             {
                 Ok(result) => {
-                    tx.commit()
-                        .await
-                        .map_err(|_| CreateProductListingError::CommitTransactionFailed)?;
+                    tx.commit().await.map_err(|source| {
+                        CreateProductListingError::CommitTransactionFailed(Box::new(source))
+                    })?;
                     return Ok(result);
                 }
                 Err(CreateProductListingApplyError::SlugCollision)

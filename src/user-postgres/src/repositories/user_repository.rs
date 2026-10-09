@@ -1,6 +1,6 @@
 use crate::mapping::{
     UserRow, bind_currency, bind_language, bind_measurement_unit, bind_role, bind_tier,
-    user_columns, version_to_i64,
+    user_columns,
 };
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
@@ -208,6 +208,7 @@ impl UserRepository for SqlxUserRepository<'_> {
         user: &User,
         expected_version: UserStorageVersion,
     ) -> Result<VersionedUser, UserRepositoryError> {
+        let expected_version = version_to_i64(expected_version)?;
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
@@ -248,7 +249,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
             .bind(user.has_marketing_email_consent())
-            .bind(version_to_i64(expected_version))
+            .bind(expected_version)
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(map_write_error)?
@@ -271,6 +272,14 @@ impl UserRepository for SqlxUserRepository<'_> {
     }
 }
 
+fn version_to_i64(version: UserStorageVersion) -> Result<i64, UserRepositoryError> {
+    i64::try_from(version.into_inner()).map_err(|source| {
+        UserRepositoryError::InvalidPersistedState {
+            source: box_error(source),
+        }
+    })
+}
+
 fn map_write_error(source: sqlx::Error) -> UserRepositoryError {
     if let sqlx::Error::Database(database_error) = &source
         && database_error.is_unique_violation()
@@ -288,5 +297,27 @@ fn map_write_error(source: sqlx::Error) -> UserRepositoryError {
 
     UserRepositoryError::TemporarilyUnavailable {
         source: box_error(source),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_representable_storage_versions_and_reject_overflow() {
+        for value in [1, i64::MAX as u64] {
+            let version = UserStorageVersion::try_from(value).unwrap();
+            assert_eq!(value as i64, version_to_i64(version).unwrap());
+        }
+
+        for value in [i64::MAX as u64 + 1, u64::MAX] {
+            let version = UserStorageVersion::try_from(value).unwrap();
+            let error = version_to_i64(version).unwrap_err();
+            let UserRepositoryError::InvalidPersistedState { source } = error else {
+                panic!("unexpected version error: {error}");
+            };
+            assert!(source.is::<std::num::TryFromIntError>());
+        }
     }
 }

@@ -13,10 +13,10 @@ use user_service::ports::marketing_consent_intents::{
     MarketingConsentIntentWorker,
 };
 use user_service::ports::{
-    ConsentIntent as PortConsentIntent, ConsentIntentSource as PortSource,
-    ConsentSubject as PortSubject, ConsentUser, MarketingConsentIntentError,
-    MarketingConsentIntents, MarketingConsentIntentsFactory, NewsletterConfirmationChallengeError,
-    NewsletterProfile, UserStorageVersion, marketing_consent_recipient_key,
+    ConsentIntent as PortConsentIntent, ConsentIntentSource, ConsentSubject, ConsentUser,
+    MarketingConsentIntentError, MarketingConsentIntents, MarketingConsentIntentsFactory,
+    NewsletterConfirmationChallengeError, NewsletterProfile, UserStorageVersion,
+    marketing_consent_recipient_key,
 };
 use uuid::Uuid;
 
@@ -40,69 +40,31 @@ fn is_retry_no_write_marker(value: &str) -> bool {
         })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConsentIntentSource {
-    CognitoSignup,
-    AuraDoubleOptIn,
-    UserWithdrawal,
-    UserDeletion,
-    EmailOnlyWithdrawal,
-    ProviderRaceRepair,
+fn bind_source(source: ConsentIntentSource) -> &'static str {
+    match source {
+        ConsentIntentSource::CognitoSignup => "COGNITO_SIGNUP",
+        ConsentIntentSource::AuraDoubleOptIn => "AURA_DOUBLE_OPT_IN",
+        ConsentIntentSource::UserWithdrawal => "USER_WITHDRAWAL",
+        ConsentIntentSource::UserDeletion => "USER_DELETION",
+        ConsentIntentSource::EmailOnlyWithdrawal => "EMAIL_ONLY_WITHDRAWAL",
+        ConsentIntentSource::ProviderRaceRepair => "PROVIDER_RACE_REPAIR",
+    }
 }
 
-impl ConsentIntentSource {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::CognitoSignup => "COGNITO_SIGNUP",
-            Self::AuraDoubleOptIn => "AURA_DOUBLE_OPT_IN",
-            Self::UserWithdrawal => "USER_WITHDRAWAL",
-            Self::UserDeletion => "USER_DELETION",
-            Self::EmailOnlyWithdrawal => "EMAIL_ONLY_WITHDRAWAL",
-            Self::ProviderRaceRepair => "PROVIDER_RACE_REPAIR",
-        }
-    }
-
-    fn parse(value: &str) -> Result<Self, MarketingConsentPersistenceError> {
-        match value {
-            "COGNITO_SIGNUP" => Ok(Self::CognitoSignup),
-            "AURA_DOUBLE_OPT_IN" => Ok(Self::AuraDoubleOptIn),
-            "USER_WITHDRAWAL" => Ok(Self::UserWithdrawal),
-            "USER_DELETION" => Ok(Self::UserDeletion),
-            "EMAIL_ONLY_WITHDRAWAL" => Ok(Self::EmailOnlyWithdrawal),
-            "PROVIDER_RACE_REPAIR" => Ok(Self::ProviderRaceRepair),
-            _ => Err(MarketingConsentPersistenceError::InvalidPersistedState),
-        }
-    }
-
-    fn accepts(self, subject: ConsentSubject, desired: bool) -> bool {
-        matches!(
-            (subject, desired, self),
-            (
-                ConsentSubject::User(_),
-                true,
-                Self::CognitoSignup | Self::AuraDoubleOptIn
-            ) | (
-                ConsentSubject::User(_),
-                false,
-                Self::UserWithdrawal | Self::UserDeletion | Self::ProviderRaceRepair
-            ) | (ConsentSubject::EmailOnly, true, Self::AuraDoubleOptIn)
-                | (
-                    ConsentSubject::EmailOnly,
-                    false,
-                    Self::EmailOnlyWithdrawal | Self::ProviderRaceRepair
-                )
-        )
+fn parse_source(value: &str) -> Result<ConsentIntentSource, MarketingConsentPersistenceError> {
+    match value {
+        "COGNITO_SIGNUP" => Ok(ConsentIntentSource::CognitoSignup),
+        "AURA_DOUBLE_OPT_IN" => Ok(ConsentIntentSource::AuraDoubleOptIn),
+        "USER_WITHDRAWAL" => Ok(ConsentIntentSource::UserWithdrawal),
+        "USER_DELETION" => Ok(ConsentIntentSource::UserDeletion),
+        "EMAIL_ONLY_WITHDRAWAL" => Ok(ConsentIntentSource::EmailOnlyWithdrawal),
+        "PROVIDER_RACE_REPAIR" => Ok(ConsentIntentSource::ProviderRaceRepair),
+        _ => Err(MarketingConsentPersistenceError::InvalidPersistedState),
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConsentSubject {
-    User(UserId),
-    EmailOnly,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConsentIntentStatus {
+enum ConsentIntentStatus {
     Pending,
     InProgress,
     Applied,
@@ -137,45 +99,32 @@ impl ConsentIntentStatus {
 
 // No Debug: exact email and proof/action key must not enter logs.
 #[derive(Clone)]
-pub struct MarketingConsentIntent {
-    pub intent_id: MarketingConsentSyncIntentId,
-    pub source_key: String,
-    pub subject: ConsentSubject,
-    pub source: ConsentIntentSource,
-    pub email: Email,
-    pub profile_snapshot: Option<NewsletterProfile>,
-    pub recipient_key: String,
-    pub desired: bool,
-    pub consent_revision: Option<i64>,
-    pub changed_at: OffsetDateTime,
-    pub status: ConsentIntentStatus,
-    pub not_after: Option<OffsetDateTime>,
+struct MarketingConsentIntent {
+    intent_id: MarketingConsentSyncIntentId,
+    source_key: String,
+    subject: ConsentSubject,
+    source: ConsentIntentSource,
+    email: Email,
+    profile_snapshot: Option<NewsletterProfile>,
+    recipient_key: String,
+    desired: bool,
+    consent_revision: Option<i64>,
+    changed_at: OffsetDateTime,
+    status: ConsentIntentStatus,
+    not_after: Option<OffsetDateTime>,
 }
 
 #[derive(Clone)]
-pub struct MarketingConsentIntentClaim {
-    pub intent: MarketingConsentIntent,
-    pub lease_token: Uuid,
-    pub lease_expires_at: OffsetDateTime,
-    pub attempt_count: i32,
-    pub prior_attempt_write_ambiguous: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConsentIntentFinalization<'a> {
-    Applied {
-        provider_contact_id: Option<&'a str>,
-    },
-    Failed {
-        error_code: &'a str,
-    },
-    Blocked {
-        error_code: &'a str,
-    },
+struct MarketingConsentIntentClaim {
+    intent: MarketingConsentIntent,
+    lease_token: Uuid,
+    lease_expires_at: OffsetDateTime,
+    attempt_count: i32,
+    prior_attempt_write_ambiguous: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MarketingConsentPersistenceError {
+pub(crate) enum MarketingConsentPersistenceError {
     #[error("consent state changed concurrently or user missing")]
     ConcurrencyConflict,
     #[error("source key belongs to a different intent")]
@@ -363,7 +312,7 @@ impl IntentRow {
             ("EMAIL_ONLY", None, None) => ConsentSubject::EmailOnly,
             _ => return Err(MarketingConsentPersistenceError::InvalidPersistedState),
         };
-        let source = ConsentIntentSource::parse(&self.source)?;
+        let source = parse_source(&self.source)?;
         let status = ConsentIntentStatus::parse(&self.status)?;
         let retry_no_write = self
             .last_error_code
@@ -461,7 +410,7 @@ async fn append(
         .bind(MarketingConsentSyncIntentId::new().into_uuid())
         .bind(source_key)
         .bind(kind)
-        .bind(source.as_str())
+        .bind(bind_source(source))
         .bind(id)
         .bind::<&str>(email.as_ref())
         .bind(&key)
@@ -495,7 +444,8 @@ impl SqlxMarketingConsentIntentRepository {
     pub fn new() -> Self {
         Self
     }
-    pub async fn find_by_source_key(
+    #[cfg(test)]
+    async fn find_by_source_key(
         &self,
         tx: &mut SqlxTransaction,
         source_key: &str,
@@ -509,7 +459,8 @@ impl SqlxMarketingConsentIntentRepository {
         clippy::too_many_arguments,
         reason = "the transaction-bound write requires the exact proof and user fence"
     )]
-    pub async fn record_user_transition(
+    #[cfg(test)]
+    async fn record_user_transition(
         &self,
         tx: &mut SqlxTransaction,
         user_id: UserId,
@@ -538,7 +489,7 @@ impl SqlxMarketingConsentIntentRepository {
         clippy::too_many_arguments,
         reason = "the transaction-bound write requires the exact proof and user fence"
     )]
-    pub async fn record_user_transition_with_profile(
+    async fn record_user_transition_with_profile(
         &self,
         tx: &mut SqlxTransaction,
         user_id: UserId,
@@ -594,7 +545,8 @@ impl SqlxMarketingConsentIntentRepository {
         .await
     }
 
-    pub async fn record_email_only_intent(
+    #[cfg(test)]
+    async fn record_email_only_intent(
         &self,
         tx: &mut SqlxTransaction,
         email: &Email,
@@ -613,7 +565,7 @@ impl SqlxMarketingConsentIntentRepository {
         clippy::too_many_arguments,
         reason = "the transaction-bound write records the exact email-only decision"
     )]
-    pub async fn record_email_only_intent_with_profile(
+    async fn record_email_only_intent_with_profile(
         &self,
         tx: &mut SqlxTransaction,
         email: &Email,
@@ -668,7 +620,7 @@ impl SqlxMarketingConsentIntentRepository {
     }
 
     /// Back-sync is inbound state: cancel unsent local grants, never enqueue an echo.
-    pub async fn cancel_provider_backsync(
+    async fn cancel_provider_backsync(
         &self,
         tx: &mut SqlxTransaction,
         email: &Email,
@@ -691,7 +643,7 @@ impl SqlxMarketingConsentIntentRepository {
     /// Only a leased grant canceled by provider back-sync is a compensation candidate.
     /// Serialize on the recipient alone, so this is safe after a worker recheck
     /// in the same transaction. The source-key uniqueness remains a final invariant.
-    pub async fn repair_raced_grant_if_needed(
+    async fn repair_raced_grant_if_needed(
         &self,
         tx: &mut SqlxTransaction,
         original: MarketingConsentSyncIntentId,
@@ -822,7 +774,7 @@ impl SqlxMarketingConsentIntentRepository {
     }
 
     /// Delete the account but retain a USER revoke addressed to the old email.
-    pub async fn record_user_deletion(
+    async fn record_user_deletion(
         &self,
         tx: &mut SqlxTransaction,
         user_id: UserId,
@@ -895,36 +847,13 @@ impl From<MarketingConsentPersistenceError> for MarketingConsentIntentError {
     }
 }
 
-impl From<PortSource> for ConsentIntentSource {
-    fn from(source: PortSource) -> Self {
-        match source {
-            PortSource::CognitoSignup => Self::CognitoSignup,
-            PortSource::AuraDoubleOptIn => Self::AuraDoubleOptIn,
-            PortSource::UserWithdrawal => Self::UserWithdrawal,
-            PortSource::UserDeletion => Self::UserDeletion,
-            PortSource::EmailOnlyWithdrawal => Self::EmailOnlyWithdrawal,
-            PortSource::ProviderRaceRepair => Self::ProviderRaceRepair,
-        }
-    }
-}
-
 impl From<MarketingConsentIntent> for PortConsentIntent {
     fn from(intent: MarketingConsentIntent) -> Self {
         Self {
             intent_id: intent.intent_id,
             source_key: intent.source_key,
-            subject: match intent.subject {
-                ConsentSubject::User(id) => PortSubject::User(id),
-                ConsentSubject::EmailOnly => PortSubject::EmailOnly,
-            },
-            source: match intent.source {
-                ConsentIntentSource::CognitoSignup => PortSource::CognitoSignup,
-                ConsentIntentSource::AuraDoubleOptIn => PortSource::AuraDoubleOptIn,
-                ConsentIntentSource::UserWithdrawal => PortSource::UserWithdrawal,
-                ConsentIntentSource::UserDeletion => PortSource::UserDeletion,
-                ConsentIntentSource::EmailOnlyWithdrawal => PortSource::EmailOnlyWithdrawal,
-                ConsentIntentSource::ProviderRaceRepair => PortSource::ProviderRaceRepair,
-            },
+            subject: intent.subject,
+            source: intent.source,
             email: intent.email,
             profile_snapshot: intent.profile_snapshot.map(Box::new),
             desired: intent.desired,
@@ -1018,7 +947,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         &mut self,
         user: &ConsentUser,
         desired: bool,
-        source: PortSource,
+        source: ConsentIntentSource,
         source_key: &str,
         profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
@@ -1030,7 +959,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
                 user.version,
                 &user.email,
                 desired,
-                source.into(),
+                source,
                 source_key,
                 profile_snapshot,
                 changed_at,
@@ -1043,7 +972,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
         &mut self,
         email: &Email,
         desired: bool,
-        source: PortSource,
+        source: ConsentIntentSource,
         source_key: &str,
         profile_snapshot: Option<NewsletterProfile>,
         changed_at: OffsetDateTime,
@@ -1053,7 +982,7 @@ impl MarketingConsentIntents for SqlxMarketingConsentIntents<'_> {
                 self.tx,
                 email,
                 desired,
-                source.into(),
+                source,
                 source_key,
                 profile_snapshot,
                 changed_at,
@@ -1186,7 +1115,7 @@ impl SqlxMarketingConsentIntentWorker {
 
     /// Claim only the requested durable ID; a busy or terminal row never makes
     /// the worker claim some unrelated recipient's intent.
-    pub async fn claim_by_id(
+    async fn claim_by_id(
         &self,
         tx: &mut SqlxTransaction,
         id: MarketingConsentSyncIntentId,
@@ -1318,7 +1247,7 @@ impl SqlxMarketingConsentIntentWorker {
     }
 
     /// Recheck the authoritative decision immediately before provider I/O.
-    pub async fn read_claim(
+    async fn read_claim(
         &self,
         tx: &mut SqlxTransaction,
         claim: &MarketingConsentIntentClaim,
@@ -1438,21 +1367,21 @@ impl SqlxMarketingConsentIntentWorker {
         Ok(Some(intent))
     }
 
-    pub async fn finalize(
+    async fn finalize(
         &self,
         tx: &mut SqlxTransaction,
         claim: &MarketingConsentIntentClaim,
-        result: ConsentIntentFinalization<'_>,
+        result: ConsentWorkerFinalization<'_>,
         completed_at: OffsetDateTime,
     ) -> Result<bool, MarketingConsentPersistenceError> {
         let (status, contact_id, error_code) = match result {
-            ConsentIntentFinalization::Applied {
+            ConsentWorkerFinalization::Applied {
                 provider_contact_id,
             } => (ConsentIntentStatus::Applied, provider_contact_id, None),
-            ConsentIntentFinalization::Failed { error_code } => {
+            ConsentWorkerFinalization::Failed { error_code } => {
                 (ConsentIntentStatus::Failed, None, Some(error_code))
             }
-            ConsentIntentFinalization::Blocked { error_code } => {
+            ConsentWorkerFinalization::Blocked { error_code } => {
                 (ConsentIntentStatus::Blocked, None, Some(error_code))
             }
         };
@@ -1476,7 +1405,7 @@ impl SqlxMarketingConsentIntentWorker {
             .bind::<&str>(claim.intent.email.as_ref())
             .bind(&claim.intent.recipient_key)
             .bind(claim.intent.desired)
-            .bind(claim.intent.source.as_str())
+            .bind(bind_source(claim.intent.source))
             .bind(match claim.intent.subject {
                 ConsentSubject::User(id) => Some(*id.as_uuid()),
                 ConsentSubject::EmailOnly => None,
@@ -1512,7 +1441,7 @@ impl SqlxMarketingConsentIntentWorker {
 
     /// Release only a known non-writing attempt. The durable marker lets the next exact-ID
     /// claim distinguish this retry from an abandoned lease with an ambiguous provider write.
-    pub async fn release_for_retry(
+    async fn release_for_retry(
         &self,
         tx: &mut SqlxTransaction,
         claim: &MarketingConsentIntentClaim,
@@ -1545,7 +1474,7 @@ impl SqlxMarketingConsentIntentWorker {
             .bind::<&str>(claim.intent.email.as_ref())
             .bind(&claim.intent.recipient_key)
             .bind(claim.intent.desired)
-            .bind(claim.intent.source.as_str())
+            .bind(bind_source(claim.intent.source))
             .bind(match claim.intent.subject {
                 ConsentSubject::User(_) => "USER",
                 ConsentSubject::EmailOnly => "EMAIL_ONLY",
@@ -1606,11 +1535,8 @@ fn worker_claim_from_port(
         intent: MarketingConsentIntent {
             intent_id: intent.intent_id,
             source_key: intent.source_key.clone(),
-            subject: match intent.subject {
-                PortSubject::User(id) => ConsentSubject::User(id),
-                PortSubject::EmailOnly => ConsentSubject::EmailOnly,
-            },
-            source: intent.source.into(),
+            subject: intent.subject,
+            source: intent.source,
             email: intent.email.clone(),
             profile_snapshot: intent.profile_snapshot.as_deref().cloned(),
             recipient_key: claim.recipient_key.clone(),
@@ -1685,19 +1611,6 @@ impl MarketingConsentIntentWorker<SqlxTransaction> for SqlxMarketingConsentInten
         completed_at: OffsetDateTime,
     ) -> Result<bool, MarketingConsentIntentError> {
         let local = worker_claim_from_port(claim)?;
-        let result = match result {
-            ConsentWorkerFinalization::Applied {
-                provider_contact_id,
-            } => ConsentIntentFinalization::Applied {
-                provider_contact_id,
-            },
-            ConsentWorkerFinalization::Failed { error_code } => {
-                ConsentIntentFinalization::Failed { error_code }
-            }
-            ConsentWorkerFinalization::Blocked { error_code } => {
-                ConsentIntentFinalization::Blocked { error_code }
-            }
-        };
         Ok(self.finalize(tx, &local, result, completed_at).await?)
     }
 
@@ -1731,3 +1644,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod postgres_tests;

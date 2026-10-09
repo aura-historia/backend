@@ -1,6 +1,6 @@
 use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
 use crate::use_cases::queries::get_party::PartyDetailsView;
-use application::error::{BoxError, static_error};
+use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
@@ -58,9 +58,9 @@ pub enum UpdatePartyError {
         source: BoxError,
     },
     #[error("failed to begin update party transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update party transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -121,7 +121,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| UpdatePartyError::BeginTransactionFailed)?;
+            .map_err(|source| UpdatePartyError::BeginTransactionFailed(Box::new(source)))?;
         let stored = self
             .parties
             .in_transaction(&mut tx)
@@ -148,7 +148,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| UpdatePartyError::CommitTransactionFailed)?;
+            .map_err(|source| UpdatePartyError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "party.updated",
@@ -221,11 +221,9 @@ fn map_admin_error(error: CheckUserAdminError) -> UpdatePartyError {
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => UpdatePartyError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => {
-            UpdatePartyError::TemporarilyUnavailable {
-                source: static_error("check user admin transaction failed"),
-            }
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            UpdatePartyError::TemporarilyUnavailable { source }
         }
     }
 }
@@ -250,6 +248,7 @@ impl From<PartyRepositoryError> for UpdatePartyError {
 mod tests {
     use super::*;
     use crate::ports::{PartyStorageVersion, StoredParty};
+    use application::error::static_error;
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
     use party_core::party::{NewParty, Party};
@@ -277,7 +276,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
+            let mut state = self.0.lock().map_err(|_| {
+                TransactionError::CommitFailed(application::error::static_error(
+                    "test transaction failure",
+                ))
+            })?;
             state.commits += 1;
             Ok(())
         }

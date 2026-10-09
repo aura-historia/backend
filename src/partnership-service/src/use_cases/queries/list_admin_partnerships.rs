@@ -71,9 +71,9 @@ pub enum ListAdminPartnershipsError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -127,11 +127,9 @@ where
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ListAdminPartnershipsError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ListAdminPartnershipsError::BeginTransactionFailed(Box::new(source))
+        })?;
         authorize_admin(context, &mut tx, &self.admins).await?;
 
         let request = clamp_request_cursor(request);
@@ -139,9 +137,9 @@ where
         result.cursor.size = result.cursor.size.clamp(1, MAX_CURSOR_SIZE);
         tracing::Span::current().record("result_count", result.items.len());
 
-        tx.commit()
-            .await
-            .map_err(|_| ListAdminPartnershipsError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ListAdminPartnershipsError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result)
     }
 }
@@ -234,7 +232,9 @@ mod tests {
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
             if self.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             let mut state = self
                 .state
@@ -251,7 +251,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if self.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             let mut state = self
                 .state
@@ -555,7 +557,7 @@ mod tests {
         .await;
         assert!(matches!(
             result,
-            Err(ListAdminPartnershipsError::BeginTransactionFailed)
+            Err(ListAdminPartnershipsError::BeginTransactionFailed(_))
         ));
 
         let state = Arc::new(Mutex::new(State::default()));
@@ -572,7 +574,7 @@ mod tests {
         .await;
         assert!(matches!(
             result,
-            Err(ListAdminPartnershipsError::CommitTransactionFailed)
+            Err(ListAdminPartnershipsError::CommitTransactionFailed(_))
         ));
     }
 

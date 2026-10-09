@@ -1,5 +1,5 @@
 use crate::ports::{PartySearchReadError, PartySearchReader, PartySearchReaderFactory};
-use application::error::{BoxError, static_error};
+use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
@@ -62,9 +62,9 @@ pub enum SearchPartiesError {
         source: BoxError,
     },
     #[error("failed to begin search parties transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit search parties transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -124,11 +124,11 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| SearchPartiesError::BeginTransactionFailed)?;
+            .map_err(|source| SearchPartiesError::BeginTransactionFailed(Box::new(source)))?;
         let result = self.reader.in_transaction(&mut tx).search(&request).await?;
         tx.commit()
             .await
-            .map_err(|_| SearchPartiesError::CommitTransactionFailed)?;
+            .map_err(|source| SearchPartiesError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(result)
     }
@@ -163,11 +163,9 @@ fn map_admin_error(error: CheckUserAdminError) -> SearchPartiesError {
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => SearchPartiesError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => {
-            SearchPartiesError::TemporarilyUnavailable {
-                source: static_error("check user admin transaction failed"),
-            }
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            SearchPartiesError::TemporarilyUnavailable { source }
         }
     }
 }

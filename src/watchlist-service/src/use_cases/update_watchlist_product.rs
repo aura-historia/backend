@@ -71,9 +71,9 @@ pub enum UpdateWatchlistProductListingError {
     #[error("invalid persisted watchlist state")]
     InvalidPersistedState,
     #[error("failed to begin watchlist transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit watchlist transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -129,11 +129,9 @@ where
     ) -> Result<UpdateWatchlistProductListingResult, UpdateWatchlistProductListingError> {
         authorize_write(context, command.user_id)?;
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateWatchlistProductListingError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            UpdateWatchlistProductListingError::BeginTransactionFailed(Box::new(source))
+        })?;
         let loaded = self
             .watchlist
             .in_transaction(&mut tx)
@@ -217,9 +215,9 @@ where
             };
         }
 
-        tx.commit()
-            .await
-            .map_err(|_| UpdateWatchlistProductListingError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            UpdateWatchlistProductListingError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(
             event = "watchlist_product.updated",
             actor_type = context.principal.kind(),
@@ -437,13 +435,19 @@ mod tests {
     impl Transaction for TestTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
             if self.fail_commit {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             self.state
                 .committed
                 .lock()
                 .map(|mut committed| *committed = true)
-                .map_err(|_| TransactionError::CommitFailed)
+                .map_err(|_| {
+                    TransactionError::CommitFailed(application::error::static_error(
+                        "test transaction failure",
+                    ))
+                })
         }
     }
 
@@ -453,7 +457,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if self.fail_begin {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             Ok(TestTransaction {
                 state: self.state.clone(),

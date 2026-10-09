@@ -44,6 +44,28 @@ pub enum ConsentSubject {
     EmailOnly,
 }
 
+impl ConsentIntentSource {
+    pub fn accepts(self, subject: ConsentSubject, desired: bool) -> bool {
+        matches!(
+            (subject, desired, self),
+            (
+                ConsentSubject::User(_),
+                true,
+                Self::CognitoSignup | Self::AuraDoubleOptIn
+            ) | (
+                ConsentSubject::User(_),
+                false,
+                Self::UserWithdrawal | Self::UserDeletion | Self::ProviderRaceRepair
+            ) | (ConsentSubject::EmailOnly, true, Self::AuraDoubleOptIn)
+                | (
+                    ConsentSubject::EmailOnly,
+                    false,
+                    Self::EmailOnlyWithdrawal | Self::ProviderRaceRepair
+                )
+        )
+    }
+}
+
 // Intentionally no Debug: exact recipient and proof key must not reach logs.
 #[derive(Clone)]
 pub struct ConsentIntent {

@@ -457,8 +457,8 @@ impl From<CreateAuctionError> for ApiError {
                     "An Auction already exists for this listing source and source auction ID.",
                 ),
             CreateAuctionError::TemporarilyUnavailable { .. }
-            | CreateAuctionError::BeginTransactionFailed
-            | CreateAuctionError::CommitTransactionFailed => {
+            | CreateAuctionError::BeginTransactionFailed(_)
+            | CreateAuctionError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(AUCTION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Auction could not be created right now.")
             }
@@ -518,8 +518,8 @@ impl From<UpdateAuctionError> for ApiError {
             UpdateAuctionError::InvalidSchedule { .. } => ApiError::bad_request(BAD_BODY_VALUE)
                 .with_detail("schedule has invalid comparable bounds."),
             UpdateAuctionError::TemporarilyUnavailable { .. }
-            | UpdateAuctionError::BeginTransactionFailed
-            | UpdateAuctionError::CommitTransactionFailed => {
+            | UpdateAuctionError::BeginTransactionFailed(_)
+            | UpdateAuctionError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(AUCTION_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Auction could not be updated right now.")
             }
@@ -737,8 +737,8 @@ impl From<CreateSearchFilterError> for ApiError {
             | CreateSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | CreateSearchFilterError::SearchFilterInsertFailed { .. }
-            | CreateSearchFilterError::BeginTransactionFailed
-            | CreateSearchFilterError::CommitTransactionFailed => {
+            | CreateSearchFilterError::BeginTransactionFailed(_)
+            | CreateSearchFilterError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter could not be created right now.")
             }
@@ -794,8 +794,8 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
             | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterUpdateFailed { .. }
-            | UpdateOwnedSearchFilterError::BeginTransactionFailed
-            | UpdateOwnedSearchFilterError::CommitTransactionFailed => {
+            | UpdateOwnedSearchFilterError::BeginTransactionFailed(_)
+            | UpdateOwnedSearchFilterError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter could not be updated right now.")
             }
@@ -824,8 +824,8 @@ impl From<DeleteOwnedSearchFilterError> for ApiError {
             }
             DeleteOwnedSearchFilterError::SearchFilterLookupFailed { .. }
             | DeleteOwnedSearchFilterError::SearchFilterDeletionFailed { .. }
-            | DeleteOwnedSearchFilterError::BeginTransactionFailed
-            | DeleteOwnedSearchFilterError::CommitTransactionFailed => {
+            | DeleteOwnedSearchFilterError::BeginTransactionFailed(_)
+            | DeleteOwnedSearchFilterError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter could not be deleted right now.")
             }
@@ -862,8 +862,8 @@ impl From<ListSearchFilterMatchesError> for ApiError {
             | ListSearchFilterMatchesError::CurrentPricingFxSnapshotMissing
             | ListSearchFilterMatchesError::SalePricingFxSnapshotMissing { .. }
             | ListSearchFilterMatchesError::PricingFxSnapshotUnavailable { .. }
-            | ListSearchFilterMatchesError::BeginPricingTransactionFailed
-            | ListSearchFilterMatchesError::CommitPricingTransactionFailed => {
+            | ListSearchFilterMatchesError::BeginPricingTransactionFailed(_)
+            | ListSearchFilterMatchesError::CommitPricingTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter matches are temporarily unavailable.")
             }
@@ -898,8 +898,8 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
             UpdateSearchFilterMatchFeedbackError::SearchFilterLookupFailed { .. }
             | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchLookupFailed { .. }
             | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchUpdateFailed { .. }
-            | UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed
-            | UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed => {
+            | UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed(_)
+            | UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter match could not be updated right now.")
             }
@@ -933,8 +933,8 @@ impl From<CreateListingSourceError> for ApiError {
                     .with_detail("Listing source conflicts with current state.")
             }
             CreateListingSourceError::TemporarilyUnavailable { .. }
-            | CreateListingSourceError::BeginTransactionFailed
-            | CreateListingSourceError::CommitTransactionFailed => {
+            | CreateListingSourceError::BeginTransactionFailed(_)
+            | CreateListingSourceError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Listing source could not be created right now.")
             }
@@ -968,8 +968,8 @@ impl From<DeleteListingSourceError> for ApiError {
             DeleteListingSourceError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("Listing source conflicts with current state."),
             DeleteListingSourceError::TemporarilyUnavailable { .. }
-            | DeleteListingSourceError::BeginTransactionFailed
-            | DeleteListingSourceError::CommitTransactionFailed => ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+            | DeleteListingSourceError::BeginTransactionFailed(_)
+            | DeleteListingSourceError::CommitTransactionFailed(_) => ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                 .with_detail("Listing source could not be deleted right now."),
             DeleteListingSourceError::InvalidPersistedState { .. }
             | DeleteListingSourceError::Internal { .. } => ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
@@ -1006,8 +1006,8 @@ impl From<UpdateListingSourceError> for ApiError {
                     .with_detail("Listing source conflicts with current state.")
             }
             UpdateListingSourceError::TemporarilyUnavailable { .. }
-            | UpdateListingSourceError::BeginTransactionFailed
-            | UpdateListingSourceError::CommitTransactionFailed => {
+            | UpdateListingSourceError::BeginTransactionFailed(_)
+            | UpdateListingSourceError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Listing source could not be updated right now.")
             }
@@ -1045,8 +1045,8 @@ impl From<PutListingSourceIngestionConfigurationError> for ApiError {
                     .with_detail("Listing source conflicts with current state.")
             }
             PutListingSourceIngestionConfigurationError::TemporarilyUnavailable { .. }
-            | PutListingSourceIngestionConfigurationError::BeginTransactionFailed
-            | PutListingSourceIngestionConfigurationError::CommitTransactionFailed => {
+            | PutListingSourceIngestionConfigurationError::BeginTransactionFailed(_)
+            | PutListingSourceIngestionConfigurationError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Listing source configuration could not be updated right now.")
             }
@@ -1137,8 +1137,8 @@ impl From<SearchListingSourcesError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             SearchListingSourcesError::TemporarilyUnavailable { .. }
-            | SearchListingSourcesError::BeginTransactionFailed
-            | SearchListingSourcesError::CommitTransactionFailed => {
+            | SearchListingSourcesError::BeginTransactionFailed(_)
+            | SearchListingSourcesError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Listing source search is temporarily unavailable.")
             }
@@ -1213,8 +1213,8 @@ impl From<CreateProductListingError> for ApiError {
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | CreateProductListingError::PersistenceFailed
             | CreateProductListingError::EventAppenderFailed { .. }
-            | CreateProductListingError::BeginTransactionFailed
-            | CreateProductListingError::CommitTransactionFailed => {
+            | CreateProductListingError::BeginTransactionFailed(_)
+            | CreateProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing create is temporarily unavailable.")
             }
@@ -1266,8 +1266,8 @@ impl From<UpdateProductListingError> for ApiError {
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
             | UpdateProductListingError::EventAppenderFailed { .. }
-            | UpdateProductListingError::BeginTransactionFailed
-            | UpdateProductListingError::CommitTransactionFailed => {
+            | UpdateProductListingError::BeginTransactionFailed(_)
+            | UpdateProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing update is temporarily unavailable.")
             }
@@ -1299,8 +1299,8 @@ impl From<WithdrawProductListingError> for ApiError {
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | WithdrawProductListingError::PersistenceFailed
             | WithdrawProductListingError::EventAppenderFailed { .. }
-            | WithdrawProductListingError::BeginTransactionFailed
-            | WithdrawProductListingError::CommitTransactionFailed => {
+            | WithdrawProductListingError::BeginTransactionFailed(_)
+            | WithdrawProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing withdrawal is temporarily unavailable.")
             }
@@ -1486,8 +1486,8 @@ impl From<UpsertProductListingError> for ApiError {
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
             | UpsertProductListingError::PersistenceFailed
             | UpsertProductListingError::EventAppenderFailed { .. }
-            | UpsertProductListingError::BeginTransactionFailed
-            | UpsertProductListingError::CommitTransactionFailed => {
+            | UpsertProductListingError::BeginTransactionFailed(_)
+            | UpsertProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing upsert is temporarily unavailable.")
             }
@@ -1507,8 +1507,8 @@ impl From<GetProductListingError> for ApiError {
             GetProductListingError::ProductListingDetailsQueryFailed
             | GetProductListingError::PricingFxSnapshotMissing
             | GetProductListingError::PricingFxSnapshotUnavailable { .. }
-            | GetProductListingError::BeginTransactionFailed
-            | GetProductListingError::CommitTransactionFailed => {
+            | GetProductListingError::BeginTransactionFailed(_)
+            | GetProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing details are temporarily unavailable.")
             }
@@ -1531,8 +1531,8 @@ impl From<GetProductListingHistoryError> for ApiError {
                     .with_detail("ProductListing was not found.")
             }
             GetProductListingHistoryError::QueryFailed { .. }
-            | GetProductListingHistoryError::BeginTransactionFailed
-            | GetProductListingHistoryError::CommitTransactionFailed => {
+            | GetProductListingHistoryError::BeginTransactionFailed(_)
+            | GetProductListingHistoryError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing history is temporarily unavailable.")
             }
@@ -1553,8 +1553,8 @@ impl From<GetSimilarProductListingsError> for ApiError {
             }
             GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
             | GetSimilarProductListingsError::SimilaritySearchUnavailable
-            | GetSimilarProductListingsError::BeginTransactionFailed
-            | GetSimilarProductListingsError::CommitTransactionFailed
+            | GetSimilarProductListingsError::BeginTransactionFailed(_)
+            | GetSimilarProductListingsError::CommitTransactionFailed(_)
             | GetSimilarProductListingsError::PricingFxSnapshotMissing
             | GetSimilarProductListingsError::PricingFxSnapshotUnavailable { .. }
             | GetSimilarProductListingsError::ListingSourceSummaryQueryFailed { .. }
@@ -1616,8 +1616,8 @@ impl From<CheckUserAdminError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             CheckUserAdminError::TemporarilyUnavailable { .. }
-            | CheckUserAdminError::BeginTransactionFailed
-            | CheckUserAdminError::CommitTransactionFailed => {
+            | CheckUserAdminError::BeginTransactionFailed(_)
+            | CheckUserAdminError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
             }
@@ -1644,8 +1644,8 @@ impl From<GetOwnUserError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             GetOwnUserError::TemporarilyUnavailable { .. }
-            | GetOwnUserError::BeginTransactionFailed
-            | GetOwnUserError::CommitTransactionFailed => {
+            | GetOwnUserError::BeginTransactionFailed(_)
+            | GetOwnUserError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
             }
@@ -1672,8 +1672,8 @@ impl From<AdminGetUserError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             AdminGetUserError::TemporarilyUnavailable { .. }
-            | AdminGetUserError::BeginTransactionFailed
-            | AdminGetUserError::CommitTransactionFailed => {
+            | AdminGetUserError::BeginTransactionFailed(_)
+            | AdminGetUserError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
             }
@@ -1700,8 +1700,8 @@ impl From<CreatePartyError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
             }
             CreatePartyError::TemporarilyUnavailable { .. }
-            | CreatePartyError::BeginTransactionFailed
-            | CreatePartyError::CommitTransactionFailed => {
+            | CreatePartyError::BeginTransactionFailed(_)
+            | CreatePartyError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Party could not be created right now.")
             }
@@ -1740,8 +1740,8 @@ impl From<DeletePartyError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
             }
             DeletePartyError::TemporarilyUnavailable { .. }
-            | DeletePartyError::BeginTransactionFailed
-            | DeletePartyError::CommitTransactionFailed => {
+            | DeletePartyError::BeginTransactionFailed(_)
+            | DeletePartyError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Party could not be deleted right now.")
             }
@@ -1771,8 +1771,8 @@ impl From<UpdatePartyError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
             }
             UpdatePartyError::TemporarilyUnavailable { .. }
-            | UpdatePartyError::BeginTransactionFailed
-            | UpdatePartyError::CommitTransactionFailed => {
+            | UpdatePartyError::BeginTransactionFailed(_)
+            | UpdatePartyError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Party could not be updated right now.")
             }
@@ -1799,8 +1799,8 @@ impl From<GetPartyError> for ApiError {
                 ApiError::not_found(PARTY_NOT_FOUND).with_detail("Party was not found.")
             }
             GetPartyError::TemporarilyUnavailable { .. }
-            | GetPartyError::BeginTransactionFailed
-            | GetPartyError::CommitTransactionFailed => {
+            | GetPartyError::BeginTransactionFailed(_)
+            | GetPartyError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Party details are temporarily unavailable.")
             }
@@ -1824,8 +1824,8 @@ impl From<SearchPartiesError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             SearchPartiesError::TemporarilyUnavailable { .. }
-            | SearchPartiesError::BeginTransactionFailed
-            | SearchPartiesError::CommitTransactionFailed => {
+            | SearchPartiesError::BeginTransactionFailed(_)
+            | SearchPartiesError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Party search is temporarily unavailable.")
             }
@@ -1849,8 +1849,8 @@ impl From<SearchUsersError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             SearchUsersError::TemporarilyUnavailable { .. }
-            | SearchUsersError::BeginTransactionFailed
-            | SearchUsersError::CommitTransactionFailed => {
+            | SearchUsersError::BeginTransactionFailed(_)
+            | SearchUsersError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User search is temporarily unavailable.")
             }
@@ -1882,8 +1882,8 @@ impl From<UpdateUserProfileError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
             }
             UpdateUserProfileError::TemporarilyUnavailable { .. }
-            | UpdateUserProfileError::BeginTransactionFailed
-            | UpdateUserProfileError::CommitTransactionFailed => {
+            | UpdateUserProfileError::BeginTransactionFailed(_)
+            | UpdateUserProfileError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
             }
@@ -1917,8 +1917,8 @@ impl From<ChangeUserRoleError> for ApiError {
             | ChangeUserRoleError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
             ChangeUserRoleError::TemporarilyUnavailable { .. }
-            | ChangeUserRoleError::BeginTransactionFailed
-            | ChangeUserRoleError::CommitTransactionFailed => {
+            | ChangeUserRoleError::BeginTransactionFailed(_)
+            | ChangeUserRoleError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
             }
@@ -1952,8 +1952,8 @@ impl From<ChangeUserTierError> for ApiError {
             ChangeUserTierError::TemporarilyUnavailable { .. }
             | ChangeUserTierError::TierEntitlementsLockFailed { .. }
             | ChangeUserTierError::TierEntitlementsReconciliationFailed { .. }
-            | ChangeUserTierError::BeginTransactionFailed
-            | ChangeUserTierError::CommitTransactionFailed => {
+            | ChangeUserTierError::BeginTransactionFailed(_)
+            | ChangeUserTierError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
             }
@@ -1987,8 +1987,8 @@ impl From<DeleteUserError> for ApiError {
             | DeleteUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User delete conflicts with current state."),
             DeleteUserError::TemporarilyUnavailable { .. }
-            | DeleteUserError::BeginTransactionFailed
-            | DeleteUserError::CommitTransactionFailed => {
+            | DeleteUserError::BeginTransactionFailed(_)
+            | DeleteUserError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be deleted right now.")
             }
@@ -2024,8 +2024,8 @@ impl From<SuspendUserError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("Suspension reason is invalid.")
             }
             SuspendUserError::TemporarilyUnavailable { .. }
-            | SuspendUserError::BeginTransactionFailed
-            | SuspendUserError::CommitTransactionFailed => {
+            | SuspendUserError::BeginTransactionFailed(_)
+            | SuspendUserError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be suspended right now.")
             }
@@ -2052,8 +2052,8 @@ impl From<RevokeUserSessionsError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             RevokeUserSessionsError::TemporarilyUnavailable { .. }
-            | RevokeUserSessionsError::BeginTransactionFailed
-            | RevokeUserSessionsError::CommitTransactionFailed => {
+            | RevokeUserSessionsError::BeginTransactionFailed(_)
+            | RevokeUserSessionsError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User sessions could not be revoked right now.")
             }
@@ -2085,8 +2085,8 @@ impl From<UnsuspendUserError> for ApiError {
             | UnsuspendUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User reactivation conflicts with current state."),
             UnsuspendUserError::TemporarilyUnavailable { .. }
-            | UnsuspendUserError::BeginTransactionFailed
-            | UnsuspendUserError::CommitTransactionFailed => {
+            | UnsuspendUserError::BeginTransactionFailed(_)
+            | UnsuspendUserError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be reactivated right now.")
             }
@@ -2114,8 +2114,8 @@ impl From<CreateAccessTokenError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Access token already exists.")
             }
             CreateAccessTokenError::TemporarilyUnavailable { .. }
-            | CreateAccessTokenError::BeginTransactionFailed
-            | CreateAccessTokenError::CommitTransactionFailed => {
+            | CreateAccessTokenError::BeginTransactionFailed(_)
+            | CreateAccessTokenError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -2168,8 +2168,8 @@ impl From<ListAdminAccessTokensError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             ListAdminAccessTokensError::TemporarilyUnavailable { .. }
-            | ListAdminAccessTokensError::BeginTransactionFailed
-            | ListAdminAccessTokensError::CommitTransactionFailed => {
+            | ListAdminAccessTokensError::BeginTransactionFailed(_)
+            | ListAdminAccessTokensError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -2232,8 +2232,8 @@ impl From<UpdateAccessTokenError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
             }
             UpdateAccessTokenError::TemporarilyUnavailable { .. }
-            | UpdateAccessTokenError::BeginTransactionFailed
-            | UpdateAccessTokenError::CommitTransactionFailed => {
+            | UpdateAccessTokenError::BeginTransactionFailed(_)
+            | UpdateAccessTokenError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -2260,8 +2260,8 @@ impl From<DeleteAccessTokensError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             DeleteAccessTokensError::TemporarilyUnavailable { .. }
-            | DeleteAccessTokensError::BeginTransactionFailed
-            | DeleteAccessTokensError::CommitTransactionFailed => {
+            | DeleteAccessTokensError::BeginTransactionFailed(_)
+            | DeleteAccessTokensError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -2288,8 +2288,8 @@ impl From<DeleteAccessTokenError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
             }
             DeleteAccessTokenError::TemporarilyUnavailable { .. }
-            | DeleteAccessTokenError::BeginTransactionFailed
-            | DeleteAccessTokenError::CommitTransactionFailed => {
+            | DeleteAccessTokenError::BeginTransactionFailed(_)
+            | DeleteAccessTokenError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -2317,8 +2317,8 @@ impl From<ListWatchlistError> for ApiError {
             | ListWatchlistError::CurrentPricingFxSnapshotMissing
             | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
             | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
-            | ListWatchlistError::BeginTransactionFailed
-            | ListWatchlistError::CommitTransactionFailed => {
+            | ListWatchlistError::BeginTransactionFailed(_)
+            | ListWatchlistError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
@@ -2366,8 +2366,8 @@ impl From<WatchProductListingError> for ApiError {
             WatchProductListingError::TemporarilyUnavailable { .. }
             | WatchProductListingError::UserTierEntitlementsLockFailed { .. }
             | WatchProductListingError::WatchlistQuotaReadFailed { .. }
-            | WatchProductListingError::BeginTransactionFailed
-            | WatchProductListingError::CommitTransactionFailed => {
+            | WatchProductListingError::BeginTransactionFailed(_)
+            | WatchProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
@@ -2414,8 +2414,8 @@ impl From<UpdateWatchlistProductListingError> for ApiError {
             UpdateWatchlistProductListingError::TemporarilyUnavailable { .. }
             | UpdateWatchlistProductListingError::UserTierEntitlementsLockFailed { .. }
             | UpdateWatchlistProductListingError::WatchlistQuotaReadFailed { .. }
-            | UpdateWatchlistProductListingError::BeginTransactionFailed
-            | UpdateWatchlistProductListingError::CommitTransactionFailed => {
+            | UpdateWatchlistProductListingError::BeginTransactionFailed(_)
+            | UpdateWatchlistProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
@@ -2442,8 +2442,8 @@ impl From<UnwatchProductListingError> for ApiError {
             UnwatchProductListingError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("Watchlist entry was changed concurrently."),
             UnwatchProductListingError::TemporarilyUnavailable { .. }
-            | UnwatchProductListingError::BeginTransactionFailed
-            | UnwatchProductListingError::CommitTransactionFailed => {
+            | UnwatchProductListingError::BeginTransactionFailed(_)
+            | UnwatchProductListingError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
@@ -2488,8 +2488,8 @@ impl From<SubmitPartnershipApplicationError> for ApiError {
                     .with_detail("Listing source was not found.")
             }
             SubmitPartnershipApplicationError::TemporarilyUnavailable { .. }
-            | SubmitPartnershipApplicationError::BeginTransactionFailed
-            | SubmitPartnershipApplicationError::CommitTransactionFailed => {
+            | SubmitPartnershipApplicationError::BeginTransactionFailed(_)
+            | SubmitPartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             SubmitPartnershipApplicationError::InvalidPersistedState { .. }
@@ -2510,8 +2510,8 @@ impl From<ListOwnPartnershipApplicationsError> for ApiError {
             }
             ListOwnPartnershipApplicationsError::Forbidden => partnership_application_forbidden(),
             ListOwnPartnershipApplicationsError::TemporarilyUnavailable { .. }
-            | ListOwnPartnershipApplicationsError::BeginTransactionFailed
-            | ListOwnPartnershipApplicationsError::CommitTransactionFailed => {
+            | ListOwnPartnershipApplicationsError::BeginTransactionFailed(_)
+            | ListOwnPartnershipApplicationsError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             ListOwnPartnershipApplicationsError::InvalidReadModel { .. }
@@ -2533,8 +2533,8 @@ impl From<GetOwnPartnershipApplicationError> for ApiError {
             GetOwnPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
             GetOwnPartnershipApplicationError::NotFound => partnership_application_not_found(),
             GetOwnPartnershipApplicationError::TemporarilyUnavailable { .. }
-            | GetOwnPartnershipApplicationError::BeginTransactionFailed
-            | GetOwnPartnershipApplicationError::CommitTransactionFailed => {
+            | GetOwnPartnershipApplicationError::BeginTransactionFailed(_)
+            | GetOwnPartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             GetOwnPartnershipApplicationError::InvalidPersistedState { .. }
@@ -2561,8 +2561,8 @@ impl From<WithdrawPartnershipApplicationError> for ApiError {
             )
             .with_detail("Partnership application cannot be withdrawn in its current state."),
             WithdrawPartnershipApplicationError::TemporarilyUnavailable { .. }
-            | WithdrawPartnershipApplicationError::BeginTransactionFailed
-            | WithdrawPartnershipApplicationError::CommitTransactionFailed => {
+            | WithdrawPartnershipApplicationError::BeginTransactionFailed(_)
+            | WithdrawPartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             WithdrawPartnershipApplicationError::InvalidPersistedState { .. }
@@ -2580,8 +2580,8 @@ macro_rules! impl_partnership_application_admin_read_error {
                 match error {
                     $error::Forbidden => partnership_application_forbidden(),
                     $error::TemporarilyUnavailable { .. }
-                    | $error::BeginTransactionFailed
-                    | $error::CommitTransactionFailed => {
+                    | $error::BeginTransactionFailed(_)
+                    | $error::CommitTransactionFailed(_) => {
                         partnership_application_temporarily_unavailable()
                     }
                     $error::$invalid { .. } | $error::Internal { .. } => {
@@ -2608,8 +2608,8 @@ impl From<GetAdminPartnershipError> for ApiError {
                 ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
             }
             GetAdminPartnershipError::TemporarilyUnavailable { .. }
-            | GetAdminPartnershipError::BeginTransactionFailed
-            | GetAdminPartnershipError::CommitTransactionFailed => {
+            | GetAdminPartnershipError::BeginTransactionFailed(_)
+            | GetAdminPartnershipError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership details are temporarily unavailable.")
             }
@@ -2635,8 +2635,8 @@ impl From<DissolvePartnershipError> for ApiError {
                 ApiError::conflict(CONFLICT).with_detail("Partnership was changed concurrently.")
             }
             DissolvePartnershipError::TemporarilyUnavailable { .. }
-            | DissolvePartnershipError::BeginTransactionFailed
-            | DissolvePartnershipError::CommitTransactionFailed => {
+            | DissolvePartnershipError::BeginTransactionFailed(_)
+            | DissolvePartnershipError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership dissolution is temporarily unavailable.")
             }
@@ -2667,8 +2667,8 @@ impl From<GrantPartnershipListingSourceError> for ApiError {
                     .with_detail("Partnership and ListingSource belong to different Parties.")
             }
             GrantPartnershipListingSourceError::TemporarilyUnavailable { .. }
-            | GrantPartnershipListingSourceError::BeginTransactionFailed
-            | GrantPartnershipListingSourceError::CommitTransactionFailed => {
+            | GrantPartnershipListingSourceError::BeginTransactionFailed(_)
+            | GrantPartnershipListingSourceError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership ListingSource grant is temporarily unavailable.")
             }
@@ -2695,8 +2695,8 @@ impl From<RevokePartnershipListingSourceError> for ApiError {
                     .with_detail("Listing source was not found.")
             }
             RevokePartnershipListingSourceError::TemporarilyUnavailable { .. }
-            | RevokePartnershipListingSourceError::BeginTransactionFailed
-            | RevokePartnershipListingSourceError::CommitTransactionFailed => {
+            | RevokePartnershipListingSourceError::BeginTransactionFailed(_)
+            | RevokePartnershipListingSourceError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership ListingSource grant is temporarily unavailable.")
             }
@@ -2722,8 +2722,8 @@ impl From<GrantPartnershipMembershipError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             GrantPartnershipMembershipError::TemporarilyUnavailable { .. }
-            | GrantPartnershipMembershipError::BeginTransactionFailed
-            | GrantPartnershipMembershipError::CommitTransactionFailed => {
+            | GrantPartnershipMembershipError::BeginTransactionFailed(_)
+            | GrantPartnershipMembershipError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership membership is temporarily unavailable.")
             }
@@ -2749,8 +2749,8 @@ impl From<RevokePartnershipMembershipError> for ApiError {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
             RevokePartnershipMembershipError::TemporarilyUnavailable { .. }
-            | RevokePartnershipMembershipError::BeginTransactionFailed
-            | RevokePartnershipMembershipError::CommitTransactionFailed => {
+            | RevokePartnershipMembershipError::BeginTransactionFailed(_)
+            | RevokePartnershipMembershipError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnership membership is temporarily unavailable.")
             }
@@ -2770,8 +2770,8 @@ impl From<ListAdminPartnershipsError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             ListAdminPartnershipsError::TemporarilyUnavailable { .. }
-            | ListAdminPartnershipsError::BeginTransactionFailed
-            | ListAdminPartnershipsError::CommitTransactionFailed => {
+            | ListAdminPartnershipsError::BeginTransactionFailed(_)
+            | ListAdminPartnershipsError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Partnerships are temporarily unavailable.")
             }
@@ -2790,8 +2790,8 @@ impl From<GetPartnershipApplicationError> for ApiError {
             GetPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
             GetPartnershipApplicationError::NotFound => partnership_application_not_found(),
             GetPartnershipApplicationError::TemporarilyUnavailable { .. }
-            | GetPartnershipApplicationError::BeginTransactionFailed
-            | GetPartnershipApplicationError::CommitTransactionFailed => {
+            | GetPartnershipApplicationError::BeginTransactionFailed(_)
+            | GetPartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             GetPartnershipApplicationError::InvalidPersistedState { .. }
@@ -2814,8 +2814,8 @@ macro_rules! impl_partnership_application_admin_transition_error {
                     )
                     .with_detail("Partnership application cannot change in its current state."),
                     $error::TemporarilyUnavailable { .. }
-                    | $error::BeginTransactionFailed
-                    | $error::CommitTransactionFailed => {
+                    | $error::BeginTransactionFailed(_)
+                    | $error::CommitTransactionFailed(_) => {
                         partnership_application_temporarily_unavailable()
                     }
                     $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
@@ -2849,8 +2849,8 @@ impl From<ApprovePartnershipApplicationError> for ApiError {
             }
             ApprovePartnershipApplicationError::NotificationCreateFailed { .. }
             | ApprovePartnershipApplicationError::TemporarilyUnavailable { .. }
-            | ApprovePartnershipApplicationError::BeginTransactionFailed
-            | ApprovePartnershipApplicationError::CommitTransactionFailed => {
+            | ApprovePartnershipApplicationError::BeginTransactionFailed(_)
+            | ApprovePartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             ApprovePartnershipApplicationError::InvalidPersistedState { .. }
@@ -2877,8 +2877,8 @@ impl From<RejectPartnershipApplicationError> for ApiError {
             }
             RejectPartnershipApplicationError::NotificationCreateFailed { .. }
             | RejectPartnershipApplicationError::TemporarilyUnavailable { .. }
-            | RejectPartnershipApplicationError::BeginTransactionFailed
-            | RejectPartnershipApplicationError::CommitTransactionFailed => {
+            | RejectPartnershipApplicationError::BeginTransactionFailed(_)
+            | RejectPartnershipApplicationError::CommitTransactionFailed(_) => {
                 partnership_application_temporarily_unavailable()
             }
             RejectPartnershipApplicationError::InvalidPersistedState { .. }

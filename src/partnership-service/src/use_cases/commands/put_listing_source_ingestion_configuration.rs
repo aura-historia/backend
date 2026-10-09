@@ -57,9 +57,9 @@ pub enum PutListingSourceIngestionConfigurationError {
         source: BoxError,
     },
     #[error("failed to begin listing source configuration transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit listing source configuration transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -141,11 +141,9 @@ where
             return Err(PutListingSourceIngestionConfigurationError::InvalidConfiguration);
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| PutListingSourceIngestionConfigurationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            PutListingSourceIngestionConfigurationError::BeginTransactionFailed(Box::new(source))
+        })?;
         let stored = self
             .sources
             .in_transaction(&mut tx)
@@ -178,9 +176,9 @@ where
                 .await
                 .map_err(map_repository)?;
         }
-        tx.commit()
-            .await
-            .map_err(|_| PutListingSourceIngestionConfigurationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            PutListingSourceIngestionConfigurationError::CommitTransactionFailed(Box::new(source))
+        })?;
         let created = !was_configured;
         tracing::Span::current().record("created", created);
         tracing::Span::current().record("outcome", "success");

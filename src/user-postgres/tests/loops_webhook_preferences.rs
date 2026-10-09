@@ -10,6 +10,7 @@ use user_postgres::{
     SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
 };
 use user_service::ports::marketing_consent_intents::ConsentWorkerClaimOutcome;
+use user_service::ports::marketing_consent_intents::MarketingConsentIntentWorker;
 use user_service::ports::{
     ConsentIntent, ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory,
     LoopsWebhookReceiptDisposition as Disposition, LoopsWebhookReceipts,

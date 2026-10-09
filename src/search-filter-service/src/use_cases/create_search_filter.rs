@@ -77,9 +77,9 @@ pub enum CreateSearchFilterError {
         source: SearchFilterRepositoryError,
     },
     #[error("failed to begin search filter transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit search filter transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -162,11 +162,10 @@ where
             embedding,
         });
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CreateSearchFilterError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                CreateSearchFilterError::BeginTransactionFailed(Box::new(source))
+            })?;
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
@@ -198,7 +197,7 @@ where
             .map_err(repository_error)?;
         tx.commit()
             .await
-            .map_err(|_| CreateSearchFilterError::CommitTransactionFailed)?;
+            .map_err(|source| CreateSearchFilterError::CommitTransactionFailed(Box::new(source)))?;
         tracing::info!(
             event = "search_filter.created",
             actor_type = context.principal.kind(),

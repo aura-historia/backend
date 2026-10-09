@@ -14,8 +14,6 @@ pub use consent_workflow_cleanup::SqlxConsentWorkflowCleanup;
 pub use federated_account_reader::SqlxFederatedAccountReader;
 pub use loops_webhook_receipts::SqlxLoopsWebhookReceiptRepository;
 pub use marketing_consent_intents::{
-    ConsentIntentFinalization, ConsentIntentSource, ConsentIntentStatus, ConsentSubject,
-    MarketingConsentIntent, MarketingConsentIntentClaim, MarketingConsentPersistenceError,
     SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker,
 };
 pub use newsletter_confirmation_challenges::SqlxNewsletterConfirmationChallengesRepository;
@@ -27,3 +25,6 @@ pub use readers::{
     SqlxUserTierEntitlementsFactory,
 };
 pub use repositories::{SqlxAccessTokenRepositoryFactory, SqlxUserRepositoryFactory};
+
+mod stripe_subscription_events;
+pub use stripe_subscription_events::SqlxStripeSubscriptionEventStoreFactory;

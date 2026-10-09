@@ -72,9 +72,9 @@ pub enum RegisterCognitoUserError {
         source: BoxError,
     },
     #[error("failed to begin Cognito user registration transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit Cognito user registration transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to persist Cognito signup consent")]
     SignupConsentFailed(#[source] CoordinateMarketingConsentError),
 }
@@ -133,11 +133,10 @@ where
             return Err(RegisterCognitoUserError::Forbidden);
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| RegisterCognitoUserError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                RegisterCognitoUserError::BeginTransactionFailed(Box::new(source))
+            })?;
         let existing_user_id = self
             .identities
             .in_transaction(&mut tx)
@@ -200,9 +199,9 @@ where
                 None
             };
 
-        tx.commit()
-            .await
-            .map_err(|_| RegisterCognitoUserError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            RegisterCognitoUserError::CommitTransactionFailed(Box::new(source))
+        })?;
         if let Some(evidence) = consent_evidence {
             evidence.emit_after_commit(Some(context));
         }
@@ -524,7 +523,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             record(&self.state, "commit", self.id);
             if self.fail_commit {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }
@@ -537,7 +538,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if self.fail_begin {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             record(&self.state, "begin", TX_ID);
             Ok(FakeTx {
@@ -1153,7 +1156,7 @@ mod tests {
         .await;
         assert!(matches!(
             begin_failure,
-            Err(RegisterCognitoUserError::BeginTransactionFailed)
+            Err(RegisterCognitoUserError::BeginTransactionFailed(_))
         ));
 
         let commit_failure = RegisterCognitoUserHandler::new(
@@ -1181,7 +1184,7 @@ mod tests {
         .await;
         assert!(matches!(
             commit_failure,
-            Err(RegisterCognitoUserError::CommitTransactionFailed)
+            Err(RegisterCognitoUserError::CommitTransactionFailed(_))
         ));
     }
 

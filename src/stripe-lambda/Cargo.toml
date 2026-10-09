@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
+billing-stripe = { workspace = true }
+sha2 = { workspace = true }
 platform-observability = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }

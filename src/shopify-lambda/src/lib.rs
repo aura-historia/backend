@@ -1,36 +1,22 @@
 mod types;
 
-pub use types::{
-    ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyListingAction,
-    ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
-    ShopifyRawObservation, ShopifyVariantPayload, product_availability,
-    source_occurred_at_from_triggered_at,
+use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::{
+    ProcessShopifyProductListingUseCase, ShopifyEventProvenance,
+    ShopifyProductListingProcessingError,
 };
+use types::ShopifyEventDetail;
 
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
 use listing_source_core::Domain;
-use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use product_listing_ingestion_sqs::with_publication_deadline;
-use product_listing_normalization::{RawProductListingProvenance, SourcePayload};
-use product_listing_service::ports::{
-    ProductListingRawIngestionMethod, ProductListingRawProviderReceipt,
-    ProviderReceiptDeliveryIdError, ProviderReceiptScope, ProviderReceiptScopeError,
-    SourceEvidenceSha256,
-};
-use product_listing_service::use_cases::{
-    CaptureProductListingRawObservationCommand, IndexedProductListingIngestionIntent,
-    ProductListingIngestionActor, ProductListingIngestionIdempotencyKey,
-    ProductListingIngestionIntent, ProductListingIngestionOperation,
-    ProductListingIngestionOutcome, ProductListingIngestionSubmission,
-    ProductListingIngestionSubmissionError, SubmitInternalProductListingIngestionUseCase,
-    product_listing_ingestion_identity,
-};
-use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use product_listing_normalization::SourcePayload;
+
+use serde_json::Value;
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -38,10 +24,6 @@ pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
 pub const SHOPIFY_TOPIC_PRODUCTS_UPDATE: &str = "products/update";
 pub const SHOPIFY_TOPIC_PRODUCTS_DELETE: &str = "products/delete";
 
-const SHOPIFY_WEBHOOK_RECEIPT_DELIVERY_ID_PREFIX: &str = "shopify-webhook:";
-const EVENTBRIDGE_RECEIPT_DELIVERY_ID_PREFIX: &str = "eventbridge:";
-const SQS_DELIVERY_ID_PREFIX: &str = "sqs:";
-const SHOPIFY_SUBMISSION_IDENTITY_DOMAIN: &[u8] = b"aura.shopify.ingestion.delivery.v1";
 const INVOCATION_BUDGET_CAP: Duration = Duration::from_secs(30);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
 const FORWARD_REPORT_HEADROOM: Duration = Duration::from_millis(300);
@@ -59,186 +41,6 @@ enum MessageOutcome {
     Retry,
 }
 
-#[derive(Debug, Clone)]
-pub struct ShopifyEventProvenance {
-    pub topic: String,
-    pub shopify_event_id: Option<String>,
-    pub webhook_id: Option<String>,
-    pub event_bridge_event_id: Option<String>,
-    pub triggered_at: Option<String>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ShopifyProviderReceiptError {
-    #[error("Shopify provider receipt scope is invalid")]
-    Scope(#[source] ProviderReceiptScopeError),
-    #[error("Shopify provider receipt delivery ID is invalid")]
-    DeliveryId(#[source] ProviderReceiptDeliveryIdError),
-    #[error("Shopify provider receipt source payload is invalid")]
-    SourcePayload(#[source] product_listing_normalization::NormalizationInputError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ShopifyProductListingProcessingError {
-    #[error("Shopify product payload is invalid")]
-    InvalidPayload(#[source] ShopifyProductEventError),
-    #[error("Shopify raw product provenance is invalid")]
-    InvalidProvenance(#[source] product_listing_normalization::NormalizationInputError),
-    #[error("Shopify provider receipt is invalid")]
-    InvalidProviderReceipt(#[source] ShopifyProviderReceiptError),
-    #[error("Listing source lookup failed")]
-    ListingSourceLookup(#[source] ListingSourceReadError),
-    #[error("Shopify product listing submission failed")]
-    Submit(#[source] ProductListingIngestionSubmissionError),
-    #[error("Shopify product listing forward was not confirmed")]
-    ForwardUnconfirmed,
-    #[error("Shopify submission identity is invalid")]
-    InvalidSubmissionIdentity,
-}
-
-#[async_trait::async_trait]
-pub trait ShopifyProductListingProcessorUseCase: Send + Sync {
-    async fn execute(
-        &self,
-        context: &OperationContext,
-        kind: ShopifyProductEventKind,
-        shop_domain: Domain,
-        payload: Value,
-        provenance: ShopifyEventProvenance,
-        upstream_message_id: &str,
-    ) -> Result<(), ShopifyProductListingProcessingError>;
-}
-
-pub struct ShopifyProductListingProcessor<S, I> {
-    sources: S,
-    intake: I,
-}
-
-impl<S, I> ShopifyProductListingProcessor<S, I> {
-    pub fn new(sources: S, intake: I) -> Self {
-        Self { sources, intake }
-    }
-}
-
-#[async_trait::async_trait]
-impl<S, I> ShopifyProductListingProcessorUseCase for ShopifyProductListingProcessor<S, I>
-where
-    S: ShopifySourceReader,
-    I: SubmitInternalProductListingIngestionUseCase,
-{
-    async fn execute(
-        &self,
-        context: &OperationContext,
-        kind: ShopifyProductEventKind,
-        source_domain: Domain,
-        payload: Value,
-        provenance: ShopifyEventProvenance,
-        upstream_message_id: &str,
-    ) -> Result<(), ShopifyProductListingProcessingError> {
-        let Some(source) = self
-            .sources
-            .find_by_domain(&source_domain)
-            .await
-            .map_err(ShopifyProductListingProcessingError::ListingSourceLookup)?
-        else {
-            return Ok(());
-        };
-        let ShopifyListingAction::Capture(mut observation) = kind
-            .listing_action(&source, payload)
-            .map_err(ShopifyProductListingProcessingError::InvalidPayload)?
-        else {
-            return Ok(());
-        };
-        observation.source_occurred_at =
-            source_occurred_at_from_triggered_at(provenance.triggered_at.as_deref())
-                .map_err(ShopifyProductListingProcessingError::InvalidPayload)?;
-        let provider_receipt = shopify_provider_receipt(
-            provenance.topic.as_str(),
-            provenance.webhook_id.as_deref(),
-            provenance.event_bridge_event_id.as_deref(),
-            observation.input.source_payload(),
-        )
-        .map_err(ShopifyProductListingProcessingError::InvalidProviderReceipt)?;
-        let raw_provenance = RawProductListingProvenance::new(json!({
-            "topic": &provenance.topic,
-            "shopifyEventId": &provenance.shopify_event_id,
-            "shopifyWebhookId": &provenance.webhook_id,
-            "eventBridgeEventId": &provenance.event_bridge_event_id,
-            "shopifyTriggeredAt": &provenance.triggered_at,
-        }))
-        .map_err(ShopifyProductListingProcessingError::InvalidProvenance)?;
-
-        let idempotency_key = shopify_submission_key(&provenance, upstream_message_id)?;
-        let actor = match &context.principal {
-            Principal::Service(service_id) => {
-                ProductListingIngestionActor::Service(service_id.clone())
-            }
-            _ => ProductListingIngestionActor::System,
-        };
-        let (expected_submission_id, expected_command_id) = product_listing_ingestion_identity(
-            &actor,
-            source.listing_source_id,
-            &idempotency_key,
-            ProductListingIngestionOperation::CaptureRaw,
-            0,
-        );
-        let submission = ProductListingIngestionSubmission {
-            listing_source_id: source.listing_source_id,
-            original_input_count: 1,
-            idempotency_key: Some(idempotency_key.clone()),
-            items: vec![IndexedProductListingIngestionIntent {
-                index: 0,
-                intent: ProductListingIngestionIntent::CaptureRaw(
-                    CaptureProductListingRawObservationCommand {
-                        listing_source_id: source.listing_source_id,
-                        ingestion_method: ProductListingRawIngestionMethod::Shopify,
-                        source_record_key: observation.source_record_key,
-                        input: observation.input,
-                        provenance: raw_provenance,
-                        source_event_id: provenance.shopify_event_id,
-                        source_occurred_at: observation.source_occurred_at,
-                        provider_receipt,
-                    },
-                ),
-            }],
-        };
-        let result = self
-            .intake
-            .execute(context, submission)
-            .await
-            .map_err(ShopifyProductListingProcessingError::Submit)?;
-        if result.original_input_count == 1
-            && result.idempotency_key == idempotency_key
-            && result.submission_id == expected_submission_id
-            && result.items.len() == 1
-            && result.items[0].index == 0
-            && result.items[0].command_id == expected_command_id
-            && matches!(
-                result.items[0].outcome,
-                ProductListingIngestionOutcome::Accepted
-            )
-        {
-            info!(
-                forwarding_outcome = "accepted",
-                "Shopify ingestion forward confirmed"
-            );
-            Ok(())
-        } else {
-            let reason = match result.items.first().map(|item| &item.outcome) {
-                Some(ProductListingIngestionOutcome::Rejected { .. }) => "rejected",
-                Some(ProductListingIngestionOutcome::Unconfirmed) => "unconfirmed",
-                Some(ProductListingIngestionOutcome::NotAttempted { .. }) => "not_attempted",
-                _ => "invalid_report",
-            };
-            warn!(
-                forwarding_outcome = reason,
-                "Shopify ingestion forward not confirmed"
-            );
-            Err(ShopifyProductListingProcessingError::ForwardUnconfirmed)
-        }
-    }
-}
-
 #[tracing::instrument(
     skip(event, processor),
     fields(
@@ -252,7 +54,7 @@ where
 async fn process_event(
     event: EventBridgeEvent<Value>,
     context: &OperationContext,
-    processor: &(dyn ShopifyProductListingProcessorUseCase + Send + Sync),
+    processor: &(dyn ProcessShopifyProductListingUseCase + Send + Sync),
     upstream_message_id: &str,
 ) -> MessageOutcome {
     let span = tracing::Span::current();
@@ -301,7 +103,13 @@ async fn process_event(
             context,
             kind,
             shop_domain,
-            detail.payload,
+            match SourcePayload::new(detail.payload) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    warn!(%error, "Shopify payload is invalid; acknowledging message");
+                    return MessageOutcome::Acknowledged;
+                }
+            },
             provenance,
             upstream_message_id,
         )
@@ -331,88 +139,10 @@ fn should_retry(error: &ShopifyProductListingProcessingError) -> bool {
     }
 }
 
-fn shopify_provider_receipt(
-    topic: &str,
-    webhook_id: Option<&str>,
-    event_bridge_event_id: Option<&str>,
-    source_payload: &SourcePayload,
-) -> Result<Option<ProductListingRawProviderReceipt>, ShopifyProviderReceiptError> {
-    let Some(delivery_id) = shopify_receipt_delivery_identity(webhook_id, event_bridge_event_id)
-        .map_err(ShopifyProviderReceiptError::DeliveryId)?
-    else {
-        return Ok(None);
-    };
-    let scope =
-        ProviderReceiptScope::new(topic.to_owned()).map_err(ShopifyProviderReceiptError::Scope)?;
-    let source_evidence_sha256 = source_payload
-        .canonical_sha256()
-        .map_err(ShopifyProviderReceiptError::SourcePayload)?;
-    ProductListingRawProviderReceipt::new(
-        scope,
-        delivery_id,
-        SourceEvidenceSha256::new(*source_evidence_sha256.as_bytes()),
-    )
-    .map(Some)
-    .map_err(ShopifyProviderReceiptError::DeliveryId)
-}
-
-fn shopify_receipt_delivery_identity(
-    webhook_id: Option<&str>,
-    event_bridge_event_id: Option<&str>,
-) -> Result<Option<String>, ProviderReceiptDeliveryIdError> {
-    let (prefix, delivery_id) = match webhook_id {
-        Some(webhook_id) => (SHOPIFY_WEBHOOK_RECEIPT_DELIVERY_ID_PREFIX, webhook_id),
-        None => match event_bridge_event_id {
-            Some(event_bridge_event_id) => (
-                EVENTBRIDGE_RECEIPT_DELIVERY_ID_PREFIX,
-                event_bridge_event_id,
-            ),
-            None => return Ok(None),
-        },
-    };
-    if delivery_id.is_empty() {
-        return Err(ProviderReceiptDeliveryIdError::Empty);
-    }
-
-    Ok(Some(format!("{prefix}{delivery_id}")))
-}
-
-fn shopify_submission_key(
-    provenance: &ShopifyEventProvenance,
-    upstream_message_id: &str,
-) -> Result<ProductListingIngestionIdempotencyKey, ShopifyProductListingProcessingError> {
-    let delivery = shopify_receipt_delivery_identity(
-        provenance.webhook_id.as_deref(),
-        provenance.event_bridge_event_id.as_deref(),
-    )
-    .map_err(|error| {
-        ShopifyProductListingProcessingError::InvalidProviderReceipt(
-            ShopifyProviderReceiptError::DeliveryId(error),
-        )
-    })?
-    .unwrap_or_else(|| format!("{SQS_DELIVERY_ID_PREFIX}{upstream_message_id}"));
-    let mut hasher = Sha256::new();
-    for field in [
-        SHOPIFY_SUBMISSION_IDENTITY_DOMAIN,
-        provenance.topic.as_bytes(),
-        delivery.as_bytes(),
-    ] {
-        hasher.update((field.len() as u64).to_be_bytes());
-        hasher.update(field);
-    }
-    let digest = hasher.finalize();
-    let mut key = String::from("shopify-");
-    for byte in digest {
-        key.push_str(&format!("{byte:02x}"));
-    }
-    ProductListingIngestionIdempotencyKey::new(key)
-        .map_err(|_| ShopifyProductListingProcessingError::InvalidSubmissionIdentity)
-}
-
 #[tracing::instrument(skip(event, processor), fields(request_id = %event.context.request_id))]
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
-    processor: &(dyn ShopifyProductListingProcessorUseCase + Send + Sync),
+    processor: &(dyn ProcessShopifyProductListingUseCase + Send + Sync),
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let context = operation_context(&event);
     let budget = LambdaInvocationBudget::from_context(
@@ -496,6 +226,16 @@ mod tests {
     use super::*;
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
+    use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader};
+    use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
+    use product_listing_service::use_cases::{
+        ProductListingIngestionActor, ProductListingIngestionIdempotencyKey,
+        ProductListingIngestionIntent, ProductListingIngestionOperation,
+        ProductListingIngestionOutcome, ProductListingIngestionSubmission,
+        ProductListingIngestionSubmissionError, SubmitInternalProductListingIngestionUseCase,
+        product_listing_ingestion_identity,
+    };
+    use product_listing_shopify::ShopifyProductPayloadDecoder;
     use std::{
         sync::{Arc, Mutex},
         time::{SystemTime, UNIX_EPOCH},
@@ -544,29 +284,6 @@ mod tests {
 
         assert_eq!(vec!["conflicted"], identifiers(result));
         assert_eq!(2, call_count(&processor));
-    }
-
-    #[test]
-    fn should_namespace_receipt_delivery_identity_by_origin() {
-        let webhook_identity =
-            shopify_receipt_delivery_identity(Some("same-delivery-id"), Some("same-delivery-id"))
-                .unwrap_or_else(|error| panic!("webhook identity failed: {error}"));
-        let eventbridge_identity =
-            shopify_receipt_delivery_identity(None, Some("same-delivery-id"))
-                .unwrap_or_else(|error| panic!("EventBridge identity failed: {error}"));
-
-        assert_eq!(
-            Some("shopify-webhook:same-delivery-id".to_owned()),
-            webhook_identity
-        );
-        assert_eq!(
-            Some("eventbridge:same-delivery-id".to_owned()),
-            eventbridge_identity
-        );
-        assert!(matches!(
-            shopify_receipt_delivery_identity(Some(""), None),
-            Err(ProviderReceiptDeliveryIdError::Empty)
-        ));
     }
 
     #[tokio::test]
@@ -732,7 +449,11 @@ mod tests {
             (SubmissionReport::WrongCount, false),
             (SubmissionReport::Extra, false),
         ] {
-            let processor = ShopifyProductListingProcessor::new(TestSource, TestIntake(report));
+            let processor = ProcessShopifyProductListingHandler::new(
+                TestSource,
+                TestIntake(report),
+                ShopifyProductPayloadDecoder,
+            );
             let response = handler(event("upstream-id", valid_body()), &processor)
                 .await
                 .unwrap();
@@ -742,8 +463,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_accept_service_context_without_partner_authorization() {
-        let processor =
-            ShopifyProductListingProcessor::new(TestSource, TestIntake(SubmissionReport::Accepted));
+        let processor = ProcessShopifyProductListingHandler::new(
+            TestSource,
+            TestIntake(SubmissionReport::Accepted),
+            ShopifyProductPayloadDecoder,
+        );
         let context = OperationContext {
             principal: Principal::Service("shopify-lambda".to_owned()),
             correlation_id: CorrelationId::new("correlation"),
@@ -756,7 +480,7 @@ mod tests {
                 &context,
                 ShopifyProductEventKind::Create,
                 Domain::try_from("partner.example").unwrap(),
-                detail.payload,
+                SourcePayload::new(detail.payload).unwrap(),
                 ShopifyEventProvenance {
                     topic: SHOPIFY_TOPIC_PRODUCTS_CREATE.to_owned(),
                     shopify_event_id: None,
@@ -771,119 +495,6 @@ mod tests {
             result.is_ok(),
             "internal Service intake should forward: {result:?}"
         );
-    }
-
-    #[test]
-    fn delivery_identity_is_scoped_to_topic_and_not_batch_position() {
-        let provenance = |topic: &str, webhook: Option<&str>, event_bridge: Option<&str>| {
-            ShopifyEventProvenance {
-                topic: topic.to_owned(),
-                shopify_event_id: Some("same-content-event".to_owned()),
-                webhook_id: webhook.map(str::to_owned),
-                event_bridge_event_id: event_bridge.map(str::to_owned),
-                triggered_at: None,
-            }
-        };
-        let key = |p: ShopifyEventProvenance, sqs: &str| shopify_submission_key(&p, sqs).unwrap();
-        assert_eq!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
-                "second"
-            )
-        );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_UPDATE, Some("webhook"), None),
-                "first"
-            )
-        );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, Some("webhook")),
-                "first"
-            )
-        );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
-                "second"
-            )
-        );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, Some("first")),
-                "first"
-            )
-        );
-        let delivery_key = key(
-            provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
-            "first",
-        );
-        let first_source = listing_source_core::ListingSourceId::new();
-        let second_source = listing_source_core::ListingSourceId::new();
-        let (_, first_command) = product_listing_ingestion_identity(
-            &ProductListingIngestionActor::System,
-            first_source,
-            &delivery_key,
-            ProductListingIngestionOperation::CaptureRaw,
-            0,
-        );
-        let (_, second_command) = product_listing_ingestion_identity(
-            &ProductListingIngestionActor::System,
-            second_source,
-            &delivery_key,
-            ProductListingIngestionOperation::CaptureRaw,
-            0,
-        );
-        assert_ne!(first_command, second_command);
-    }
-
-    struct MixedBatchProcessor(Arc<Mutex<usize>>);
-
-    #[async_trait::async_trait]
-    impl ShopifyProductListingProcessorUseCase for MixedBatchProcessor {
-        async fn execute(
-            &self,
-            _context: &OperationContext,
-            _kind: ShopifyProductEventKind,
-            _shop_domain: Domain,
-            _payload: Value,
-            _provenance: ShopifyEventProvenance,
-            _upstream_message_id: &str,
-        ) -> Result<(), ShopifyProductListingProcessingError> {
-            let count = {
-                let mut calls = self.0.lock().unwrap();
-                *calls += 1;
-                *calls
-            };
-            if count == 2 {
-                return Err(ShopifyProductListingProcessingError::ForwardUnconfirmed);
-            }
-            if count == 3 {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-            Ok(())
-        }
     }
 
     #[tokio::test]
@@ -1022,13 +633,13 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ShopifyProductListingProcessorUseCase for FakeProcessor {
+    impl ProcessShopifyProductListingUseCase for FakeProcessor {
         async fn execute(
             &self,
             _context: &OperationContext,
             _kind: ShopifyProductEventKind,
             _shop_domain: Domain,
-            _payload: Value,
+            _payload: SourcePayload,
             _provenance: ShopifyEventProvenance,
             _upstream_message_id: &str,
         ) -> Result<(), ShopifyProductListingProcessingError> {
@@ -1044,7 +655,7 @@ mod tests {
                 }
                 FakeResult::InvalidPayload => {
                     Err(ShopifyProductListingProcessingError::InvalidPayload(
-                        ShopifyProductEventError::MissingTitle,
+                        application::error::static_error("missing title"),
                     ))
                 }
                 FakeResult::UnconfirmedOnSecondCall if call_count == 2 => {
@@ -1052,6 +663,33 @@ mod tests {
                 }
                 FakeResult::UnconfirmedOnSecondCall => Ok(()),
             }
+        }
+    }
+    struct MixedBatchProcessor(Arc<Mutex<usize>>);
+
+    #[async_trait::async_trait]
+    impl ProcessShopifyProductListingUseCase for MixedBatchProcessor {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _kind: ShopifyProductEventKind,
+            _shop_domain: Domain,
+            _payload: SourcePayload,
+            _provenance: ShopifyEventProvenance,
+            _upstream_message_id: &str,
+        ) -> Result<(), ShopifyProductListingProcessingError> {
+            let count = {
+                let mut calls = self.0.lock().unwrap();
+                *calls += 1;
+                *calls
+            };
+            if count == 2 {
+                return Err(ShopifyProductListingProcessingError::ForwardUnconfirmed);
+            }
+            if count == 3 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            Ok(())
         }
     }
 }

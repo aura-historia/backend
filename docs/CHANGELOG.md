@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-09 — Consistent profile-name normalization (#1984)
+
+- Profile-name JSON input now uses the existing `FirstName`/`LastName` constructors. Names are consistently truncated to 64 Unicode characters before persistence; the documented maximum and wire shape are unchanged.
+
 ## 2026-10-08 — Newsletter confirmation template failures
 
 - Temporary failures fetching a confirmation email template now return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`. Missing or invalid templates remain `500 NEWSLETTER_INTERNAL_ERROR`; no SES send occurs when template preparation fails.

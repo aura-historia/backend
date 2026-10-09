@@ -177,7 +177,9 @@ mod tests {
             command: RegisterCognitoUserCommand,
         ) -> Result<RegisterCognitoUserResult, RegisterCognitoUserError> {
             if self.fail {
-                return Err(RegisterCognitoUserError::BeginTransactionFailed);
+                return Err(RegisterCognitoUserError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             let result = RegisterCognitoUserResult {
                 user_id: UserId::new(),

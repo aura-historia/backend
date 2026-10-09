@@ -462,12 +462,16 @@ mod tests {
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                GrantPartnershipListingSourceError::BeginTransactionFailed,
+                GrantPartnershipListingSourceError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                GrantPartnershipListingSourceError::CommitTransactionFailed,
+                GrantPartnershipListingSourceError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),

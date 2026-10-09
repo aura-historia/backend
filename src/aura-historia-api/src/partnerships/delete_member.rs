@@ -452,12 +452,16 @@ mod tests {
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                RevokePartnershipMembershipError::BeginTransactionFailed,
+                RevokePartnershipMembershipError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                RevokePartnershipMembershipError::CommitTransactionFailed,
+                RevokePartnershipMembershipError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                ),
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),

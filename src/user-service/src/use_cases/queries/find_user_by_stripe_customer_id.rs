@@ -43,9 +43,9 @@ pub enum FindUserByStripeCustomerIdError {
         source: BoxError,
     },
     #[error("failed to begin find user by stripe customer id transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit find user by stripe customer id transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -92,20 +92,18 @@ where
         context: &OperationContext,
         request: FindUserByStripeCustomerIdRequest,
     ) -> Result<UserStripeLookupView, FindUserByStripeCustomerIdError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| FindUserByStripeCustomerIdError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            FindUserByStripeCustomerIdError::BeginTransactionFailed(Box::new(source))
+        })?;
         let result = self
             .reader
             .in_transaction(&mut tx)
             .find_by_stripe_customer_id(&request)
             .await?
             .ok_or(FindUserByStripeCustomerIdError::NotFound)?;
-        tx.commit()
-            .await
-            .map_err(|_| FindUserByStripeCustomerIdError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            FindUserByStripeCustomerIdError::CommitTransactionFailed(Box::new(source))
+        })?;
 
         Ok(result)
     }
@@ -201,7 +199,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock(&self.state);
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 state.commits += 1;
                 Ok(())
@@ -217,7 +217,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begins += 1;
             if state.begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -349,7 +351,7 @@ mod tests {
             |error| {
                 matches!(
                     error,
-                    FindUserByStripeCustomerIdError::BeginTransactionFailed
+                    FindUserByStripeCustomerIdError::BeginTransactionFailed(_)
                 )
             },
         );
@@ -364,7 +366,7 @@ mod tests {
             |error| {
                 matches!(
                     error,
-                    FindUserByStripeCustomerIdError::CommitTransactionFailed
+                    FindUserByStripeCustomerIdError::CommitTransactionFailed(_)
                 )
             },
         );

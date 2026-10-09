@@ -69,9 +69,9 @@ pub enum ListAdminPartnershipApplicationsError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -122,11 +122,9 @@ impl<U: UnitOfWork, A: PartnershipApplicationReaderFactory<U::Tx>, R: UserAdminR
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ListAdminPartnershipApplicationsError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ListAdminPartnershipApplicationsError::BeginTransactionFailed(Box::new(source))
+        })?;
         authorize_admin(context, &mut tx, &self.admins).await?;
         let result = self
             .reader
@@ -134,9 +132,9 @@ impl<U: UnitOfWork, A: PartnershipApplicationReaderFactory<U::Tx>, R: UserAdminR
             .search_admin(&request)
             .await?;
         tracing::Span::current().record("result_count", result.items.len());
-        tx.commit()
-            .await
-            .map_err(|_| ListAdminPartnershipApplicationsError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ListAdminPartnershipApplicationsError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result)
     }
 }

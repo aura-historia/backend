@@ -286,34 +286,11 @@ fn supported_image_mime_type_from_bytes(bytes: &[u8]) -> Option<&'static str> {
 
 fn content_type_can_be_supported_image(content_type: &str) -> bool {
     let mime_type = content_type.split(';').next().unwrap_or_default().trim();
-    supported_image_mime_type_from_content_type(mime_type).is_some()
-        || matches!(
-            mime_type.to_ascii_lowercase().as_str(),
-            "application/octet-stream" | "binary/octet-stream"
-        )
-        || mime_type.to_ascii_lowercase().starts_with("image/")
-}
-
-fn supported_image_mime_type_from_content_type(content_type: &str) -> Option<&'static str> {
-    if matches!(content_type, "image/jpeg" | "image/jpg" | "image/pjpeg") {
-        return Some("image/jpeg");
-    }
-    if matches!(content_type, "image/png" | "image/x-png") {
-        return Some("image/png");
-    }
-    if content_type.eq_ignore_ascii_case("image/webp") {
-        return Some("image/webp");
-    }
-    if content_type.eq_ignore_ascii_case("image/gif") {
-        return Some("image/gif");
-    }
-    if content_type.eq_ignore_ascii_case("image/heic") {
-        return Some("image/heic");
-    }
-    if content_type.eq_ignore_ascii_case("image/heif") {
-        return Some("image/heif");
-    }
-    None
+    mime_type.eq_ignore_ascii_case("application/octet-stream")
+        || mime_type.eq_ignore_ascii_case("binary/octet-stream")
+        || mime_type
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/"))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -358,6 +335,36 @@ mod tests {
         sync::Mutex,
         task::JoinHandle,
     };
+
+    #[test]
+    fn should_admit_image_and_binary_content_types_for_body_validation() {
+        for content_type in [
+            "image/jpeg",
+            " IMAGE/PNG ; charset=binary",
+            "image/x-custom",
+            "application/octet-stream",
+            "BINARY/OCTET-STREAM; charset=binary",
+        ] {
+            assert!(
+                content_type_can_be_supported_image(content_type),
+                "{content_type}"
+            );
+        }
+
+        for content_type in [
+            "",
+            "image",
+            "images/png",
+            "text/html",
+            "application/json",
+            "éééé",
+        ] {
+            assert!(
+                !content_type_can_be_supported_image(content_type),
+                "{content_type}"
+            );
+        }
+    }
 
     #[test]
     fn should_detect_supported_image_types_and_retry_with_exponential_backoff() {

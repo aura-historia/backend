@@ -50,9 +50,21 @@ impl TryFrom<UserRow> for VersionedUser {
             id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
             marketing_email_consent: row.marketing_email_consent,
-            profile: profile_from_row(&row)?,
-            preferences: preferences_from_row(&row)?,
-            account: account_from_row(&row)?,
+            profile: UserProfile {
+                first_name: row.first_name.map(FirstName::from),
+                last_name: row.last_name.map(LastName::from),
+            },
+            preferences: UserPreferences {
+                language: parse_optional_language(row.language.as_deref())?,
+                currency: parse_optional_currency(row.currency.as_deref())?,
+                measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
+                show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
+            },
+            account: UserAccount {
+                tier: parse_tier(&row.tier)?,
+                role: parse_role(&row.role)?,
+                stripe_customer_id: row.stripe_customer_id.map(StripeCustomerId::from),
+            },
             suspended: row.suspended,
         })?;
 
@@ -67,8 +79,8 @@ impl TryFrom<UserRow> for UserDetailsView {
         Ok(Self {
             user_id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
-            first_name: row.first_name.clone().map(FirstName::from),
-            last_name: row.last_name.clone().map(LastName::from),
+            first_name: row.first_name.map(FirstName::from),
+            last_name: row.last_name.map(LastName::from),
             language: parse_optional_language(row.language.as_deref())?,
             currency: parse_optional_currency(row.currency.as_deref())?,
             measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
@@ -76,7 +88,7 @@ impl TryFrom<UserRow> for UserDetailsView {
             marketing_email_consent: row.marketing_email_consent,
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
-            stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
+            stripe_customer_id: row.stripe_customer_id.map(StripeCustomerId::from),
         })
     }
 }
@@ -105,8 +117,8 @@ impl TryFrom<UserRow> for UserSummary {
         Ok(Self {
             user_id: UserId::try_from(row.user_id).map_err(UserRowMappingError::InvalidUserId)?,
             email: parse_email(&row.email)?,
-            first_name: row.first_name.clone().map(FirstName::from),
-            last_name: row.last_name.clone().map(LastName::from),
+            first_name: row.first_name.map(FirstName::from),
+            last_name: row.last_name.map(LastName::from),
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.map(StripeCustomerId::from),
@@ -159,10 +171,6 @@ pub(crate) fn bind_role(value: UserRole) -> &'static str {
     value.as_str()
 }
 
-pub(crate) fn version_to_i64(version: UserStorageVersion) -> i64 {
-    i64::try_from(version.into_inner()).unwrap_or(i64::MAX)
-}
-
 pub(crate) fn sort_user_field_columns(field: SortUserField) -> &'static [&'static str] {
     match field {
         SortUserField::Name => &["first_name", "last_name"],
@@ -174,30 +182,6 @@ pub(crate) fn sort_user_field_columns(field: SortUserField) -> &'static [&'stati
         SortUserField::Created => &["created"],
         SortUserField::Updated => &["updated"],
     }
-}
-
-fn profile_from_row(row: &UserRow) -> Result<UserProfile, UserRowMappingError> {
-    Ok(UserProfile {
-        first_name: row.first_name.clone().map(FirstName::from),
-        last_name: row.last_name.clone().map(LastName::from),
-    })
-}
-
-fn preferences_from_row(row: &UserRow) -> Result<UserPreferences, UserRowMappingError> {
-    Ok(UserPreferences {
-        language: parse_optional_language(row.language.as_deref())?,
-        currency: parse_optional_currency(row.currency.as_deref())?,
-        measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
-        show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
-    })
-}
-
-fn account_from_row(row: &UserRow) -> Result<UserAccount, UserRowMappingError> {
-    Ok(UserAccount {
-        tier: parse_tier(&row.tier)?,
-        role: parse_role(&row.role)?,
-        stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
-    })
 }
 
 fn parse_email(value: &str) -> Result<Email, UserRowMappingError> {

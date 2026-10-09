@@ -259,7 +259,9 @@ mod tests {
             let mut state = lock(&self.0);
             state.begins += 1;
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             Ok(TransactionFake(Arc::clone(&self.0)))
         }
@@ -271,7 +273,9 @@ mod tests {
             let mut state = lock(&self.0);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())

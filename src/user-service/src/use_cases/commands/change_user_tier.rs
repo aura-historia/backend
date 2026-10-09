@@ -69,9 +69,9 @@ pub enum ChangeUserTierError {
         source: BoxError,
     },
     #[error("failed to begin change user tier transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit change user tier transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -135,7 +135,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| ChangeUserTierError::BeginTransactionFailed)?;
+            .map_err(|source| ChangeUserTierError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
@@ -172,7 +172,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| ChangeUserTierError::CommitTransactionFailed)?;
+            .map_err(|source| ChangeUserTierError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.tier_changed",
@@ -468,7 +468,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock(&self.state);
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 state.commits += 1;
                 Ok(())
@@ -484,7 +486,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begins += 1;
             if state.begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -652,7 +656,7 @@ mod tests {
                 },
             )
             .await,
-            |error| matches!(error, ChangeUserTierError::BeginTransactionFailed),
+            |error| matches!(error, ChangeUserTierError::BeginTransactionFailed(_)),
         );
 
         let commit_uow = FakeUnitOfWork::default();
@@ -674,7 +678,7 @@ mod tests {
                     },
                 )
                 .await,
-            |error| matches!(error, ChangeUserTierError::CommitTransactionFailed),
+            |error| matches!(error, ChangeUserTierError::CommitTransactionFailed(_)),
         );
     }
 

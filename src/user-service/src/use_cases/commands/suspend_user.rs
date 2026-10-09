@@ -78,9 +78,9 @@ pub enum SuspendUserError {
         source: BoxError,
     },
     #[error("failed to begin suspend user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit suspend user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -142,7 +142,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| SuspendUserError::BeginTransactionFailed)?;
+            .map_err(|source| SuspendUserError::BeginTransactionFailed(Box::new(source)))?;
         {
             let mut admin_reader =
                 UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
@@ -188,7 +188,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| SuspendUserError::CommitTransactionFailed)?;
+            .map_err(|source| SuspendUserError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.suspended",

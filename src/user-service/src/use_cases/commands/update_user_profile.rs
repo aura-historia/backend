@@ -75,9 +75,9 @@ pub enum UpdateUserProfileError {
         source: BoxError,
     },
     #[error("failed to begin update user profile transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update user profile transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -148,11 +148,10 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateUserProfileError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                UpdateUserProfileError::BeginTransactionFailed(Box::new(source))
+            })?;
         authorize_user_profile_write(
             context,
             command.user_id,
@@ -179,7 +178,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| UpdateUserProfileError::CommitTransactionFailed)?;
+            .map_err(|source| UpdateUserProfileError::CommitTransactionFailed(Box::new(source)))?;
 
         tracing::info!(
             event = "user.profile_updated",

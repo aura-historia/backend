@@ -63,9 +63,9 @@ pub enum DeleteUserError {
         source: BoxError,
     },
     #[error("failed to begin delete user transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit delete user transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -140,7 +140,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| DeleteUserError::BeginTransactionFailed)?;
+            .map_err(|source| DeleteUserError::BeginTransactionFailed(Box::new(source)))?;
         authorize_delete_user(
             context,
             command.user_id,
@@ -168,7 +168,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| DeleteUserError::CommitTransactionFailed)?;
+            .map_err(|source| DeleteUserError::CommitTransactionFailed(Box::new(source)))?;
         if let Some(evidence) = consent.evidence {
             evidence.emit_after_commit(Some(context));
         }
@@ -451,7 +451,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commits += 1;
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }
@@ -466,7 +468,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begins += 1;
             if state.begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -941,7 +945,7 @@ mod tests {
                     DeleteUserCommand { user_id },
                 )
                 .await,
-            |error| matches!(error, DeleteUserError::BeginTransactionFailed),
+            |error| matches!(error, DeleteUserError::BeginTransactionFailed(_)),
         );
 
         let commit_uow = FakeUnitOfWork::default();
@@ -956,7 +960,7 @@ mod tests {
                     DeleteUserCommand { user_id },
                 )
                 .await,
-            |error| matches!(error, DeleteUserError::CommitTransactionFailed),
+            |error| matches!(error, DeleteUserError::CommitTransactionFailed(_)),
         );
     }
 }

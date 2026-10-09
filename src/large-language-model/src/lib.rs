@@ -720,56 +720,36 @@ fn normalize_schema_node(
         }
     }
 
-    let keys = object.keys().cloned().collect::<Vec<_>>();
-    for key in keys {
-        let child_pointer = format!("{pointer}/{}", escape_json_pointer(&key));
+    for (key, value) in object.iter_mut() {
+        let child_pointer = format!("{pointer}/{}", escape_json_pointer(key));
         match key.as_str() {
             "$defs" | "properties" => {
-                let Some(map) = object
-                    .get_mut(&key)
-                    .and_then(serde_json::Value::as_object_mut)
-                else {
+                let Some(map) = value.as_object_mut() else {
                     return Err(VertexResponseJsonSchemaError::InvalidKeyword {
                         pointer: child_pointer,
-                        keyword: key,
+                        keyword: key.clone(),
                     });
                 };
-                let names = map.keys().cloned().collect::<Vec<_>>();
-                for name in names {
-                    let name_pointer = format!("{child_pointer}/{}", escape_json_pointer(&name));
-                    let child = map.remove(&name).ok_or_else(|| {
-                        VertexResponseJsonSchemaError::InvalidKeyword {
-                            pointer: name_pointer.clone(),
-                            keyword: key.clone(),
-                        }
-                    })?;
-                    map.insert(
-                        name,
-                        normalize_schema_node(child, &name_pointer, false, false)?,
-                    );
+                for (name, child) in map.iter_mut() {
+                    let name_pointer = format!("{child_pointer}/{}", escape_json_pointer(name));
+                    *child = normalize_schema_node(child.take(), &name_pointer, false, false)?;
                 }
             }
             "items" | "additionalProperties" => {
-                let Some(child) = object.remove(&key) else {
-                    continue;
-                };
-                if child.is_object() {
-                    object.insert(
-                        key,
-                        normalize_schema_node(child, &child_pointer, false, in_composition_branch)?,
-                    );
-                } else {
-                    object.insert(key, child);
+                if value.is_object() {
+                    *value = normalize_schema_node(
+                        value.take(),
+                        &child_pointer,
+                        false,
+                        in_composition_branch,
+                    )?;
                 }
             }
             "prefixItems" | "anyOf" | "oneOf" => {
-                let Some(values) = object
-                    .get_mut(&key)
-                    .and_then(serde_json::Value::as_array_mut)
-                else {
+                let Some(values) = value.as_array_mut() else {
                     return Err(VertexResponseJsonSchemaError::InvalidKeyword {
                         pointer: child_pointer,
-                        keyword: key,
+                        keyword: key.clone(),
                     });
                 };
                 for (index, child) in values.iter_mut().enumerate() {

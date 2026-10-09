@@ -25,6 +25,7 @@ http = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 rstest = { workspace = true }
 
 [features]

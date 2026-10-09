@@ -63,9 +63,9 @@ pub enum UpdateSearchFilterMatchFeedbackError {
         source: BoxError,
     },
     #[error("failed to begin search filter transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit search filter transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -118,11 +118,9 @@ where
     ) -> Result<UpdateSearchFilterMatchFeedbackResult, UpdateSearchFilterMatchFeedbackError> {
         authorize_owner(context, command.user_id)?;
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed(Box::new(source))
+        })?;
         let filter = self
             .filters
             .in_transaction(&mut tx)
@@ -157,9 +155,9 @@ where
                 .map_err(search_filter_match_update_error)?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|_| UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(
             event = "search_filter_match.feedback_updated",
             actor_type = context.principal.kind(),

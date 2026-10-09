@@ -75,9 +75,9 @@ pub enum ListWatchlistError {
     },
 
     #[error("failed to begin watchlist transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit watchlist transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -125,7 +125,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| ListWatchlistError::BeginTransactionFailed)?;
+            .map_err(|source| ListWatchlistError::BeginTransactionFailed(Box::new(source)))?;
         let cursor = Cursor {
             size: request.cursor.size.clamp(1, 100),
             search_after: request.cursor.search_after,
@@ -163,7 +163,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| ListWatchlistError::CommitTransactionFailed)?;
+            .map_err(|source| ListWatchlistError::CommitTransactionFailed(Box::new(source)))?;
 
         for product in &mut page.items {
             let user_state = product
@@ -420,7 +420,9 @@ mod tests {
             let mut state = lock(&self.0);
             state.begin_count += 1;
             if state.begin_fails {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTransaction(Arc::clone(&self.0)))
             }
@@ -433,7 +435,9 @@ mod tests {
             let mut state = lock(&self.0);
             state.commit_count += 1;
             if state.commit_fails {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }
@@ -920,7 +924,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ListWatchlistError::CommitTransactionFailed)
+            Err(ListWatchlistError::CommitTransactionFailed(_))
         ));
         Ok(())
     }

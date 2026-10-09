@@ -96,9 +96,9 @@ pub enum UpdateProductListingError {
         source: BoxError,
     },
     #[error("failed to begin update product listing transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit update product listing transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -161,15 +161,13 @@ where
         command: UpdateProductListingCommand,
     ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
         validate_preconditions(context, &command)?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateProductListingError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            UpdateProductListingError::BeginTransactionFailed(Box::new(source))
+        })?;
         let result = self.apply_in_tx(&mut tx, context, target, command).await?;
-        tx.commit()
-            .await
-            .map_err(|_| UpdateProductListingError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            UpdateProductListingError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result)
     }
 

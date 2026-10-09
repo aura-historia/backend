@@ -1329,6 +1329,7 @@ dependencies = [
  "tokio",
  "url",
  "user-core",
+ "user-service",
 ]
 
 [[package]]
@@ -6297,6 +6298,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-listing-shopify"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "listing-source-core",
+ "listing-source-service",
+ "localization",
+ "money",
+ "product-listing-normalization",
+ "product-listing-service",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+]
+
+[[package]]
 name = "product-listing-translation-llm"
 version = "0.1.0"
 dependencies = [
@@ -7756,15 +7774,14 @@ dependencies = [
  "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
+ "product-listing-shopify",
  "product-service",
  "serde",
  "serde_json",
  "serial_test",
- "sha2 0.11.0",
  "sqlx",
  "strum 0.28.0",
  "test-api",
- "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
@@ -8251,6 +8268,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws_lambda_events",
+ "billing-stripe",
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
@@ -8260,6 +8278,7 @@ dependencies = [
  "serde-email",
  "serde_json",
  "serial_test",
+ "sha2 0.11.0",
  "sqlx",
  "test-api",
  "tokio",
@@ -9122,6 +9141,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde-email",
+ "serde_json",
  "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",

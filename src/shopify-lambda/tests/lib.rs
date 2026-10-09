@@ -1,3 +1,5 @@
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
+use product_listing_shopify::ShopifyProductPayloadDecoder;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -35,7 +37,7 @@ use product_service::use_cases::{
 };
 use shopify_lambda::{
     SHOPIFY_TOPIC_PRODUCTS_CREATE, SHOPIFY_TOPIC_PRODUCTS_DELETE, SHOPIFY_TOPIC_PRODUCTS_UPDATE,
-    ShopifyProductListingProcessor, handler,
+    handler,
 };
 use sqlx::types::Json;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -1025,9 +1027,10 @@ impl ShopifyTestHarness {
         &self,
         event: LambdaEvent<SqsEvent>,
     ) -> aws_lambda_events::sqs::SqsBatchResponse {
-        let processor = ShopifyProductListingProcessor::new(
+        let processor = ProcessShopifyProductListingHandler::new(
             SqlxListingSourceReaders::new(self.pool.clone()),
             SubmitInternalProductListingIngestionHandler::new(self.publisher.clone()),
+            ShopifyProductPayloadDecoder,
         );
         handler(event, &processor)
             .await

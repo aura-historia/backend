@@ -1,9 +1,9 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum TransactionError {
     #[error("failed to begin transaction")]
-    BeginFailed,
+    BeginFailed(#[source] crate::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitFailed,
+    CommitFailed(#[source] crate::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -54,6 +54,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn transaction_errors_preserve_the_original_cause() {
+        use std::error::Error;
+        for error in [
+            TransactionError::BeginFailed(crate::error::static_error("begin cause")),
+            TransactionError::CommitFailed(crate::error::static_error("commit cause")),
+        ] {
+            assert!(
+                error
+                    .source()
+                    .unwrap()
+                    .downcast_ref::<crate::error::StaticError>()
+                    .is_some()
+            );
+        }
+    }
+
     #[tokio::test]
     async fn should_begin_and_commit_transaction() {
         let committed = Arc::new(Mutex::new(false));
@@ -66,7 +83,7 @@ mod tests {
             Err(error) => Err(error),
         };
 
-        assert_eq!(Ok(()), result);
+        assert!(result.is_ok());
         let committed = committed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());

@@ -21,12 +21,14 @@
 - Service code owns use-case orchestration and transaction boundaries.
 - Repositories persist aggregates; readers build read models. Do not use repositories for presentation reads.
 - Keep storage rows, provider payloads, search documents, and transport DTOs within their adapter boundaries. Map them explicitly.
+- Preserve technical failure causes through `#[source]` and `application::error::BoxError`, including transaction failures.
 - PostgreSQL is authoritative business state unless a bounded context explicitly documents otherwise. OpenSearch and other projections are rebuildable read state.
 - Do not introduce hidden distributed transactions, controller orchestration, or N+1 hydration.
 
 ## Security and contracts
 
 - Fail closed on invalid persisted state and untrusted external input.
+- Route deserialization through existing newtype constructors so their validation or normalization rules cannot be bypassed.
 - Do not log credentials, tokens, raw provider payloads, or other sensitive content.
 - Update `docs/swagger.yaml` and `docs/CHANGELOG.md` when a public API contract changes.
 - Update the owning specialized document when a durable event, persistence, or operational contract changes; do not copy implementation details into `docs/arch.md` or `docs/storage.md`.
@@ -39,14 +41,16 @@
 
 ## Validation
 
-Start with focused checks and tests for changed crates. Run broader validation when the change warrants it:
+Start with focused checks and tests for changed crates. Use `--locked` so validation does not update dependencies. Library tests can use real local infrastructure; check their fixtures and Docker/LocalStack requirements before running them. Use isolated test resources and test credentials, never deployed services or live credentials.
+
+Run broader validation when the change warrants it:
 
 ```sh
 cargo fmt --all -- --check
-cargo check --workspace
+cargo check --locked --workspace
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 cargo depgraph-check check
-cargo test --workspace --lib --all-features
+cargo test --locked --workspace --lib --all-features
 npm --prefix infra test
 npm --prefix infra run synth:all
 ```

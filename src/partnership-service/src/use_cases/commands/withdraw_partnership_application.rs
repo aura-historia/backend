@@ -44,9 +44,9 @@ pub enum WithdrawPartnershipApplicationError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 #[async_trait::async_trait]
 pub trait WithdrawPartnershipApplicationUseCase: Send + Sync {
@@ -86,11 +86,9 @@ impl<U: UnitOfWork, A: PartnershipApplicationRepositoryFactory<U::Tx>>
                 return Err(WithdrawPartnershipApplicationError::Forbidden);
             }
         };
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| WithdrawPartnershipApplicationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            WithdrawPartnershipApplicationError::BeginTransactionFailed(Box::new(source))
+        })?;
         let mut application = self
             .applications
             .in_transaction(&mut tx)
@@ -107,9 +105,9 @@ impl<U: UnitOfWork, A: PartnershipApplicationRepositoryFactory<U::Tx>>
             .update(&application.value, application.version)
             .await?
             .value;
-        tx.commit()
-            .await
-            .map_err(|_| WithdrawPartnershipApplicationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            WithdrawPartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(WithdrawPartnershipApplicationResult { application })
     }
 }
@@ -201,7 +199,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -216,7 +216,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begin_attempts += 1;
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.begins += 1;
             state.next_transaction_id += 1;
@@ -703,7 +705,9 @@ mod tests {
             .await;
         assert!(matches!(
             begin_result,
-            Err(WithdrawPartnershipApplicationError::BeginTransactionFailed)
+            Err(WithdrawPartnershipApplicationError::BeginTransactionFailed(
+                _
+            ))
         ));
         {
             let begin_state = lock(&begin_state);
@@ -732,7 +736,7 @@ mod tests {
             .await;
         assert!(matches!(
             commit_result,
-            Err(WithdrawPartnershipApplicationError::CommitTransactionFailed)
+            Err(WithdrawPartnershipApplicationError::CommitTransactionFailed(_))
         ));
         let commit_state = lock(&commit_state);
         assert_eq!(1, commit_state.find_calls);

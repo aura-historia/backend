@@ -68,9 +68,9 @@ pub enum GrantPartnershipListingSourceError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -137,11 +137,9 @@ where
         }
 
         let result = async {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| GrantPartnershipListingSourceError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                GrantPartnershipListingSourceError::BeginTransactionFailed(Box::new(source))
+            })?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
 
@@ -169,9 +167,9 @@ where
                 .grant_source_access(command.partnership_id, command.listing_source_id)
                 .await?;
 
-            tx.commit()
-                .await
-                .map_err(|_| GrantPartnershipListingSourceError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                GrantPartnershipListingSourceError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             Ok(GrantPartnershipListingSourceResult {
                 outcome: match outcome {
@@ -361,7 +359,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -375,7 +375,9 @@ mod tests {
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             let mut state = lock(&self.state);
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.next_transaction_id += 1;
             let id = state.next_transaction_id;
@@ -864,7 +866,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::BeginTransactionFailed)
+            Err(GrantPartnershipListingSourceError::BeginTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(0, state.admin_reads);
@@ -892,7 +896,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::CommitTransactionFailed)
+            Err(GrantPartnershipListingSourceError::CommitTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(1, state.grant_calls);

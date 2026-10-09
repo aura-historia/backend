@@ -1,5 +1,7 @@
 //! Shopify upstream acknowledgement must reflect the real SDK publisher's custody report.
 //! Only the HTTP connector is replaced; request signing, serialization and receipt parsing run.
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
+use product_listing_shopify::ShopifyProductPayloadDecoder;
 
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent, SqsMessage};
 use aws_sdk_sqs::config::{Credentials, Region};
@@ -26,7 +28,7 @@ use product_listing_ingestion_sqs::{
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
 use serde_json::{Value, json};
 
-use shopify_lambda::{ShopifyProductListingProcessor, handler, publication_deadline};
+use shopify_lambda::{handler, publication_deadline};
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -114,9 +116,10 @@ fn processor(
     source: Source,
     requests: mpsc::UnboundedSender<Value>,
     stall_first: bool,
-) -> ShopifyProductListingProcessor<
+) -> ProcessShopifyProductListingHandler<
     Source,
     SubmitInternalProductListingIngestionHandler<ScopedSqsProductListingIngestionPublisher>,
+    ShopifyProductPayloadDecoder,
 > {
     let config = aws_sdk_sqs::Config::builder()
         .behavior_version_latest()
@@ -133,7 +136,7 @@ fn processor(
             stall_first: Arc::new(Mutex::new(stall_first)),
         })
         .build();
-    ShopifyProductListingProcessor::new(
+    ProcessShopifyProductListingHandler::new(
         source,
         SubmitInternalProductListingIngestionHandler::new(
             ScopedSqsProductListingIngestionPublisher::new(
@@ -143,6 +146,7 @@ fn processor(
                 ),
             ),
         ),
+        ShopifyProductPayloadDecoder,
     )
 }
 

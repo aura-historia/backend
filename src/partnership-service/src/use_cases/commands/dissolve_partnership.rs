@@ -63,9 +63,9 @@ pub enum DissolvePartnershipError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -124,11 +124,9 @@ where
         }
 
         let result = async {
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| DissolvePartnershipError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                DissolvePartnershipError::BeginTransactionFailed(Box::new(source))
+            })?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
 
@@ -149,9 +147,9 @@ where
                 DissolvePartnershipOutcome::AlreadyDissolved
             };
 
-            tx.commit()
-                .await
-                .map_err(|_| DissolvePartnershipError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                DissolvePartnershipError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             Ok(DissolvePartnershipResult { outcome })
         }
@@ -285,7 +283,9 @@ mod tests {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock(&self.state);
             if state.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -299,7 +299,9 @@ mod tests {
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             let mut state = lock(&self.state);
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.transaction_id += 1;
             let id = state.transaction_id;

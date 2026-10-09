@@ -163,9 +163,9 @@ pub enum GetProductListingHistoryError {
         source: BoxError,
     },
     #[error("failed to begin product listing history transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit product listing history transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -203,20 +203,18 @@ where
         context: &OperationContext,
         request: GetProductListingHistoryRequest,
     ) -> Result<Vec<ProductListingHistoryEntry>, GetProductListingHistoryError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| GetProductListingHistoryError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            GetProductListingHistoryError::BeginTransactionFailed(Box::new(source))
+        })?;
         let history = self
             .reader
             .in_transaction(&mut tx)
             .find_history(&request.lookup)
             .await?
             .ok_or(GetProductListingHistoryError::NotFound)?;
-        tx.commit()
-            .await
-            .map_err(|_| GetProductListingHistoryError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            GetProductListingHistoryError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(history)
     }
 }

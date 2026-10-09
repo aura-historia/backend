@@ -39,8 +39,10 @@ pub enum ApplyLoopsPreferenceEventOutcome {
     Conflict,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ApplyLoopsPreferenceEventError {
+    #[error("transaction failed")]
+    TransactionFailed(#[source] application::error::BoxError),
     #[error("Loops preference event processing must be retried")]
     Retryable,
     #[error("verified Loops event contains an invalid timestamp")]
@@ -192,11 +194,9 @@ where
         receipt: LoopsWebhookReceiptInput,
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
         let disposition = receipt.disposition;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
         let write = self
             .receipts
             .in_transaction(&mut tx)
@@ -205,9 +205,9 @@ where
             .map_err(map_receipt_error)?;
         match write {
             LoopsWebhookReceiptWriteOutcome::Inserted => {
-                tx.commit()
-                    .await
-                    .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+                tx.commit().await.map_err(|source| {
+                    ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+                })?;
                 Ok(ApplyLoopsPreferenceEventOutcome::Ignored(disposition))
             }
             LoopsWebhookReceiptWriteOutcome::ExistingSameDigest => {
@@ -274,9 +274,9 @@ where
             .map_err(map_receipt_error)?;
         match write {
             LoopsWebhookReceiptWriteOutcome::Inserted => {
-                tx.commit()
-                    .await
-                    .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+                tx.commit().await.map_err(|source| {
+                    ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+                })?;
                 if let Some(evidence) = evidence {
                     evidence.emit_after_commit(None);
                 }
@@ -324,11 +324,9 @@ where
         kind: NewsletterWebhookEventKind,
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
         let classification = self.classify(kind, event.mailing_list_id.as_deref());
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
         if let Some(existing) = self
             .lookup_delivery(&mut tx, &event.delivery_id, &event.raw_body_sha256)
             .await?
@@ -485,11 +483,9 @@ where
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
         // Capture the exact mailbox decision under C02's recipient lock, then
         // commit/release before the bounded provider read.
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
         if let Some(existing) = self
             .lookup_delivery(&mut tx, &event.delivery_id, &event.raw_body_sha256)
             .await?
@@ -537,9 +533,9 @@ where
             return self.insert_and_commit(tx, receipt, false, None).await;
         }
         let captured = CapturedConsentFence::from(&user);
-        tx.commit()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        tx.commit().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
 
         let provider_state = self
             .provider
@@ -563,11 +559,9 @@ where
                 .await;
         }
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
         if let Some(existing) = self
             .lookup_delivery(&mut tx, &event.delivery_id, &event.raw_body_sha256)
             .await?
@@ -648,11 +642,9 @@ where
         event: VerifiedPreferenceEvent,
         disposition: Disposition,
     ) -> Result<ApplyLoopsPreferenceEventOutcome, ApplyLoopsPreferenceEventError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApplyLoopsPreferenceEventError::Retryable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApplyLoopsPreferenceEventError::TransactionFailed(Box::new(source))
+        })?;
         if let Some(existing) = self
             .lookup_delivery(&mut tx, &event.delivery_id, &event.raw_body_sha256)
             .await?
@@ -912,7 +904,9 @@ mod handler_evidence_tests {
             let mut state = lock(&self.state);
             state.commits += 1;
             if state.fail_on_commit == Some(state.commits) {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             if let Some(receipt) = self.pending_receipt {
                 state.receipts.push(receipt);
@@ -1284,15 +1278,16 @@ mod handler_evidence_tests {
             }));
             let (outcome, line) = execute_captured(&state, command(name, kind), 1);
             assert_eq!(
-                outcome,
-                Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
-                    disposition
-                ))
+                ApplyLoopsPreferenceEventOutcome::CommittedApplication(disposition),
+                (outcome).unwrap()
             );
             assert_evidence(&line, source, action, &user, true, false, 5);
             assert_eq!(lock(&state).receipts.len(), 1);
             let (duplicate, replay_log) = execute_captured(&state, command(name, kind), 2);
-            assert_eq!(duplicate, Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
+            assert_eq!(
+                ApplyLoopsPreferenceEventOutcome::Duplicate,
+                (duplicate).unwrap()
+            );
             assert!(replay_log.is_empty());
             assert_eq!(lock(&state).commits, 1);
         }
@@ -1310,10 +1305,8 @@ mod handler_evidence_tests {
             1,
         );
         assert_eq!(
-            outcome,
-            Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
-                Disposition::AppliedWithdrawal
-            ))
+            ApplyLoopsPreferenceEventOutcome::CommittedApplication(Disposition::AppliedWithdrawal),
+            (outcome).unwrap()
         );
         let record: serde_json::Value = serde_json::from_str(&line).unwrap();
         let fields = &record["fields"];
@@ -1355,10 +1348,10 @@ mod handler_evidence_tests {
             2,
         );
         assert_eq!(
-            outcome,
-            Ok(ApplyLoopsPreferenceEventOutcome::CommittedApplication(
+            ApplyLoopsPreferenceEventOutcome::CommittedApplication(
                 Disposition::AppliedResubscription
-            ))
+            ),
+            (outcome).unwrap()
         );
         assert_evidence(
             &line,
@@ -1379,7 +1372,10 @@ mod handler_evidence_tests {
             ),
             3,
         );
-        assert_eq!(duplicate, Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
+        assert_eq!(
+            ApplyLoopsPreferenceEventOutcome::Duplicate,
+            (duplicate).unwrap()
+        );
         assert!(replay_log.is_empty());
         assert_eq!(lock(&state).provider_reads, 1);
     }
@@ -1412,7 +1408,10 @@ mod handler_evidence_tests {
                 ..State::default()
             }));
             let (outcome, line) = execute_captured(&state, command(name, kind), failed_commit + 1);
-            assert_eq!(outcome, Err(ApplyLoopsPreferenceEventError::Retryable));
+            assert!(matches!(
+                outcome,
+                Err(ApplyLoopsPreferenceEventError::TransactionFailed(_))
+            ));
             assert!(line.is_empty());
             assert!(lock(&state).receipts.is_empty());
             assert_eq!(lock(&state).commits, failed_commit);

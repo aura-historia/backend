@@ -1,6 +1,6 @@
 use crate::ports::{AuctionDetailsReadError, AuctionDetailsReader, AuctionStorageVersion};
 use application::{
-    error::{BoxError, static_error},
+    error::BoxError,
     operation_context::{OperationContext, Principal},
 };
 use auction_core::{
@@ -159,10 +159,10 @@ pub(crate) fn map_admin_error_for_get(error: CheckUserAdminError) -> GetAuctionE
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => GetAuctionError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => GetAuctionError::TemporarilyUnavailable {
-            source: static_error("check user admin transaction failed"),
-        },
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            GetAuctionError::TemporarilyUnavailable { source }
+        }
     }
 }
 

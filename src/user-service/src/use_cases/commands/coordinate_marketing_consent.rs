@@ -73,9 +73,9 @@ pub enum CoordinateMarketingConsentError {
     #[error("consent persistence unavailable")]
     TemporarilyUnavailable,
     #[error("failed to begin consent transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit consent transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -128,11 +128,9 @@ where
         }
         // Validate proof/action identity before opening a transaction.
         decision_source_key(&decision)?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CoordinateMarketingConsentError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            CoordinateMarketingConsentError::BeginTransactionFailed(Box::new(source))
+        })?;
         let now = OffsetDateTime::now_utc();
         let result = {
             let mut coordinator = MarketingConsentCoordinator::new(&mut tx, &self.intents);
@@ -185,9 +183,9 @@ where
                 }
             }
         };
-        tx.commit()
-            .await
-            .map_err(|_| CoordinateMarketingConsentError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            CoordinateMarketingConsentError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result.map(|result| {
             if let Some(evidence) = result.evidence.as_ref() {
                 evidence.emit_after_commit(Some(context));
@@ -1001,7 +999,9 @@ mod tests {
             let mut state = locked(&self.0);
             state.calls.push("commit");
             if state.fail_commit {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }

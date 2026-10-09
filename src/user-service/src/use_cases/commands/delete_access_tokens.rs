@@ -48,9 +48,9 @@ pub enum DeleteAccessTokensError {
         source: BoxError,
     },
     #[error("failed to begin delete access tokens transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit delete access tokens transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -114,11 +114,9 @@ where
         let result = async {
             require_admin_actor_credential(context, CredentialCapability::AccessTokensWrite)?;
 
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| DeleteAccessTokensError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                DeleteAccessTokensError::BeginTransactionFailed(Box::new(source))
+            })?;
             {
                 let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
                 require_admin_actor(context, &mut admin_reader).await?;
@@ -139,9 +137,9 @@ where
                 .in_transaction(&mut tx)
                 .delete_by_user_id(command.user_id)
                 .await?;
-            tx.commit()
-                .await
-                .map_err(|_| DeleteAccessTokensError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                DeleteAccessTokensError::CommitTransactionFailed(Box::new(source))
+            })?;
 
             Ok(DeleteAccessTokensResult {
                 user_id: command.user_id,

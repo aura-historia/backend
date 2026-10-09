@@ -12,8 +12,10 @@ use serde_email::Email;
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 use user_core::user_id::UserId;
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfirmNewsletterSubscriptionError {
+    #[error("transaction failed")]
+    TransactionFailed(#[source] application::error::BoxError),
     #[error("invalid newsletter confirmation")]
     InvalidConfirmation,
     #[error("newsletter confirmation service temporarily unavailable")]
@@ -59,11 +61,9 @@ where
             .map_err(|_| ConfirmNewsletterSubscriptionError::InvalidConfirmation)?;
         let digest = token.digest();
         let now = self.clock.now_utc();
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
 
         let candidate = self
             .challenges
@@ -98,9 +98,9 @@ where
             if challenge.resulting_intent_id.is_none() {
                 return Err(ConfirmNewsletterSubscriptionError::InvalidPersistedState);
             }
-            tx.commit()
-                .await
-                .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)?;
+            tx.commit().await.map_err(|source| {
+                ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+            })?;
             return Ok(());
         }
         if challenge.invalidated_at.is_some() {
@@ -112,9 +112,9 @@ where
                 .invalidate(challenge.id, now)
                 .await
                 .map_err(map_challenge_error)?;
-            tx.commit()
-                .await
-                .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)?;
+            tx.commit().await.map_err(|source| {
+                ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+            })?;
             return Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation);
         }
 
@@ -130,8 +130,8 @@ where
                             .invalidate(challenge.id, now)
                             .await
                             .map_err(map_challenge_error)?;
-                        tx.commit().await.map_err(|_| {
-                            ConfirmNewsletterSubscriptionError::TemporarilyUnavailable
+                        tx.commit().await.map_err(|source| {
+                            ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
                         })?;
                         return Err(ConfirmNewsletterSubscriptionError::InvalidPersistedState);
                     }
@@ -141,8 +141,8 @@ where
                             .invalidate(challenge.id, now)
                             .await
                             .map_err(map_challenge_error)?;
-                        tx.commit().await.map_err(|_| {
-                            ConfirmNewsletterSubscriptionError::TemporarilyUnavailable
+                        tx.commit().await.map_err(|source| {
+                            ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
                         })?;
                         return Err(ConfirmNewsletterSubscriptionError::InvalidConfirmation);
                     }
@@ -171,9 +171,9 @@ where
             .await
             .map_err(map_challenge_error)?;
 
-        tx.commit()
-            .await
-            .map_err(|_| ConfirmNewsletterSubscriptionError::TemporarilyUnavailable)?;
+        tx.commit().await.map_err(|source| {
+            ConfirmNewsletterSubscriptionError::TransactionFailed(Box::new(source))
+        })?;
         if let Some(evidence) = evidence {
             evidence.emit_after_commit(None);
         }
@@ -242,8 +242,8 @@ fn map_consent_error(error: CoordinateMarketingConsentError) -> ConfirmNewslette
         CoordinateMarketingConsentError::TemporarilyUnavailable
         | CoordinateMarketingConsentError::ConcurrencyConflict
         | CoordinateMarketingConsentError::UserNotFound
-        | CoordinateMarketingConsentError::BeginTransactionFailed
-        | CoordinateMarketingConsentError::CommitTransactionFailed
+        | CoordinateMarketingConsentError::BeginTransactionFailed(_)
+        | CoordinateMarketingConsentError::CommitTransactionFailed(_)
         | CoordinateMarketingConsentError::Forbidden => {
             ConfirmNewsletterSubscriptionError::TemporarilyUnavailable
         }

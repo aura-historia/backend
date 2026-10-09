@@ -95,10 +95,10 @@ async fn real_postgres_and_fake_loops_finalize_once_and_ignore_late_replay() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(
-        Ok(SyncMarketingConsentIntentResult::Applied),
-        use_case.execute(intent_id).await
-    );
+    assert!(matches!(
+        use_case.execute(intent_id).await,
+        Ok(SyncMarketingConsentIntentResult::Applied)
+    ));
     let status: String = sqlx::query_scalar(
         "SELECT status FROM marketing_email_consent_sync_intents WHERE intent_id = $1",
     )
@@ -116,10 +116,10 @@ async fn real_postgres_and_fake_loops_finalize_once_and_ignore_late_replay() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        Ok(SyncMarketingConsentIntentResult::Applied),
-        use_case.execute(intent_id).await
-    );
+    assert!(matches!(
+        use_case.execute(intent_id).await,
+        Ok(SyncMarketingConsentIntentResult::Applied)
+    ));
     let updates = loops.received_requests().await.unwrap();
     assert_eq!(
         1,
@@ -214,13 +214,13 @@ async fn definite_loops_rejection_releases_the_same_intent_for_retry() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(
-        Ok(SyncMarketingConsentIntentResult::Retryable),
-        use_case.execute(intent_id).await
-    );
-    assert_eq!(
-        Ok(SyncMarketingConsentIntentResult::Applied),
-        use_case.execute(intent_id).await
-    );
+    assert!(matches!(
+        use_case.execute(intent_id).await,
+        Ok(SyncMarketingConsentIntentResult::Retryable)
+    ));
+    assert!(matches!(
+        use_case.execute(intent_id).await,
+        Ok(SyncMarketingConsentIntentResult::Applied)
+    ));
     assert_eq!(2, update_calls.load(Ordering::SeqCst));
 }

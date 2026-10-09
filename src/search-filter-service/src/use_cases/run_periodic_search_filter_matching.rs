@@ -1123,7 +1123,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
+            let mut state = self.0.lock().map_err(|_| {
+                TransactionError::CommitFailed(application::error::static_error(
+                    "test transaction failure",
+                ))
+            })?;
             state.commits += 1;
             Ok(())
         }

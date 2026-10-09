@@ -171,7 +171,9 @@ mod tests {
     impl Transaction for FakeTransaction {
         async fn commit(self) -> Result<(), TransactionError> {
             if self.commit_fails {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             lock(&self.state).commits += 1;
             Ok(())
@@ -184,7 +186,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if self.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             lock(&self.state).begins += 1;
             Ok(FakeTransaction {

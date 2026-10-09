@@ -62,9 +62,9 @@ pub enum SearchUsersError {
         source: BoxError,
     },
     #[error("failed to begin search users transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit search users transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -124,12 +124,12 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| SearchUsersError::BeginTransactionFailed)?;
+            .map_err(|source| SearchUsersError::BeginTransactionFailed(Box::new(source)))?;
         authorize_search_users(context, &mut tx, &self.admin_reader).await?;
         let result = self.reader.in_transaction(&mut tx).search(&request).await?;
         tx.commit()
             .await
-            .map_err(|_| SearchUsersError::CommitTransactionFailed)?;
+            .map_err(|source| SearchUsersError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(result)
     }

@@ -3,7 +3,7 @@ use crate::ports::{
     ListingSourceRepositoryFactory,
 };
 use application::{
-    error::{BoxError, static_error},
+    error::BoxError,
     operation_context::{OperationContext, Principal},
     transaction::{Transaction, UnitOfWork},
 };
@@ -47,9 +47,9 @@ pub enum DeleteListingSourceError {
         source: BoxError,
     },
     #[error("failed to begin delete listing source transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit delete listing source transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -105,11 +105,9 @@ where
         let result = async {
             ensure_admin(context, &self.check_user_admin).await?;
 
-            let mut tx = self
-                .unit_of_work
-                .begin()
-                .await
-                .map_err(|_| DeleteListingSourceError::BeginTransactionFailed)?;
+            let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+                DeleteListingSourceError::BeginTransactionFailed(Box::new(source))
+            })?;
             let stored = self
                 .sources
                 .in_transaction(&mut tx)
@@ -135,9 +133,9 @@ where
                 .in_transaction(&mut tx)
                 .delete_unused(command.listing_source_id, stored.version)
                 .await?;
-            tx.commit()
-                .await
-                .map_err(|_| DeleteListingSourceError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                DeleteListingSourceError::CommitTransactionFailed(Box::new(source))
+            })?;
             Ok(())
         }
         .await;
@@ -169,8 +167,8 @@ fn delete_outcome(result: &Result<(), DeleteListingSourceError>) -> &'static str
         Err(DeleteListingSourceError::NotFound) => "not_found",
         Err(DeleteListingSourceError::DependencyConflict { .. }) => "dependency_conflict",
         Err(DeleteListingSourceError::ConcurrencyConflict) => "concurrency_conflict",
-        Err(DeleteListingSourceError::BeginTransactionFailed) => "begin_failed",
-        Err(DeleteListingSourceError::CommitTransactionFailed) => "commit_failed",
+        Err(DeleteListingSourceError::BeginTransactionFailed(_)) => "begin_failed",
+        Err(DeleteListingSourceError::CommitTransactionFailed(_)) => "commit_failed",
         Err(DeleteListingSourceError::TemporarilyUnavailable { .. }) => "persistence_unavailable",
         Err(DeleteListingSourceError::InvalidPersistedState { .. }) => "invalid_persisted_state",
         Err(DeleteListingSourceError::Internal { .. }) => "internal_failure",
@@ -215,11 +213,9 @@ where
                 | CheckUserAdminError::Internal { source } => {
                     DeleteListingSourceError::Internal { source }
                 }
-                CheckUserAdminError::BeginTransactionFailed
-                | CheckUserAdminError::CommitTransactionFailed => {
-                    DeleteListingSourceError::TemporarilyUnavailable {
-                        source: static_error("check user admin transaction failed"),
-                    }
+                CheckUserAdminError::BeginTransactionFailed(source)
+                | CheckUserAdminError::CommitTransactionFailed(source) => {
+                    DeleteListingSourceError::TemporarilyUnavailable { source }
                 }
             }),
     }
@@ -249,6 +245,7 @@ mod tests {
         ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
         ListingSourceStorageVersion, StoredListingSource,
     };
+    use application::error::static_error;
     use application::{
         operation_context::{CorrelationId, RequestId},
         transaction::{Transaction, TransactionError},
@@ -290,9 +287,15 @@ mod tests {
     #[async_trait::async_trait]
     impl Transaction for Tx {
         async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
+            let mut state = self.0.lock().map_err(|_| {
+                TransactionError::CommitFailed(application::error::static_error(
+                    "test transaction failure",
+                ))
+            })?;
             if state.fail_commit {
-                return Err(TransactionError::CommitFailed);
+                return Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.commits += 1;
             Ok(())
@@ -302,9 +305,15 @@ mod tests {
     impl UnitOfWork for Uow {
         type Tx = Tx;
         async fn begin(&self) -> Result<Tx, TransactionError> {
-            let mut state = self.0.lock().map_err(|_| TransactionError::BeginFailed)?;
+            let mut state = self.0.lock().map_err(|_| {
+                TransactionError::BeginFailed(application::error::static_error(
+                    "test transaction failure",
+                ))
+            })?;
             if state.fail_begin {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.begins += 1;
             Ok(Tx(Arc::clone(&self.0)))
@@ -480,11 +489,15 @@ mod tests {
                 "concurrency_conflict",
             ),
             (
-                Err(DeleteListingSourceError::BeginTransactionFailed),
+                Err(DeleteListingSourceError::BeginTransactionFailed(
+                    static_error("begin failed"),
+                )),
                 "begin_failed",
             ),
             (
-                Err(DeleteListingSourceError::CommitTransactionFailed),
+                Err(DeleteListingSourceError::CommitTransactionFailed(
+                    static_error("commit failed"),
+                )),
                 "commit_failed",
             ),
             (
@@ -734,7 +747,7 @@ mod tests {
             .await;
         assert!(matches!(
             begin_result,
-            Err(DeleteListingSourceError::BeginTransactionFailed)
+            Err(DeleteListingSourceError::BeginTransactionFailed(_))
         ));
         let begin_counts = {
             let begin_state = begin_state
@@ -772,7 +785,7 @@ mod tests {
             .await;
         assert!(matches!(
             commit_result,
-            Err(DeleteListingSourceError::CommitTransactionFailed)
+            Err(DeleteListingSourceError::CommitTransactionFailed(_))
         ));
         let commit_state = commit_state
             .lock()

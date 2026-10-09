@@ -14,3 +14,5 @@ pub mod translate_product_listing_event;
 pub mod update_product_listing;
 pub mod upsert_product_listing;
 pub mod withdraw_product_listing;
+
+pub mod process_shopify_product_listing;

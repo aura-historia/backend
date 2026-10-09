@@ -90,14 +90,14 @@ pub enum CaptureProductListingRawObservationError {
     #[error("provider source order cannot safely restore a withdrawn listing")]
     ProviderSourceOrderAmbiguous,
     #[error("failed to begin raw product listing capture transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("raw product listing capture failed")]
     CaptureFailed {
         #[source]
         source: BoxError,
     },
     #[error("failed to commit raw product listing capture transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -138,11 +138,9 @@ where
     ) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
     {
         let write = prepare_capture_write(command)?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CaptureProductListingRawObservationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            CaptureProductListingRawObservationError::BeginTransactionFailed(Box::new(source))
+        })?;
         let result = capture_prepared_in_transaction(
             context,
             write,
@@ -151,9 +149,9 @@ where
             &self.authorizer,
         )
         .await?;
-        tx.commit()
-            .await
-            .map_err(|_| CaptureProductListingRawObservationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            CaptureProductListingRawObservationError::CommitTransactionFailed(Box::new(source))
+        })?;
         Ok(result)
     }
 }
@@ -493,11 +491,11 @@ fn capture_error_code(error: &CaptureProductListingRawObservationError) -> &'sta
         CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => {
             "PROVIDER_SOURCE_ORDER_AMBIGUOUS"
         }
-        CaptureProductListingRawObservationError::BeginTransactionFailed => {
+        CaptureProductListingRawObservationError::BeginTransactionFailed(_) => {
             "BEGIN_TRANSACTION_FAILED"
         }
         CaptureProductListingRawObservationError::CaptureFailed { .. } => "CAPTURE_FAILED",
-        CaptureProductListingRawObservationError::CommitTransactionFailed => {
+        CaptureProductListingRawObservationError::CommitTransactionFailed(_) => {
             "COMMIT_TRANSACTION_FAILED"
         }
     }

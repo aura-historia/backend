@@ -6,6 +6,7 @@ use std::{
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "String")]
 pub struct FirstName(
     #[cfg_attr(
         feature = "test-data",
@@ -21,21 +22,21 @@ impl Display for FirstName {
 }
 
 impl From<&str> for FirstName {
-    fn from(s: &str) -> Self {
-        if s.len() > 64 {
-            match s.split_at_checked(64) {
-                Some((truncated, _)) => Self(truncated.into()),
-                None => Self(s.into()),
-            }
-        } else {
-            FirstName(s.into())
-        }
+    fn from(value: &str) -> Self {
+        let end = value
+            .char_indices()
+            .nth(64)
+            .map_or(value.len(), |(end, _)| end);
+        Self(value[..end].to_owned())
     }
 }
 
 impl From<String> for FirstName {
-    fn from(s: String) -> Self {
-        Self::from(s.as_str())
+    fn from(mut value: String) -> Self {
+        if let Some((end, _)) = value.char_indices().nth(64) {
+            value.truncate(end);
+        }
+        Self(value)
     }
 }
 
@@ -90,5 +91,25 @@ mod tests {
 
         assert_eq!("Ada", name.to_string());
         assert_eq!("Ada", String::from(name));
+    }
+    #[test]
+    fn deserialization_uses_the_newtype_constructor_for_unicode_and_ascii() {
+        for input in [
+            "a".repeat(80),
+            "é".repeat(80),
+            format!("{}é{}", "a".repeat(63), "z".repeat(80)),
+        ] {
+            let owned = FirstName::from(input.clone());
+            let borrowed = FirstName::from(input.as_str());
+            let json = serde_json::to_string(&input).unwrap();
+            let decoded: FirstName = serde_json::from_str(&json).unwrap();
+            assert_eq!(owned, borrowed);
+            assert_eq!(owned, decoded);
+            assert_eq!(64, decoded.chars().count());
+            assert_eq!(
+                decoded.as_ref(),
+                serde_json::from_str::<String>(&serde_json::to_string(&decoded).unwrap()).unwrap()
+            );
+        }
     }
 }

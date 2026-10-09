@@ -177,3 +177,5 @@ pub use watchlist_notification_recipient_reader::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
+
+pub mod shopify_product_decoder;

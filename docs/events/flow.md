@@ -125,7 +125,7 @@ FX capture alone does not trigger percolation, projection or notification.
 | --- | --- |
 | WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. |
 | Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
-| Stripe | Partner EventBridge → dedicated Lambda → User-service transaction. It is not a signed HTTP webhook or command-queue producer. |
+| Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |
 | Cognito post-confirmation | Registration commits the initial User/binding. Profile bootstrap applies only on first creation; replay does not synchronize profile or restore consent. [Signup consent](../marketing-consent.md#grants-and-double-opt-in) is a separate verified decision. |
 | Loops | Exact-byte signed HTTP event → atomic preference application/receipt. See [preference webhooks](../marketing-consent.md#preference-webhooks). |
@@ -140,6 +140,36 @@ remains the race barrier. [Identity recovery](../infra.md#manual-operations) mus
 the existing bound account. PostConfirmation errors propagate but do not roll back
 Cognito confirmation; there is no durable queue/DLQ for that registration boundary.
 Unsettled PostgreSQL registration therefore needs operator recovery.
+
+### Stripe subscription reconciliation
+
+Subscription created, updated and deleted events request a fresh customer/subscription
+read; their snapshots do not directly assign tiers. Stripe [does not guarantee event
+ordering](https://docs.stripe.com/event-destinations/eventbridge#event-ordering), and
+second-resolution event timestamps cannot establish a total order.
+
+The Stripe event ID identifies a durable receipt. Reusing it with different canonical
+content, customer or subscription identity fails closed. Receipts are retained for replay
+safety. Identical completed deliveries skip provider I/O. A customer reconciliation
+revision advances on every completed new event, including unchanged tiers. If another
+reconciliation commits during a provider read, the older reader must retry from current
+state. Provider failures, malformed selected events, unknown users and identity conflicts
+remain failures for Lambda’s asynchronous retry policy. This route currently has no
+configured asynchronous failure destination; exhausted retries require operator replay
+from retained provider event evidence.
+
+Current `active`, `trialing` and `past_due` subscriptions grant the highest configured
+product tier across the customer's subscriptions. `past_due` retains access during
+payment recovery; canceled, unpaid, incomplete, expired and paused subscriptions grant
+none. Unknown statuses/products and incomplete responses fail closed. Subscription
+pagination is explicit and the entire provider read has a bounded deadline. Customer
+metadata may establish an unbound user's association but cannot replace another customer
+or contradict an existing user's association.
+
+Before running the updated consumer, apply the Stripe receipt migration and provide its
+`STRIPE_API_KEY` configuration using the existing stage credential reference. That key
+needs customer and subscription read access. No transaction stays open across Stripe I/O;
+a failed application rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 

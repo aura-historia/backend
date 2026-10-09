@@ -216,9 +216,9 @@ pub enum GetProductListingError {
     },
 
     #[error("failed to begin get product transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit get product transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -269,11 +269,10 @@ where
     ) -> Result<PersonalizedProductListingDetailsView, GetProductListingError> {
         let user_id = personalization_user_id(&context.principal);
         let valuation_at = OffsetDateTime::now_utc();
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| GetProductListingError::BeginTransactionFailed)?;
+        let mut tx =
+            self.unit_of_work.begin().await.map_err(|source| {
+                GetProductListingError::BeginTransactionFailed(Box::new(source))
+            })?;
         let factual_details = self
             .details_reader
             .in_transaction(&mut tx)
@@ -302,7 +301,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| GetProductListingError::CommitTransactionFailed)?;
+            .map_err(|source| GetProductListingError::CommitTransactionFailed(Box::new(source)))?;
 
         if user_id.is_some()
             && details
@@ -610,7 +609,9 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             if lock_state(&self.state).begin_error {
-                Err(TransactionError::BeginFailed)
+                Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(FakeTx {
                     state: Arc::clone(&self.state),
@@ -625,7 +626,9 @@ mod tests {
             let mut state = lock_state(&self.state);
             state.commit_count += 1;
             if state.commit_error {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 Ok(())
             }

@@ -14,11 +14,11 @@ use user_core::tier::UserTier;
 use user_core::user::{
     NewUser, RehydratedUserState, User, UserAccount, UserPreferences, UserProfile,
 };
-use user_postgres::{
-    ConsentIntentSource, SqlxMarketingConsentIntentRepository, SqlxUserRepositoryFactory,
-};
+use user_postgres::{SqlxMarketingConsentIntentRepository, SqlxUserRepositoryFactory};
 use user_service::ports::{
+    ConsentIntentSource, MarketingConsentIntents, MarketingConsentIntentsFactory,
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -66,19 +66,23 @@ async fn should_insert_find_update_user_in_postgres() {
     let account_email = user.email().clone();
     user.grant_marketing_email_consent(&account_email)
         .expect("matching user email should be accepted");
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut tx,
-            user.id(),
-            loaded_by_id.version,
-            &account_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "user-repository-test-consent",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut tx);
+        let consent_user = intents.find_user_by_id(user.id()).await.unwrap().unwrap();
+        assert_eq!(loaded_by_id.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "user-repository-test-consent",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     let consented = users
         .in_transaction(&mut tx)
         .find_by_id(user.id())
@@ -218,19 +222,23 @@ async fn ordinary_user_updates_preserve_consent() {
             .await,
         Err(UserRepositoryError::ConcurrencyConflict)
     ));
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut tx,
-            user.id(),
-            inserted.version,
-            &account_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "preserve-consent",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut tx);
+        let consent_user = intents.find_user_by_id(user.id()).await.unwrap().unwrap();
+        assert_eq!(inserted.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "preserve-consent",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     let consented = users
         .in_transaction(&mut tx)
         .find_by_id(user.id())
@@ -305,19 +313,27 @@ async fn stale_ordinary_update_cannot_revert_a_concurrent_consent_change() {
     consented
         .grant_marketing_email_consent(&consented_email)
         .expect("matching account email should be accepted");
-    SqlxMarketingConsentIntentRepository::new()
-        .record_user_transition(
-            &mut consent_tx,
-            consented.id(),
-            current.version,
-            &consented_email,
-            true,
-            ConsentIntentSource::AuraDoubleOptIn,
-            "consent-race",
-            time::OffsetDateTime::now_utc(),
-        )
-        .await
-        .expect("consent transition should persist");
+    {
+        let intents = SqlxMarketingConsentIntentRepository::new();
+        let mut intents = intents.in_transaction(&mut consent_tx);
+        let consent_user = intents
+            .find_user_by_id(consented.id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.version, consent_user.version);
+        intents
+            .record_user_transition(
+                &consent_user,
+                true,
+                ConsentIntentSource::AuraDoubleOptIn,
+                "consent-race",
+                None,
+                time::OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("consent transition should persist");
+    }
     commit(consent_tx).await;
 
     let stale_result = users
@@ -451,6 +467,41 @@ async fn should_report_user_update_concurrency_conflict() {
         stale,
         Err(UserRepositoryError::ConcurrencyConflict)
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_unrepresentable_user_version_without_poisoning_transaction() {
+    let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
+    let users = SqlxUserRepositoryFactory::new();
+    let mut user = sample_user("postgres-version-overflow", UserRole::User, None);
+    let mut tx = begin(&unit_of_work).await;
+    let inserted = users.in_transaction(&mut tx).insert(&user).await.unwrap();
+    user.change_tier(UserTier::Pro);
+
+    let invalid_version = UserStorageVersion::try_from(i64::MAX as u64 + 1).unwrap();
+    assert!(matches!(
+        users
+            .in_transaction(&mut tx)
+            .update(&user, invalid_version)
+            .await,
+        Err(UserRepositoryError::InvalidPersistedState { .. })
+    ));
+
+    let unchanged = users
+        .in_transaction(&mut tx)
+        .find_by_id(user.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(inserted, unchanged);
+    let updated = users
+        .in_transaction(&mut tx)
+        .update(&user, inserted.version)
+        .await
+        .unwrap();
+    assert_eq!(user, updated.value);
+    assert_eq!(inserted.version.next(), updated.version);
+    commit(tx).await;
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

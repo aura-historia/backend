@@ -63,9 +63,9 @@ pub enum GetPartyError {
         source: BoxError,
     },
     #[error("failed to begin get party transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit get party transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 
 #[async_trait::async_trait]
@@ -125,7 +125,7 @@ where
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| GetPartyError::BeginTransactionFailed)?;
+            .map_err(|source| GetPartyError::BeginTransactionFailed(Box::new(source)))?;
         let result = match request {
             GetPartyRequest::ById(id) => {
                 self.parties.in_transaction(&mut tx).find_by_id(id).await?
@@ -142,7 +142,7 @@ where
 
         tx.commit()
             .await
-            .map_err(|_| GetPartyError::CommitTransactionFailed)?;
+            .map_err(|source| GetPartyError::CommitTransactionFailed(Box::new(source)))?;
 
         Ok(result)
     }
@@ -177,10 +177,10 @@ fn map_admin_error(error: CheckUserAdminError) -> GetPartyError {
         }
         CheckUserAdminError::InvalidReadModel { source }
         | CheckUserAdminError::Internal { source } => GetPartyError::Internal { source },
-        CheckUserAdminError::BeginTransactionFailed
-        | CheckUserAdminError::CommitTransactionFailed => GetPartyError::TemporarilyUnavailable {
-            source: static_error("check user admin transaction failed"),
-        },
+        CheckUserAdminError::BeginTransactionFailed(source)
+        | CheckUserAdminError::CommitTransactionFailed(source) => {
+            GetPartyError::TemporarilyUnavailable { source }
+        }
     }
 }
 

@@ -82,9 +82,9 @@ pub enum ApprovePartnershipApplicationError {
         source: BoxError,
     },
     #[error("failed to begin transaction")]
-    BeginTransactionFailed,
+    BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit transaction")]
-    CommitTransactionFailed,
+    CommitTransactionFailed(#[source] application::error::BoxError),
 }
 #[async_trait::async_trait]
 pub trait ApprovePartnershipApplicationUseCase: Send + Sync {
@@ -151,11 +151,9 @@ where
         context: &OperationContext,
         command: ApprovePartnershipApplicationCommand,
     ) -> Result<ApprovePartnershipApplicationResult, ApprovePartnershipApplicationError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| ApprovePartnershipApplicationError::BeginTransactionFailed)?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ApprovePartnershipApplicationError::BeginTransactionFailed(Box::new(source))
+        })?;
         authorize_admin(context, &mut tx, &self.admins).await?;
         let mut versioned = self
             .applications
@@ -169,9 +167,9 @@ where
                     source: static_error("approved application missing approval result"),
                 },
             )?;
-            tx.commit()
-                .await
-                .map_err(|_| ApprovePartnershipApplicationError::CommitTransactionFailed)?;
+            tx.commit().await.map_err(|source| {
+                ApprovePartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+            })?;
             return Ok(ApprovePartnershipApplicationResult {
                 application: versioned.value,
                 partnership_id: Some(approval_result.partnership_id()),
@@ -306,9 +304,9 @@ where
                     source: application::error::box_error(source),
                 }
             })?;
-        tx.commit()
-            .await
-            .map_err(|_| ApprovePartnershipApplicationError::CommitTransactionFailed)?;
+        tx.commit().await.map_err(|source| {
+            ApprovePartnershipApplicationError::CommitTransactionFailed(Box::new(source))
+        })?;
         tracing::info!(event="partnership_application.approved",partnership_application_id=%application.id(),partnership_id=%partnership.id(),listing_source_id=%source_id,actor_type=context.principal.kind(),outcome="success");
         Ok(ApprovePartnershipApplicationResult {
             application,
@@ -506,7 +504,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.commit_attempts += 1;
             if state.commit_fails {
-                Err(TransactionError::CommitFailed)
+                Err(TransactionError::CommitFailed(
+                    application::error::static_error("test transaction failure"),
+                ))
             } else {
                 state.committed += 1;
                 Ok(())
@@ -522,7 +522,9 @@ mod tests {
             let mut state = lock(&self.state);
             state.begun += 1;
             if state.begin_fails {
-                return Err(TransactionError::BeginFailed);
+                return Err(TransactionError::BeginFailed(
+                    application::error::static_error("test transaction failure"),
+                ));
             }
             state.next_transaction_id += 1;
             let id = state.next_transaction_id;
@@ -1540,7 +1542,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ApprovePartnershipApplicationError::CommitTransactionFailed)
+            Err(ApprovePartnershipApplicationError::CommitTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(1, state.commit_attempts);
@@ -1748,7 +1752,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ApprovePartnershipApplicationError::BeginTransactionFailed)
+            Err(ApprovePartnershipApplicationError::BeginTransactionFailed(
+                _
+            ))
         ));
         let state = lock(&state);
         assert_eq!(1, state.begun);

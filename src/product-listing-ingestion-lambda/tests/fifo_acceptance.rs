@@ -42,7 +42,9 @@ impl ProcessProductListingIngestionUseCase for RecordingProcessor {
         let id = command.message.metadata.command_id.as_str().to_owned();
         self.seen.lock().unwrap().push(id.clone());
         if self.fail_command.as_ref() == Some(&id) {
-            Err(ProductListingIngestionError::BeginTransactionFailed)
+            Err(ProductListingIngestionError::BeginTransactionFailed(
+                application::error::static_error("test transaction failure"),
+            ))
         } else {
             Ok(ProductListingIngestionCompletion::AlreadyCompleted)
         }

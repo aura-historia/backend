@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aura-historia/backend/actions/workflows/cicd.yml"><img src="https://github.com/aura-historia/backend/actions/workflows/integrate.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/aura-historia/backend/actions/workflows/integrate.yml"><img src="https://github.com/aura-historia/backend/actions/workflows/integrate.yml/badge.svg" alt="CI" /></a>
   <a href="https://github.com/aura-historia/backend/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/aura-historia/backend/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL" /></a>
   <a href="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates"><img src="https://github.com/aura-historia/backend/actions/workflows/dependabot/dependabot-updates/badge.svg" alt="Dependabot" /></a>
 </p>
@@ -41,22 +41,23 @@ It provides the APIs, event-driven pipelines, and data services that power the A
 ## Development
 
 ```sh
-# Check dependencies
-cargo check --workspace
+# Check the workspace
+cargo check --locked --workspace
 
 # Build all Lambda functions and binaries
-cargo build --workspace
+cargo build --locked --workspace
 
-# Run unit tests
-cargo test --workspace --lib --all-features
-
-# Run integration tests (requires Localstack Ultimate/Enterprise/Student)
+# Use test credentials for local fixtures
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=eu-central-1
 export LOCALSTACK_AUTH_TOKEN=[your_localstack_pro_token]
-cargo test --workspace --test integration --all-features
 
+# Run library tests (some require Docker and LocalStack)
+cargo test --locked --workspace --lib --all-features
+
+# Run all test targets, including integration tests (requires Docker and LocalStack)
+cargo test --locked --workspace --tests --all-features
 ```
 
 ## Architecture and contracts

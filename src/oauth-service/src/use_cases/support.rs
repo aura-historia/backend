@@ -1,6 +1,5 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{OAuthClientAuthenticationReader, OAuthClientRepository};
-use application::error::static_error;
 use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -63,12 +62,12 @@ impl From<CheckUserAdminError> for OAuthServiceError {
                 Self::InvalidPersistedState { source }
             }
             CheckUserAdminError::Internal { source } => Self::Internal { source },
-            CheckUserAdminError::BeginTransactionFailed => Self::TemporarilyUnavailable {
-                source: static_error("check user admin transaction begin failed"),
-            },
-            CheckUserAdminError::CommitTransactionFailed => Self::TemporarilyUnavailable {
-                source: static_error("check user admin transaction commit failed"),
-            },
+            CheckUserAdminError::BeginTransactionFailed(source) => {
+                Self::TemporarilyUnavailable { source }
+            }
+            CheckUserAdminError::CommitTransactionFailed(source) => {
+                Self::TemporarilyUnavailable { source }
+            }
         }
     }
 }
@@ -161,8 +160,12 @@ mod tests {
                 Self::Internal => Err(CheckUserAdminError::Internal {
                     source: box_error(std::io::Error::other("internal")),
                 }),
-                Self::BeginTransactionFailed => Err(CheckUserAdminError::BeginTransactionFailed),
-                Self::CommitTransactionFailed => Err(CheckUserAdminError::CommitTransactionFailed),
+                Self::BeginTransactionFailed => Err(CheckUserAdminError::BeginTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
+                Self::CommitTransactionFailed => Err(CheckUserAdminError::CommitTransactionFailed(
+                    application::error::static_error("test transaction failure"),
+                )),
             }
         }
     }
