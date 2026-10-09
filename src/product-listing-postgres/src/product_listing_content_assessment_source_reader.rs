@@ -156,12 +156,9 @@ fn content_title(
     match (text, language) {
         (Some(text), Some(language)) => {
             parse_language(&language)?;
-            let title = Title::from(text.as_str());
-            if title.as_ref() != text {
-                return Err(mapping_error(
-                    "persisted product content assessment title is invalid",
-                ));
-            }
+            let title = crate::title::decode_title(&text).map_err(|_| {
+                mapping_error("persisted product content assessment title is invalid")
+            })?;
             Ok((!title.as_ref().is_empty()).then_some(title))
         }
         (None, None) => Ok(None),

@@ -56,6 +56,12 @@ controls retain failure custody rather than being silently skipped. The DMS-gene
 informational and creates no jobs; this exception does not accept its data records,
 other schema operations or unknown tables.
 
+The DMS adapter decodes a serialized JSONB `product_listing_events.payload` once
+before shared event validation; already-object payloads follow the same validation.
+Malformed JSON, non-object values, unsupported versions and invalid event fields
+retain failure custody. Other row fields and raw evidence are not decoded into
+jobs. This transport conversion preserves event identity and retry keys.
+
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
 | `product_listing_events` | INSERT | Product projector and saved-filter percolator; additional routes below |

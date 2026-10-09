@@ -295,6 +295,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn serialized_jsonb_record_publishes_and_confirms_through_the_handler() {
+        let (fanout, recorder) = fanout();
+        let serialized = include_str!(
+            "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
+        );
+        let result = handler(event(vec![record("100", serialized)]), &fanout)
+            .await
+            .unwrap();
+        assert!(result.batch_item_failures.is_empty());
+        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn malformed_serialized_jsonb_checkpoints_before_publication() {
+        let (fanout, recorder) = fanout();
+        let mut malformed: serde_json::Value = serde_json::from_str(DATA).unwrap();
+        malformed["data"]["payload"] = serde_json::json!("invalid JSON");
+        let result = handler(
+            event(vec![
+                record("100", &malformed.to_string()),
+                record("101", DATA),
+            ]),
+            &fanout,
+        )
+        .await
+        .unwrap();
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(
+            Some("100"),
+            result.batch_item_failures[0].item_identifier.as_deref()
+        );
+        assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
     async fn checkpoints_only_the_earliest_unconfirmed_record_and_stops() {
         let (fanout, recorder) = fanout();
         let result = handler(

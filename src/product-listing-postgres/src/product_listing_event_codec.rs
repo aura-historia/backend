@@ -675,12 +675,11 @@ impl From<&Localized<Language, Description>> for LocalizedTextDto {
 impl LocalizedTextDto {
     fn into_title(self) -> Result<Localized<Language, Title>, ProductListingEventCodecError> {
         let language = parse_language(&self.language, "title.language")?;
-        let title = Title::from(self.text.clone());
-        if title.as_ref() != self.text {
-            return Err(ProductListingEventCodecError::NonCanonicalField {
+        let title = crate::title::decode_title(&self.text).map_err(|_| {
+            ProductListingEventCodecError::NonCanonicalField {
                 field: "title.text",
-            });
-        }
+            }
+        })?;
         Ok(Localized::new(language, title))
     }
 
@@ -1679,6 +1678,34 @@ mod tests {
                 field: "title.text"
             })
         ));
+    }
+
+    #[test]
+    fn should_round_trip_normalized_discovery_titles() {
+        for raw in [
+            "a".repeat(200),
+            "ä".repeat(200),
+            "Title .".to_owned(),
+            "Title..".to_owned(),
+        ] {
+            let mut payload = canonical_discovery_value();
+            payload["title"] = json!({"text": Title::from(raw).as_ref(), "language": "en"});
+            let decoded = decode("PRODUCT_LISTING_DISCOVERED", 1, &payload).unwrap();
+            assert_eq!(payload, encode(&decoded).unwrap());
+        }
+    }
+
+    #[test]
+    fn should_decode_legacy_discovery_title_whitespace_without_mutating_payload() {
+        let mut payload = canonical_discovery_value();
+        payload["title"] = json!({"text": "Legacy title ", "language": "en"});
+        let original = payload.clone();
+        let decoded = decode("PRODUCT_LISTING_DISCOVERED", 1, &payload).unwrap();
+        let ProductListingEventPayload::Discovered(discovered) = decoded else {
+            panic!("expected discovery");
+        };
+        assert_eq!("Legacy title", discovered.title().unwrap().payload.as_ref());
+        assert_eq!(original, payload);
     }
 
     #[test]

@@ -215,7 +215,7 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                 if control.is_some() {
                     return Err(dms_record_error("data/control payload"));
                 }
-                let data = data.ok_or_else(|| dms_record_error("data object"))?;
+                let mut data = data.ok_or_else(|| dms_record_error("data object"))?;
                 let classification = classify_dms_data(&data, &metadata);
                 match classification {
                     DmsKinesisRecordClassification::IncompatibleSchemaControl => {
@@ -267,6 +267,9 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                         });
                     }
                     DmsKinesisRecordClassification::Trigger => {}
+                }
+                if metadata.table_name.as_deref() == Some("product_listing_events") {
+                    decode_dms_product_listing_payload(&mut data)?;
                 }
                 let operation = metadata
                     .operation
@@ -332,6 +335,15 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
             _ => Err(dms_record_error("record type")),
         }
     }
+}
+
+fn decode_dms_product_listing_payload(row: &mut Value) -> Result<(), serde_json::Error> {
+    // DMS can encode PostgreSQL JSONB as serialized JSON. Decode once at this adapter
+    // boundary; shared routing still validates the complete object and event contract.
+    if let Some(serialized) = row.get("payload").and_then(Value::as_str) {
+        row["payload"] = serde_json::from_str(serialized)?;
+    }
+    Ok(())
 }
 
 fn dms_delivery_id(metadata: &DmsKinesisMetadata) -> Option<String> {
@@ -990,6 +1002,112 @@ mod tests {
             .iter()
             .map(|body| serde_json::from_str(body).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn serialized_jsonb_payload_produces_identical_compact_jobs() {
+        let object =
+            include_str!("../tests/fixtures/dms-kinesis/product-listing-event-insert.json");
+        let serialized = include_str!(
+            "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
+        );
+        let jobs = published_jobs(serialized);
+        assert_eq!(5, jobs.len());
+        assert_eq!(published_jobs(object), jobs);
+        for job in jobs {
+            assert!(!job.to_string().contains("fixture-source-id"));
+        }
+    }
+
+    #[test]
+    fn serialized_jsonb_changed_and_enrichment_events_preserve_jobs() {
+        let base: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/product-listing-event-insert.json"
+        ))
+        .unwrap();
+        for (event_type, event_group, payload, job_count) in [
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                json!({"images": {"previousCount": 1, "currentCount": 2}}),
+                3,
+            ),
+            (
+                "ENRICHMENT_EMBEDDED",
+                "ENRICHMENT",
+                json!({"sourceEventId": "01900000-0000-7000-8000-000000000003"}),
+                2,
+            ),
+            (
+                "ENRICHMENT_TRANSLATED_TITLES",
+                "ENRICHMENT",
+                json!({
+                    "sourceEventId": "01900000-0000-7000-8000-000000000003",
+                    "sourceLanguage": "de",
+                    "targetLanguages": ["en"]
+                }),
+                2,
+            ),
+        ] {
+            let mut record = base.clone();
+            record["data"]["event_type"] = json!(event_type);
+            record["data"]["event_group"] = json!(event_group);
+            record["data"]["payload"] = payload.clone();
+            let object_jobs = published_jobs(&record.to_string());
+            assert_eq!(job_count, object_jobs.len());
+            record["data"]["payload"] = json!(payload.to_string());
+            assert_eq!(object_jobs, published_jobs(&record.to_string()));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_serialized_event_payloads_before_publication() {
+        let (router, publisher) = fanout();
+        let base: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
+        ))
+        .unwrap();
+        for payload in [
+            "not JSON",
+            "{}",
+            "null",
+            "[]",
+            "true",
+            "\"{}\"",
+            "{\"title\":null}",
+        ] {
+            let mut record = base.clone();
+            record["data"]["payload"] = json!(payload);
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn serialized_jsonb_does_not_relax_event_metadata_validation() {
+        let (router, publisher) = fanout();
+        let base: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
+        ))
+        .unwrap();
+        for (field, value) in [
+            ("event_type_schema_version", json!(2)),
+            ("event_group", json!("ENRICHMENT")),
+            ("event_type", json!("UNKNOWN")),
+        ] {
+            let mut record = base.clone();
+            record["data"][field] = value;
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
     }
 
     #[test]
