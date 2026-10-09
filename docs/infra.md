@@ -250,7 +250,9 @@ Selection changes need approval before data deployment and coordination with tas
 state/update constraints; deploying configuration does not start/restart the task.
 
 First start needs a separately approved actual source slot/LSN and capture/recovery
-plan. Preserve approved start-position compatibility parameters on updates. Later
+plan. Follow [first CDC start](durable-worker-runbook.md#first-cdc-start-on-a-new-stage)
+for slot inspection/creation, existing-state reconciliation and delivery verification.
+Preserve approved start-position compatibility parameters on updates. Later
 recovery uses `resume-processing` and the DMS checkpoint, not a new initial LSN.
 A lost/invalid slot requires a fenced replay/rebuild plan. Monitor slot lag, retained
 WAL, free storage and transport retention; a configured WAL cap does not prevent

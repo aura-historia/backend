@@ -325,6 +325,13 @@ mod tests {
         {
             panic!("failed to reassume simulated RDS administrator: {error}");
         }
+        if let Err(error) =
+            sqlx::query("GRANT rds_replication TO aura_replication WITH INHERIT FALSE")
+                .execute(&mut *connection)
+                .await
+        {
+            panic!("failed to simulate non-inherited replication membership: {error}");
+        }
         if let Err(error) = bootstrap_roles_inner(&mut connection, &credentials).await {
             panic!("repeat role bootstrap failed as simulated RDS administrator: {error}");
         }
@@ -378,6 +385,17 @@ mod tests {
             Err(error) => panic!("failed to check replication role grant: {error}"),
         };
 
+        let replication_inherits_capability: bool = match sqlx::query_scalar(
+            "SELECT pg_has_role('aura_replication', 'rds_replication', 'USAGE')",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => panic!("failed to check inherited replication capability: {error}"),
+        };
+
+        assert!(replication_inherits_capability);
         assert_eq!(schema_owner, "aura_migrator");
         assert_eq!(users_owner, "aura_migrator");
         assert_eq!(migration_version, 20260725090000);

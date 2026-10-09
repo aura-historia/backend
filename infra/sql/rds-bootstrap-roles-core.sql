@@ -46,7 +46,7 @@ GRANT aura_migrator TO aura_admin;
 
 GRANT USAGE, CREATE ON SCHEMA public TO aura_migrator;
 ALTER SCHEMA public OWNER TO aura_migrator;
-GRANT rds_replication TO aura_replication;
+GRANT rds_replication TO aura_replication WITH INHERIT TRUE;
 
 SET LOCAL ROLE aura_migrator;
 GRANT USAGE ON SCHEMA public TO aura_runtime, aura_replication;
