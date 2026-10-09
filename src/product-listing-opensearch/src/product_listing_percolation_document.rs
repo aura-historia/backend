@@ -23,74 +23,14 @@ use product_listing_service::ports::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use strum::IntoEnumIterator;
 
 use time::OffsetDateTime;
 use url::Url;
 
-/// Closed-world prices for one temporary ProductListing percolation document.
-///
-/// Iteration 6B fills these values from one event-time persisted FX snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct ProductListingPercolationPricesDocument {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    eur: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    gbp: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    usd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    aud: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cad: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nzd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cny: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    brl: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pln: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    r#try: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jpy: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    czk: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    rub: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    aed: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sar: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hkd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sgd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chf: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    zar: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sek: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dkk: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nok: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    krw: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inr: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    twd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    huf: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ron: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mxn: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thb: Option<u64>,
-}
+/// Currency keys are derived only from the canonical enum, in stable field order.
+type ProductListingPercolationPricesDocument = BTreeMap<String, u64>;
 
 /// Private temporary ProductListing representation used only as a percolator input.
 ///
@@ -202,7 +142,7 @@ fn build_product_listing_percolation_document(
         price_by_currency: input
             .valuation
             .as_ref()
-            .map(|valuation| percolation_prices(valuation.prices)),
+            .map(|valuation| percolation_prices(&valuation.prices)),
         availability: product.availability,
         url: product.url.clone(),
         images: product
@@ -231,39 +171,15 @@ fn exact_lot_scheduled_closes_at(
 }
 
 fn percolation_prices(
-    prices: ProductListingPricesByCurrency,
+    prices: &ProductListingPricesByCurrency,
 ) -> ProductListingPercolationPricesDocument {
-    ProductListingPercolationPricesDocument {
-        eur: prices.amount_in(Currency::Eur),
-        gbp: prices.amount_in(Currency::Gbp),
-        usd: prices.amount_in(Currency::Usd),
-        aud: prices.amount_in(Currency::Aud),
-        cad: prices.amount_in(Currency::Cad),
-        nzd: prices.amount_in(Currency::Nzd),
-        cny: prices.amount_in(Currency::Cny),
-        brl: prices.amount_in(Currency::Brl),
-        pln: prices.amount_in(Currency::Pln),
-        r#try: prices.amount_in(Currency::Try),
-        jpy: prices.amount_in(Currency::Jpy),
-        czk: prices.amount_in(Currency::Czk),
-        rub: prices.amount_in(Currency::Rub),
-        aed: prices.amount_in(Currency::Aed),
-        sar: prices.amount_in(Currency::Sar),
-        hkd: prices.amount_in(Currency::Hkd),
-        sgd: prices.amount_in(Currency::Sgd),
-        chf: prices.amount_in(Currency::Chf),
-        zar: prices.amount_in(Currency::Zar),
-        sek: prices.amount_in(Currency::Sek),
-        dkk: prices.amount_in(Currency::Dkk),
-        nok: prices.amount_in(Currency::Nok),
-        krw: prices.amount_in(Currency::Krw),
-        inr: prices.amount_in(Currency::Inr),
-        twd: prices.amount_in(Currency::Twd),
-        huf: prices.amount_in(Currency::Huf),
-        ron: prices.amount_in(Currency::Ron),
-        mxn: prices.amount_in(Currency::Mxn),
-        thb: prices.amount_in(Currency::Thb),
-    }
+    Currency::iter()
+        .filter_map(|currency| {
+            prices
+                .amount_in(currency)
+                .map(|amount| (currency.as_str().to_ascii_lowercase(), amount))
+        })
+        .collect()
 }
 
 pub(crate) fn product_listing_document(
@@ -1084,37 +1000,11 @@ mod tests {
     #[test]
     fn should_serialize_every_supported_currency_in_closed_world_prices()
     -> Result<(), Box<dyn std::error::Error>> {
-        let value = serde_json::to_value(ProductListingPercolationPricesDocument {
-            eur: Some(1),
-            gbp: Some(1),
-            usd: Some(1),
-            aud: Some(1),
-            cad: Some(1),
-            nzd: Some(1),
-            cny: Some(1),
-            brl: Some(1),
-            pln: Some(1),
-            r#try: Some(1),
-            jpy: Some(1),
-            czk: Some(1),
-            rub: Some(1),
-            aed: Some(1),
-            sar: Some(1),
-            hkd: Some(1),
-            sgd: Some(1),
-            chf: Some(1),
-            zar: Some(1),
-            sek: Some(1),
-            dkk: Some(1),
-            nok: Some(1),
-            krw: Some(1),
-            inr: Some(1),
-            twd: Some(1),
-            huf: Some(1),
-            ron: Some(1),
-            mxn: Some(1),
-            thb: Some(1),
-        })?;
+        let prices = ProductListingPricesByCurrency::convert_all(
+            &snapshot()?,
+            money::Price::new(100_u64.into(), Currency::Eur),
+        )?;
+        let value = serde_json::to_value(percolation_prices(&prices))?;
 
         assert_eq!(29, value.as_object().map_or(0, serde_json::Map::len));
         assert!(value.get("jpy").is_some());

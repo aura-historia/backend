@@ -727,71 +727,11 @@ fn display_range_query(price_filter: &ProductListingPriceFilterPlan) -> serde_js
 }
 
 fn currency_code(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "EUR",
-        Currency::Gbp => "GBP",
-        Currency::Usd => "USD",
-        Currency::Aud => "AUD",
-        Currency::Cad => "CAD",
-        Currency::Nzd => "NZD",
-        Currency::Cny => "CNY",
-        Currency::Brl => "BRL",
-        Currency::Pln => "PLN",
-        Currency::Try => "TRY",
-        Currency::Jpy => "JPY",
-        Currency::Czk => "CZK",
-        Currency::Rub => "RUB",
-        Currency::Aed => "AED",
-        Currency::Sar => "SAR",
-        Currency::Hkd => "HKD",
-        Currency::Sgd => "SGD",
-        Currency::Chf => "CHF",
-        Currency::Zar => "ZAR",
-        Currency::Sek => "SEK",
-        Currency::Dkk => "DKK",
-        Currency::Nok => "NOK",
-        Currency::Krw => "KRW",
-        Currency::Inr => "INR",
-        Currency::Twd => "TWD",
-        Currency::Huf => "HUF",
-        Currency::Ron => "RON",
-        Currency::Mxn => "MXN",
-        Currency::Thb => "THB",
-    }
+    currency.as_str()
 }
 
-fn sale_price_field_for(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "salePrices.eur",
-        Currency::Gbp => "salePrices.gbp",
-        Currency::Usd => "salePrices.usd",
-        Currency::Aud => "salePrices.aud",
-        Currency::Cad => "salePrices.cad",
-        Currency::Nzd => "salePrices.nzd",
-        Currency::Cny => "salePrices.cny",
-        Currency::Brl => "salePrices.brl",
-        Currency::Pln => "salePrices.pln",
-        Currency::Try => "salePrices.try",
-        Currency::Jpy => "salePrices.jpy",
-        Currency::Czk => "salePrices.czk",
-        Currency::Rub => "salePrices.rub",
-        Currency::Aed => "salePrices.aed",
-        Currency::Sar => "salePrices.sar",
-        Currency::Hkd => "salePrices.hkd",
-        Currency::Sgd => "salePrices.sgd",
-        Currency::Chf => "salePrices.chf",
-        Currency::Zar => "salePrices.zar",
-        Currency::Sek => "salePrices.sek",
-        Currency::Dkk => "salePrices.dkk",
-        Currency::Nok => "salePrices.nok",
-        Currency::Krw => "salePrices.krw",
-        Currency::Inr => "salePrices.inr",
-        Currency::Twd => "salePrices.twd",
-        Currency::Huf => "salePrices.huf",
-        Currency::Ron => "salePrices.ron",
-        Currency::Mxn => "salePrices.mxn",
-        Currency::Thb => "salePrices.thb",
-    }
+fn sale_price_field_for(currency: Currency) -> String {
+    format!("salePrices.{}", currency.as_str().to_ascii_lowercase())
 }
 
 fn apply_availability_filter(

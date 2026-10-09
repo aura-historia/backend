@@ -111,89 +111,49 @@ impl Currency {
     }
 
     pub fn currency_symbol(self) -> &'static str {
-        match self {
-            Currency::Eur => "€",
-            Currency::Gbp => "£",
-            Currency::Usd => "$",
-            Currency::Aud => "A$",
-            Currency::Cad => "C$",
-            Currency::Nzd => "NZ$",
-            Currency::Cny => "CN¥",
-            Currency::Brl => "R$",
-            Currency::Pln => "zł",
-            Currency::Try => "₺",
-            Currency::Jpy => "¥",
-            Currency::Czk => "Kč",
-            Currency::Rub => "₽",
-            Currency::Aed => "د.إ",
-            Currency::Sar => "﷼",
-            Currency::Hkd => "HK$",
-            Currency::Sgd => "S$",
-            Currency::Chf => "CHF",
-            Currency::Zar => "R",
-            Currency::Sek => "SEK",
-            Currency::Dkk => "DKK",
-            Currency::Nok => "NOK",
-            Currency::Krw => "₩",
-            Currency::Inr => "₹",
-            Currency::Twd => "NT$",
-            Currency::Huf => "Ft",
-            Currency::Ron => "lei",
-            Currency::Mxn => "MX$",
-            Currency::Thb => "฿",
-        }
+        self.display_properties().0
     }
 
     pub fn decimal_separator(self) -> &'static str {
-        match self {
-            Currency::Eur
-            | Currency::Brl
-            | Currency::Pln
-            | Currency::Try
-            | Currency::Czk
-            | Currency::Rub
-            | Currency::Sek
-            | Currency::Dkk
-            | Currency::Nok
-            | Currency::Huf
-            | Currency::Ron => ",",
-            Currency::Gbp
-            | Currency::Usd
-            | Currency::Aud
-            | Currency::Cad
-            | Currency::Nzd
-            | Currency::Cny
-            | Currency::Jpy
-            | Currency::Aed
-            | Currency::Sar
-            | Currency::Hkd
-            | Currency::Sgd
-            | Currency::Chf
-            | Currency::Zar
-            | Currency::Krw
-            | Currency::Inr
-            | Currency::Twd
-            | Currency::Mxn
-            | Currency::Thb => ".",
-        }
+        self.display_properties().1
     }
 
     pub fn is_leading_sign(self) -> bool {
-        !matches!(
-            self,
-            Currency::Eur
-                | Currency::Pln
-                | Currency::Try
-                | Currency::Czk
-                | Currency::Rub
-                | Currency::Aed
-                | Currency::Sar
-                | Currency::Sek
-                | Currency::Dkk
-                | Currency::Nok
-                | Currency::Huf
-                | Currency::Ron
-        )
+        self.display_properties().2
+    }
+
+    fn display_properties(self) -> (&'static str, &'static str, bool) {
+        match self {
+            Currency::Eur => ("€", ",", false),
+            Currency::Gbp => ("£", ".", true),
+            Currency::Usd => ("$", ".", true),
+            Currency::Aud => ("A$", ".", true),
+            Currency::Cad => ("C$", ".", true),
+            Currency::Nzd => ("NZ$", ".", true),
+            Currency::Cny => ("CN¥", ".", true),
+            Currency::Brl => ("R$", ",", true),
+            Currency::Pln => ("zł", ",", false),
+            Currency::Try => ("₺", ",", false),
+            Currency::Jpy => ("¥", ".", true),
+            Currency::Czk => ("Kč", ",", false),
+            Currency::Rub => ("₽", ",", false),
+            Currency::Aed => ("د.إ", ".", false),
+            Currency::Sar => ("﷼", ".", false),
+            Currency::Hkd => ("HK$", ".", true),
+            Currency::Sgd => ("S$", ".", true),
+            Currency::Chf => ("CHF", ".", true),
+            Currency::Zar => ("R", ".", true),
+            Currency::Sek => ("SEK", ",", false),
+            Currency::Dkk => ("DKK", ",", false),
+            Currency::Nok => ("NOK", ",", false),
+            Currency::Krw => ("₩", ".", true),
+            Currency::Inr => ("₹", ".", true),
+            Currency::Twd => ("NT$", ".", true),
+            Currency::Huf => ("Ft", ",", false),
+            Currency::Ron => ("lei", ",", false),
+            Currency::Mxn => ("MX$", ".", true),
+            Currency::Thb => ("฿", ".", true),
+        }
     }
 
     pub fn from_code(value: &str) -> Option<Self> {
@@ -263,8 +223,27 @@ mod tests {
         assert_eq!(None, Currency::from_code("eur"));
     }
     #[test]
-    fn should_format_added_currencies_with_iso_minor_units() {
+    fn should_format_supported_currencies_with_iso_minor_units() {
         for (currency, exponent, expected) in [
+            (Currency::Eur, 2, "123,45 €"),
+            (Currency::Gbp, 2, "£123.45"),
+            (Currency::Usd, 2, "$123.45"),
+            (Currency::Aud, 2, "A$123.45"),
+            (Currency::Cad, 2, "C$123.45"),
+            (Currency::Nzd, 2, "NZ$123.45"),
+            (Currency::Cny, 2, "CN¥123.45"),
+            (Currency::Brl, 2, "R$123,45"),
+            (Currency::Pln, 2, "123,45 zł"),
+            (Currency::Try, 2, "123,45 ₺"),
+            (Currency::Jpy, 0, "¥12345"),
+            (Currency::Czk, 2, "123,45 Kč"),
+            (Currency::Rub, 2, "123,45 ₽"),
+            (Currency::Aed, 2, "123.45 د.إ"),
+            (Currency::Sar, 2, "123.45 ﷼"),
+            (Currency::Hkd, 2, "HK$123.45"),
+            (Currency::Sgd, 2, "S$123.45"),
+            (Currency::Chf, 2, "CHF123.45"),
+            (Currency::Zar, 2, "R123.45"),
             (Currency::Sek, 2, "123,45 SEK"),
             (Currency::Dkk, 2, "123,45 DKK"),
             (Currency::Nok, 2, "123,45 NOK"),
