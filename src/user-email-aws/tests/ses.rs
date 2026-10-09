@@ -484,6 +484,12 @@ impl std::io::Write for CapturedLogs {
 
 #[tokio::test]
 async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_payloads() {
+    // Keep two dispatches alive while capturing: tracing-core's single-dispatcher
+    // fast path can cache `never` when another test first registers a shared
+    // callsite without a thread-local subscriber. This inert dispatch forces
+    // interest calculation across dispatches without installing a global default.
+    let _interest_cache_guard =
+        tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     for (template_reply, ses_reply, phase, category) in [
         (
             Reply::Response(404, "<Error><Code>NoSuchKey</Code></Error>"),
