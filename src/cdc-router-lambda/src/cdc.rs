@@ -1020,6 +1020,68 @@ mod tests {
     }
 
     #[test]
+    fn legacy_discovery_title_whitespace_preserves_jobs_and_payload() {
+        let mut record: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/product-listing-event-insert.json"
+        ))
+        .unwrap();
+        record["data"]["payload"]["title"] = json!({"language": "de", "text": "Antique vase"});
+        let canonical_jobs = published_jobs(&record.to_string());
+        assert_eq!(5, canonical_jobs.len());
+        for title in [
+            "Antique vase ".to_owned(),
+            "Antique vase\t".to_owned(),
+            "Antique vase\u{2003}".to_owned(),
+            "Antique vase... ".to_owned(),
+            "Antique vase.. ".to_owned(),
+            format!("{} ", "Ä".repeat(127)),
+        ] {
+            record["data"]["payload"]["title"]["text"] = json!(title);
+            let original = record.clone();
+            assert_eq!(canonical_jobs, published_jobs(&record.to_string()));
+            assert_eq!(original, record);
+            record["data"]["payload"] = json!(original["data"]["payload"].to_string());
+            assert_eq!(canonical_jobs, published_jobs(&record.to_string()));
+            record = original;
+        }
+    }
+
+    #[test]
+    fn other_noncanonical_discovery_text_retains_custody_before_publication() {
+        let (router, publisher) = fanout();
+        let base: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/product-listing-event-insert.json"
+        ))
+        .unwrap();
+        for (field, text) in [
+            ("title", "antique vase ".to_owned()),
+            ("title", " Antique vase".to_owned()),
+            ("title", "Antique vase. ".to_owned()),
+            ("title", " ".to_owned()),
+            ("title", "A".repeat(129)),
+            ("title", format!("{} ", "A".repeat(128))),
+            ("title", format!("{} ", "Ä".repeat(128))),
+            ("description", "Description ".to_owned()),
+        ] {
+            let mut record = base.clone();
+            record["data"]["payload"][field] = json!({"language": "de", "text": text});
+            for serialized in [false, true] {
+                let mut candidate = record.clone();
+                if serialized {
+                    candidate["data"]["payload"] = json!(record["data"]["payload"].to_string());
+                }
+                assert!(
+                    router
+                        .prepare_dms_kinesis_record(candidate.to_string().as_bytes())
+                        .is_err()
+                );
+            }
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
+        assert!(publisher.bodies.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn serialized_jsonb_changed_and_enrichment_events_preserve_jobs() {
         let base: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/dms-kinesis/product-listing-event-insert.json"

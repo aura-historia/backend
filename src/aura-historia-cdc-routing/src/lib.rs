@@ -354,7 +354,7 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
         &require_string(object, "listingSourceId")?,
         source_listing_id,
     )?;
-    require_nullable_localized(object, "title", canonical_title)?;
+    require_nullable_localized(object, "title", supported_persisted_title)?;
     require_nullable_localized(object, "description", canonical_description)?;
 
     let pricing = require_object_field(object, "pricing")?;
@@ -824,7 +824,7 @@ fn require_u64(object: &Map<String, Value>, field: &'static str) -> Result<u64, 
 fn require_nullable_localized(
     object: &Map<String, Value>,
     field: &'static str,
-    canonicalize: fn(&str) -> String,
+    validate_text: fn(&str) -> bool,
 ) -> Result<(), CdcRouteError> {
     let value = require_value(object, field)?;
     if value.is_null() {
@@ -835,18 +835,24 @@ fn require_nullable_localized(
     let language = require_string(localized, "language")?;
     validate_language(&language, &format!("{field}.language"))?;
     let text = require_string(localized, "text")?;
-    if canonicalize(text.as_str()) != text {
+    if !validate_text(text.as_str()) {
         return Err(noncanonical_product_listing_field(format!("{field}.text")));
     }
     Ok(())
 }
 
-fn canonical_title(value: &str) -> String {
-    Title::from(value).to_string()
+fn supported_persisted_title(value: &str) -> bool {
+    let title = Title::from(value);
+    // Match the PostgreSQL reader's bounded compatibility for titles emitted by the old
+    // constructor. Validate without rewriting immutable event payloads or their retry identity.
+    title.as_ref() == value
+        || (!title.as_ref().is_empty()
+            && value.chars().count() <= Title::MAX_CHARS
+            && title.as_ref() == value.trim_end())
 }
 
-fn canonical_description(value: &str) -> String {
-    Description::from(value).to_string()
+fn canonical_description(value: &str) -> bool {
+    Description::from(value).as_ref() == value
 }
 
 fn validate_listing_source_id(

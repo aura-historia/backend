@@ -62,6 +62,12 @@ Malformed JSON, non-object values, unsupported versions and invalid event fields
 retain failure custody. Other row fields and raw evidence are not decoded into
 jobs. This transport conversion preserves event identity and retry keys.
 
+Discovery title validation accepts the same bounded legacy trailing whitespace
+as PostgreSQL readers: removing only trailing whitespace must produce a nonempty
+canonical title, and the stored value must remain within the title length limit.
+Other noncanonical text retains failure custody. Routing does not rewrite the
+immutable payload, source sequence or compact job identity.
+
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
 | `product_listing_events` | INSERT | Product projector and saved-filter percolator; additional routes below |
