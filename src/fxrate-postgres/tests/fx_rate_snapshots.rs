@@ -150,6 +150,79 @@ async fn should_insert_idempotently_and_rehydrate_persisted_snapshots() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_select_distinct_historical_snapshots_in_one_batch() {
+    let pool = get_postgres_client().await;
+    let at = OffsetDateTime::UNIX_EPOCH;
+    let first = snapshot(at);
+    let second = snapshot(at + Duration::hours(1));
+    let unselected = snapshot(at + Duration::hours(2));
+    let last = snapshot(at + Duration::hours(3));
+    for (snapshot, event) in [
+        (&first, "batch-first"),
+        (&second, "batch-second"),
+        (&unselected, "batch-unselected"),
+        (&last, "batch-last"),
+    ] {
+        insert(pool.clone(), snapshot, event).await.unwrap();
+    }
+    let reader = SqlxFxRateSnapshotReader::new(pool.clone());
+    let selected = reader
+        .find_latest_at_or_before_many(&[
+            last.captured_at(),
+            at - Duration::seconds(1),
+            second.captured_at(),
+            at,
+            at + Duration::minutes(30),
+            at,
+            second.captured_at(),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![first.id(), second.id(), last.id()],
+        selected
+            .iter()
+            .map(|snapshot| snapshot.id())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        reader
+            .find_latest_at_or_before_many(&[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        reader
+            .find_latest_at_or_before_many(&[at - Duration::seconds(1)])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // A valid complete legacy snapshot stays usable by the batch reader.
+    sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = ANY($2)")
+        .bind(first.id().into_uuid())
+        .bind(vec![
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+        ])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let legacy = reader.find_latest_at_or_before_many(&[at]).await.unwrap();
+    assert_eq!(19, legacy[0].quotes().len());
+    // Partial persisted snapshots must still fail instead of looking unavailable.
+    sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = 'USD'")
+        .bind(first.id().into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        reader.find_latest_at_or_before_many(&[at]).await,
+        Err(fxrate_service::ports::FxRateSnapshotReadError::InvalidPersistedSnapshot { .. })
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_reject_retroactive_or_tied_canonical_capture_except_duplicate_source_event() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

@@ -58,7 +58,7 @@ Absence is state, not a write instruction. Patches distinguish `Unchanged`, `Cle
 - Availability writes never create, overwrite or clear an observation. `SOLD_OUT` without an observation is valid.
 - Recording uses a dedicated authorized transaction and the latest persisted FX snapshot at or before `observed_at`.
 - An equal observation is a no-op; a different observation conflicts. Retraction is a dedicated correction, not an implicit overwrite.
-- Persisted FX snapshots retain their original supported currency set. New captures must cover every currently supported currency; historical snapshots must cover either the complete original set or the complete expanded set. Historical valuation never substitutes current rates or invents absent quotes. Sale projections omit currencies unavailable in their pinned snapshot; a requested conversion without a historical quote fails closed.
+- Persisted FX snapshots retain their original supported currency set. New captures must cover every currently supported currency; historical snapshots must cover either the complete original set or the complete expanded set. Historical valuation never substitutes current rates or invents absent quotes. Sale projections omit currencies unavailable in their pinned snapshot; detail conversion without a historical quote fails closed; optional public-history display projections omit values without a historical quote.
 - An observation may survive withdrawal or relisting. Use its FX only while currently sold out or for deliberately historical/withdrawn presentation; an active relisted listing uses current FX.
 
 ## Behaviors and events
@@ -153,3 +153,30 @@ Canonical enum codes and persisted invariants are decoded exactly, without defau
 History exposes only committed `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` domain entries, ordered by occurrence time then event ID. One changed entry represents one committed revision with a deterministically ordered `changes` list.
 
 History excludes raw evidence, operational receipts, enrichment, storage/core payload wrappers and source image URLs. Public object identities use TypeIDs even where persisted event JSON uses UUID text.
+
+`GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`.
+Omitting it preserves the source-only response. With it, monetary discovery prices
+and estimates, plus both sides of price and estimate changes, receive an optional
+`display` object (`currency`, minor-unit `amount`, `fxRateId`, `capturedAt`) inside
+that source value. Source prices, text and the ordered changes remain unchanged.
+
+Each entry uses the latest immutable persisted FX snapshot captured at or before
+its `timestamp`, including exact capture-time matches. Both sides of a change use
+this basis, including a change of source currency. Display conversion uses HalfUp
+rounding and the target minor-unit exponent (JPY/KRW: 0; others: 2). A same-currency
+projection preserves its amount and carries the same snapshot provenance.
+Historical snapshot selections are batched in one database statement; shared
+snapshots are loaded once, avoiding one retrieval per entry or price.
+Entries without monetary values do not require FX reads.
+
+No snapshot or an absent source/target quote (including a complete legacy
+19-currency snapshot) means `display` is omitted for that value and the request
+still succeeds. Consumers fall back to the labelled source value. `ON_REQUEST`
+and null prices receive no projection. Invalid persisted snapshots, database
+failures and conversion overflow remain request errors. History never substitutes
+later/current FX or invokes a provider. Stored events and snapshots are not rewritten.
+
+Anonymous success retains `public, max-age=0, s-maxage=300, stale-if-error=0`;
+CloudFront includes the currency query parameter in its cache key. Credential-bearing
+requests and errors retain `private, no-store`. Unsupported currency values return
+`400 BAD_QUERY_PARAMETER_VALUE`.

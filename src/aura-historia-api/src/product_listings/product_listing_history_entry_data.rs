@@ -4,14 +4,13 @@ use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use listing_source_core::ListingSourceId;
 use product_listing_core::{
-    listing_availability::ListingAvailability,
-    product_listing::{ListingSaleObservation, ProductListingPricing},
-    product_listing_id::ProductListingId,
-    source_listing_id::SourceListingId,
+    listing_availability::ListingAvailability, product_listing::ListingSaleObservation,
+    product_listing_id::ProductListingId, source_listing_id::SourceListingId,
 };
 use product_listing_service::use_cases::{
     ProductListingDiscoveryHistory, ProductListingHistoryChange, ProductListingHistoryEntry,
-    ProductListingHistoryEntryKind,
+    ProductListingHistoryEntryKind, ProductListingHistoryPrice, ProductListingHistoryPriceDisplay,
+    ProductListingHistoryPricing,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -67,16 +66,16 @@ struct ProductListingChangedHistoryData {
 )]
 enum ProductListingHistoryChangeData {
     MainPriceChanged {
-        previous: Option<ProductListingPriceData>,
-        current: Option<ProductListingPriceData>,
+        previous: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
+        current: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
     },
     MinimumEstimateChanged {
-        previous: Option<PriceData>,
-        current: Option<PriceData>,
+        previous: Option<ProductListingHistoryPriceData<PriceData>>,
+        current: Option<ProductListingHistoryPriceData<PriceData>>,
     },
     MaximumEstimateChanged {
-        previous: Option<PriceData>,
-        current: Option<PriceData>,
+        previous: Option<ProductListingHistoryPriceData<PriceData>>,
+        current: Option<ProductListingHistoryPriceData<PriceData>>,
     },
     AvailabilityChanged {
         #[serde(with = "crate::wire::listing_availability::option")]
@@ -113,11 +112,48 @@ enum ProductListingHistoryChangeData {
 #[serde(rename_all = "camelCase")]
 struct ProductListingPricingData {
     #[serde(skip_serializing_if = "Option::is_none")]
-    price: Option<ProductListingPriceData>,
+    price: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    price_estimate_min: Option<PriceData>,
+    price_estimate_min: Option<ProductListingHistoryPriceData<PriceData>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    price_estimate_max: Option<PriceData>,
+    price_estimate_max: Option<ProductListingHistoryPriceData<PriceData>>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProductListingHistoryPriceData<T> {
+    #[serde(flatten)]
+    source: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display: Option<ProductListingHistoryPriceDisplayData>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductListingHistoryPriceDisplayData {
+    #[serde(flatten)]
+    price: PriceData,
+    fx_rate_id: FxRateId,
+    #[serde(with = "time::serde::rfc3339")]
+    captured_at: OffsetDateTime,
+}
+
+impl<T, D: From<T>> From<ProductListingHistoryPrice<T>> for ProductListingHistoryPriceData<D> {
+    fn from(value: ProductListingHistoryPrice<T>) -> Self {
+        Self {
+            source: value.source.into(),
+            display: value.display.map(Into::into),
+        }
+    }
+}
+
+impl From<ProductListingHistoryPriceDisplay> for ProductListingHistoryPriceDisplayData {
+    fn from(display: ProductListingHistoryPriceDisplay) -> Self {
+        Self {
+            price: display.price.into(),
+            fx_rate_id: display.fx_rate_id,
+            captured_at: display.captured_at,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -229,8 +265,8 @@ impl From<ProductListingHistoryChange> for ProductListingHistoryChangeData {
     }
 }
 
-impl From<ProductListingPricing> for ProductListingPricingData {
-    fn from(pricing: ProductListingPricing) -> Self {
+impl From<ProductListingHistoryPricing> for ProductListingPricingData {
+    fn from(pricing: ProductListingHistoryPricing) -> Self {
         Self {
             price: pricing.price.map(Into::into),
             price_estimate_min: pricing.price_estimate_min.map(Into::into),
@@ -254,6 +290,129 @@ mod tests {
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_service::use_cases::ProductListingHistoryChanges;
     use serde_json::json;
+
+    use money::{Currency, MonetaryAmount, Price};
+    use product_listing_core::{
+        product_listing::ProductListingPricing, product_listing_price::ProductListingPrice,
+    };
+
+    #[test]
+    fn should_preserve_source_price_shapes_and_add_optional_historical_display() {
+        let source = Price::new(MonetaryAmount::from(3_u64), Currency::Eur);
+        let display = ProductListingHistoryPriceDisplay {
+            price: Price::new(MonetaryAmount::from(5_u64), Currency::Usd),
+            fx_rate_id: FxRateId::new(),
+            captured_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        let projected = ProductListingHistoryPrice {
+            source,
+            display: Some(display),
+        };
+        let value =
+            serde_json::to_value(ProductListingHistoryPriceData::<PriceData>::from(projected))
+                .unwrap();
+        let expected_display = json!({"currency":"USD", "amount":5, "fxRateId": display.fx_rate_id, "capturedAt":"1970-01-01T00:00:00Z"});
+        assert_eq!(
+            json!({"currency":"EUR", "amount":3, "display":expected_display}),
+            value
+        );
+        assert_eq!(
+            json!({"currency":"EUR", "amount":3}),
+            serde_json::to_value(ProductListingHistoryPriceData::<PriceData>::from(
+                ProductListingHistoryPrice::from(source)
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            json!({"type":"MONETARY", "currency":"EUR", "amount":3, "display":expected_display}),
+            serde_json::to_value(
+                ProductListingHistoryPriceData::<ProductListingPriceData>::from(
+                    ProductListingHistoryPrice {
+                        source: ProductListingPrice::Monetary(source),
+                        display: Some(display)
+                    }
+                )
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            json!({"type":"ON_REQUEST"}),
+            serde_json::to_value(
+                ProductListingHistoryPriceData::<ProductListingPriceData>::from(
+                    ProductListingHistoryPrice::from(ProductListingPrice::OnRequest)
+                )
+            )
+            .unwrap()
+        );
+
+        let pricing = ProductListingPricing {
+            price: Some(ProductListingPrice::Monetary(source)),
+            price_estimate_min: Some(source),
+            price_estimate_max: Some(source),
+        };
+        let baseline = serde_json::to_value(ProductListingPricingData::from(
+            ProductListingHistoryPricing::from(pricing),
+        ))
+        .unwrap();
+        assert_eq!(
+            json!({"price":{"type":"MONETARY", "currency":"EUR", "amount":3}, "priceEstimateMin":{"currency":"EUR", "amount":3}, "priceEstimateMax":{"currency":"EUR", "amount":3}}),
+            baseline
+        );
+        let mut projected_pricing = ProductListingHistoryPricing::from(pricing);
+        projected_pricing.price.as_mut().unwrap().display = Some(display);
+        projected_pricing
+            .price_estimate_min
+            .as_mut()
+            .unwrap()
+            .display = Some(display);
+        projected_pricing
+            .price_estimate_max
+            .as_mut()
+            .unwrap()
+            .display = Some(display);
+        let projected =
+            serde_json::to_value(ProductListingPricingData::from(projected_pricing)).unwrap();
+        for key in ["price", "priceEstimateMin", "priceEstimateMax"] {
+            assert_eq!(expected_display, projected[key]["display"]);
+            assert_eq!(baseline[key]["amount"], projected[key]["amount"]);
+            assert_eq!(baseline[key]["currency"], projected[key]["currency"]);
+        }
+        let changes = vec![
+            ProductListingHistoryChange::MainPriceChanged {
+                previous: Some(ProductListingPrice::OnRequest.into()),
+                current: None,
+            },
+            ProductListingHistoryChange::MinimumEstimateChanged {
+                previous: Some(ProductListingHistoryPrice {
+                    source,
+                    display: Some(display),
+                }),
+                current: None,
+            },
+            ProductListingHistoryChange::MaximumEstimateChanged {
+                previous: None,
+                current: Some(ProductListingHistoryPrice {
+                    source,
+                    display: Some(display),
+                }),
+            },
+        ];
+        let value = serde_json::to_value(
+            changes
+                .into_iter()
+                .map(ProductListingHistoryChangeData::from)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(
+            json!({"type":"MAIN_PRICE_CHANGED", "previous":{"type":"ON_REQUEST"}, "current":null}),
+            value[0]
+        );
+        assert_eq!(expected_display, value[1]["previous"]["display"]);
+        assert_eq!(expected_display, value[2]["current"]["display"]);
+        assert!(value[1]["current"].is_null());
+        assert!(value[2]["previous"].is_null());
+    }
 
     #[test]
     fn should_serialize_one_changed_history_entry_with_ordered_changes() {
