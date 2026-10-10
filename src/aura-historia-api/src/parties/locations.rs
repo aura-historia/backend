@@ -1,5 +1,5 @@
 use crate::{
-    auth::{OptionalAuthExtractor, protected_context, request_metadata},
+    auth::protected_context,
     error::{ApiError, BAD_BODY_VALUE, BAD_HEADER_VALUE, BAD_QUERY_PARAMETER_VALUE},
     patch_value::{PatchValue, clearable, non_nullable_patch},
     state::PartyLocationsState,
@@ -165,8 +165,7 @@ impl From<LocationEvidence> for EvidenceData {
 struct LocationData {
     id: PartyLocationId,
     party_id: PartyId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
+    label: String,
     roles: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geography: Option<GeographyData>,
@@ -174,10 +173,8 @@ struct LocationData {
     position: Option<PositionData>,
     disclosure: &'static str,
     lifecycle: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    revision: Option<PartyLocationRevision>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    input_revision: Option<u64>,
+    revision: PartyLocationRevision,
+    input_revision: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     evidence: Option<EvidenceData>,
 }
@@ -186,7 +183,7 @@ impl From<PartyLocationView> for LocationData {
         Self {
             id: v.id,
             party_id: v.party_id,
-            label: v.label.map(|v| v.as_str().to_owned()),
+            label: v.label.as_str().to_owned(),
             roles: v.roles.iter().map(|v| v.as_str()).collect(),
             geography: v.geography.map(Into::into),
             position: v.position.map(Into::into),
@@ -466,13 +463,11 @@ async fn get_location(
     party: String,
     id: String,
     context: OperationContext,
-    private: bool,
 ) -> Response {
     let request = (|| {
         Ok::<_, ApiError>(GetPartyLocationRequest {
             party_id: parse_path_object_id(&party, "party_id", "Party")?,
             id: parse_path_object_id(&id, "location_id", "PartyLocation")?,
-            private,
         })
     })();
     match request {
@@ -489,22 +484,7 @@ pub async fn get(
         Ok(v) => v,
         Err(r) => return *r,
     };
-    get_location(s, party, id, ctx, true).await
-}
-pub async fn get_public(
-    State(s): State<PartyLocationsState>,
-    Path((party, id)): Path<(String, String)>,
-    headers: HeaderMap,
-) -> Response {
-    let metadata = request_metadata(&headers);
-    let principal = match OptionalAuthExtractor::new(s.authenticator.as_ref())
-        .extract(&headers, &metadata)
-        .await
-    {
-        Ok(principal) => principal,
-        Err(error) => return ApiError::from(error).into_response(),
-    };
-    get_location(s, party, id, principal.operation_context(metadata), false).await
+    get_location(s, party, id, ctx).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -517,7 +497,6 @@ async fn list_locations(
     party: String,
     query: Result<Query<ListData>, QueryRejection>,
     context: OperationContext,
-    private: bool,
 ) -> Response {
     let request = (|| {
         let Query(d) = query.map_err(|_| ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE))?;
@@ -531,7 +510,6 @@ async fn list_locations(
                 .map(|v| parse_query_object_id(&v, "after", "PartyLocation"))
                 .transpose()?,
             limit: d.limit.unwrap_or(25),
-            private,
         })
     })();
     let mut response = match request {
@@ -560,30 +538,7 @@ pub async fn list(
         Ok(v) => v,
         Err(r) => return *r,
     };
-    list_locations(s, party, query, ctx, true).await
-}
-pub async fn list_public(
-    State(s): State<PartyLocationsState>,
-    Path(party): Path<String>,
-    headers: HeaderMap,
-    query: Result<Query<ListData>, QueryRejection>,
-) -> Response {
-    let metadata = request_metadata(&headers);
-    let principal = match OptionalAuthExtractor::new(s.authenticator.as_ref())
-        .extract(&headers, &metadata)
-        .await
-    {
-        Ok(principal) => principal,
-        Err(error) => return ApiError::from(error).into_response(),
-    };
-    list_locations(
-        s,
-        party,
-        query,
-        principal.operation_context(metadata),
-        false,
-    )
-    .await
+    list_locations(s, party, query, ctx).await
 }
 
 pub async fn no_store_response(mut response: Response) -> Response {
@@ -678,10 +633,7 @@ mod route_tests {
         auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
         state::AppState,
     };
-    use axum::{
-        body::{Body, to_bytes},
-        http::Request,
-    };
+    use axum::{body::Body, http::Request};
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
     #[derive(Default)]
@@ -689,26 +641,26 @@ mod route_tests {
         calls: Mutex<Vec<&'static str>>,
     }
     impl Capture {
-        fn view(&self, party_id: PartyId, id: PartyLocationId, private: bool) -> PartyLocationView {
+        fn view(&self, party_id: PartyId, id: PartyLocationId) -> PartyLocationView {
             PartyLocationView {
                 id,
                 party_id,
-                label: private.then(|| PartyLocationLabel::new("Site".to_owned()).unwrap()),
+                label: PartyLocationLabel::new("Site".to_owned()).unwrap(),
                 roles: BTreeSet::new(),
                 geography: None,
                 position: None,
                 disclosure: PartyLocationDisclosure::CoarsePublic,
                 lifecycle: PartyLocationLifecycle::Active,
-                revision: private.then_some(PartyLocationRevision::INITIAL),
-                input_revision: private.then_some(1),
-                evidence: private.then(|| {
+                revision: PartyLocationRevision::INITIAL,
+                input_revision: 1,
+                evidence: Some(
                     LocationEvidence::new(
                         "Private reference".to_owned(),
                         None,
                         LocationAssertionScope::SiteDescription,
                     )
-                    .unwrap()
-                }),
+                    .unwrap(),
+                ),
             }
         }
     }
@@ -727,7 +679,7 @@ mod route_tests {
             assert_ne!("missing-request-id", c.request_id.to_string());
             assert_eq!("command-123", v.idempotency_key.as_str());
             self.calls.lock().unwrap().push("create");
-            Ok(self.view(v.party_id, PartyLocationId::new(), true))
+            Ok(self.view(v.party_id, PartyLocationId::new()))
         }
     }
     #[async_trait::async_trait]
@@ -739,7 +691,7 @@ mod route_tests {
         ) -> Result<PartyLocationView, PartyLocationError> {
             assert_eq!(PatchField::Clear, v.position);
             self.calls.lock().unwrap().push("correct");
-            Ok(self.view(v.party_id, v.expected.id, true))
+            Ok(self.view(v.party_id, v.expected.id))
         }
     }
     #[async_trait::async_trait]
@@ -750,7 +702,7 @@ mod route_tests {
             v: SetPartyLocationLifecycleCommand,
         ) -> Result<PartyLocationView, PartyLocationError> {
             self.calls.lock().unwrap().push("lifecycle");
-            let mut view = self.view(v.party_id, v.expected.id, true);
+            let mut view = self.view(v.party_id, v.expected.id);
             view.lifecycle = v.lifecycle;
             Ok(view)
         }
@@ -773,15 +725,12 @@ mod route_tests {
             c: &OperationContext,
             v: GetPartyLocationRequest,
         ) -> Result<PartyLocationView, PartyLocationError> {
-            if !v.private {
-                assert!(matches!(
-                    c.principal,
-                    application::operation_context::Principal::Anonymous
-                        | application::operation_context::Principal::DelegatedUser { .. }
-                ));
-            }
+            assert!(matches!(
+                c.principal,
+                application::operation_context::Principal::DelegatedUser { .. }
+            ));
             self.calls.lock().unwrap().push("get");
-            Ok(self.view(v.party_id, v.id, v.private))
+            Ok(self.view(v.party_id, v.id))
         }
     }
     #[async_trait::async_trait]
@@ -793,7 +742,7 @@ mod route_tests {
         ) -> Result<PartyLocationsPage, PartyLocationError> {
             self.calls.lock().unwrap().push("list");
             Ok(PartyLocationsPage {
-                items: vec![self.view(v.party_id, PartyLocationId::new(), v.private)],
+                items: vec![self.view(v.party_id, PartyLocationId::new())],
                 next: None,
             })
         }
@@ -820,7 +769,7 @@ mod route_tests {
         }
     }
     #[tokio::test]
-    async fn routes_map_commands_authentication_redaction_and_cache_headers() {
+    async fn routes_map_commands_authentication_and_cache_headers() {
         let capture = Arc::new(Capture::default());
         let state = PartyLocationsState {
             create: capture.clone(),
@@ -871,32 +820,12 @@ mod route_tests {
             ),
             (
                 "GET",
-                format!("/api/v1/public/parties/{party}/locations/{id}"),
+                format!("{base}/{id}"),
                 "",
                 false,
-                StatusCode::OK,
+                StatusCode::UNAUTHORIZED,
             ),
-            (
-                "GET",
-                format!("/api/v1/public/parties/{party}/locations"),
-                "",
-                false,
-                StatusCode::OK,
-            ),
-            (
-                "GET",
-                format!("/api/v1/public/parties/{party}/locations/{id}"),
-                "",
-                true,
-                StatusCode::OK,
-            ),
-            (
-                "GET",
-                format!("/api/v1/public/parties/{party}/locations"),
-                "",
-                true,
-                StatusCode::OK,
-            ),
+            ("GET", base.clone(), "", false, StatusCode::UNAUTHORIZED),
             (
                 "POST",
                 base.clone(),
@@ -913,7 +842,6 @@ mod route_tests {
             ),
         ];
         for (method, path, body, authenticated, status) in cases {
-            let public = path.contains("/public/");
             let mut request = Request::builder()
                 .method(method)
                 .uri(&path)
@@ -944,44 +872,30 @@ mod route_tests {
                         .contains("/locations/ploc_")
                 );
             }
-            if public {
-                let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
-                let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                let v = if let Some(items) = v.get("items") {
-                    &items[0]
-                } else {
-                    &v
-                };
-                assert!(v.get("evidence").is_none());
-                assert!(v.get("revision").is_none());
-                assert!(v.get("position").is_none());
-                assert!(v.get("label").is_none());
-            }
         }
-        assert_eq!(10, capture.calls.lock().unwrap().len());
+        assert_eq!(6, capture.calls.lock().unwrap().len());
         for path in [
             format!("/api/v1/public/parties/{party}/locations/{id}"),
             format!("/api/v1/public/parties/{party}/locations"),
         ] {
-            for credential in ["Bearer invalid-token", "Basic invalid-token"] {
+            for credential in [
+                None,
+                Some("Bearer test-token"),
+                Some("Bearer invalid-token"),
+                Some("Basic invalid-token"),
+            ] {
+                let mut request = Request::builder().uri(&path);
+                if let Some(credential) = credential {
+                    request = request.header("authorization", credential);
+                }
                 let response = app
                     .clone()
-                    .oneshot(
-                        Request::builder()
-                            .uri(&path)
-                            .header("authorization", credential)
-                            .body(Body::empty())
-                            .unwrap(),
-                    )
+                    .oneshot(request.body(Body::empty()).unwrap())
                     .await
                     .unwrap();
-                assert_eq!(StatusCode::UNAUTHORIZED, response.status());
-                assert_eq!(
-                    "no-store",
-                    response.headers().get(header::CACHE_CONTROL).unwrap()
-                );
+                assert_eq!(StatusCode::NOT_FOUND, response.status());
             }
         }
-        assert_eq!(10, capture.calls.lock().unwrap().len());
+        assert_eq!(6, capture.calls.lock().unwrap().len());
     }
 }

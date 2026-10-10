@@ -82,14 +82,12 @@ pub trait PartyLocationReader: Send {
         &mut self,
         party_id: PartyId,
         id: PartyLocationId,
-        private: bool,
     ) -> Result<Option<PartyLocationView>, PartyLocationError>;
     async fn list(
         &mut self,
         party_id: PartyId,
         after: Option<PartyLocationId>,
         limit: u32,
-        private: bool,
     ) -> Result<PartyLocationsPage, PartyLocationError>;
 }
 pub trait PartyLocationReaderFactory<Tx>: Send + Sync {

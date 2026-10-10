@@ -158,14 +158,19 @@ for protected reads. These scopes alone confer no management grant;
 `product-listings:write` confers neither location access nor mutation rights. Revocation
 and protected operations serialize on the owner Party row.
 
-Creation defaults to PRIVATE. Public readers exclude PRIVATE and retired locations.
-COARSE_PUBLIC reveals only roles and asserted country/subdivision; it omits label,
+REST and application use cases expose only protected location management and
+administrator grant/revoke operations. Get/list always enforce management authority;
+partner status alone does not confer a location management grant. There are no public
+Party-location get/list endpoints or application use cases. Management reads include
+private and retired sites, with their evidence and revision tokens.
+
+Creation defaults to PRIVATE. The persisted disclosure policy governs future public
+geography consumers, which must exclude PRIVATE and retired locations.
+COARSE_PUBLIC permits only roles and asserted country/subdivision; it excludes label,
 free-text address, postal text and every coordinate, even with claimed coarse precision.
 EXACT_PUBLIC permits label, address/postal assertions and coordinates. Evidence and
-protected revision tokens are excluded from every public response. A ListingSource
-reference cannot make a location less private. Public endpoints allow anonymous access
-and validate supplied bearer credentials; authenticated callers still receive only
-public-safe fields. Invalid supplied credentials are rejected rather than downgraded.
+protected revision tokens must be excluded from every public view. A ListingSource
+reference cannot make a location less private.
 
 Caller evidence contains an opaque bounded reference, optional observation time and
 one declared assertion scope: site description, registered address or correspondence
@@ -204,4 +209,4 @@ idempotently and check authoritative eligibility. It is not an event-sourced agg
 or a second business model. Exact constraints belong to migrations/adapters; public
 shapes and errors belong to [OpenAPI](swagger.yaml). Lists use ascending native UUID
 keyset order, bounded page sizes and `ploc_` continuation IDs, without listing hydration.
-Lists are live traversals; disclosure/lifecycle eligibility are reevaluated each page.
+Lists are live traversals; management authority is reevaluated each page.

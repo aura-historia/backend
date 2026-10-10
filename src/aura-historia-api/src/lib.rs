@@ -926,14 +926,6 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
                     axum::routing::put(parties::locations::grant),
                 )
-                .route(
-                    "/api/v1/public/parties/{party_id}/locations",
-                    get(parties::locations::list_public),
-                )
-                .route(
-                    "/api/v1/public/parties/{party_id}/locations/{location_id}",
-                    get(parties::locations::get_public),
-                )
                 .layer(axum::middleware::map_response(
                     parties::locations::no_store_response,
                 ))

@@ -149,7 +149,7 @@ fn command(party_id: PartyId, key: &str) -> CreatePartyLocationCommand {
 fn expected(v: &PartyLocationView) -> ExpectedPartyLocation {
     ExpectedPartyLocation {
         id: v.id,
-        revision: v.revision.unwrap(),
+        revision: v.revision,
     }
 }
 fn correction(party_id: PartyId, v: &PartyLocationView) -> UpdatePartyLocationCommand {
@@ -187,7 +187,7 @@ async fn concurrent_create_retries_converge_and_replay_original_result() {
     let mut changed = correction(party, &a);
     changed.label = PatchField::Set(PartyLocationLabel::new("Corrected label".to_owned()).unwrap());
     let updated = update(&pool).execute(&ctx, changed).await.unwrap();
-    assert_eq!(2, updated.revision.unwrap().into_inner());
+    assert_eq!(2, updated.revision.into_inner());
     assert_eq!(a, create(&pool).execute(&ctx, c.clone()).await.unwrap());
     let mut conflict = c;
     conflict.content.disclosure = PartyLocationDisclosure::ExactPublic;
@@ -207,7 +207,6 @@ async fn concurrent_create_retries_converge_and_replay_original_result() {
                 party_id: party,
                 after: None,
                 limit: 1,
-                private: true,
             },
         )
         .await
@@ -221,7 +220,6 @@ async fn concurrent_create_retries_converge_and_replay_original_result() {
                 party_id: party,
                 after: page.next,
                 limit: 1,
-                private: true,
             },
         )
         .await
@@ -260,7 +258,7 @@ async fn correction_noops_lifecycle_and_relocation_are_distinct() {
     correct.position = PatchField::Clear;
     let corrected = update(&pool).execute(&ctx, correct).await.unwrap();
     assert_eq!(a.id, corrected.id);
-    assert_eq!(Some(2), corrected.input_revision);
+    assert_eq!(2, corrected.input_revision);
     assert!(corrected.position.is_none());
     assert!(matches!(
         update(&pool).execute(&ctx, correction(party, &a)).await,
@@ -283,7 +281,6 @@ async fn correction_noops_lifecycle_and_relocation_are_distinct() {
             GetPartyLocationRequest {
                 party_id: party,
                 id: a.id,
-                private: true,
             },
         )
         .await
@@ -314,7 +311,7 @@ async fn correction_noops_lifecycle_and_relocation_are_distinct() {
         .await
         .unwrap();
     assert_eq!(a.id, restored.id);
-    assert_eq!(Some(2), restored.input_revision);
+    assert_eq!(2, restored.input_revision);
     assert_eq!(4, signals(&pool, a.id).await);
     let deleted = sqlx::query("DELETE FROM parties WHERE party_id=$1")
         .bind(party.into_uuid())
@@ -392,6 +389,50 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
         .execute(&scoped, command(party, "granted"))
         .await
         .unwrap();
+    let list_request = ListPartyLocationsRequest {
+        party_id: party,
+        after: None,
+        limit: 100,
+    };
+    assert_eq!(
+        a,
+        get(&pool)
+            .execute(
+                &scoped,
+                GetPartyLocationRequest {
+                    party_id: party,
+                    id: a.id,
+                },
+            )
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        vec![a.clone()],
+        list(&pool)
+            .execute(&scoped, list_request.clone())
+            .await
+            .unwrap()
+            .items
+    );
+    assert!(matches!(
+        list(&pool)
+            .execute(&listing_only, list_request.clone())
+            .await,
+        Err(PartyLocationError::Forbidden)
+    ));
+    assert!(matches!(
+        list(&pool)
+            .execute(
+                &scoped,
+                ListPartyLocationsRequest {
+                    party_id: other_party,
+                    ..list_request.clone()
+                },
+            )
+            .await,
+        Err(PartyLocationError::Forbidden)
+    ));
     assert!(matches!(
         create(&pool)
             .execute(&scoped, command(other_party, "wrong-party"))
@@ -405,7 +446,6 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
                 GetPartyLocationRequest {
                     party_id: party,
                     id: a.id,
-                    private: true
                 }
             )
             .await,
@@ -418,7 +458,6 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
                 GetPartyLocationRequest {
                     party_id: other_party,
                     id: a.id,
-                    private: true
                 }
             )
             .await,
@@ -431,7 +470,6 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
                 GetPartyLocationRequest {
                     party_id: other_party,
                     id: a.id,
-                    private: true
                 }
             )
             .await,
@@ -455,13 +493,16 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
         .await
         .unwrap();
     assert!(matches!(
+        list(&pool).execute(&scoped, list_request).await,
+        Err(PartyLocationError::Forbidden)
+    ));
+    assert!(matches!(
         get(&pool)
             .execute(
                 &scoped,
                 GetPartyLocationRequest {
                     party_id: party,
                     id: a.id,
-                    private: true
                 }
             )
             .await,
@@ -470,104 +511,98 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-async fn public_readers_redact_private_evidence_and_precise_geography() {
+async fn reads_require_management_authority_for_every_disclosure_policy() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
     let ctx = trusted();
     let anonymous = context(Principal::Anonymous);
-    let private = create(&pool)
-        .execute(&ctx, command(party, "private"))
-        .await
-        .unwrap();
+    let ungranted = context(Principal::DelegatedUser {
+        user_id: UserId::new(),
+        capabilities: BTreeSet::from([CredentialCapability::PartiesRead]),
+    });
+    let mut locations = Vec::new();
+    for disclosure in [
+        PartyLocationDisclosure::Private,
+        PartyLocationDisclosure::CoarsePublic,
+        PartyLocationDisclosure::ExactPublic,
+    ] {
+        let mut c = command(party, disclosure.as_str());
+        c.content.disclosure = disclosure;
+        let location = create(&pool).execute(&ctx, c).await.unwrap();
+        let request = GetPartyLocationRequest {
+            party_id: party,
+            id: location.id,
+        };
+        assert!(matches!(
+            get(&pool).execute(&anonymous, request.clone()).await,
+            Err(PartyLocationError::AuthenticationRequired)
+        ));
+        assert!(matches!(
+            get(&pool).execute(&ungranted, request.clone()).await,
+            Err(PartyLocationError::Forbidden)
+        ));
+        assert_eq!(location, get(&pool).execute(&ctx, request).await.unwrap());
+        assert!(location.evidence.is_some());
+        assert!(location.position.is_some());
+        assert!(
+            location
+                .geography
+                .as_ref()
+                .unwrap()
+                .address_text()
+                .is_some()
+        );
+        locations.push(location);
+    }
+    let request = ListPartyLocationsRequest {
+        party_id: party,
+        after: None,
+        limit: 100,
+    };
     assert!(matches!(
-        get(&pool)
-            .execute(
-                &anonymous,
-                GetPartyLocationRequest {
-                    party_id: party,
-                    id: private.id,
-                    private: false
-                }
-            )
-            .await,
-        Err(PartyLocationError::NotFound)
+        list(&pool).execute(&anonymous, request.clone()).await,
+        Err(PartyLocationError::AuthenticationRequired)
     ));
-    let mut c = command(party, "coarse");
-    c.content.disclosure = PartyLocationDisclosure::CoarsePublic;
-    let coarse = create(&pool).execute(&ctx, c).await.unwrap();
-    let v = get(&pool)
-        .execute(
-            &anonymous,
-            GetPartyLocationRequest {
-                party_id: party,
-                id: coarse.id,
-                private: false,
-            },
-        )
-        .await
-        .unwrap();
-    assert!(v.evidence.is_none());
-    assert!(v.label.is_none());
-    assert!(v.position.is_none());
-    assert!(v.revision.is_none());
-    assert!(v.input_revision.is_none());
-    assert!(v.geography.as_ref().unwrap().address_text().is_none());
-    assert_eq!(Some(CountryCode::DEU), v.geography.unwrap().country());
-    let mut c = command(party, "exact");
-    c.content.disclosure = PartyLocationDisclosure::ExactPublic;
-    let exact = create(&pool).execute(&ctx, c).await.unwrap();
-    let v = get(&pool)
-        .execute(
-            &anonymous,
-            GetPartyLocationRequest {
-                party_id: party,
-                id: exact.id,
-                private: false,
-            },
-        )
-        .await
-        .unwrap();
-    assert!(v.evidence.is_none());
-    assert!(v.position.is_some());
-    assert!(v.geography.unwrap().address_text().is_some());
-    let p = list(&pool)
-        .execute(
-            &anonymous,
-            ListPartyLocationsRequest {
-                party_id: party,
-                after: None,
-                limit: 100,
-                private: false,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(2, p.items.len());
-    assert!(p.items.iter().all(|v| v.evidence.is_none()));
-    lifecycle(&pool)
+    assert!(matches!(
+        list(&pool).execute(&ungranted, request.clone()).await,
+        Err(PartyLocationError::Forbidden)
+    ));
+    let page = list(&pool).execute(&ctx, request.clone()).await.unwrap();
+    assert_eq!(3, page.items.len());
+    assert!(
+        locations
+            .iter()
+            .all(|location| page.items.contains(location))
+    );
+
+    let exact = locations.last().unwrap();
+    let retired = lifecycle(&pool)
         .execute(
             &ctx,
             SetPartyLocationLifecycleCommand {
                 party_id: party,
-                expected: expected(&exact),
+                expected: expected(exact),
                 lifecycle: PartyLocationLifecycle::Retired,
             },
         )
         .await
         .unwrap();
-    assert!(matches!(
+    assert_eq!(
+        retired,
         get(&pool)
             .execute(
-                &anonymous,
+                &ctx,
                 GetPartyLocationRequest {
                     party_id: party,
-                    id: exact.id,
-                    private: false
-                }
+                    id: retired.id,
+                },
             )
-            .await,
-        Err(PartyLocationError::NotFound)
-    ));
+            .await
+            .unwrap()
+    );
+    let page = list(&pool).execute(&ctx, request).await.unwrap();
+    assert_eq!(3, page.items.len());
+    assert!(page.items.contains(&retired));
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
@@ -593,13 +628,13 @@ async fn independent_sessions_enforce_database_cas() {
     // Capture two independent stale snapshots without locking either owner or aggregate.
     let first = SqlxPartyLocationReaderFactory
         .in_transaction(&mut a)
-        .get(party, v.id, true)
+        .get(party, v.id)
         .await
         .unwrap()
         .unwrap();
     let second = SqlxPartyLocationReaderFactory
         .in_transaction(&mut b)
-        .get(party, v.id, true)
+        .get(party, v.id)
         .await
         .unwrap()
         .unwrap();
@@ -672,7 +707,6 @@ async fn service_updates_serialize_expected_revisions_and_rollback_failed_reloca
                 party_id: party,
                 after: None,
                 limit: 100,
-                private: true,
             },
         )
         .await
@@ -698,7 +732,6 @@ async fn corrupt_persisted_geography_fails_closed() {
                 GetPartyLocationRequest {
                     party_id: party,
                     id: v.id,
-                    private: true
                 }
             )
             .await,
@@ -740,7 +773,7 @@ async fn required_patch_fields_reject_clear_and_role_replacement_preserves_geogr
     let updated = update(&pool).execute(&ctx, c).await.unwrap();
     assert!(updated.roles.is_empty());
     assert_eq!(v.input_revision, updated.input_revision);
-    assert_eq!(2, updated.revision.unwrap().into_inner());
+    assert_eq!(2, updated.revision.into_inner());
     let mut c = correction(party, &updated);
     c.roles = PatchField::Set(BTreeSet::new());
     assert_eq!(updated, update(&pool).execute(&ctx, c).await.unwrap());
@@ -770,7 +803,6 @@ async fn invalid_stored_and_receipt_object_ids_fail_closed() {
                     party_id: party,
                     after: None,
                     limit: 100,
-                    private: true,
                 },
             )
             .await,
@@ -804,7 +836,7 @@ async fn exhausted_revisions_allow_noops_and_reject_changes_without_signals() {
         .execute(&pool)
         .await
         .unwrap();
-    v.revision = Some(PartyLocationRevision::try_from(i64::MAX).unwrap());
+    v.revision = PartyLocationRevision::try_from(i64::MAX).unwrap();
     assert_eq!(
         v,
         update(&pool)
@@ -860,7 +892,6 @@ async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_receipt_fa
                 GetPartyLocationRequest {
                     party_id: party,
                     id: old.id,
-                    private: true
                 }
             )
             .await
@@ -873,7 +904,6 @@ async fn relocation_rolls_back_old_retirement_new_site_and_signals_on_receipt_fa
                 party_id: party,
                 after: None,
                 limit: 100,
-                private: true,
             },
         )
         .await
@@ -910,7 +940,6 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
                 GetPartyLocationRequest {
                     party_id: party,
                     id: v.id,
-                    private: true,
                 },
             )
             .await

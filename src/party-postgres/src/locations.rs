@@ -475,33 +475,31 @@ impl PartyLocationRepository for LocationRepository<'_> {
     }
 }
 
-/// Sensitive columns are redacted in SQL before public read models are decoded.
+/// Storage representation for protected management reads.
 #[derive(FromRow)]
 struct ViewRow {
     party_location_id: Uuid,
     party_id: Uuid,
-    label: Option<String>,
+    label: String,
     roles: Vec<String>,
     geography: Option<serde_json::Value>,
     position: Option<serde_json::Value>,
     disclosure: String,
     lifecycle: String,
-    revision: Option<i64>,
-    input_revision: Option<i64>,
+    revision: i64,
+    input_revision: i64,
     evidence: Option<serde_json::Value>,
 }
 impl TryFrom<ViewRow> for PartyLocationView {
     type Error = PartyLocationError;
     fn try_from(r: ViewRow) -> Result<Self, Self::Error> {
-        if let (Some(revision), Some(input)) = (r.revision, r.input_revision)
-            && input > revision
-        {
+        if r.input_revision > r.revision {
             return Err(corrupt());
         }
         Ok(Self {
             id: PartyLocationId::try_from(r.party_location_id).map_err(invalid)?,
             party_id: PartyId::try_from(r.party_id).map_err(invalid)?,
-            label: r.label.map(label).transpose()?,
+            label: label(r.label)?,
             roles: roles(r.roles)?,
             geography: geography(r.geography.map(decode).transpose()?)?,
             position: r
@@ -513,17 +511,10 @@ impl TryFrom<ViewRow> for PartyLocationView {
                 .map_err(invalid)?,
             disclosure: PartyLocationDisclosure::from_code(&r.disclosure).ok_or_else(corrupt)?,
             lifecycle: PartyLocationLifecycle::from_code(&r.lifecycle).ok_or_else(corrupt)?,
-            revision: r
-                .revision
-                .map(PartyLocationRevision::try_from)
-                .transpose()
-                .map_err(invalid)?,
-            input_revision: r
-                .input_revision
-                .map(PartyLocationInputRevision::try_from)
-                .transpose()
+            revision: PartyLocationRevision::try_from(r.revision).map_err(invalid)?,
+            input_revision: PartyLocationInputRevision::try_from(r.input_revision)
                 .map_err(invalid)?
-                .map(|v| v.into_inner()),
+                .into_inner(),
             evidence: r
                 .evidence
                 .map(decode::<EvidenceData>)
@@ -533,24 +524,10 @@ impl TryFrom<ViewRow> for PartyLocationView {
         })
     }
 }
-fn view_query(private: bool) -> QueryBuilder<Postgres> {
-    if private {
-        QueryBuilder::new(
-            "SELECT party_location_id,party_id,label,roles,geography,position,disclosure,lifecycle,revision,input_revision,evidence FROM party_locations WHERE TRUE",
-        )
-    } else {
-        QueryBuilder::new(
-            r#"SELECT party_location_id,party_id,
-        CASE WHEN disclosure='EXACT_PUBLIC' THEN label ELSE NULL END AS label, roles,
-        CASE WHEN disclosure='EXACT_PUBLIC' THEN geography
-            WHEN geography->>'country' IS NOT NULL OR geography->>'subdivision' IS NOT NULL
-            THEN jsonb_build_object('reference_release', geography->>'reference_release', 'country',geography->'country','subdivision',geography->'subdivision','address_text',NULL,'postal_code',NULL)
-            ELSE NULL END AS geography,
-        CASE WHEN disclosure='EXACT_PUBLIC' THEN position ELSE NULL END AS position,
-        disclosure,lifecycle,NULL::bigint AS revision,NULL::bigint AS input_revision,NULL::jsonb AS evidence
-        FROM party_locations WHERE lifecycle='ACTIVE' AND disclosure IN ('COARSE_PUBLIC','EXACT_PUBLIC')"#,
-        )
-    }
+fn view_query() -> QueryBuilder<Postgres> {
+    QueryBuilder::new(
+        "SELECT party_location_id,party_id,label,roles,geography,position,disclosure,lifecycle,revision,input_revision,evidence FROM party_locations WHERE TRUE",
+    )
 }
 #[async_trait::async_trait]
 impl PartyLocationReader for LocationReader<'_> {
@@ -558,9 +535,8 @@ impl PartyLocationReader for LocationReader<'_> {
         &mut self,
         party_id: PartyId,
         id: PartyLocationId,
-        private: bool,
     ) -> Result<Option<PartyLocationView>, PartyLocationError> {
-        let mut q = view_query(private);
+        let mut q = view_query();
         q.push(" AND party_id = ")
             .push_bind(party_id.into_uuid())
             .push(" AND party_location_id = ")
@@ -577,12 +553,11 @@ impl PartyLocationReader for LocationReader<'_> {
         party_id: PartyId,
         after: Option<PartyLocationId>,
         limit: u32,
-        private: bool,
     ) -> Result<PartyLocationsPage, PartyLocationError> {
         if !(1..=100).contains(&limit) {
             return Err(PartyLocationError::InvalidInput);
         }
-        let mut q = view_query(private);
+        let mut q = view_query();
         q.push(" AND party_id = ").push_bind(party_id.into_uuid());
         if let Some(id) = after {
             q.push(" AND party_location_id > ")

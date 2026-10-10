@@ -156,29 +156,27 @@ pub struct GrantPartyLocationManagementCommand {
 pub struct GetPartyLocationRequest {
     pub party_id: PartyId,
     pub id: PartyLocationId,
-    pub private: bool,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartyLocationsRequest {
     pub party_id: PartyId,
     pub after: Option<PartyLocationId>,
     pub limit: u32,
-    pub private: bool,
 }
 
-/// Final presentation, never an aggregate. Public views contain no evidence or revision.
+/// Protected management presentation, never an aggregate.
 #[derive(Clone, PartialEq)]
 pub struct PartyLocationView {
     pub id: PartyLocationId,
     pub party_id: PartyId,
-    pub label: Option<PartyLocationLabel>,
+    pub label: PartyLocationLabel,
     pub roles: BTreeSet<PartyLocationRole>,
     pub geography: Option<GeographicDescription>,
     pub position: Option<SpatialPosition>,
     pub disclosure: PartyLocationDisclosure,
     pub lifecycle: PartyLocationLifecycle,
-    pub revision: Option<PartyLocationRevision>,
-    pub input_revision: Option<u64>,
+    pub revision: PartyLocationRevision,
+    pub input_revision: u64,
     pub evidence: Option<LocationEvidence>,
 }
 impl std::fmt::Debug for PartyLocationView {
@@ -198,14 +196,14 @@ impl From<StoredPartyLocation> for PartyLocationView {
         Self {
             id: value.location.id(),
             party_id: value.location.party_id(),
-            label: Some(c.label.clone()),
+            label: c.label.clone(),
             roles: c.roles.clone(),
             geography: c.geography.clone(),
             position: c.position,
             disclosure: c.disclosure,
             lifecycle: value.location.lifecycle(),
-            revision: Some(value.revision),
-            input_revision: Some(value.location.input_revision().into_inner()),
+            revision: value.revision,
+            input_revision: value.location.input_revision().into_inner(),
             evidence: value.evidence,
         }
     }
@@ -662,19 +660,13 @@ where
         context: &OperationContext,
         request: GetPartyLocationRequest,
     ) -> Result<PartyLocationView, PartyLocationError> {
-        let privileged = if request.private {
-            privileged(context, &self.admin, false).await?
-        } else {
-            false
-        };
+        let privileged = privileged(context, &self.admin, false).await?;
         let mut tx = self.uow.begin().await?;
-        if request.private {
-            authorize(context, privileged, &self.access, &mut tx, request.party_id).await?;
-        }
+        authorize(context, privileged, &self.access, &mut tx, request.party_id).await?;
         let result = self
             .reader
             .in_transaction(&mut tx)
-            .get(request.party_id, request.id, request.private)
+            .get(request.party_id, request.id)
             .await?
             .ok_or(PartyLocationError::NotFound)?;
         tx.commit().await?;
@@ -722,24 +714,13 @@ where
         if !(1..=100).contains(&request.limit) {
             return Err(PartyLocationError::InvalidInput);
         }
-        let privileged = if request.private {
-            privileged(context, &self.admin, false).await?
-        } else {
-            false
-        };
+        let privileged = privileged(context, &self.admin, false).await?;
         let mut tx = self.uow.begin().await?;
-        if request.private {
-            authorize(context, privileged, &self.access, &mut tx, request.party_id).await?;
-        }
+        authorize(context, privileged, &self.access, &mut tx, request.party_id).await?;
         let result = self
             .reader
             .in_transaction(&mut tx)
-            .list(
-                request.party_id,
-                request.after,
-                request.limit,
-                request.private,
-            )
+            .list(request.party_id, request.after, request.limit)
             .await?;
         tx.commit().await?;
         Ok(result)
@@ -797,14 +778,14 @@ mod tests {
         let view = PartyLocationView {
             id: PartyLocationId::new(),
             party_id: PartyId::new(),
-            label: Some(PartyLocationLabel::new("Secret showroom".to_owned()).unwrap()),
+            label: PartyLocationLabel::new("Secret showroom".to_owned()).unwrap(),
             roles: BTreeSet::new(),
             geography: Some(geography.clone()),
             position: Some(position),
             disclosure: PartyLocationDisclosure::Private,
             lifecycle: PartyLocationLifecycle::Active,
-            revision: Some(PartyLocationRevision::INITIAL),
-            input_revision: Some(1),
+            revision: PartyLocationRevision::INITIAL,
+            input_revision: 1,
             evidence: None,
         };
         let command = UpdatePartyLocationCommand {

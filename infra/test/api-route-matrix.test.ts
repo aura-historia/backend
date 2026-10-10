@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(114);
+    expect(catalog).toHaveLength(112);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -172,7 +172,7 @@ describe("HTTP API route policy matrix", () => {
       ]);
   });
 
-  test("requires Party-location management authority and validates optional public credentials", () => {
+  test("requires Party-location management authority and exposes no public location routes", () => {
     const protectedRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/parties/{party_id}/locations"));
     expect(protectedRoutes).toHaveLength(5);
@@ -184,20 +184,11 @@ describe("HTTP API route policy matrix", () => {
         oauthCredentials: OAuthCredentialRequirement.None,
         providerProof: ProviderProofRequirement.None,
       });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
     }
     const publicRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/public/parties/{party_id}/locations"));
-    expect(publicRoutes).toHaveLength(2);
-    for (const route of publicRoutes) {
-      expect(route.auth).toBe(RouteAuthPolicy.OptionalBearer);
-      expect(route.policy).toEqual({
-        bearer: "OPTIONAL",
-        authorization: RouteAuthorizationClass.Public,
-        oauthCredentials: OAuthCredentialRequirement.None,
-        providerProof: ProviderProofRequirement.None,
-      });
-      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
-    }
+    expect(publicRoutes).toHaveLength(0);
   });
 
   test("documents anonymous versioned probes with their body contracts", () => {
@@ -441,7 +432,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(114);
+    expect(routes).toHaveLength(112);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({
