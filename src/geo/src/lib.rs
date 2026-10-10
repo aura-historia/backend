@@ -12,7 +12,6 @@ pub use geocoder::{
 pub mod opensearch;
 
 pub use core::{
-    address::{InvalidStructuredAddress, StructuredAddress},
     continent::Continent,
     country::{CountryCode, InvalidCountryCode, country_from_code},
     description::{

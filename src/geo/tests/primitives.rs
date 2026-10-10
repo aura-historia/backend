@@ -1,7 +1,7 @@
 use geo::{
-    AddressText, Continent, CountryCode, DerivedGeography, Distance, DistanceUnit, GeoPoint,
+    AddressText, CountryCode, DerivedGeography, Distance, DistanceUnit, GeoPoint,
     GeographicDescription, InvalidGeoText, PostalCode, SpatialPosition, SpatialPrecision,
-    StructuredAddress, SubdivisionCode, SubmittedGeography, core::country::country_from_code,
+    SubdivisionCode, SubmittedGeography, core::country::country_from_code,
     reference::ReferenceRelease,
 };
 
@@ -254,47 +254,6 @@ fn should_validate_every_coordinate_distance_and_accuracy_boundary() {
         );
     }
     assert_eq!(None, SpatialPrecision::from_code("premises"));
-}
-
-#[test]
-fn should_retain_legacy_address_components_without_guessing_iso_codes() {
-    let legacy = StructuredAddress {
-        addressline: Some("東京都\n丸の内".to_owned()),
-        region: Some("BE".to_owned()),
-        postal_code: Some("00123".to_owned()),
-        country: Some(CountryCode::DEU),
-        ..Default::default()
-    };
-    let description = legacy.to_description().unwrap().unwrap();
-    assert_eq!(Some(CountryCode::DEU), description.country());
-    assert_eq!(
-        "東京都\n丸の内\nBE",
-        description.address_text().unwrap().as_str()
-    );
-    assert_eq!("00123", description.postal_code().unwrap().as_str());
-    assert_eq!(None, description.subdivision());
-    assert_eq!(Some(Continent::Europe), legacy.continent());
-    assert_eq!(
-        Some("東京都\n丸の内, 00123, BE, Germany".to_owned()),
-        legacy.format_for_geocoding()
-    );
-    assert_eq!(None, StructuredAddress::default().to_description().unwrap());
-    assert!(
-        StructuredAddress {
-            locality: Some(" ".to_owned()),
-            ..Default::default()
-        }
-        .to_description()
-        .is_err()
-    );
-    assert!(
-        StructuredAddress {
-            postal_code: Some("123\0".to_owned()),
-            ..Default::default()
-        }
-        .to_description()
-        .is_err()
-    );
 }
 
 #[test]

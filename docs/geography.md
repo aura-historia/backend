@@ -104,20 +104,22 @@ boundary conventions remain coarse; precise geography requires separate position
 evidence. Continent is derived for reads, never writable address state. EU membership,
 customs zones and delivery regions belong to their own policy vocabularies.
 
-## Legacy compatibility
+## Compatibility and boundary migration
 
 The workspace currently has no external `geo` consumers, geographic business storage
-or public geographic API to migrate. `StructuredAddress` remains available as a legacy
-component carrier, and its existing geocoding formatting is retained. Its explicit
-`to_description` conversion validates each present component, preserves address
-components with line breaks and validates postal text separately. Region/locality
-text does not become an ISO subdivision. Source components remain on the original
-carrier. The former writable continent field is replaced with a derived accessor.
+or public geographic API to migrate. The former `StructuredAddress` carrier and its
+unused OpenSearch reconstruction helper are removed. `AddressText` owns free-form
+address observations; `GeographicDescription` owns partial validated assertions.
+Source components remain evidence at their owning adapter and are not guessed
+into ISO subdivisions. Continent is derived from country assertions when unambiguous.
 
-Legacy Google interfaces require `google`/`service`; OpenSearch helpers require
-`opensearch`; `full` enables all compatibility features. Distance struct literals
-must use the validated constructor and accessors. OpenSearch address reconstruction
-is now fallible so corrupt data cannot become absence or apparently valid geography.
+Both Google interfaces now accept validated `AddressText`, preserving its exact text
+through the documented [unstructured address query parameter](https://developers.google.com/maps/documentation/geocoding/reference/rest/v4/geocode.address/geocodeAddress).
+Empty/invalid input fails during construction, before a provider request. Geocoder
+responses remain separate provider-derived evidence. Google interfaces require
+`google`/`service`; OpenSearch distance helpers require `opensearch`; `full` enables all
+compatibility features. Distance struct literals must use the validated constructor
+and accessors.
 The optional `data` codecs retain canonical code strings and explicit release/units;
 conversion into domain values always calls constructors. These are compatibility
 codecs, not new REST shapes or business database schemas. Future persistence and
