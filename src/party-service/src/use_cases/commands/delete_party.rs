@@ -162,6 +162,7 @@ where
 fn blocker_name(blocker: PartyDeletionBlocker) -> &'static str {
     match blocker {
         PartyDeletionBlocker::ListingSources => "listing_sources",
+        PartyDeletionBlocker::Locations => "locations",
         PartyDeletionBlocker::Partnership => "partnership",
     }
 }

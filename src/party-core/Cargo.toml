@@ -4,13 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fake = { workspace = true, optional = true }
+geo = { workspace = true }
 domain-primitives = { workspace = true }
 serde-email = { workspace = true }
 time = { workspace = true }
 slug = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true }
 
 [features]
 default = []
-test-data = ["domain-primitives/test-data"]
+test-data = ["domain-primitives/test-data", "fake"]
+
+[dev-dependencies]
+uuid = { workspace = true, features = ["v4"] }

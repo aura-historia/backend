@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
+user-core = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
 domain-primitives = { workspace = true }

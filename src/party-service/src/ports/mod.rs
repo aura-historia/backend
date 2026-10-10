@@ -6,3 +6,4 @@ pub use party_repository::{
     PartyStorageVersion, StoredParty,
 };
 pub use party_search_reader::{PartySearchReadError, PartySearchReader, PartySearchReaderFactory};
+pub mod party_location;

@@ -125,6 +125,7 @@ pub struct AppState {
     pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) admin_overview: Option<AdminOverviewState>,
     pub(crate) parties: Option<PartiesState>,
+    pub(crate) party_locations: Option<PartyLocationsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
@@ -156,6 +157,7 @@ impl AppState {
             listing_sources: None,
             admin_overview: None,
             parties: None,
+            party_locations: None,
             users: None,
             watchlist: None,
             partnership_applications: None,
@@ -210,6 +212,11 @@ impl AppState {
 
     pub fn with_users(mut self, users: UsersState) -> Self {
         self.users = Some(users);
+        self
+    }
+
+    pub fn with_party_locations(mut self, state: PartyLocationsState) -> Self {
+        self.party_locations = Some(state);
         self
     }
 
@@ -973,5 +980,46 @@ impl PartnershipsState {
     pub fn with_dissolve(mut self, dissolve: Arc<dyn DissolvePartnershipUseCase>) -> Self {
         self.dissolve = Some(dissolve);
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct PartyLocationsState {
+    pub(crate) create:
+        Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
+    pub(crate) update:
+        Arc<dyn party_service::use_cases::party_locations::UpdatePartyLocationUseCase>,
+    pub(crate) lifecycle:
+        Arc<dyn party_service::use_cases::party_locations::SetPartyLocationLifecycleUseCase>,
+    pub(crate) grant:
+        Arc<dyn party_service::use_cases::party_locations::GrantPartyLocationManagementUseCase>,
+    pub(crate) get: Arc<dyn party_service::use_cases::party_locations::GetPartyLocationUseCase>,
+    pub(crate) list: Arc<dyn party_service::use_cases::party_locations::ListPartyLocationsUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartyLocationsState {
+    pub fn new(
+        create: Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
+        update: Arc<dyn party_service::use_cases::party_locations::UpdatePartyLocationUseCase>,
+        lifecycle: Arc<
+            dyn party_service::use_cases::party_locations::SetPartyLocationLifecycleUseCase,
+        >,
+        grant: Arc<
+            dyn party_service::use_cases::party_locations::GrantPartyLocationManagementUseCase,
+        >,
+        get: Arc<dyn party_service::use_cases::party_locations::GetPartyLocationUseCase>,
+        list: Arc<dyn party_service::use_cases::party_locations::ListPartyLocationsUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create,
+            update,
+            lifecycle,
+            grant,
+            get,
+            list,
+            authenticator,
+        }
     }
 }

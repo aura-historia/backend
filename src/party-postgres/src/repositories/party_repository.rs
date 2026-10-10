@@ -83,6 +83,8 @@ impl PartyRepository for SqlxPartyRepository<'_> {
         let blocker = sqlx::query_scalar::<_, Option<String>>(
             r#"
             SELECT CASE
+                WHEN EXISTS (SELECT 1 FROM party_locations WHERE party_id = $1)
+                    OR EXISTS (SELECT 1 FROM party_location_management_grants WHERE party_id = $1) THEN 'LOCATIONS'
                 WHEN EXISTS (
                     SELECT 1 FROM listing_sources WHERE operator_party_id = $1
                 ) THEN 'LISTING_SOURCES'
@@ -100,6 +102,7 @@ impl PartyRepository for SqlxPartyRepository<'_> {
 
         match blocker.as_deref() {
             None => Ok(None),
+            Some("LOCATIONS") => Ok(Some(PartyDeletionBlocker::Locations)),
             Some("LISTING_SOURCES") => Ok(Some(PartyDeletionBlocker::ListingSources)),
             Some("PARTNERSHIP") => Ok(Some(PartyDeletionBlocker::Partnership)),
             Some(value) => Err(PartyRepositoryError::InvalidPersistedState {

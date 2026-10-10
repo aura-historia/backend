@@ -2,6 +2,13 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-10 — Party location management (#1999)
+
+- Added protected create/get/list/correct/lifecycle endpoints under `/api/v1/parties/{party_id}/locations` and public get/list under `/api/v1/public/parties/{party_id}/locations`. One Party can hold multiple independent sites. Creation requires `Idempotency-Key`, defaults to private disclosure, and optionally relocates an explicitly referenced old site atomically.
+- Protected access requires administrator/internal authority or an explicit Party-location management grant; delegated callers also need `parties:read`/`parties:write`. Administrator grant/revoke uses `PUT /api/v1/admin/parties/{party_id}/location-managers/{user_id}`. Listing-write scope provides no access.
+- Corrections require `correction: SAME_SITE` and `expectedRevision`; lifecycle changes explicitly choose `ACTIVE` or `RETIRED` with `expectedRevision`. Nullable geography/position/evidence clear on null; label/roles/disclosure reject null. Stale revisions and conflicting idempotency-key reuse return `409 CONFLICT`. Lists use `after` TypeIDs and `limit` (1–100, default 25), returning `items` and nullable `next`.
+- Public views exclude private/retired sites and evidence. Coarse disclosure omits labels, addresses, postal text and coordinates; exact disclosure permits them. Public endpoints validate supplied credentials and return `401` for invalid bearers; authenticated callers still receive public-safe views. Location responses use `Cache-Control: no-store`.
+
 ## 2026-10-09 — Additional supported currencies (#1578)
 
 - Currency fields now accept `SEK`, `DKK`, `NOK`, `KRW`, `INR`, `TWD`, `HUF`, `RON`, `MXN`, and `THB`, including user preferences, listing-source configuration, listing prices, and search filters. `KRW` amounts use zero decimal places; the other additions use two ISO 4217 minor-unit decimal places.
