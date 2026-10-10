@@ -13506,7 +13506,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -13529,8 +13529,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-      description: Delegated credentials require parties:write. Use cases require administrator/internal authority
-        or an explicit grant to manage locations of this Party. Listing-write scope does not confer access.
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
       requestBody:
         required: true
         content:
@@ -13639,7 +13641,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -13650,8 +13652,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-      description: Delegated credentials require parties:read. Use cases require administrator/internal authority
-        or an explicit grant to manage locations of this Party. Listing-write scope does not confer access.
+      description: Delegated credentials require parties:read. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
   /api/v1/parties/{party_id}/locations/{location_id}:
     get:
       operationId: getPartyLocation
@@ -13748,7 +13752,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -13759,8 +13763,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-      description: Delegated credentials require parties:read. Use cases require administrator/internal authority
-        or an explicit grant to manage locations of this Party. Listing-write scope does not confer access.
+      description: Delegated credentials require parties:read. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
     patch:
       operationId: correctPartyLocation
       summary: Correct the same identified site
@@ -13856,7 +13862,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -13879,8 +13885,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-      description: Delegated credentials require parties:write. Use cases require administrator/internal authority
-        or an explicit grant to manage locations of this Party. Listing-write scope does not confer access.
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
       requestBody:
         required: true
         content:
@@ -13983,7 +13991,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -14006,8 +14014,10 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-      description: Delegated credentials require parties:write. Use cases require administrator/internal authority
-        or an explicit grant to manage locations of this Party. Listing-write scope does not confer access.
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
       requestBody:
         required: true
         content:
@@ -14099,7 +14109,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Missing scope, grant or administrator authority (FORBIDDEN).
+          description: Missing credential scope or administrator authority (FORBIDDEN).
           headers:
             Cache-Control:
               schema:
@@ -14501,7 +14511,7 @@ components:
       properties:
         granted:
           type: boolean
-          description: true grants management/private reads; false revokes it. Same-state commands are no-ops.
+          description: true grants explicit management/private reads; false removes only the explicit grant. Active partnership membership independently authorizes access. Same-state commands are no-ops.
     ActorData:
       oneOf:
         - type: string

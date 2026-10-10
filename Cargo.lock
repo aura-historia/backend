@@ -5348,6 +5348,7 @@ dependencies = [
  "partnership-service",
  "party-core",
  "party-postgres",
+ "party-service",
  "platform-postgres",
  "serde",
  "serde-email",
@@ -5362,6 +5363,7 @@ dependencies = [
  "url",
  "user-core",
  "user-postgres",
+ "user-service",
  "uuid",
 ]
 

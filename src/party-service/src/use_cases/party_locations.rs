@@ -320,7 +320,7 @@ async fn authorize<Tx, F: PartyLocationAccessFactory<Tx>>(
     };
     if access
         .in_transaction(tx)
-        .has_management_grant(party_id, user)
+        .can_manage_locations(party_id, user)
         .await?
     {
         Ok(())

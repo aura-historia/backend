@@ -150,17 +150,25 @@ to subsequent roadmap issues.
 
 Use cases accept the existing trusted OperationContext. Services/system callers and
 verified administrators may manage locations. Other users need an explicit, revocable
-Party-location management grant. Only administrators/trusted internal callers may grant
-or revoke it. It permits management and private reading of that Party's locations,
-without conferring Party editing, ListingSource or listing privileges. Delegated
-credentials additionally need existing `parties:write` for mutations and `parties:read`
-for protected reads. These scopes alone confer no management grant;
-`product-listings:write` confers neither location access nor mutation rights. Revocation
-and protected operations serialize on the owner Party row.
+Party-location management grant or membership in that Party's active partnership.
+Both paths require an unsuspended user and permit management and private reading of
+all locations of that Party, without conferring Party editing privileges. Application
+approval establishes membership, so existing and later-added members obtain location
+authority without a separate grant or backfill. Removing membership or dissolving the
+partnership removes that derived authority. Independent explicit grants survive those
+changes; only administrators/trusted internal callers may grant or revoke them, and
+revoking an explicit grant does not override active partnership membership.
+
+Delegated credentials additionally need existing `parties:write` for mutations and
+`parties:read` for protected reads. These scopes alone confer no management authority;
+`product-listings:write` confers neither location access nor mutation rights. Location
+operations, explicit grant changes, partnership membership changes and partnership
+creation/reactivation/dissolution serialize on the owner Party row before changing
+partnership, membership or location state.
 
 REST and application use cases expose only protected location management and
-administrator grant/revoke operations. Get/list always enforce management authority;
-partner status alone does not confer a location management grant. There are no public
+administrator grant/revoke operations. Get/list always enforce management authority.
+Membership must belong to the requested Party's active partnership. There are no public
 Party-location get/list endpoints or application use cases. Management reads include
 private and retired sites, with their evidence and revision tokens.
 

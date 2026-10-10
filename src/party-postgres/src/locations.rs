@@ -299,12 +299,28 @@ impl PartyLocationAccess for LocationAccess<'_> {
         .map_err(sql_error)?
         .is_some())
     }
-    async fn has_management_grant(
+    async fn can_manage_locations(
         &mut self,
         party_id: PartyId,
         user_id: UserId,
     ) -> Result<bool, PartyLocationError> {
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM party_location_management_grants g JOIN users u ON u.user_id=g.user_id WHERE g.party_id = $1 AND g.user_id = $2 AND NOT u.suspended)").bind(party_id.into_uuid()).bind(user_id.into_uuid()).fetch_one(&mut *self.connection).await.map_err(sql_error)
+        sqlx::query_scalar(
+            "SELECT EXISTS ( \
+                SELECT 1 FROM users u WHERE u.user_id = $2 AND NOT u.suspended AND ( \
+                    EXISTS (SELECT 1 FROM party_location_management_grants g \
+                            WHERE g.party_id = $1 AND g.user_id = u.user_id) \
+                    OR EXISTS (SELECT 1 FROM partnership_members m \
+                               JOIN partnerships p ON p.partnership_id = m.partnership_id \
+                               WHERE m.user_id = u.user_id AND p.party_id = $1 \
+                                 AND p.business_state = 'ACTIVE') \
+                ) \
+            )",
+        )
+        .bind(party_id.into_uuid())
+        .bind(user_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(sql_error)
     }
     async fn set_management_grant(
         &mut self,

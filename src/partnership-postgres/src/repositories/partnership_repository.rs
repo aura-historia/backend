@@ -15,6 +15,32 @@ pub struct SqlxPartnershipRepositoryFactory;
 struct Repository<'a> {
     connection: &'a mut PgConnection,
 }
+impl Repository<'_> {
+    async fn lock_party(&mut self, party_id: PartyId) -> Result<(), sqlx::Error> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT party_id FROM parties WHERE party_id = $1 FOR UPDATE",
+        )
+        .bind(party_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await?;
+        Ok(())
+    }
+
+    async fn lock_partnership_party(
+        &mut self,
+        partnership_id: PartnershipId,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT party.party_id FROM parties party \
+             JOIN partnerships partnership ON partnership.party_id = party.party_id \
+             WHERE partnership.partnership_id = $1 FOR UPDATE OF party",
+        )
+        .bind(partnership_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await?;
+        Ok(())
+    }
+}
 impl SqlxPartnershipRepositoryFactory {
     pub fn new() -> Self {
         Self
@@ -113,6 +139,11 @@ impl PartnershipRepository for Repository<'_> {
         party_id: PartyId,
         new_partnership_id: PartnershipId,
     ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
+        self.lock_party(party_id).await.map_err(|source| {
+            PartnershipRepositoryError::TemporarilyUnavailable {
+                source: box_error(source),
+            }
+        })?;
         let inserted = sqlx::query_as::<_, Row>(
             "INSERT INTO partnerships(partnership_id,party_id,business_state) VALUES($1,$2,$3) \
              ON CONFLICT (party_id) DO UPDATE \
@@ -154,6 +185,13 @@ impl PartnershipRepository for Repository<'_> {
         partnership: &Partnership,
         expected: PartnershipStorageVersion,
     ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
+        self.lock_partnership_party(partnership.id())
+            .await
+            .map_err(
+                |source| PartnershipRepositoryError::TemporarilyUnavailable {
+                    source: box_error(source),
+                },
+            )?;
         let expected = i64::try_from(expected.into_inner()).map_err(|source| {
             PartnershipRepositoryError::InvalidPersistedState {
                 source: box_error(source),
@@ -207,6 +245,11 @@ impl PartnershipMembershipRepository for Repository<'_> {
         user_id: user_core::user_id::UserId,
         partnership_id: PartnershipId,
     ) -> Result<PartnershipMembershipAddOutcome, PartnershipGrantError> {
+        self.lock_partnership_party(partnership_id)
+            .await
+            .map_err(|source| PartnershipGrantError::TemporarilyUnavailable {
+                source: box_error(source),
+            })?;
         let result = sqlx::query(
             "INSERT INTO partnership_members(user_id,partnership_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
         )
@@ -229,6 +272,11 @@ impl PartnershipMembershipRepository for Repository<'_> {
         user_id: user_core::user_id::UserId,
         partnership_id: PartnershipId,
     ) -> Result<PartnershipMembershipRemoveOutcome, PartnershipGrantError> {
+        self.lock_partnership_party(partnership_id)
+            .await
+            .map_err(|source| PartnershipGrantError::TemporarilyUnavailable {
+                source: box_error(source),
+            })?;
         let result =
             sqlx::query("DELETE FROM partnership_members WHERE user_id=$1 AND partnership_id=$2")
                 .bind(user_id.into_uuid())

@@ -23,7 +23,8 @@ pub struct StoredPartyLocation {
 #[async_trait::async_trait]
 pub trait PartyLocationAccess: Send {
     async fn lock_party(&mut self, party_id: PartyId) -> Result<bool, PartyLocationError>;
-    async fn has_management_grant(
+    /// Unsuspended users may manage through an explicit grant or active Party partnership membership.
+    async fn can_manage_locations(
         &mut self,
         party_id: PartyId,
         user_id: UserId,
