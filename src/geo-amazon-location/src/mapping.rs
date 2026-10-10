@@ -6,14 +6,14 @@ use geo::{
 };
 use geo_service::geocoding::{
     CandidateIssue, CandidateSet, GeocodingCandidate, GeocodingError, GeocodingFailure,
-    GeocodingOutcome, GeocodingProvenance, GeocodingRequest, GeocodingResult, GeocodingUsage,
-    ProviderMatchScore,
+    GeocodingOutcome, GeocodingProvenance, GeocodingRequest, GeocodingResult, ProviderMatchScore,
+    ResultRetention,
 };
 
 pub(crate) fn map_response(
     response: GeocodeOutput,
     request: &GeocodingRequest,
-    review: Option<&str>,
+    retention: ResultRetention,
 ) -> Result<GeocodingResult, GeocodingError> {
     let Some(items) = response.result_items else {
         return Err(invalid_response(
@@ -36,33 +36,28 @@ pub(crate) fn map_response(
         .into_iter()
         .map(|item| map_candidate(item, request))
         .collect::<Result<Vec<_>, _>>()?;
-    if request.purpose().requires_storage() {
-        // Check returned country too: missing, contradictory or outside the reviewed market
-        // must not acquire a persistence permission even when the provider ignored its filter.
-        let expected = request.constraint().map(|c| c.associated_country());
+    if retention.permits_storage() {
+        // Country must be verifiable so prohibited Japanese data cannot acquire a
+        // persistence permission, including when the provider ignored a country filter.
         if candidates.iter().any(|candidate| {
             let country = candidate
                 .geography()
                 .and_then(DerivedGeography::description)
                 .and_then(GeographicDescription::country);
-            country.is_none() || country == Some(CountryCode::JPN) || country != expected
+            country.is_none() || country == Some(CountryCode::JPN)
         }) {
             return Err(GeocodingError {
                 kind: GeocodingFailure::StorageNotPermitted,
-                source: static_error("returned geography is outside reviewed retention rights"),
+                source: static_error("returned country does not permit retained geocoding"),
             });
         }
     }
-    let usage = match review {
-        Some(review) => GeocodingUsage::retained(request.purpose(), review.to_owned()),
-        None => GeocodingUsage::single_use(request.purpose()),
-    };
     let outcome = if candidates.is_empty() {
         GeocodingOutcome::NoMatch
     } else {
         GeocodingOutcome::Candidates(CandidateSet::new(candidates, request.candidate_limit())?)
     };
-    Ok(GeocodingResult { outcome, usage })
+    Ok(GeocodingResult { outcome, retention })
 }
 
 fn map_candidate(

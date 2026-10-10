@@ -3,9 +3,7 @@
 use aws_sdk_geoplaces::config::Region;
 use geo::AddressText;
 use geo_amazon_location::{AmazonLocationConfig, AmazonLocationGeocoder, REGION};
-use geo_service::geocoding::{
-    Geocode, GeocodeHandler, GeocodingOutcome, GeocodingPurpose, GeocodingRequest,
-};
+use geo_service::geocoding::{Geocode, GeocodeHandler, GeocodingOutcome, GeocodingRequest};
 use std::io::{self, Read};
 
 #[tokio::main(flavor = "current_thread")]
@@ -14,8 +12,7 @@ async fn main() -> Result<(), application::error::BoxError> {
     io::stdin()
         .take(AddressText::MAX_BYTES as u64 + 1)
         .read_to_string(&mut query)?;
-    let request =
-        GeocodingRequest::new(AddressText::new(query)?, GeocodingPurpose::DealerPreview, 5)?;
+    let request = GeocodingRequest::new(AddressText::new(query)?);
     let sdk = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(Region::new(REGION))
         .load()

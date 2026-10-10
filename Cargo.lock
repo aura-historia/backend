@@ -3146,18 +3146,13 @@ dependencies = [
 name = "geo"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "fake",
  "isocountry",
- "mockall",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
- "tokio",
- "wiremock",
 ]
 
 [[package]]
@@ -3175,7 +3170,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
- "user-core",
  "wiremock",
 ]
 
@@ -3189,7 +3183,6 @@ dependencies = [
  "localization",
  "thiserror 2.0.21",
  "tokio",
- "user-core",
 ]
 
 [[package]]

@@ -1,9 +1,10 @@
 # Geography contract
 
 `geo` owns geographic representation and comparison. Its default features expose
-pure values and local reference lookups; Google, OpenSearch and Serde compatibility
-modules require explicit features. The reused `isocountry` dependency retains its
-existing Serde support; new boundary code uses the strict release-aware parser instead
+pure values and local reference lookups; OpenSearch and Serde compatibility
+modules require explicit features. Geocoding clients live in separate adapter crates.
+The reused `isocountry` dependency retains its existing Serde support; new boundary
+code uses the strict release-aware parser instead
 of its permissive parsing. Shipping owns destination selectors, exclusions,
 precedence and delivery assessment. A free-text address never establishes a
 shipping postcode: supply destination country/subdivision/postal assertions explicitly.
@@ -106,20 +107,18 @@ customs zones and delivery regions belong to their own policy vocabularies.
 
 ## Compatibility and boundary migration
 
-The workspace currently has no external `geo` consumers, geographic business storage
-or public geographic API to migrate. The former `StructuredAddress` carrier and its
-unused OpenSearch reconstruction helper are removed. `AddressText` owns free-form
+There is no geographic business storage or public geographic API to migrate.
+The former `StructuredAddress` carrier and its unused OpenSearch reconstruction helper
+are removed. `AddressText` owns free-form
 address observations; `GeographicDescription` owns partial validated assertions.
 Source components remain evidence at their owning adapter and are not guessed
 into ISO subdivisions. Continent is derived from country assertions when unambiguous.
 
-Both Google interfaces now accept validated `AddressText`, preserving its exact text
-through the documented [unstructured address query parameter](https://developers.google.com/maps/documentation/geocoding/reference/rest/v4/geocode.address/geocodeAddress).
-Empty/invalid input fails during construction, before a provider request. Geocoder
-responses remain separate provider-derived evidence. Google interfaces require
-`google`/`service`; OpenSearch distance helpers require `opensearch`; `full` enables all
-compatibility features. Distance struct literals must use the validated constructor
-and accessors.
+The unused Google geocoder and legacy geocoding service are removed, along with their
+`google`/`service` features and HTTP/runtime/mock dependencies in `geo`. New consumers
+use the provider-neutral `geo-service` capability. OpenSearch distance helpers require
+`opensearch`; `full` enables the remaining compatibility features. Distance struct
+literals must use the validated constructor and accessors.
 The optional `data` codecs retain canonical code strings and explicit release/units;
 conversion into domain values always calls constructors. These are compatibility
 codecs, not new REST shapes or business database schemas. Future persistence and
@@ -129,12 +128,17 @@ fields and patch intent explicit.
 ## Geocoding capability
 
 `geo-service` owns the provider-neutral geocoding port and use case; `geo` remains
-the pure geography owner. Requests contain validated, unchanged free text, an explicit
-trusted purpose, a bounded candidate limit, optional submitted assertions, independent
-hard country/subdivision constraints, a position ranking hint and presentation language.
-Assertions are never appended to the query or converted into filters implicitly.
-Hints are neither verified constraints nor canonical facts. The owning use case must
-derive private purpose and user identity from authenticated context.
+the pure geography owner. A request needs only validated, unchanged address text.
+Candidate limits have a bounded default; optional submitted assertions, independent
+hard country/subdivision constraints, a position ranking hint and presentation language
+refine the query. Assertions are never appended to the query or converted into filters
+implicitly. Hints are neither verified constraints nor canonical facts.
+
+The consuming Party, User or other service owns authorization, privacy purpose, user
+identity, acceptance and persistence/cache scope. The geocoding capability receives
+no dealer/user classification or user identifier and performs no persistence or caching.
+Provider retention is configured once when the composition root constructs the adapter;
+every response reports whether its derived evidence permits storage.
 
 An explicit empty result collection is no match. Multiple candidates are ambiguity;
 a single returned candidate is evidence, not proof of uniqueness or an acceptance
@@ -177,9 +181,9 @@ place index. The response does not identify individual upstream suppliers; prove
 records `AMAZON_LOCATION_DEFAULT`, not an invented supplier assertion. AWS's
 [attribution page](https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html)
 lists the underlying sources. Before enabling retention, operators must establish the
-actual applicable data-source terms for this product/region/account, record their
-review reference and permitted countries, and confirm the proposed display and reuse.
-The adapter conservatively applies the HERE Japan storage prohibition to all default
+actual applicable data-source terms for this product/region/account and confirm the
+proposed display and reuse. The adapter conservatively applies the HERE Japan storage
+prohibition to all default
 data. Other providers, products and regions require a separate profile and review.
 
 [AWS Service Terms section 82](https://aws.amazon.com/service-terms/#82._Amazon_Location_Service)
@@ -204,24 +208,25 @@ of source-specific restrictions or personal-data erasure requirements. Rates are
 region-dependent: review [current pricing](https://aws.amazon.com/location/pricing/)
 before authorizing paid evaluation or production volume.
 
-Retention is disabled by default. Reviewed configuration must independently enable
-dealer sharing and/or private user storage and allow the hard constrained country.
-Unconstrained retained queries, unreviewed purposes/markets and Japan fail before
-network access. The adapter also rejects returned missing, contradictory, Japanese or
-out-of-scope countries before releasing retained evidence. A review reference is an
-operator attestation to the above requirements, not a legal conclusion created by code.
-It must point to an access-controlled review record identifying applicable sources,
-terms versions/date, authorized scope, attribution placement and privacy/deletion rules.
+The adapter defaults to `ResultRetention::SingleUse`. A composition root enables
+retained results with `AmazonLocationConfig::default().with_retention(ResultRetention::Storage)`;
+the same address-only request works with either adapter configuration. This option
+controls provider request intent and pricing, without recording an operator review or
+business purpose in code. A hard country constraint is optional. Japan-constrained
+storage requests fail before network access; returned Japanese, missing or contradictory
+countries fail before retained evidence is released. Other constraint mismatches remain
+candidate outcomes and never establish an acceptance decision.
 
-Any future persistence/cache owner must store and enforce the accompanying usage
-permission, reference release, provenance, attribution, review reference and user scope
-for **all** derived components, including country/subdivision/coordinates. Check
-`permits_storage_in` both on writes and reuse; preserve the exact private user key and
-include purpose, query, constraints/hints/language and mapping/profile version in cache
-identity. Single-use evidence cannot be cached or promoted into retained business data.
-Private results cannot enter dealer caches or cross-user caches. Persistence permission
-is separate from candidate acceptance; mismatches cannot silently overwrite assertions.
-Disable retained resolution and reuse when its reviewed rights cease to apply.
+Any future persistence/cache owner must check `result.retention.permits_storage()`
+before writing **any** derived components, including country/subdivision/coordinates,
+and preserve reference release, provenance, attribution and interpretation profile.
+Single-use evidence cannot be cached or promoted into retained business data. Derive
+private ownership from authenticated context and isolate private results to that user;
+private evidence must never enter shared dealer caches or cross-user caches. Business
+services own those checks and cache keys, including query, constraints/hints/language
+and mapping/profile version. Storage permission does not grant authorization, satisfy
+personal-data rules or accept a candidate. Disable retained resolution and reuse when
+applicable provider rights cease to apply.
 
 Pass through attribution when showing derived data to others: conspicuously link AWS's
 attribution page in end-user terms/product documentation and retain required supplier
@@ -240,8 +245,9 @@ server with test credentials. It covers DE/GB/FR/IT/US/CA/AU examples, ambiguity
 Japanese/Arabic multiline text, country-only input, Puerto Rico, omitted components,
 approximate/estimated positions and future precision vocabulary. Additional tests cover
 coordinate order, nonfinite/out-of-range values, malformed successes, constraints,
-storage intent/isolation, deadlines, authentication and retry exhaustion. This establishes
-protocol/normalization behavior, **not measured market coverage or worldwide accuracy**.
+adapter retention intent, storage restrictions, deadlines, authentication and retry
+exhaustion. This establishes protocol/normalization behavior, **not measured market
+coverage or worldwide accuracy**.
 
 Amazon Location is selected initially because typed candidate geography, explicit storage
 intent and SigV4 fit this AWS backend without provisioned place indexes. The conservative
@@ -261,8 +267,8 @@ For a separately authorized manual evaluation:
    With approved test-account credentials, `cargo run --locked -p geo-amazon-location --example geocode`
    reads a public dealer query from stdin and makes a **paid-capable** single-use request.
    It prints only safe counts/classifications and persists no results. The example is not
-   run in automated validation. Retained evaluation requires reviewed configuration,
-   a hard country constraint and the retained purpose.
+   run in automated validation. Retained evaluation requires the adapter storage option
+   and compliance with the applicable provider conditions.
 4. Evaluate candidate recall, ambiguity, country errors, spatial error against the
    independent labels, useful precision and subdivision mapping gaps. Track error rates
    and latency by market/input class; do not reinterpret match scores as confidence.
@@ -272,8 +278,4 @@ For a separately authorized manual evaluation:
    same port. Never silently substitute Google or public Nominatim. Review sample-derived
    acceptance rules separately before using results to mutate business state.
 
-The existing Google string-only interfaces have no workspace callers and remain opt-in
-compatibility APIs. They have no retention permission or role in new durable geocoding;
-new consumers must use `geo-service`, explicitly choose purpose/constraints and handle
-candidate evidence. Their formatted strings cannot be promoted into G1 derived geography
-or used as a storage fallback. No current business rows or public REST contracts change.
+No current business rows or public REST contracts change.

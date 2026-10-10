@@ -13,8 +13,8 @@ platform-opensearch = []
 platform-postgres = ["application"]
 
 geo = []
-geo-service = ["application", "geo", "localization", "user-core"]
-geo-amazon-location = ["application", "geo", "geo-service", "localization", "user-core"]
+geo-service = ["application", "geo", "localization"]
+geo-amazon-location = ["application", "geo", "geo-service", "localization"]
 
 test-api-macros = []
 aura-historia-jobs = ["domain-primitives", "notification-core", "product-listing-core", "search-filter-core", "user-core"]

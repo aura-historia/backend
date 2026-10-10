@@ -5,49 +5,20 @@ use geo::{
 };
 use localization::Language;
 use std::{fmt, sync::Arc};
-use user_core::user_id::UserId;
 
-/// Trusted use-case purpose, never inferred from the text or supplied by an anonymous caller.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum GeocodingPurpose {
-    DealerPreview,
-    DealerReusable,
-    PrivatePreview { user_id: UserId },
-    PrivateRetained { user_id: UserId },
+/// Provider permission for retaining derived results. The consuming service owns
+/// authorization, user isolation, cache identity and the decision to persist evidence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ResultRetention {
+    #[default]
+    SingleUse,
+    Storage,
 }
 
-impl GeocodingPurpose {
-    pub fn requires_storage(self) -> bool {
-        matches!(self, Self::DealerReusable | Self::PrivateRetained { .. })
+impl ResultRetention {
+    pub fn permits_storage(self) -> bool {
+        self == Self::Storage
     }
-
-    pub fn storage_scope(self) -> Option<GeocodingStorageScope> {
-        match self {
-            Self::DealerReusable => Some(GeocodingStorageScope::DealerShared),
-            Self::PrivateRetained { user_id } => {
-                Some(GeocodingStorageScope::PrivateUser { user_id })
-            }
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Debug for GeocodingPurpose {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::DealerPreview => "DealerPreview",
-            Self::DealerReusable => "DealerReusable",
-            Self::PrivatePreview { .. } => "PrivatePreview { user_id: [redacted] }",
-            Self::PrivateRetained { .. } => "PrivateRetained { user_id: [redacted] }",
-        })
-    }
-}
-
-/// Cache/persistence owners must check the exact scope before writing or reusing evidence.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum GeocodingStorageScope {
-    DealerShared,
-    PrivateUser { user_id: UserId },
 }
 
 /// Hard requirements are checked against returned evidence as well as sent to providers.
@@ -102,7 +73,6 @@ pub enum InvalidGeocodingRequest {
 #[derive(Clone)]
 pub struct GeocodingRequest {
     query: AddressText,
-    purpose: GeocodingPurpose,
     candidate_limit: u8,
     submitted: Option<SubmittedGeography>,
     constraint: Option<GeographicConstraint>,
@@ -112,24 +82,24 @@ pub struct GeocodingRequest {
 
 impl GeocodingRequest {
     pub const MAX_CANDIDATES: usize = 10;
+    pub const DEFAULT_CANDIDATES: u8 = 5;
 
-    pub fn new(
-        query: AddressText,
-        purpose: GeocodingPurpose,
-        candidate_limit: u8,
-    ) -> Result<Self, InvalidGeocodingRequest> {
-        if !(1..=Self::MAX_CANDIDATES as u8).contains(&candidate_limit) {
-            return Err(InvalidGeocodingRequest::CandidateLimit);
-        }
-        Ok(Self {
+    pub fn new(query: AddressText) -> Self {
+        Self {
             query,
-            purpose,
-            candidate_limit,
+            candidate_limit: Self::DEFAULT_CANDIDATES,
             submitted: None,
             constraint: None,
             bias_position: None,
             language: None,
-        })
+        }
+    }
+    pub fn with_candidate_limit(mut self, limit: u8) -> Result<Self, InvalidGeocodingRequest> {
+        if !(1..=Self::MAX_CANDIDATES as u8).contains(&limit) {
+            return Err(InvalidGeocodingRequest::CandidateLimit);
+        }
+        self.candidate_limit = limit;
+        Ok(self)
     }
     pub fn with_submitted(mut self, submitted: SubmittedGeography) -> Self {
         self.submitted = Some(submitted);
@@ -152,9 +122,6 @@ impl GeocodingRequest {
     pub fn query(&self) -> &AddressText {
         &self.query
     }
-    pub fn purpose(&self) -> GeocodingPurpose {
-        self.purpose
-    }
     pub fn candidate_limit(&self) -> usize {
         self.candidate_limit.into()
     }
@@ -175,7 +142,6 @@ impl GeocodingRequest {
 impl fmt::Debug for GeocodingRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GeocodingRequest")
-            .field("purpose", &self.purpose)
             .field("candidate_limit", &self.candidate_limit)
             .finish_non_exhaustive()
     }
@@ -308,42 +274,6 @@ impl fmt::Debug for GeocodingCandidate {
     }
 }
 
-/// Permission accompanies all derived components, including country-only evidence.
-/// It is required at persistence/cache boundaries, not merely for raw provider payloads.
-#[derive(Clone)]
-pub struct GeocodingUsage {
-    purpose: GeocodingPurpose,
-    storage_review: Option<String>,
-}
-
-impl GeocodingUsage {
-    pub fn single_use(purpose: GeocodingPurpose) -> Self {
-        Self {
-            purpose,
-            storage_review: None,
-        }
-    }
-    /// Adapters call this only after checking their reviewed provider/product/region policy.
-    pub fn retained(purpose: GeocodingPurpose, review: String) -> Self {
-        Self {
-            purpose,
-            storage_review: Some(review),
-        }
-    }
-    pub fn purpose(&self) -> GeocodingPurpose {
-        self.purpose
-    }
-    pub fn storage_review(&self) -> Option<&str> {
-        self.storage_review.as_deref()
-    }
-    pub fn permits_storage_in(&self, scope: GeocodingStorageScope) -> bool {
-        self.storage_review
-            .as_ref()
-            .is_some_and(|r| !r.trim().is_empty())
-            && self.purpose.storage_scope() == Some(scope)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum GeocodingOutcome {
     NoMatch,
@@ -378,19 +308,11 @@ impl CandidateSet {
     }
 }
 
-impl fmt::Debug for GeocodingUsage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GeocodingUsage")
-            .field("purpose", &self.purpose)
-            .field("storage_reviewed", &self.storage_review.is_some())
-            .finish()
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct GeocodingResult {
     pub outcome: GeocodingOutcome,
-    pub usage: GeocodingUsage,
+    /// Applies to all provider-derived components, including country-only evidence.
+    pub retention: ResultRetention,
 }
 
 /// Static, safe classifications. Causes are for controlled diagnosis, never ordinary logs.
@@ -446,24 +368,6 @@ impl<P: GeocodingProvider> GeocodeHandler<P> {
 impl<P: GeocodingProvider> Geocode for GeocodeHandler<P> {
     async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
         let result = self.provider.geocode(request).await?;
-        if result.usage.purpose() != request.purpose() {
-            return Err(GeocodingError {
-                kind: GeocodingFailure::InvalidResponse,
-                source: application::error::static_error(
-                    "provider changed the requested privacy purpose",
-                ),
-            });
-        }
-        if let Some(scope) = request.purpose().storage_scope()
-            && !result.usage.permits_storage_in(scope)
-        {
-            return Err(GeocodingError {
-                kind: GeocodingFailure::StorageNotPermitted,
-                source: application::error::static_error(
-                    "provider did not grant the requested retention scope",
-                ),
-            });
-        }
         if let GeocodingOutcome::Candidates(candidates) = &result.outcome
             && candidates.as_slice().len() > request.candidate_limit()
         {
@@ -519,60 +423,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_preserves_ambiguity_and_checks_provider_bounds_and_privacy() {
-        let request = GeocodingRequest::new(
-            AddressText::new("test").unwrap(),
-            GeocodingPurpose::PrivatePreview {
-                user_id: UserId::new(),
-            },
-            2,
-        )
-        .unwrap();
-        let result = GeocodingResult {
-            outcome: GeocodingOutcome::Candidates(
-                CandidateSet::new(vec![candidate(), candidate()], 2).unwrap(),
-            ),
-            usage: GeocodingUsage::single_use(request.purpose()),
-        };
-        let handler = GeocodeHandler::new(Arc::new(StubProvider(result)));
-        let result = handler.geocode(&request).await.unwrap();
-        assert!(
-            matches!(result.outcome, GeocodingOutcome::Candidates(c) if c.has_multiple_candidates())
-        );
-        let smaller_request =
-            GeocodingRequest::new(request.query().clone(), request.purpose(), 1).unwrap();
-        assert_eq!(
-            GeocodingFailure::InvalidResponse,
-            handler.geocode(&smaller_request).await.unwrap_err().kind
-        );
-        let changed_scope = GeocodeHandler::new(StubProvider(GeocodingResult {
-            outcome: GeocodingOutcome::NoMatch,
-            usage: GeocodingUsage::retained(GeocodingPurpose::DealerReusable, "review".into()),
-        }));
-        assert_eq!(
-            GeocodingFailure::InvalidResponse,
-            changed_scope.geocode(&request).await.unwrap_err().kind
-        );
-        let retained = GeocodingRequest::new(
-            request.query().clone(),
-            GeocodingPurpose::PrivateRetained {
-                user_id: UserId::new(),
-            },
-            2,
-        )
-        .unwrap();
-        let missing_permission = GeocodeHandler::new(StubProvider(GeocodingResult {
-            outcome: GeocodingOutcome::NoMatch,
-            usage: GeocodingUsage::single_use(retained.purpose()),
-        }));
-        assert_eq!(
-            GeocodingFailure::StorageNotPermitted,
-            missing_permission
-                .geocode(&retained)
-                .await
-                .unwrap_err()
-                .kind
-        );
+    async fn address_only_requests_preserve_candidates_retention_and_provider_bounds() {
+        let request = GeocodingRequest::new(AddressText::new("test").unwrap());
+        assert_eq!(5, request.candidate_limit());
+        for retention in [ResultRetention::SingleUse, ResultRetention::Storage] {
+            let result = GeocodingResult {
+                outcome: GeocodingOutcome::Candidates(
+                    CandidateSet::new(vec![candidate(), candidate()], 2).unwrap(),
+                ),
+                retention,
+            };
+            let handler = GeocodeHandler::new(Arc::new(StubProvider(result)));
+            let result = handler.geocode(&request).await.unwrap();
+            assert!(
+                matches!(result.outcome, GeocodingOutcome::Candidates(c) if c.has_multiple_candidates())
+            );
+            assert_eq!(retention, result.retention);
+            let smaller_request = request.clone().with_candidate_limit(1).unwrap();
+            assert_eq!(
+                GeocodingFailure::InvalidResponse,
+                handler.geocode(&smaller_request).await.unwrap_err().kind
+            );
+        }
     }
 
     #[test]
@@ -588,12 +460,9 @@ mod tests {
     fn bounds_and_constraint_consistency() {
         for n in [0, 11, 255] {
             assert!(
-                GeocodingRequest::new(
-                    AddressText::new("Berlin").unwrap(),
-                    GeocodingPurpose::DealerPreview,
-                    n
-                )
-                .is_err()
+                GeocodingRequest::new(AddressText::new("Berlin").unwrap())
+                    .with_candidate_limit(n)
+                    .is_err()
             );
         }
         assert!(GeographicConstraint::new(None, None).is_err());
@@ -611,48 +480,12 @@ mod tests {
     }
 
     #[test]
-    fn retention_never_crosses_user_or_public_scopes() {
-        let alice = UserId::new();
-        let bob = UserId::new();
-        let scope = GeocodingStorageScope::PrivateUser { user_id: alice };
-        for purpose in [
-            GeocodingPurpose::DealerPreview,
-            GeocodingPurpose::PrivatePreview { user_id: alice },
-            GeocodingPurpose::PrivateRetained { user_id: alice },
-            GeocodingPurpose::DealerReusable,
-        ] {
-            assert!(!GeocodingUsage::single_use(purpose).permits_storage_in(scope));
-            assert!(
-                !GeocodingUsage::single_use(purpose)
-                    .permits_storage_in(GeocodingStorageScope::DealerShared)
-            );
-        }
-        let private = GeocodingUsage::retained(
-            GeocodingPurpose::PrivateRetained { user_id: alice },
-            "review".into(),
-        );
-        assert!(private.permits_storage_in(scope));
-        assert!(!private.permits_storage_in(GeocodingStorageScope::PrivateUser { user_id: bob }));
-        assert!(!private.permits_storage_in(GeocodingStorageScope::DealerShared));
-        let dealer = GeocodingUsage::retained(GeocodingPurpose::DealerReusable, "review".into());
-        assert!(dealer.permits_storage_in(GeocodingStorageScope::DealerShared));
-        assert!(!dealer.permits_storage_in(scope));
-    }
-
-    #[test]
     fn score_is_validated_and_debug_is_safe() {
         for n in [f64::NAN, f64::INFINITY, -0.1, 1.1] {
             assert!(ProviderMatchScore::new(n).is_none());
         }
-        let request = GeocodingRequest::new(
-            AddressText::new("sensitive address").unwrap(),
-            GeocodingPurpose::PrivatePreview {
-                user_id: UserId::new(),
-            },
-            5,
-        )
-        .unwrap()
-        .with_bias_position(GeoPoint::new(12.34, 56.78).unwrap());
+        let request = GeocodingRequest::new(AddressText::new("sensitive address").unwrap())
+            .with_bias_position(GeoPoint::new(12.34, 56.78).unwrap());
         let debug = format!("{request:?}");
         assert!(!debug.contains("sensitive"));
         assert!(!debug.contains("12.34"));

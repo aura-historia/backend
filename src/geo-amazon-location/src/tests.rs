@@ -9,43 +9,18 @@ use geo::{
     SubdivisionCode, SubmittedGeography,
 };
 use geo_service::geocoding::{
-    CandidateIssue, CandidateUsability, GeocodingOutcome, GeocodingPurpose, GeocodingStorageScope,
-    GeographicConstraint,
+    CandidateIssue, CandidateUsability, GeocodingOutcome, GeographicConstraint,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{error::Error, time::Duration};
-use user_core::user_id::UserId;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
 
-fn request(purpose: GeocodingPurpose) -> GeocodingRequest {
-    GeocodingRequest::new(
-        AddressText::new("  Vancouver\r\nBritish Columbia  ").unwrap(),
-        purpose,
-        5,
-    )
-    .unwrap()
-}
-
-fn reviewed_config() -> AmazonLocationConfig {
-    AmazonLocationConfig::new(
-        Duration::from_secs(6),
-        Duration::from_secs(2),
-        3,
-        StoragePolicy::Reviewed(
-            ReviewedStoragePolicy::new(
-                "synthetic-offline-review".into(),
-                vec![CountryCode::CAN, CountryCode::DEU, CountryCode::USA],
-                true,
-                true,
-            )
-            .unwrap(),
-        ),
-    )
-    .unwrap()
+fn request() -> GeocodingRequest {
+    GeocodingRequest::new(AddressText::new("  Vancouver\r\nBritish Columbia  ").unwrap())
 }
 
 fn sdk_client(endpoint: &str) -> Client {
@@ -137,12 +112,7 @@ async fn representative_offline_fixtures_use_real_sdk_encoding_and_parsing() {
     for fixture in fixtures {
         server.reset().await;
         mount(&server, success(fixture.response.clone(), "Core"), 1).await;
-        let request = GeocodingRequest::new(
-            AddressText::new(fixture.query.clone()).unwrap(),
-            GeocodingPurpose::DealerPreview,
-            5,
-        )
-        .unwrap();
+        let request = GeocodingRequest::new(AddressText::new(fixture.query.clone()).unwrap());
         let result = provider.geocode(&request).await.unwrap();
         if fixture.countries.is_empty() {
             assert!(
@@ -222,11 +192,7 @@ async fn representative_offline_fixtures_use_real_sdk_encoding_and_parsing() {
         assert!(body.get("Filter").is_none());
         assert!(body.get("AdditionalFeatures").is_none());
         assert_eq!(fixture.query, request.query().as_str());
-        assert!(
-            !result
-                .usage
-                .permits_storage_in(GeocodingStorageScope::DealerShared)
-        );
+        assert!(!result.retention.permits_storage());
     }
 }
 
@@ -244,7 +210,7 @@ async fn assertions_constraints_hints_and_language_have_distinct_semantics() {
         .unwrap()
         .unwrap(),
     );
-    let request = request(GeocodingPurpose::DealerPreview)
+    let request = request()
         .with_submitted(submitted.clone())
         .with_constraint(GeographicConstraint::new(Some(CountryCode::USA), None).unwrap())
         .with_bias_position(GeoPoint::new(52.52, 13.405).unwrap())
@@ -297,7 +263,7 @@ async fn unsupported_subdivision_cannot_verify_a_hard_constraint() {
     let mut response = canada();
     response["ResultItems"][0]["Address"]["Region"]["Code"] = json!("ON");
     mount(&server, success(response, "Core"), 1).await;
-    let request = request(GeocodingPurpose::DealerPreview).with_constraint(
+    let request = request().with_constraint(
         GeographicConstraint::new(None, Some(SubdivisionCode::new("CA-ON").unwrap())).unwrap(),
     );
     let result = provider(&server, AmazonLocationConfig::default())
@@ -320,7 +286,7 @@ async fn country_and_subdivision_mismatches_are_not_absence_or_outages() {
     let server = MockServer::start().await;
     mount(&server, success(canada(), "Core"), 2).await;
     let provider = provider(&server, AmazonLocationConfig::default());
-    let constrained = request(GeocodingPurpose::DealerPreview).with_constraint(
+    let constrained = request().with_constraint(
         GeographicConstraint::new(None, Some(SubdivisionCode::new("CA-ON").unwrap())).unwrap(),
     );
     let result = provider.geocode(&constrained).await.unwrap();
@@ -333,12 +299,11 @@ async fn country_and_subdivision_mismatches_are_not_absence_or_outages() {
             .issues()
             .contains(&CandidateIssue::SubdivisionConstraintMismatch)
     );
-    let asserted =
-        request(GeocodingPurpose::DealerPreview).with_submitted(SubmittedGeography::new(
-            GeographicDescription::new(None, Some(CountryCode::DEU), None, None)
-                .unwrap()
-                .unwrap(),
-        ));
+    let asserted = request().with_submitted(SubmittedGeography::new(
+        GeographicDescription::new(None, Some(CountryCode::DEU), None, None)
+            .unwrap()
+            .unwrap(),
+    ));
     let result = provider.geocode(&asserted).await.unwrap();
     assert_eq!(
         CandidateUsability::AssertionMismatch,
@@ -353,7 +318,7 @@ async fn contradictory_country_fields_do_not_form_coherent_geography() {
     response["ResultItems"][0]["Address"]["Country"]["Code3"] = json!("USA");
     mount(&server, success(response, "Core"), 1).await;
     let result = provider(&server, AmazonLocationConfig::default())
-        .geocode(&request(GeocodingPurpose::DealerPreview))
+        .geocode(&request())
         .await
         .unwrap();
     let candidate = &candidates(&result)[0];
@@ -388,10 +353,7 @@ async fn malformed_successes_invalid_coordinates_and_excess_candidates_fail_clos
     for response in responses {
         server.reset().await;
         mount(&server, success(response, "Core"), 1).await;
-        let error = provider
-            .geocode(&request(GeocodingPurpose::DealerPreview))
-            .await
-            .unwrap_err();
+        let error = provider.geocode(&request()).await.unwrap_err();
         assert_eq!(GeocodingFailure::InvalidResponse, error.kind);
         assert!(error.source().is_some());
     }
@@ -404,10 +366,7 @@ async fn malformed_successes_invalid_coordinates_and_excess_candidates_fail_clos
         1,
     )
     .await;
-    let error = provider
-        .geocode(&request(GeocodingPurpose::DealerPreview))
-        .await
-        .unwrap_err();
+    let error = provider.geocode(&request()).await.unwrap_err();
     assert_eq!(GeocodingFailure::InvalidResponse, error.kind);
     assert!(
         error
@@ -433,7 +392,7 @@ async fn malformed_successes_invalid_coordinates_and_excess_candidates_fail_clos
             .unwrap();
         assert_eq!(
             GeocodingFailure::InvalidResponse,
-            mapping::map_response(response, &request(GeocodingPurpose::DealerPreview), None)
+            mapping::map_response(response, &request(), ResultRetention::SingleUse)
                 .unwrap_err()
                 .kind
         );
@@ -457,7 +416,7 @@ fn invalid_scores_are_not_calibrated_probabilities_or_silent_absence() {
             .unwrap();
         assert_eq!(
             GeocodingFailure::InvalidResponse,
-            mapping::map_response(response, &request(GeocodingPurpose::DealerPreview), None)
+            mapping::map_response(response, &request(), ResultRetention::SingleUse)
                 .unwrap_err()
                 .kind
         );
@@ -479,84 +438,57 @@ async fn sdk_defaulted_match_scores_do_not_invent_provider_evidence() {
         let mut response = canada();
         response["ResultItems"][0]["MatchScores"] = scores;
         mount(&server, success(response, "Core"), 1).await;
-        let result = provider
-            .geocode(&request(GeocodingPurpose::DealerPreview))
-            .await
-            .unwrap();
+        let result = provider.geocode(&request()).await.unwrap();
         assert_eq!(expected, candidates(&result)[0].score().map(|s| s.value()));
     }
 }
 
 #[tokio::test]
-async fn retained_results_encode_storage_intent_and_keep_scope_permissions() {
+async fn adapter_configuration_encodes_retention_for_address_only_requests() {
     let server = MockServer::start().await;
-    mount(&server, success(canada(), "Stored"), 2).await;
-    let provider = provider(&server, reviewed_config());
-    let user = UserId::new();
-    for purpose in [
-        GeocodingPurpose::DealerReusable,
-        GeocodingPurpose::PrivateRetained { user_id: user },
+    for (retention, intended_use, bucket) in [
+        (ResultRetention::SingleUse, "SingleUse", "Core"),
+        (ResultRetention::Storage, "Storage", "Stored"),
     ] {
-        let request = request(purpose)
-            .with_constraint(GeographicConstraint::new(Some(CountryCode::CAN), None).unwrap());
+        server.reset().await;
+        mount(&server, success(canada(), bucket), 1).await;
+        let provider = provider(
+            &server,
+            AmazonLocationConfig::default().with_retention(retention),
+        );
+        let request = request();
         let result = provider.geocode(&request).await.unwrap();
+        assert_eq!(retention, result.retention);
         assert_eq!(
-            Some("synthetic-offline-review"),
-            result.usage.storage_review()
+            retention == ResultRetention::Storage,
+            result.retention.permits_storage()
         );
-        assert!(
-            result
-                .usage
-                .permits_storage_in(purpose.storage_scope().unwrap())
-        );
-        assert_eq!(
-            purpose == GeocodingPurpose::DealerReusable,
-            result
-                .usage
-                .permits_storage_in(GeocodingStorageScope::DealerShared)
-        );
-        assert!(
-            !result
-                .usage
-                .permits_storage_in(GeocodingStorageScope::PrivateUser {
-                    user_id: UserId::new()
-                })
-        );
-    }
-    for received in server.received_requests().await.unwrap() {
-        let body: Value = serde_json::from_slice(&received.body).unwrap();
-        assert_eq!("Storage", body["IntendedUse"]);
-        assert_eq!(json!(["CA"]), body["Filter"]["IncludeCountries"]);
+        let body: Value =
+            serde_json::from_slice(&server.received_requests().await.unwrap()[0].body).unwrap();
+        assert_eq!(request.query().as_str(), body["QueryText"]);
+        assert_eq!(intended_use, body["IntendedUse"]);
+        assert!(body.get("Filter").is_none());
     }
 }
 
 #[tokio::test]
-async fn storage_gates_reject_before_network_and_recheck_returned_geography() {
+async fn storage_rejects_japan_constraints_and_unverifiable_returned_countries() {
     let server = MockServer::start().await;
-    let no_storage = provider(&server, AmazonLocationConfig::default());
-    let request = request(GeocodingPurpose::DealerReusable);
+    let provider = provider(
+        &server,
+        AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+    );
+    let japan =
+        request().with_constraint(GeographicConstraint::new(Some(CountryCode::JPN), None).unwrap());
     assert_eq!(
         GeocodingFailure::StorageNotPermitted,
-        no_storage.geocode(&request).await.unwrap_err().kind
+        provider.geocode(&japan).await.unwrap_err().kind
     );
-    let provider = provider(&server, reviewed_config());
-    for country in [None, Some(CountryCode::JPN), Some(CountryCode::FRA)] {
-        let mut request = request.clone();
-        if let Some(country) = country {
-            request =
-                request.with_constraint(GeographicConstraint::new(Some(country), None).unwrap());
-        }
-        assert_eq!(
-            GeocodingFailure::StorageNotPermitted,
-            provider.geocode(&request).await.unwrap_err().kind
-        );
-    }
     assert!(server.received_requests().await.unwrap().is_empty());
     let request =
-        request.with_constraint(GeographicConstraint::new(Some(CountryCode::CAN), None).unwrap());
+        request().with_constraint(GeographicConstraint::new(Some(CountryCode::CAN), None).unwrap());
     for country in [
         json!({"Code2": "JP", "Code3": "JPN"}),
-        json!({"Code2": "DE", "Code3": "DEU"}),
         json!({"Code2": "CA", "Code3": "USA"}),
         json!({"Code2": "XX"}),
         json!({"Code2": "ca", "Code3": "CAN"}),
@@ -571,6 +503,24 @@ async fn storage_gates_reject_before_network_and_recheck_returned_geography() {
             provider.geocode(&request).await.unwrap_err().kind
         );
     }
+}
+
+#[tokio::test]
+async fn storage_permission_does_not_accept_a_country_constraint_mismatch() {
+    let server = MockServer::start().await;
+    mount(&server, success(canada(), "Stored"), 1).await;
+    let provider = provider(
+        &server,
+        AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+    );
+    let request =
+        request().with_constraint(GeographicConstraint::new(Some(CountryCode::USA), None).unwrap());
+    let result = provider.geocode(&request).await.unwrap();
+    assert!(result.retention.permits_storage());
+    assert_eq!(
+        CandidateUsability::ConstraintMismatch,
+        candidates(&result)[0].usability()
+    );
 }
 
 #[tokio::test]
@@ -606,10 +556,7 @@ async fn outages_throttling_authentication_and_bad_configuration_preserve_causes
             attempts,
         )
         .await;
-        let error = provider
-            .geocode(&request(GeocodingPurpose::DealerPreview))
-            .await
-            .unwrap_err();
+        let error = provider.geocode(&request()).await.unwrap_err();
         assert_eq!(expected, error.kind);
         assert!(
             error
@@ -635,19 +582,11 @@ async fn attempt_timeout_and_total_deadline_are_bounded() {
         1,
     )
     .await;
-    let config = AmazonLocationConfig::new(
-        Duration::from_secs(1),
-        Duration::from_millis(30),
-        1,
-        StoragePolicy::Disabled,
-    )
-    .unwrap();
+    let config =
+        AmazonLocationConfig::new(Duration::from_secs(1), Duration::from_millis(30), 1).unwrap();
     let provider = provider(&server, config);
     let start = tokio::time::Instant::now();
-    let error = provider
-        .geocode(&request(GeocodingPurpose::DealerPreview))
-        .await
-        .unwrap_err();
+    let error = provider.geocode(&request()).await.unwrap_err();
     assert_eq!(GeocodingFailure::Timeout, error.kind);
     assert!(start.elapsed() < Duration::from_secs(1));
     assert!(error.source().is_some());
@@ -660,19 +599,10 @@ async fn attempt_timeout_and_total_deadline_are_bounded() {
     .await;
     let provider = super::tests::provider(
         &server,
-        AmazonLocationConfig::new(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            3,
-            StoragePolicy::Disabled,
-        )
-        .unwrap(),
+        AmazonLocationConfig::new(Duration::from_secs(1), Duration::from_secs(1), 3).unwrap(),
     );
     let start = tokio::time::Instant::now();
-    let error = provider
-        .geocode(&request(GeocodingPurpose::DealerPreview))
-        .await
-        .unwrap_err();
+    let error = provider.geocode(&request()).await.unwrap_err();
     assert_eq!(GeocodingFailure::Timeout, error.kind);
     assert!(start.elapsed() < Duration::from_secs(2));
 }
@@ -718,10 +648,7 @@ async fn concurrency_queue_is_included_in_total_deadline() {
         .acquire_many(MAX_IN_FLIGHT as u32)
         .await
         .unwrap();
-    let error = provider
-        .geocode(&request(GeocodingPurpose::DealerPreview))
-        .await
-        .unwrap_err();
+    let error = provider.geocode(&request()).await.unwrap_err();
     assert_eq!(GeocodingFailure::Timeout, error.kind);
     assert!(
         error
@@ -737,24 +664,14 @@ async fn concurrency_queue_is_included_in_total_deadline() {
 async fn provider_text_bound_counts_unicode_characters_without_truncation() {
     let server = MockServer::start().await;
     let provider = provider(&server, AmazonLocationConfig::default());
-    let too_long = GeocodingRequest::new(
-        AddressText::new("東".repeat(201)).unwrap(),
-        GeocodingPurpose::DealerPreview,
-        5,
-    )
-    .unwrap();
+    let too_long = GeocodingRequest::new(AddressText::new("東".repeat(201)).unwrap());
     assert_eq!(
         GeocodingFailure::UnsupportedInput,
         provider.geocode(&too_long).await.unwrap_err().kind
     );
     assert!(server.received_requests().await.unwrap().is_empty());
     mount(&server, success(json!({"ResultItems": []}), "Core"), 1).await;
-    let accepted = GeocodingRequest::new(
-        AddressText::new("東".repeat(200)).unwrap(),
-        GeocodingPurpose::DealerPreview,
-        5,
-    )
-    .unwrap();
+    let accepted = GeocodingRequest::new(AddressText::new("東".repeat(200)).unwrap());
     assert!(matches!(
         provider.geocode(&accepted).await.unwrap().outcome,
         GeocodingOutcome::NoMatch
@@ -762,45 +679,6 @@ async fn provider_text_bound_counts_unicode_characters_without_truncation() {
     let body: Value =
         serde_json::from_slice(&server.received_requests().await.unwrap()[0].body).unwrap();
     assert_eq!(accepted.query().as_str(), body["QueryText"]);
-}
-
-#[tokio::test]
-async fn reviewed_public_and_private_purposes_are_independently_enabled() {
-    let server = MockServer::start().await;
-    for (dealer, private, denied_purpose) in [
-        (
-            true,
-            false,
-            GeocodingPurpose::PrivateRetained {
-                user_id: UserId::new(),
-            },
-        ),
-        (false, true, GeocodingPurpose::DealerReusable),
-    ] {
-        let config = AmazonLocationConfig::new(
-            Duration::from_secs(6),
-            Duration::from_secs(2),
-            3,
-            StoragePolicy::Reviewed(
-                ReviewedStoragePolicy::new(
-                    "review".into(),
-                    vec![CountryCode::CAN],
-                    dealer,
-                    private,
-                )
-                .unwrap(),
-            ),
-        )
-        .unwrap();
-        let provider = provider(&server, config);
-        let request = request(denied_purpose)
-            .with_constraint(GeographicConstraint::new(Some(CountryCode::CAN), None).unwrap());
-        assert_eq!(
-            GeocodingFailure::StorageNotPermitted,
-            provider.geocode(&request).await.unwrap_err().kind
-        );
-    }
-    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 #[test]
@@ -817,20 +695,11 @@ fn configuration_is_validated_and_inherited_request_bounds_are_overridden() {
             AmazonLocationConfig::new(
                 Duration::from_secs(deadline),
                 Duration::from_secs(attempt),
-                tries,
-                StoragePolicy::Disabled
+                tries
             )
             .is_err()
         );
     }
-    assert!(
-        ReviewedStoragePolicy::new("review".into(), vec![CountryCode::JPN], true, false).is_err()
-    );
-    assert!(ReviewedStoragePolicy::new(" ".into(), vec![CountryCode::DEU], true, false).is_err());
-    assert!(ReviewedStoragePolicy::new("review".into(), vec![], true, false).is_err());
-    assert!(
-        ReviewedStoragePolicy::new("review".into(), vec![CountryCode::DEU], false, false).is_err()
-    );
     let config = AmazonLocationConfig::default();
     let client = sdk_client(ENDPOINT);
     let client = Client::from_conf(
@@ -881,8 +750,7 @@ fn zero_zero_is_valid_and_unknown_precision_does_not_become_domain_precision() {
         .result_items(item)
         .build()
         .unwrap();
-    let result =
-        mapping::map_response(response, &request(GeocodingPurpose::DealerPreview), None).unwrap();
+    let result = mapping::map_response(response, &request(), ResultRetention::SingleUse).unwrap();
     let position = candidates(&result)[0]
         .geography()
         .and_then(DerivedGeography::position)

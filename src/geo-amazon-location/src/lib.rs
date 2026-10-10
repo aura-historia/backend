@@ -3,8 +3,7 @@ mod config;
 mod mapping;
 
 pub use config::{
-    AmazonLocationConfig, ENDPOINT, InvalidAmazonLocationConfig, REGION, ReviewedStoragePolicy,
-    StoragePolicy, TERMS_PROFILE,
+    AmazonLocationConfig, ENDPOINT, InvalidAmazonLocationConfig, REGION, TERMS_PROFILE,
 };
 
 use application::error::{box_error, static_error};
@@ -14,8 +13,10 @@ use aws_sdk_geoplaces::{
     operation::geocode::{GeocodeError, builders::GeocodeFluentBuilder},
     types::{GeocodeFilter, GeocodeIntendedUse},
 };
+use geo::CountryCode;
 use geo_service::geocoding::{
     GeocodingError, GeocodingFailure, GeocodingProvider, GeocodingRequest, GeocodingResult,
+    ResultRetention,
 };
 
 pub struct AmazonLocationGeocoder {
@@ -43,36 +44,15 @@ impl AmazonLocationGeocoder {
         })
     }
 
-    fn storage_review<'a>(
-        &'a self,
-        request: &GeocodingRequest,
-    ) -> Result<Option<&'a str>, GeocodingError> {
-        if !request.purpose().requires_storage() {
-            return Ok(None);
-        }
-        if let StoragePolicy::Reviewed(review) = &self.config.storage
-            && review.permits(request)
-        {
-            return Ok(Some(review.review_reference()));
-        }
-        Err(GeocodingError {
-            kind: GeocodingFailure::StorageNotPermitted,
-            source: static_error(
-                "retained geocoding requires a reviewed purpose and hard country constraint",
-            ),
-        })
-    }
-
     fn request(&self, request: &GeocodingRequest) -> GeocodeFluentBuilder {
         let mut builder = self
             .client
             .geocode()
             .query_text(request.query().as_str())
             .max_results(request.candidate_limit() as i32)
-            .intended_use(if request.purpose().requires_storage() {
-                GeocodeIntendedUse::Storage
-            } else {
-                GeocodeIntendedUse::SingleUse
+            .intended_use(match self.config.retention {
+                ResultRetention::Storage => GeocodeIntendedUse::Storage,
+                ResultRetention::SingleUse => GeocodeIntendedUse::SingleUse,
             });
         if let Some(constraint) = request.constraint() {
             builder = builder.filter(
@@ -108,7 +88,16 @@ impl GeocodingProvider for AmazonLocationGeocoder {
                 ),
             });
         }
-        let review = self.storage_review(request)?;
+        if self.config.retention.permits_storage()
+            && request
+                .constraint()
+                .is_some_and(|constraint| constraint.associated_country() == CountryCode::JPN)
+        {
+            return Err(GeocodingError {
+                kind: GeocodingFailure::StorageNotPermitted,
+                source: static_error("Places v2 results for Japan cannot be retained"),
+            });
+        }
         // Includes credential resolution, SDK backoff and response parsing. The SDK timeout
         // alone need not bound time spent resolving credentials outside operation execution.
         let response = tokio::time::timeout(self.config.deadline, async {
@@ -127,7 +116,7 @@ impl GeocodingProvider for AmazonLocationGeocoder {
             kind: GeocodingFailure::Timeout,
             source: box_error(source),
         })??;
-        mapping::map_response(response, request, review)
+        mapping::map_response(response, request, self.config.retention)
     }
 }
 
