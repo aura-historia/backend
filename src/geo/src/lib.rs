@@ -1,12 +1,5 @@
 pub mod core;
-#[cfg(feature = "google")]
-pub mod geocoder;
 pub mod reference;
-
-#[cfg(feature = "google")]
-pub use geocoder::{
-    Geocoder, GeocodingError, GeocodingErrorSource, GoogleGeocoder, GoogleGeocoderConfig,
-};
 
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
@@ -25,6 +18,3 @@ pub use core::{
 
 #[cfg(feature = "data")]
 pub mod data;
-
-#[cfg(feature = "service")]
-pub mod service;
