@@ -33,7 +33,9 @@ listing-source-postgres = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 party-postgres = { workspace = true }
+party-service = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 user-postgres = { workspace = true }
+user-service = { workspace = true }

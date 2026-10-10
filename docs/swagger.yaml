@@ -13401,6 +13401,753 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/v1/parties/{party_id}/locations:
+    post:
+      operationId: createPartyLocation
+      summary: Create a Party location
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_.:-]+$
+        description: Exactly one key. Stable per Party and trusted caller identity; matching retries converge, conflicting
+          command reuse returns 409.
+      responses:
+        '201':
+          description: Created location; matching retries replay the original creation result.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+            Location:
+              schema:
+                type: string
+              description: Protected PartyLocation detail path.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyLocationData'
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale or exhausted revision, retired-site correction or conflicting idempotency reuse (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePartyLocationData'
+    get:
+      operationId: listPartyLocations
+      summary: List protected Party locations
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: after
+        in: query
+        schema:
+          $ref: '#/components/schemas/PartyLocationId'
+        description: Exclusive ascending UUID keyset continuation; use previous next in the same Party/view.
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: Successful PartyLocation operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyLocationsPage'
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      description: Delegated credentials require parties:read. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
+  /api/v1/parties/{party_id}/locations/{location_id}:
+    get:
+      operationId: getPartyLocation
+      summary: Get a protected Party location
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: location_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PartyLocationId'
+      responses:
+        '200':
+          description: Successful PartyLocation operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyLocationData'
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      description: Delegated credentials require parties:read. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
+    patch:
+      operationId: correctPartyLocation
+      summary: Correct the same identified site
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: location_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PartyLocationId'
+      responses:
+        '200':
+          description: Successful PartyLocation operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyLocationData'
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale or exhausted revision, retired-site correction or conflicting idempotency reuse (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectPartyLocationData'
+  /api/v1/parties/{party_id}/locations/{location_id}/lifecycle:
+    put:
+      operationId: setPartyLocationLifecycle
+      summary: Retire or explicitly restore a Party location
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: location_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PartyLocationId'
+      responses:
+        '200':
+          description: Successful PartyLocation operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyLocationData'
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or Party-location management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale or exhausted revision, retired-site correction or conflicting idempotency reuse (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      description: Delegated credentials require parties:write. Use cases require administrator/internal authority,
+        membership in this Party's active partnership, or an explicit location management grant.
+        Non-administrator users must be unsuspended. Membership removal or partnership dissolution removes derived
+        authority; independent explicit grants survive. Listing-write scope does not confer access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPartyLocationLifecycleData'
+  /api/v1/admin/parties/{party_id}/location-managers/{user_id}:
+    put:
+      operationId: setPartyLocationManagementGrant
+      summary: Grant or revoke Party location management
+      tags:
+      - Party
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: party_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^pty_
+        description: Strict Party TypeID.
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^usr_
+      responses:
+        '400':
+          description: Invalid body/header/path/query (BAD_BODY_VALUE, BAD_HEADER_VALUE, INVALID_OBJECT_ID or BAD_QUERY_PARAMETER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Party or eligible location not found (PARTY_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence/transaction unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (PARTY_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing credential scope or administrator authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale or exhausted revision, retired-site correction or conflicting idempotency reuse (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '204':
+          description: Grant state applied.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+      description: Administrator/internal callers only, including parties:write for delegated credentials. An ordinary
+        location manager cannot grant privileges. Revocation serializes against protected location operations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartyLocationManagementGrantData'
 components:
   securitySchemes:
     BearerAuth:
@@ -13453,6 +14200,318 @@ components:
         pattern: '^[\x21-\x2B\x2D-\x7E]{1,128}$'
       example: catalog-sync-2026-09-29
   schemas:
+    PartyLocationId:
+      type: string
+      pattern: ^ploc_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Strict UUIDv7 PartyLocation TypeID; bare UUIDs and foreign prefixes are rejected.
+    PartyLocationGeography:
+      type: object
+      additionalProperties: false
+      required:
+      - referenceRelease
+      properties:
+        referenceRelease:
+          type: string
+          enum:
+          - iso-codes-4.20.1
+        addressText:
+          type: string
+          maxLength: 4096
+          description: Verbatim free-text assertion; at most 4096 UTF-8 bytes. No geocoding or postal inference.
+          nullable: true
+        country:
+          type: string
+          pattern: ^[A-Z]{2}$
+          description: Exact current ISO alpha-2 country in the named immutable release.
+          nullable: true
+        subdivision:
+          type: string
+          description: Complete ISO 3166-2 code in the named release; must agree with country when supplied.
+          nullable: true
+        postalCode:
+          type: string
+          maxLength: 64
+          description: Single-line verbatim postal assertion, at most 64 UTF-8 bytes.
+          nullable: true
+      description: Partial caller assertions. At least one geographic field must be present and nonblank. Coordinates
+        are separate. No synchronous geocoding.
+    PartyLocationPosition:
+      type: object
+      additionalProperties: false
+      required:
+      - latitudeDegrees
+      - longitudeDegrees
+      - precision
+      properties:
+        latitudeDegrees:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitudeDegrees:
+          type: number
+          minimum: -180
+          maximum: 180
+        precision:
+          type: string
+          enum:
+          - PREMISES
+          - STREET
+          - LOCALITY
+          - REPRESENTATIVE
+        accuracyMetres:
+          type: number
+          minimum: 0
+          nullable: true
+      description: Finite caller-asserted WGS84 coordinates with explicit precision. Not geocoder-derived evidence;
+        (0,0) is valid.
+    PartyLocationEvidence:
+      type: object
+      additionalProperties: false
+      required:
+      - reference
+      - scope
+      properties:
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Opaque nonblank single-line evidence/source reference; never fetched. At most 2048 UTF-8 bytes.
+        observedAt:
+          type: string
+          format: date-time
+          nullable: true
+        scope:
+          type: string
+          enum:
+          - SITE_DESCRIPTION
+          - REGISTERED_ADDRESS
+          - CORRESPONDENCE_ADDRESS
+          description: Declared assertion scope; never caller identity, authorization or trust.
+    ExpectedPartyLocation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      properties:
+        id:
+          $ref: '#/components/schemas/PartyLocationId'
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+    CreatePartyLocationData:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed nonblank single-line label, at most 255 UTF-8 bytes. Never establishes site identity.
+        roles:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - BUSINESS_PREMISES
+            - WAREHOUSE
+            - REGISTERED_ADDRESS
+            - CORRESPONDENCE
+          description: Business use of a site. No assertion about listing stock, dispatch or pickup.
+          default: []
+        geography:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationGeography'
+          nullable: true
+        position:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationPosition'
+          nullable: true
+        disclosure:
+          type: string
+          enum:
+          - PRIVATE
+          - COARSE_PUBLIC
+          - EXACT_PUBLIC
+          default: PRIVATE
+        evidence:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationEvidence'
+          nullable: true
+        relocates:
+          allOf:
+          - $ref: '#/components/schemas/ExpectedPartyLocation'
+          nullable: true
+      description: Create an independently identified site. Optional relocates creates a new identity and retires the
+        referenced active site atomically; its Party and revision must match.
+    CorrectPartyLocationData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      - correction
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed nonblank single-line label, at most 255 UTF-8 bytes. Never establishes site identity.
+        roles:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - BUSINESS_PREMISES
+            - WAREHOUSE
+            - REGISTERED_ADDRESS
+            - CORRESPONDENCE
+          description: Business use of a site. No assertion about listing stock, dispatch or pickup.
+        geography:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationGeography'
+          nullable: true
+        position:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationPosition'
+          nullable: true
+        disclosure:
+          type: string
+          enum:
+          - PRIVATE
+          - COARSE_PUBLIC
+          - EXACT_PUBLIC
+        evidence:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationEvidence'
+          nullable: true
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        correction:
+          type: string
+          enum:
+          - SAME_SITE
+      description: Same physical site correction only. Omitted members remain unchanged. Geography/position/evidence
+        null clears; non-null geographic objects replace the complete partial assertion. Label, roles and disclosure
+        reject null. Roles [] clears the set. No-op at the current revision emits no change signal. Relocation uses
+        create with relocates.
+    SetPartyLocationLifecycleData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      - lifecycle
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        lifecycle:
+          type: string
+          enum:
+          - ACTIVE
+          - RETIRED
+      description: Explicit retirement (RETIRED) or restore (ACTIVE), with CAS. Retains references/history and never
+        auto-selects replacements.
+    PartyLocationData:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - partyId
+      - label
+      - roles
+      - disclosure
+      - lifecycle
+      - revision
+      - inputRevision
+      properties:
+        id:
+          $ref: '#/components/schemas/PartyLocationId'
+        partyId:
+          type: string
+          pattern: ^pty_
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed nonblank single-line label, at most 255 UTF-8 bytes. Never establishes site identity.
+        roles:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - BUSINESS_PREMISES
+            - WAREHOUSE
+            - REGISTERED_ADDRESS
+            - CORRESPONDENCE
+          description: Business use of a site. No assertion about listing stock, dispatch or pickup.
+        geography:
+          $ref: '#/components/schemas/PartyLocationGeography'
+        position:
+          $ref: '#/components/schemas/PartyLocationPosition'
+        disclosure:
+          type: string
+          enum:
+          - PRIVATE
+          - COARSE_PUBLIC
+          - EXACT_PUBLIC
+          default: PRIVATE
+        lifecycle:
+          type: string
+          enum:
+          - ACTIVE
+          - RETIRED
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        inputRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        evidence:
+          $ref: '#/components/schemas/PartyLocationEvidence'
+    PartyLocationsPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PartyLocationData'
+        next:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationId'
+          nullable: true
+          description: Last returned ID when another row exists; supply as after. Null when exhausted.
+    PartyLocationManagementGrantData:
+      type: object
+      additionalProperties: false
+      required:
+      - granted
+      properties:
+        granted:
+          type: boolean
+          description: true grants explicit management/private reads; false removes only the explicit grant. Active partnership membership independently authorizes access. Same-state commands are no-ops.
     ActorData:
       oneOf:
         - type: string

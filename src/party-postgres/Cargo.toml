@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true, features = ["data"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+user-core = { workspace = true }
 application = { workspace = true }
 async-trait = { workspace = true }
 domain-primitives = { workspace = true }
@@ -17,6 +21,7 @@ time = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+user-service = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

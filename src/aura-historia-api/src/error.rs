@@ -1729,6 +1729,9 @@ impl From<DeletePartyError> for ApiError {
             }
             DeletePartyError::DependencyConflict { blocker } => ApiError::conflict(CONFLICT)
                 .with_detail(match blocker {
+                    party_service::ports::PartyDeletionBlocker::Locations => {
+                        "Party has retained locations or location management grants."
+                    }
                     party_service::ports::PartyDeletionBlocker::ListingSources => {
                         "Party operates one or more ListingSources."
                     }
@@ -3061,6 +3064,28 @@ impl IntoResponse for ApiError {
             Json(self),
         )
             .into_response()
+    }
+}
+
+impl From<party_service::use_cases::party_locations::PartyLocationError> for ApiError {
+    fn from(error: party_service::use_cases::party_locations::PartyLocationError) -> Self {
+        use party_service::use_cases::party_locations::PartyLocationError as E;
+        match error {
+            E::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
+            E::Forbidden => Self::forbidden(FORBIDDEN),
+            E::NotFound => Self::not_found(PARTY_NOT_FOUND),
+            E::ConcurrencyConflict
+            | E::IdempotencyConflict
+            | E::RevisionExhausted
+            | E::Domain(_) => Self::conflict(CONFLICT),
+            E::InvalidInput => Self::bad_request(BAD_BODY_VALUE),
+            E::TemporarilyUnavailable { .. } | E::Transaction(_) => {
+                Self::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+            }
+            E::InvalidPersistedState { .. } | E::Internal { .. } => {
+                Self::internal_server_error(PARTY_INTERNAL_ERROR)
+            }
+        }
     }
 }
 

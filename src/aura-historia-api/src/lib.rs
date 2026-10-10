@@ -907,6 +907,31 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(locations) = state.party_locations {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/parties/{party_id}/locations",
+                    get(parties::locations::list).post(parties::locations::create),
+                )
+                .route(
+                    "/api/v1/parties/{party_id}/locations/{location_id}",
+                    get(parties::locations::get).patch(parties::locations::update),
+                )
+                .route(
+                    "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle",
+                    axum::routing::put(parties::locations::lifecycle),
+                )
+                .route(
+                    "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
+                    axum::routing::put(parties::locations::grant),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(locations),
+        );
+    }
     if let Some(parties) = state.parties {
         routes = routes.merge(
             Router::new()
@@ -1640,6 +1665,51 @@ async fn app_state_from_config_and_pool(
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
+    use party_postgres::{
+        SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
+        SqlxPartyLocationRepositoryFactory,
+    };
+    use party_service::use_cases::party_locations::*;
+    let location_admin =
+        || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
+    let party_locations_state = state::PartyLocationsState {
+        create: Arc::new(CreatePartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        update: Arc::new(UpdatePartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        lifecycle: Arc::new(SetPartyLocationLifecycleHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        grant: Arc::new(GrantPartyLocationManagementHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        get: Arc::new(GetPartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        list: Arc::new(ListPartyLocationsHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let parties_state = PartiesState::new(
         Arc::new(create_party),
         Arc::new(get_party),
@@ -1860,6 +1930,7 @@ async fn app_state_from_config_and_pool(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_parties(parties_state)
+        .with_party_locations(party_locations_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)

@@ -1,5 +1,7 @@
 use application::{
-    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+    operation_context::{
+        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
+    },
     transaction::{Transaction, UnitOfWork},
 };
 use listing_source_core::ListingSourceId;
@@ -23,12 +25,25 @@ use partnership_service::{
         ApprovePartnershipApplicationUseCase,
     },
 };
-use party_core::party_id::PartyId;
-use party_postgres::SqlxPartyRepositoryFactory;
+use party_core::{
+    party_id::PartyId,
+    party_location::{PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel},
+};
+use party_postgres::{
+    SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
+    SqlxPartyLocationRepositoryFactory, SqlxPartyRepositoryFactory,
+};
+use party_service::use_cases::party_locations::{
+    CreatePartyLocationCommand, CreatePartyLocationHandler, CreatePartyLocationUseCase,
+    GetPartyLocationHandler, GetPartyLocationRequest, GetPartyLocationUseCase,
+    ListPartyLocationsHandler, ListPartyLocationsRequest, ListPartyLocationsUseCase,
+    PartyLocationError, PartyLocationIdempotencyKey,
+};
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use serde_json::json;
 use sqlx::PgPool;
 use std::{
+    collections::BTreeSet,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -38,6 +53,7 @@ use std::{
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::user_id::UserId;
 use user_postgres::SqlxUserAdminReaderFactory;
+use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -290,6 +306,109 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
     assert_eq!(1, count(&pool, "partnerships").await);
     assert_eq!(1, count(&pool, "partnership_members").await);
     assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);
+
+    let party_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT party_id FROM partnerships WHERE partnership_id = $1",
+    )
+    .bind(first.partnership_id.unwrap().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let party_id = PartyId::try_from(party_id).unwrap();
+    let partner = OperationContext {
+        principal: Principal::DelegatedUser {
+            user_id,
+            capabilities: BTreeSet::from([
+                CredentialCapability::PartiesRead,
+                CredentialCapability::PartiesWrite,
+            ]),
+        },
+        ..system_context()
+    };
+    let create = CreatePartyLocationHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxPartyLocationRepositoryFactory,
+        SqlxPartyLocationAccessFactory,
+        CheckUserAdminHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxUserAdminReaderFactory,
+        ),
+    );
+    let location = create
+        .execute(
+            &partner,
+            CreatePartyLocationCommand {
+                party_id,
+                idempotency_key: PartyLocationIdempotencyKey::new("approved-partner".to_owned())
+                    .unwrap(),
+                content: PartyLocationContent {
+                    label: PartyLocationLabel::new("Private warehouse".to_owned()).unwrap(),
+                    roles: BTreeSet::new(),
+                    geography: None,
+                    position: None,
+                    disclosure: PartyLocationDisclosure::Private,
+                },
+                evidence: None,
+                relocates: None,
+            },
+        )
+        .await
+        .unwrap();
+    let get = GetPartyLocationHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxPartyLocationReaderFactory,
+        SqlxPartyLocationAccessFactory,
+        CheckUserAdminHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxUserAdminReaderFactory,
+        ),
+    );
+    let request = GetPartyLocationRequest {
+        party_id,
+        id: location.id,
+    };
+    assert_eq!(
+        location,
+        get.execute(&partner, request.clone()).await.unwrap()
+    );
+    let listing_only = OperationContext {
+        principal: Principal::DelegatedUser {
+            user_id,
+            capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
+        },
+        ..system_context()
+    };
+    assert!(matches!(
+        get.execute(&listing_only, request).await,
+        Err(PartyLocationError::Forbidden)
+    ));
+    let page = ListPartyLocationsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxPartyLocationReaderFactory,
+        SqlxPartyLocationAccessFactory,
+        CheckUserAdminHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxUserAdminReaderFactory,
+        ),
+    )
+    .execute(
+        &partner,
+        ListPartyLocationsRequest {
+            party_id,
+            after: None,
+            limit: 25,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(vec![location], page.items);
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM party_location_management_grants")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

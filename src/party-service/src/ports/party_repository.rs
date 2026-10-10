@@ -14,6 +14,7 @@ pub struct StoredParty {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartyDeletionBlocker {
+    Locations,
     ListingSources,
     Partnership,
 }

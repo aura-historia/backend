@@ -28,6 +28,7 @@ pub enum PartnershipMembershipRemoveOutcome {
     AlreadyAbsent,
 }
 
+/// Membership changes serialize on the owner Party with location management and dissolution.
 #[async_trait::async_trait]
 pub trait PartnershipMembershipRepository: Send {
     async fn add_member(

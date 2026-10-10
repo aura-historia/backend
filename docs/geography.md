@@ -107,9 +107,10 @@ customs zones and delivery regions belong to their own policy vocabularies.
 
 ## Compatibility and boundary migration
 
-There is no geographic business storage or public geographic API to migrate.
-The former `StructuredAddress` carrier and its unused OpenSearch reconstruction helper
-are removed. `AddressText` owns free-form
+Party locations consume these pure values; their transport and PostgreSQL adapters
+validate through the constructors and retain the asserted reference release.
+The former `StructuredAddress` carrier and its
+unused OpenSearch reconstruction helper are removed. `AddressText` owns free-form
 address observations; `GeographicDescription` owns partial validated assertions.
 Source components remain evidence at their owning adapter and are not guessed
 into ISO subdivisions. Continent is derived from country assertions when unambiguous.
@@ -124,6 +125,98 @@ conversion into domain values always calls constructors. These are compatibility
 codecs, not new REST shapes or business database schemas. Future persistence and
 transport owners must use similarly fallible mappings and keep submitted/derived
 fields and patch intent explicit.
+
+## Party locations (#1999)
+
+A PartyLocation is one Party's independently identified association with a site, not
+a canonical address, PartyContact, listing inventory fact or global default. Different
+Parties at the same address keep different IDs and permissions. Roles describe business
+use only; a warehouse role grants no claim about stock, dispatch or collection. Partial
+descriptions, free text, country-only assertions and entirely unresolved sites are valid.
+Creation does not contact evidence URLs, geocoders or an LLM. Coordinates accepted here
+are caller assertions with explicit precision; derived resolution is future enrichment.
+
+Correction explicitly asserts the same physical site and retains the ID. Relocation is
+an explicit create command referencing the old ID and its expected revision; it creates
+an independent ID and retires the old location atomically. Retirement preserves history,
+blocks new assignments and excludes the old site from current public/inherited geography.
+Restore is explicit and never reassigns consumers. Retained locations and grants block
+Party deletion. No location operation automatically selects a ListingSource default.
+Cross-context consumers must check active eligibility; dependency invalidation belongs
+to subsequent roadmap issues.
+
+### Authorization and disclosure
+
+Use cases accept the existing trusted OperationContext. Services/system callers and
+verified administrators may manage locations. Other users need an explicit, revocable
+Party-location management grant or membership in that Party's active partnership.
+Both paths require an unsuspended user and permit management and private reading of
+all locations of that Party, without conferring Party editing privileges. Application
+approval establishes membership, so existing and later-added members obtain location
+authority without a separate grant or backfill. Removing membership or dissolving the
+partnership removes that derived authority. Independent explicit grants survive those
+changes; only administrators/trusted internal callers may grant or revoke them, and
+revoking an explicit grant does not override active partnership membership.
+
+Delegated credentials additionally need existing `parties:write` for mutations and
+`parties:read` for protected reads. These scopes alone confer no management authority;
+`product-listings:write` confers neither location access nor mutation rights. Location
+operations, explicit grant changes, partnership membership changes and partnership
+creation/reactivation/dissolution serialize on the owner Party row before changing
+partnership, membership or location state.
+
+REST and application use cases expose only protected location management and
+administrator grant/revoke operations. Get/list always enforce management authority.
+Membership must belong to the requested Party's active partnership. There are no public
+Party-location get/list endpoints or application use cases. Management reads include
+private and retired sites, with their evidence and revision tokens.
+
+Creation defaults to PRIVATE. The persisted disclosure policy governs future public
+geography consumers, which must exclude PRIVATE and retired locations.
+COARSE_PUBLIC permits only roles and asserted country/subdivision; it excludes label,
+free-text address, postal text and every coordinate, even with claimed coarse precision.
+EXACT_PUBLIC permits label, address/postal assertions and coordinates. Evidence and
+protected revision tokens must be excluded from every public view. A ListingSource
+reference cannot make a location less private.
+
+Caller evidence contains an opaque bounded reference, optional observation time and
+one declared assertion scope: site description, registered address or correspondence
+address. It establishes neither listing storage/pickup nor caller identity/trust. Actor
+identity comes from OperationContext; evidence cannot override it. Evidence and address
+content are excluded from structured logs. Private state and creation receipts must
+remain outside CDC/public projections. Only the minimal change signal is intended for
+later invalidation routing; no downstream invalidation route is activated here.
+
+### Retry, revision and persistence guarantees
+
+The idempotency namespace is `(Party, trusted principal kind/identity, Idempotency-Key)`.
+Keys are 1–128 ASCII letters/digits or `-_.:`. Completed creation semantics and its original
+result commit with the location and any relocation. Independent retries serialize on the
+Party row and replay that original result, even after later correction/retirement; changed
+semantics under the same key fail with conflict. Address equality does not establish
+identity. Receipts have no expiry; retries must retain the same trusted caller identity.
+
+Protected results expose a positive expected-revision token for this explicit CAS
+contract. Every update/lifecycle command submits it; stale revisions conflict even for
+identical requests. This is the deliberate location-specific exception to the ordinary
+use-case preference to hide storage versions in `arch.md`. Omitted PATCH members are
+unchanged, nullable members clear on null, and required members reject null. Roles are
+replaced with an explicit set; an empty set clears them. Identical
+commands at the current revision do not advance revisions, update timestamps or emit a
+semantic change signal. Changed writes advance authoritative revision once; exhausted
+revisions reject changes with conflict while permitting same-state no-ops. Geography,
+asserted position or evidence changes also advance input revision; label/roles/disclosure
+changes and lifecycle transitions do not rewrite inputs. Future derived resolution must
+pin this input revision and ignore mismatched results.
+
+`party_location_changes` is an append-only revision signal committed with semantic writes,
+keyed by location ID/revision. It contains only owner/location identities, revision, input
+revision, lifecycle, trusted actor and occurrence time. Future consumers must process it
+idempotently and check authoritative eligibility. It is not an event-sourced aggregate
+or a second business model. Exact constraints belong to migrations/adapters; public
+shapes and errors belong to [OpenAPI](swagger.yaml). Lists use ascending native UUID
+keyset order, bounded page sizes and `ploc_` continuation IDs, without listing hydration.
+Lists are live traversals; management authority is reevaluated each page.
 
 ## Geocoding capability
 
