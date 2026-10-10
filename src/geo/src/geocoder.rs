@@ -1,3 +1,5 @@
+//! Legacy opt-in formatted-address compatibility. New consumers use the provider-neutral
+//! `geo-service::geocoding` capability. This API grants no durable retention permission.
 use crate::AddressText;
 use std::error::Error;
 

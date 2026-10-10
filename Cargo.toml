@@ -49,6 +49,8 @@ members = [
     "src/image-fetcher",
     "src/public-network-policy",
     "src/geo",
+    "src/geo-service",
+    "src/geo-amazon-location",
     "src/search-filter-core",
     "src/search-filter-service",
     "src/search-filter-postgres",
@@ -133,6 +135,7 @@ axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
 aws-sdk-eventbridge = "1.108.0"
+aws-sdk-geoplaces = "1.69.0"
 aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
 aws-sdk-ssm = "1.128.0"
@@ -153,6 +156,8 @@ classifier-model = { path = "src/classifier-model" }
 image-fetcher = { path = "src/image-fetcher" }
 public-network-policy = { path = "src/public-network-policy" }
 geo = { path = "src/geo" }
+geo-service = { path = "src/geo-service" }
+geo-amazon-location = { path = "src/geo-amazon-location" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }

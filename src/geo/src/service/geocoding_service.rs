@@ -1,3 +1,5 @@
+//! Legacy opt-in Google compatibility. New consumers use `geo-service::geocoding`;
+//! formatted strings from this interface are not a fallback for durable evidence.
 use crate::AddressText;
 use serde::Deserialize;
 

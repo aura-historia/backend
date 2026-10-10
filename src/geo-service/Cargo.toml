@@ -1,0 +1,15 @@
+[package]
+name = "geo-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+geo = { workspace = true }
+localization = { workspace = true }
+thiserror = { workspace = true }
+user-core = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

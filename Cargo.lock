@@ -628,6 +628,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-geoplaces"
+version = "1.69.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc9ac166a4016652049134a5fc78c3a10cfc20ecc4081f4aee2a99b8937f5436"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-opensearch"
 version = "1.149.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3133,6 +3158,38 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "wiremock",
+]
+
+[[package]]
+name = "geo-amazon-location"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-geoplaces",
+ "geo",
+ "geo-service",
+ "localization",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "user-core",
+ "wiremock",
+]
+
+[[package]]
+name = "geo-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "geo",
+ "localization",
+ "thiserror 2.0.21",
+ "tokio",
+ "user-core",
 ]
 
 [[package]]
