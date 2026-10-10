@@ -92,6 +92,64 @@ impl FxRateSnapshotReader for SqlxFxRateSnapshotReader {
 
         decode_snapshot_rows(rows)
     }
+
+    async fn find_latest_at_or_before_many(
+        &self,
+        timestamps: &[OffsetDateTime],
+    ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+        if timestamps.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_as::<_, SnapshotWithQuoteRow>(
+            r#"
+            WITH requested_times AS (
+                SELECT DISTINCT unnest($1::timestamptz[]) AS cutoff
+            ), selected_snapshots AS (
+                SELECT DISTINCT selected.*
+                FROM requested_times t
+                CROSS JOIN LATERAL (
+                    SELECT fx_rate_id, generation, captured_at, source
+                    FROM fx_rates
+                    WHERE captured_at <= t.cutoff
+                    ORDER BY captured_at DESC, generation DESC
+                    LIMIT 1
+                ) selected
+            )
+            SELECT
+                s.fx_rate_id, s.generation, s.captured_at, s.source,
+                q.currency, q.units_per_eur
+            FROM selected_snapshots s
+            LEFT JOIN fx_rate_quotes q ON q.fx_rate_id = s.fx_rate_id
+            ORDER BY s.captured_at, s.generation, q.currency
+            "#,
+        )
+        .bind(timestamps)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|source| FxRateSnapshotReadError::ReadFailed {
+            source: box_error(source),
+        })?;
+
+        decode_batch_snapshot_rows(rows)
+    }
+}
+
+fn decode_batch_snapshot_rows(
+    rows: Vec<SnapshotWithQuoteRow>,
+) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+    let mut snapshots = Vec::new();
+    let mut rows = rows.into_iter().peekable();
+    while let Some(first) = rows.next() {
+        let id = first.fx_rate_id;
+        let mut group = vec![first];
+        while rows.peek().is_some_and(|row| row.fx_rate_id == id) {
+            group.extend(rows.next());
+        }
+        if let Some(snapshot) = decode_snapshot_rows(group)? {
+            snapshots.push(snapshot);
+        }
+    }
+    Ok(snapshots)
 }
 
 fn decode_snapshot_rows(

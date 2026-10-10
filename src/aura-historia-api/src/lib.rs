@@ -1166,6 +1166,7 @@ async fn app_state_from_config_and_pool(
     let get_product_listing_history = GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
         SqlxProductListingHistoryReaderFactory::new(),
+        SqlxFxRateSnapshotReader::new(pool.clone()),
     );
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
