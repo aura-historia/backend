@@ -1,4 +1,4 @@
-use crate::core::address::StructuredAddress;
+use crate::AddressText;
 use std::error::Error;
 
 const GOOGLE_GEOCODING_V4_URL: &str = "https://geocode.googleapis.com/v4/geocode/address";
@@ -37,7 +37,7 @@ impl GeocodingError {
 
 #[async_trait::async_trait]
 pub trait Geocoder: Send + Sync {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError>;
+    async fn geocode(&self, address: &AddressText) -> Result<String, GeocodingError>;
 }
 
 #[async_trait::async_trait]
@@ -45,7 +45,7 @@ impl<G> Geocoder for std::sync::Arc<G>
 where
     G: Geocoder + ?Sized,
 {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError> {
+    async fn geocode(&self, address: &AddressText) -> Result<String, GeocodingError> {
         self.as_ref().geocode(address).await
     }
 }
@@ -66,7 +66,7 @@ impl GoogleGeocoderConfig {
 /// Google Maps implementation of [`Geocoder`].
 ///
 /// This adapter owns Google request and response types. Composition roots provide its API key;
-/// this crate never reads environment variables.
+/// this adapter never reads environment variables.
 pub struct GoogleGeocoder {
     client: reqwest::Client,
     config: GoogleGeocoderConfig,
@@ -79,18 +79,20 @@ impl GoogleGeocoder {
             config,
         }
     }
+
+    fn request(&self, address: &AddressText) -> reqwest::RequestBuilder {
+        self.client
+            .get(GOOGLE_GEOCODING_V4_URL)
+            .query(&[("addressQuery", address.as_str())])
+            .header("X-Goog-Api-Key", &self.config.api_key)
+    }
 }
 
 #[async_trait::async_trait]
 impl Geocoder for GoogleGeocoder {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError> {
-        let address = address
-            .format_for_geocoding()
-            .ok_or_else(|| GeocodingError::internal(EmptyAddress))?;
+    async fn geocode(&self, address: &AddressText) -> Result<String, GeocodingError> {
         let response = self
-            .client
-            .get(format!("{GOOGLE_GEOCODING_V4_URL}/{address}"))
-            .header("X-Goog-Api-Key", &self.config.api_key)
+            .request(address)
             .send()
             .await
             .map_err(|source| GeocodingError::from(GoogleGeocoderRequestError(source)))?;
@@ -154,10 +156,6 @@ impl From<GoogleGeocoderResponseError> for GeocodingError {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("structured address is empty")]
-struct EmptyAddress;
-
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GoogleGeocodingResponse {
@@ -195,22 +193,43 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Geocoder for StubGeocoder {
-        async fn geocode(&self, _address: &StructuredAddress) -> Result<String, GeocodingError> {
-            Ok("formatted address".to_owned())
+        async fn geocode(&self, address: &AddressText) -> Result<String, GeocodingError> {
+            Ok(address.as_str().to_owned())
         }
     }
 
     #[tokio::test]
     async fn should_delegate_arc_geocoder() {
         let geocoder = Arc::new(StubGeocoder);
-        let result =
-            <Arc<StubGeocoder> as Geocoder>::geocode(&geocoder, &StructuredAddress::default())
-                .await;
+        let address = AddressText::new(" 10 Downing Street\nLondon ").unwrap();
+        let result = <Arc<StubGeocoder> as Geocoder>::geocode(&geocoder, &address).await;
 
         assert!(matches!(
             result,
-            Ok(formatted_address) if formatted_address == "formatted address"
+            Ok(formatted_address) if formatted_address == address.as_str()
         ));
+    }
+
+    #[test]
+    fn should_encode_exact_address_text_in_google_request() {
+        let geocoder = GoogleGeocoder::new(GoogleGeocoderConfig::new("test-key"));
+        for source in [
+            "10 Downing Street, London",
+            "  東京都千代田区\r\n丸の内１丁目９−１  ",
+            "شارع المتنبي\nبغداد / #1?x=y&regionCode=GB + %20",
+        ] {
+            let address = AddressText::new(source).unwrap();
+            let request = geocoder.request(&address).build().unwrap();
+            assert_eq!("geocode.googleapis.com", request.url().host_str().unwrap());
+            assert_eq!("/v4/geocode/address", request.url().path());
+            assert_eq!(None, request.url().fragment());
+            assert_eq!(
+                vec![("addressQuery".to_owned(), source.to_owned())],
+                request.url().query_pairs().into_owned().collect::<Vec<_>>()
+            );
+            assert_eq!("test-key", request.headers()["X-Goog-Api-Key"]);
+            assert_eq!(source, address.as_str());
+        }
     }
 
     #[test]

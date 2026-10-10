@@ -55,6 +55,9 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
 
+      - name: Check geographic reference reproducibility
+        run: python3 src/geo/scripts/generate_reference.py --check
+
       - name: Install dependency graph checker
         run: cargo install cargo-depgraph-check --version 0.1.0 --locked
 
