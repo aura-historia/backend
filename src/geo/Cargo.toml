@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-trait = { workspace = true }
+async-trait = { workspace = true, optional = true }
 isocountry = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
-serde = { workspace = true, features = ["derive"] }
+reqwest = { workspace = true, features = ["json"], optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
@@ -15,13 +15,15 @@ mockall = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
-geo = { workspace = true, features = ["full"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 wiremock = "0.6"
+serde_json = { workspace = true }
 
 [features]
 default = []
-data = []
-service = ["mockall"]
+data = ["dep:serde"]
+google = ["dep:async-trait", "dep:reqwest", "dep:serde"]
+opensearch = []
+service = ["google", "dep:mockall"]
 test-data = ["fake"]
-full = ["data", "service", "test-data"]
+full = ["data", "service", "opensearch", "test-data"]

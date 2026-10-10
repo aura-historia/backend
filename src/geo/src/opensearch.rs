@@ -1,12 +1,15 @@
+use crate::core::country::CountryCode;
 use crate::core::{
-    address::StructuredAddress,
-    continent::Continent,
+    address::{InvalidStructuredAddress, StructuredAddress},
     distance::{Distance, DistanceUnit},
 };
-use isocountry::CountryCode;
 
 pub fn distance_to_opensearch_value(distance: Distance) -> String {
-    format!("{}{}", distance.amount, distance_unit_suffix(distance.unit))
+    format!(
+        "{}{}",
+        distance.amount(),
+        distance_unit_suffix(distance.unit())
+    )
 }
 
 fn distance_unit_suffix(unit: DistanceUnit) -> &'static str {
@@ -30,7 +33,7 @@ pub fn structured_address_from_document(
     region: Option<String>,
     postal_code: Option<String>,
     country: Option<CountryCode>,
-) -> Option<StructuredAddress> {
+) -> Result<Option<StructuredAddress>, InvalidStructuredAddress> {
     let structured_address = StructuredAddress {
         addressline,
         addressline_extra,
@@ -38,9 +41,9 @@ pub fn structured_address_from_document(
         region,
         postal_code,
         country,
-        continent: country.map(Continent::from),
     };
-    (!structured_address.is_empty()).then_some(structured_address)
+    structured_address.to_description()?;
+    Ok((!structured_address.is_empty()).then_some(structured_address))
 }
 
 #[cfg(test)]
@@ -48,20 +51,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn should_reject_corrupt_documents_and_normalize_empty_to_absence() {
+        assert_eq!(
+            None,
+            structured_address_from_document(None, None, None, None, None, None).unwrap()
+        );
+        assert!(
+            structured_address_from_document(Some(" ".to_owned()), None, None, None, None, None)
+                .is_err()
+        );
+        assert!(
+            structured_address_from_document(
+                None,
+                None,
+                None,
+                None,
+                Some("00123\0".to_owned()),
+                None
+            )
+            .is_err()
+        );
+        let address = structured_address_from_document(
+            None,
+            None,
+            None,
+            None,
+            Some("00123".to_owned()),
+            Some(CountryCode::DEU),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(Some("00123"), address.postal_code.as_deref());
+    }
+
+    #[test]
     fn should_format_distance_for_opensearch() {
         assert_eq!(
             "50km",
-            distance_to_opensearch_value(Distance {
-                amount: 50.0,
-                unit: DistanceUnit::Kilometers,
-            })
+            distance_to_opensearch_value(Distance::new(50.0, DistanceUnit::Kilometers).unwrap())
         );
         assert_eq!(
             "1.5nmi",
-            distance_to_opensearch_value(Distance {
-                amount: 1.5,
-                unit: DistanceUnit::NauticalMiles,
-            })
+            distance_to_opensearch_value(Distance::new(1.5, DistanceUnit::NauticalMiles).unwrap())
         );
     }
 }

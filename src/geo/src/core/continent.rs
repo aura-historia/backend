@@ -1,4 +1,4 @@
-use isocountry::CountryCode;
+use crate::core::country::CountryCode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum Continent {
@@ -31,9 +31,39 @@ impl Continent {
     }
 }
 
-impl From<CountryCode> for Continent {
+impl Continent {
+    /// Aura country grouping v1: a coarse country/territory grouping, not point geography.
+    /// No single grouping is returned for transcontinental or dispersed territories.
+    pub fn country_grouping(code: CountryCode) -> Option<Self> {
+        match code {
+            CountryCode::RUS
+            | CountryCode::TUR
+            | CountryCode::KAZ
+            | CountryCode::AZE
+            | CountryCode::GEO
+            | CountryCode::EGY
+            | CountryCode::IDN
+            | CountryCode::FRA
+            | CountryCode::ESP
+            | CountryCode::PRT
+            | CountryCode::NLD
+            | CountryCode::DNK
+            | CountryCode::USA
+            | CountryCode::UMI
+            | CountryCode::GBR
+            | CountryCode::AUS
+            | CountryCode::NZL
+            | CountryCode::NOR
+            | CountryCode::ATF
+            | CountryCode::CHL
+            | CountryCode::IOT
+            | CountryCode::SHN => None,
+            _ => Some(Self::unambiguous_group(code)),
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
-    fn from(code: CountryCode) -> Self {
+    fn unambiguous_group(code: CountryCode) -> Self {
         match code {
             // Africa
             CountryCode::AGO
@@ -326,14 +356,21 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use isocountry::CountryCode;
+    use crate::core::country::CountryCode;
 
     use super::Continent;
 
     #[test]
-    fn should_map_all_country_codes_to_a_continent() {
+    fn should_classify_country_groupings_conservatively() {
+        assert_eq!(None, Continent::country_grouping(CountryCode::RUS));
+        assert_eq!(None, Continent::country_grouping(CountryCode::UMI));
+        assert_eq!(None, Continent::country_grouping(CountryCode::FRA));
+        assert_eq!(
+            Some(Continent::Europe),
+            Continent::country_grouping(CountryCode::DEU)
+        );
         for code in CountryCode::iter().copied() {
-            let _ = Continent::from(code);
+            let _ = Continent::country_grouping(code);
         }
     }
 

@@ -10,6 +10,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Persistence integrity, concurrency and authority | [Storage](storage.md) |
 | Listing semantics and ingestion guarantees | [ProductListing](product-listing.md) |
 | Durable ID format and prefixes | [Object IDs](object-ids.md) |
+| Geographic assertions, reference releases and comparison | [Geography](geography.md) |
 | Email consent, provider eligibility and evidence | [Marketing consent](marketing-consent.md) |
 | Event sources, routes and completion semantics | [Event flow](events/flow.md) |
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |

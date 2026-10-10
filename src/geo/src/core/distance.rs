@@ -1,8 +1,34 @@
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Distance {
-    pub amount: f64,
-    pub unit: DistanceUnit,
+    amount: f64,
+    unit: DistanceUnit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("distance must be finite and nonnegative")]
+pub struct InvalidDistance;
+
+impl Distance {
+    pub fn new(amount: f64, unit: DistanceUnit) -> Result<Self, InvalidDistance> {
+        if !amount.is_finite() || amount < 0.0 {
+            return Err(InvalidDistance);
+        }
+        Ok(Self { amount, unit })
+    }
+
+    pub fn amount(self) -> f64 {
+        self.amount
+    }
+    pub fn unit(self) -> DistanceUnit {
+        self.unit
+    }
+}
+
+#[cfg(feature = "test-data")]
+impl fake::Dummy<fake::Faker> for Distance {
+    fn dummy_with_rng<R: fake::RngExt + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
+        Self::new(rng.random_range(0.0..10000.0), DistanceUnit::Meters).unwrap()
+    }
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

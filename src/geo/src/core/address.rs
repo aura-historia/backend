@@ -1,6 +1,28 @@
+use super::{
+    country::CountryCode,
+    description::{GeographicDescription, InvalidGeographicDescription},
+    text::{AddressText, InvalidGeoText, PostalCode},
+};
 use crate::core::continent::Continent;
-use isocountry::CountryCode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidStructuredAddress {
+    #[error("invalid legacy address text")]
+    Text(
+        #[from]
+        #[source]
+        InvalidGeoText,
+    ),
+    #[error("invalid legacy geographic assertions")]
+    Description(
+        #[from]
+        #[source]
+        InvalidGeographicDescription,
+    ),
+}
+
+/// Legacy structured observations. Region remains free text, never an ISO subdivision.
+/// Use `to_description` to cross into validated geographic values.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StructuredAddress {
     pub addressline: Option<String>,
@@ -9,10 +31,46 @@ pub struct StructuredAddress {
     pub region: Option<String>,
     pub postal_code: Option<String>,
     pub country: Option<CountryCode>,
-    pub continent: Option<Continent>,
 }
 
 impl StructuredAddress {
+    pub fn continent(&self) -> Option<Continent> {
+        self.country.and_then(Continent::country_grouping)
+    }
+
+    pub fn to_description(
+        &self,
+    ) -> Result<Option<GeographicDescription>, InvalidStructuredAddress> {
+        let parts = [
+            self.addressline.as_deref(),
+            self.addressline_extra.as_deref(),
+            self.locality.as_deref(),
+            self.region.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(AddressText::new)
+        .collect::<Result<Vec<_>, _>>()?;
+        let address_text = if parts.is_empty() {
+            None
+        } else {
+            Some(AddressText::new(
+                parts
+                    .iter()
+                    .map(AddressText::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )?)
+        };
+        let postal_code = self
+            .postal_code
+            .as_deref()
+            .map(PostalCode::new)
+            .transpose()?;
+        GeographicDescription::new(address_text, self.country, None, postal_code)
+            .map_err(Into::into)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.addressline.is_none()
             && self.addressline_extra.is_none()
@@ -53,14 +111,13 @@ impl StructuredAddress {
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use super::{Continent, CountryCode, StructuredAddress};
+    use super::{CountryCode, StructuredAddress};
     use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for StructuredAddress {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let codes: Vec<CountryCode> = CountryCode::iter().copied().collect();
             let country = Some(codes[rng.random_range(0..codes.len())]);
-            let continent = country.map(Continent::from);
             StructuredAddress {
                 addressline: config.fake_with_rng(rng),
                 addressline_extra: config.fake_with_rng(rng),
@@ -68,7 +125,6 @@ mod faker {
                 region: config.fake_with_rng(rng),
                 postal_code: config.fake_with_rng(rng),
                 country,
-                continent,
             }
         }
     }
