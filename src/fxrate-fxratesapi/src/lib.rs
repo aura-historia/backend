@@ -46,6 +46,16 @@ enum ProviderCurrency {
     Sgd,
     Chf,
     Zar,
+    Sek,
+    Dkk,
+    Nok,
+    Krw,
+    Inr,
+    Twd,
+    Huf,
+    Ron,
+    Mxn,
+    Thb,
 }
 
 impl From<ProviderCurrency> for Currency {
@@ -70,6 +80,16 @@ impl From<ProviderCurrency> for Currency {
             ProviderCurrency::Sgd => Self::Sgd,
             ProviderCurrency::Chf => Self::Chf,
             ProviderCurrency::Zar => Self::Zar,
+            ProviderCurrency::Sek => Self::Sek,
+            ProviderCurrency::Dkk => Self::Dkk,
+            ProviderCurrency::Nok => Self::Nok,
+            ProviderCurrency::Krw => Self::Krw,
+            ProviderCurrency::Inr => Self::Inr,
+            ProviderCurrency::Twd => Self::Twd,
+            ProviderCurrency::Huf => Self::Huf,
+            ProviderCurrency::Ron => Self::Ron,
+            ProviderCurrency::Mxn => Self::Mxn,
+            ProviderCurrency::Thb => Self::Thb,
         }
     }
 }
@@ -229,5 +249,22 @@ mod tests {
         for input in ["0", "-1", "9223372036855"] {
             assert!(decimal_rate_to_scaled_integer(&number(input)).is_err());
         }
+    }
+    #[test]
+    fn should_map_every_supported_provider_currency() -> Result<(), Box<dyn std::error::Error>> {
+        for currency in Currency::iter() {
+            let provider: ProviderCurrency =
+                serde_json::from_value(serde_json::json!(currency.as_str()))?;
+            assert_eq!(currency, Currency::from(provider));
+        }
+        let response: FxRatesApiResponse =
+            serde_json::from_str(include_str!("../tests/fixtures/expanded-eur-quotes.json"))?;
+        assert!(response.success);
+        assert_eq!(Currency::Eur, Currency::from(response.base));
+        assert_eq!(10, response.rates.len());
+        for rate in response.rates.values() {
+            assert!(decimal_rate_to_scaled_integer(rate)? > 0);
+        }
+        Ok(())
     }
 }

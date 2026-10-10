@@ -2,6 +2,10 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-09 — Additional supported currencies (#1578)
+
+- Currency fields now accept `SEK`, `DKK`, `NOK`, `KRW`, `INR`, `TWD`, `HUF`, `RON`, `MXN`, and `THB`, including user preferences, listing-source configuration, listing prices, and search filters. `KRW` amounts use zero decimal places; the other additions use two ISO 4217 minor-unit decimal places.
+
 ## 2026-10-09 — Delegated credential scope coverage (#1993)
 
 - Admin Auction create/update require `auctions:write`; Party reads/writes require `parties:read`/`parties:write`; private ListingSource reads and admin writes require `listing-sources:read`/`listing-sources:write`; the admin overview requires `admin-overview:read`.

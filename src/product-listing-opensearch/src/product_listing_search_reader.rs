@@ -727,51 +727,11 @@ fn display_range_query(price_filter: &ProductListingPriceFilterPlan) -> serde_js
 }
 
 fn currency_code(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "EUR",
-        Currency::Gbp => "GBP",
-        Currency::Usd => "USD",
-        Currency::Aud => "AUD",
-        Currency::Cad => "CAD",
-        Currency::Nzd => "NZD",
-        Currency::Cny => "CNY",
-        Currency::Brl => "BRL",
-        Currency::Pln => "PLN",
-        Currency::Try => "TRY",
-        Currency::Jpy => "JPY",
-        Currency::Czk => "CZK",
-        Currency::Rub => "RUB",
-        Currency::Aed => "AED",
-        Currency::Sar => "SAR",
-        Currency::Hkd => "HKD",
-        Currency::Sgd => "SGD",
-        Currency::Chf => "CHF",
-        Currency::Zar => "ZAR",
-    }
+    currency.as_str()
 }
 
-fn sale_price_field_for(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "salePrices.eur",
-        Currency::Gbp => "salePrices.gbp",
-        Currency::Usd => "salePrices.usd",
-        Currency::Aud => "salePrices.aud",
-        Currency::Cad => "salePrices.cad",
-        Currency::Nzd => "salePrices.nzd",
-        Currency::Cny => "salePrices.cny",
-        Currency::Brl => "salePrices.brl",
-        Currency::Pln => "salePrices.pln",
-        Currency::Try => "salePrices.try",
-        Currency::Jpy => "salePrices.jpy",
-        Currency::Czk => "salePrices.czk",
-        Currency::Rub => "salePrices.rub",
-        Currency::Aed => "salePrices.aed",
-        Currency::Sar => "salePrices.sar",
-        Currency::Hkd => "salePrices.hkd",
-        Currency::Sgd => "salePrices.sgd",
-        Currency::Chf => "salePrices.chf",
-        Currency::Zar => "salePrices.zar",
-    }
+fn sale_price_field_for(currency: Currency) -> String {
+    format!("salePrices.{}", currency.as_str().to_ascii_lowercase())
 }
 
 fn apply_availability_filter(
@@ -918,6 +878,16 @@ mod tests {
             sgd: 100,
             chf: 100,
             zar: 100,
+            sek: Some(100),
+            dkk: Some(100),
+            nok: Some(100),
+            krw: Some(100),
+            inr: Some(100),
+            twd: Some(100),
+            huf: Some(100),
+            ron: Some(100),
+            mxn: Some(100),
+            thb: Some(100),
         }
     }
 

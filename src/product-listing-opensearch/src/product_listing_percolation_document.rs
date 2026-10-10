@@ -23,35 +23,14 @@ use product_listing_service::ports::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use strum::IntoEnumIterator;
 
 use time::OffsetDateTime;
 use url::Url;
 
-/// Closed-world prices for one temporary ProductListing percolation document.
-///
-/// Iteration 6B fills these values from one event-time persisted FX snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct ProductListingPercolationPricesDocument {
-    eur: u64,
-    gbp: u64,
-    usd: u64,
-    aud: u64,
-    cad: u64,
-    nzd: u64,
-    cny: u64,
-    brl: u64,
-    pln: u64,
-    r#try: u64,
-    jpy: u64,
-    czk: u64,
-    rub: u64,
-    aed: u64,
-    sar: u64,
-    hkd: u64,
-    sgd: u64,
-    chf: u64,
-    zar: u64,
-}
+/// Currency keys are derived only from the canonical enum, in stable field order.
+type ProductListingPercolationPricesDocument = BTreeMap<String, u64>;
 
 /// Private temporary ProductListing representation used only as a percolator input.
 ///
@@ -163,7 +142,7 @@ fn build_product_listing_percolation_document(
         price_by_currency: input
             .valuation
             .as_ref()
-            .map(|valuation| percolation_prices(valuation.prices)),
+            .map(|valuation| percolation_prices(&valuation.prices)),
         availability: product.availability,
         url: product.url.clone(),
         images: product
@@ -192,29 +171,15 @@ fn exact_lot_scheduled_closes_at(
 }
 
 fn percolation_prices(
-    prices: ProductListingPricesByCurrency,
+    prices: &ProductListingPricesByCurrency,
 ) -> ProductListingPercolationPricesDocument {
-    ProductListingPercolationPricesDocument {
-        eur: prices.amount_in(Currency::Eur),
-        gbp: prices.amount_in(Currency::Gbp),
-        usd: prices.amount_in(Currency::Usd),
-        aud: prices.amount_in(Currency::Aud),
-        cad: prices.amount_in(Currency::Cad),
-        nzd: prices.amount_in(Currency::Nzd),
-        cny: prices.amount_in(Currency::Cny),
-        brl: prices.amount_in(Currency::Brl),
-        pln: prices.amount_in(Currency::Pln),
-        r#try: prices.amount_in(Currency::Try),
-        jpy: prices.amount_in(Currency::Jpy),
-        czk: prices.amount_in(Currency::Czk),
-        rub: prices.amount_in(Currency::Rub),
-        aed: prices.amount_in(Currency::Aed),
-        sar: prices.amount_in(Currency::Sar),
-        hkd: prices.amount_in(Currency::Hkd),
-        sgd: prices.amount_in(Currency::Sgd),
-        chf: prices.amount_in(Currency::Chf),
-        zar: prices.amount_in(Currency::Zar),
-    }
+    Currency::iter()
+        .filter_map(|currency| {
+            prices
+                .amount_in(currency)
+                .map(|amount| (currency.as_str().to_ascii_lowercase(), amount))
+        })
+        .collect()
 }
 
 pub(crate) fn product_listing_document(
@@ -332,6 +297,14 @@ fn sale_prices(
             )
     };
 
+    let optional_amount_in = |currency| match amount_in(currency) {
+        Ok(amount) => Ok(Some(amount)),
+        Err(ProductListingPercolationDocumentError::InvalidSaleSnapshot {
+            source: FxRateSnapshotError::MissingQuote(missing),
+        }) if missing == currency => Ok(None),
+        Err(error) => Err(error),
+    };
+
     Ok(SalePricesDocument {
         eur: amount_in(Currency::Eur)?,
         gbp: amount_in(Currency::Gbp)?,
@@ -352,6 +325,16 @@ fn sale_prices(
         sgd: amount_in(Currency::Sgd)?,
         chf: amount_in(Currency::Chf)?,
         zar: amount_in(Currency::Zar)?,
+        sek: optional_amount_in(Currency::Sek)?,
+        dkk: optional_amount_in(Currency::Dkk)?,
+        nok: optional_amount_in(Currency::Nok)?,
+        krw: optional_amount_in(Currency::Krw)?,
+        inr: optional_amount_in(Currency::Inr)?,
+        twd: optional_amount_in(Currency::Twd)?,
+        huf: optional_amount_in(Currency::Huf)?,
+        ron: optional_amount_in(Currency::Ron)?,
+        mxn: optional_amount_in(Currency::Mxn)?,
+        thb: optional_amount_in(Currency::Thb)?,
     })
 }
 
@@ -956,10 +939,15 @@ mod tests {
                     let native_range = price_filter
                         .active_native_ranges
                         .iter()
-                        .find(|native| native.source_currency == source_currency)
-                        .ok_or("normal ProductListing price query misses a source currency")?;
+                        .find(|native| native.source_currency == source_currency);
+                    // Some zero-decimal conversions cannot hit a narrow display range.
+                    // They deliberately have no native branch and must never percolate.
+                    let amounts = native_range.map_or_else(
+                        || vec![0, 1, 5, 100],
+                        |native| boundary_amounts(native.lower, native.upper),
+                    );
 
-                    for source_amount in boundary_amounts(native_range.lower, native_range.upper) {
+                    for source_amount in amounts {
                         let source_price = money::Price::new(source_amount.into(), source_currency);
                         let prices =
                             ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?;
@@ -1012,32 +1000,66 @@ mod tests {
     #[test]
     fn should_serialize_every_supported_currency_in_closed_world_prices()
     -> Result<(), Box<dyn std::error::Error>> {
-        let value = serde_json::to_value(ProductListingPercolationPricesDocument {
-            eur: 1,
-            gbp: 1,
-            usd: 1,
-            aud: 1,
-            cad: 1,
-            nzd: 1,
-            cny: 1,
-            brl: 1,
-            pln: 1,
-            r#try: 1,
-            jpy: 1,
-            czk: 1,
-            rub: 1,
-            aed: 1,
-            sar: 1,
-            hkd: 1,
-            sgd: 1,
-            chf: 1,
-            zar: 1,
-        })?;
+        let prices = ProductListingPricesByCurrency::convert_all(
+            &snapshot()?,
+            money::Price::new(100_u64.into(), Currency::Eur),
+        )?;
+        let value = serde_json::to_value(percolation_prices(&prices))?;
 
-        assert_eq!(19, value.as_object().map_or(0, serde_json::Map::len));
+        assert_eq!(29, value.as_object().map_or(0, serde_json::Map::len));
         assert!(value.get("jpy").is_some());
         assert!(value.get("zar").is_some());
         assert!(value.get("priceEstimateMin").is_none());
+        Ok(())
+    }
+    #[test]
+    fn should_preserve_legacy_sale_projections_and_percolation_without_inventing_rates()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = FxRateSnapshot::rehydrate(
+            FxRateId::new(),
+            FxRateGeneration::try_from(1)?,
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::iter()
+                .take(19)
+                .map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
+        )?;
+        let mut product = source()?;
+        let price = money::Price::new(12300_u64.into(), Currency::Eur);
+        product.pricing.price = Some(price.into());
+        product.availability = Some(ListingAvailability::SoldOut);
+        product.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
+        let document = product_listing_document(&product, Some(&snapshot))?;
+        document.validate()?;
+        assert_eq!(Some(12300), document.sale_price(Currency::Usd));
+        assert_eq!(None, document.sale_price(Currency::Krw));
+        let persistent = serde_json::to_value(&document)?;
+        assert_eq!(
+            19,
+            persistent["salePrices"]
+                .as_object()
+                .ok_or("prices must be an object")?
+                .len()
+        );
+        let restored: ProductListingDocument = serde_json::from_value(persistent.clone())?;
+        restored.validate()?;
+        let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product,
+            valuation: Some(ProductListingPercolationValuation {
+                basis: ProductListingPriceValuationBasis::SaleObservation,
+                fx_rate_id: snapshot.id(),
+                effective_at: snapshot.captured_at(),
+                prices: ProductListingPricesByCurrency::convert_all(&snapshot, price)?,
+            }),
+        })?;
+        assert_eq!(persistent["salePrices"], temporary["priceByCurrency"]);
+        let mut invalid = persistent;
+        invalid["salePrices"]["sek"] = serde_json::json!(12300);
+        let invalid: ProductListingDocument = serde_json::from_value(invalid)?;
+        assert!(invalid.validate().is_err());
         Ok(())
     }
 }

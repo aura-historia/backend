@@ -201,6 +201,12 @@ procedure. If a release needs additional manual gating, cancel blocked automatic
 runs and confirm the stage slot is free before dispatching operations; do not
 leave an approval-waiting run blocking the run needed to satisfy its prerequisites.
 
+When expanding supported currencies, apply business and crawler currency migrations
+and add OpenSearch mapping fields before activating the new currency inputs. Capture
+and verify a complete expanded FX snapshot before current-price reads use the new
+currencies. Preserve immutable older snapshots and rebuild affected projections under
+the existing projection fences; historical sale prices retain only their captured quotes.
+
 ## Manual operations
 
 [`migrate.yml`](../.github/workflows/migrate.yml) and

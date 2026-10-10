@@ -51,28 +51,8 @@ fn build_percolator_price_clause(search: &ProductListingSearch) -> Option<serde_
     }))
 }
 
-fn percolation_price_field(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "priceByCurrency.eur",
-        Currency::Gbp => "priceByCurrency.gbp",
-        Currency::Usd => "priceByCurrency.usd",
-        Currency::Aud => "priceByCurrency.aud",
-        Currency::Cad => "priceByCurrency.cad",
-        Currency::Nzd => "priceByCurrency.nzd",
-        Currency::Cny => "priceByCurrency.cny",
-        Currency::Brl => "priceByCurrency.brl",
-        Currency::Pln => "priceByCurrency.pln",
-        Currency::Try => "priceByCurrency.try",
-        Currency::Jpy => "priceByCurrency.jpy",
-        Currency::Czk => "priceByCurrency.czk",
-        Currency::Rub => "priceByCurrency.rub",
-        Currency::Aed => "priceByCurrency.aed",
-        Currency::Sar => "priceByCurrency.sar",
-        Currency::Hkd => "priceByCurrency.hkd",
-        Currency::Sgd => "priceByCurrency.sgd",
-        Currency::Chf => "priceByCurrency.chf",
-        Currency::Zar => "priceByCurrency.zar",
-    }
+fn percolation_price_field(currency: Currency) -> String {
+    format!("priceByCurrency.{}", currency.as_str().to_ascii_lowercase())
 }
 
 fn title_field(language: &Language) -> ProductListingDocumentSerdeField {

@@ -142,4 +142,24 @@ mod tests {
             localized
         );
     }
+    #[test]
+    fn should_round_trip_added_currency_codes_in_api_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for code in [
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+        ] {
+            let currency = Currency::from_code(code).ok_or("supported currency code")?;
+            let json = serde_json::json!({"currency": currency.as_str(), "amount": 123});
+            let price: PriceData = serde_json::from_value(json.clone())?;
+            assert_eq!(currency, price.currency);
+            assert_eq!(json, serde_json::to_value(price)?);
+        }
+        assert!(
+            serde_json::from_value::<PriceData>(
+                serde_json::json!({"currency":"XXX", "amount":123})
+            )
+            .is_err()
+        );
+        Ok(())
+    }
 }

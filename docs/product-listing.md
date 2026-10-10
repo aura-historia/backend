@@ -58,6 +58,7 @@ Absence is state, not a write instruction. Patches distinguish `Unchanged`, `Cle
 - Availability writes never create, overwrite or clear an observation. `SOLD_OUT` without an observation is valid.
 - Recording uses a dedicated authorized transaction and the latest persisted FX snapshot at or before `observed_at`.
 - An equal observation is a no-op; a different observation conflicts. Retraction is a dedicated correction, not an implicit overwrite.
+- Persisted FX snapshots retain their original supported currency set. New captures must cover every currently supported currency; historical snapshots must cover either the complete original set or the complete expanded set. Historical valuation never substitutes current rates or invents absent quotes. Sale projections omit currencies unavailable in their pinned snapshot; a requested conversion without a historical quote fails closed.
 - An observation may survive withdrawal or relisting. Use its FX only while currently sold out or for deliberately historical/withdrawn presentation; an active relisted listing uses current FX.
 
 ## Behaviors and events

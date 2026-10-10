@@ -542,6 +542,11 @@ const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Sar, "﷼"),
     (Currency::Hkd, "HK$"),
     (Currency::Sgd, "S$"),
+    (Currency::Krw, "₩"),
+    (Currency::Inr, "₹"),
+    (Currency::Twd, "NT$"),
+    (Currency::Mxn, "MX$"),
+    (Currency::Thb, "฿"),
 ];
 
 #[derive(Clone, Copy)]
@@ -719,7 +724,7 @@ fn price_on_request_evidence(raw: &str) -> PriceOnRequestEvidence {
 mod tests {
     use rstest::rstest;
 
-    use money::{Currency, Price};
+    use money::{Currency, MonetaryAmount, Price};
     use strum::IntoEnumIterator;
 
     use super::{
@@ -1189,5 +1194,54 @@ mod tests {
             Err(PriceError::ParseFailure),
             normalize_product_listing_price(Some("USD 100 / EUR 90 — price on request"), None)
         );
+    }
+    #[test]
+    fn should_parse_added_currency_codes_and_safe_aliases() {
+        for (code, currency, amount) in [
+            ("SEK", Currency::Sek, 12345),
+            ("DKK", Currency::Dkk, 12345),
+            ("NOK", Currency::Nok, 12345),
+            ("KRW", Currency::Krw, 123),
+            ("INR", Currency::Inr, 12345),
+            ("TWD", Currency::Twd, 12345),
+            ("HUF", Currency::Huf, 12345),
+            ("RON", Currency::Ron, 12345),
+            ("MXN", Currency::Mxn, 12345),
+            ("THB", Currency::Thb, 12345),
+        ] {
+            assert_eq!(Some(currency), detect_currency(&format!("{code} 123.45")));
+            assert_eq!(
+                Ok((MonetaryAmount::from(amount as u64), currency)),
+                parse_price(&format!("{code} 123.45"), None)
+            );
+            assert_eq!(None, detect_currency(&format!("prefix{code}suffix")));
+        }
+        for (symbol, currency) in [
+            ("₩", Currency::Krw),
+            ("₹", Currency::Inr),
+            ("NT$", Currency::Twd),
+            ("MX$", Currency::Mxn),
+            ("฿", Currency::Thb),
+        ] {
+            assert_eq!(Some(currency), detect_currency(&format!("{symbol}123")));
+            assert_eq!(
+                Ok((
+                    MonetaryAmount::from(if currency == Currency::Krw {
+                        123_u64
+                    } else {
+                        12300
+                    }),
+                    currency
+                )),
+                parse_price(&format!("{symbol}123"), None)
+            );
+        }
+        for ambiguous in ["kr", "Ft", "lei"] {
+            assert_eq!(None, detect_currency(ambiguous));
+            assert_eq!(
+                Err(PriceError::UnknownCurrency),
+                parse_price(&format!("123 {ambiguous}"), None)
+            );
+        }
     }
 }

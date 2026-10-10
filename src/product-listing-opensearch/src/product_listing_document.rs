@@ -222,30 +222,60 @@ pub(crate) struct SalePricesDocument {
     pub(crate) sgd: u64,
     pub(crate) chf: u64,
     pub(crate) zar: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sek: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) dkk: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) nok: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) krw: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) inr: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) twd: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) huf: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ron: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) mxn: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) thb: Option<u64>,
 }
 
 impl SalePricesDocument {
-    fn amount_in(&self, currency: Currency) -> u64 {
+    fn amount_in(&self, currency: Currency) -> Option<u64> {
         match currency {
-            Currency::Eur => self.eur,
-            Currency::Gbp => self.gbp,
-            Currency::Usd => self.usd,
-            Currency::Aud => self.aud,
-            Currency::Cad => self.cad,
-            Currency::Nzd => self.nzd,
-            Currency::Cny => self.cny,
-            Currency::Brl => self.brl,
-            Currency::Pln => self.pln,
-            Currency::Try => self.r#try,
-            Currency::Jpy => self.jpy,
-            Currency::Czk => self.czk,
-            Currency::Rub => self.rub,
-            Currency::Aed => self.aed,
-            Currency::Sar => self.sar,
-            Currency::Hkd => self.hkd,
-            Currency::Sgd => self.sgd,
-            Currency::Chf => self.chf,
-            Currency::Zar => self.zar,
+            Currency::Eur => Some(self.eur),
+            Currency::Gbp => Some(self.gbp),
+            Currency::Usd => Some(self.usd),
+            Currency::Aud => Some(self.aud),
+            Currency::Cad => Some(self.cad),
+            Currency::Nzd => Some(self.nzd),
+            Currency::Cny => Some(self.cny),
+            Currency::Brl => Some(self.brl),
+            Currency::Pln => Some(self.pln),
+            Currency::Try => Some(self.r#try),
+            Currency::Jpy => Some(self.jpy),
+            Currency::Czk => Some(self.czk),
+            Currency::Rub => Some(self.rub),
+            Currency::Aed => Some(self.aed),
+            Currency::Sar => Some(self.sar),
+            Currency::Hkd => Some(self.hkd),
+            Currency::Sgd => Some(self.sgd),
+            Currency::Chf => Some(self.chf),
+            Currency::Zar => Some(self.zar),
+            Currency::Sek => self.sek,
+            Currency::Dkk => self.dkk,
+            Currency::Nok => self.nok,
+            Currency::Krw => self.krw,
+            Currency::Inr => self.inr,
+            Currency::Twd => self.twd,
+            Currency::Huf => self.huf,
+            Currency::Ron => self.ron,
+            Currency::Mxn => self.mxn,
+            Currency::Thb => self.thb,
         }
     }
 }
@@ -254,6 +284,8 @@ impl SalePricesDocument {
 pub(crate) enum ProductListingDocumentValidationError {
     #[error("product sale projection metadata must be complete when present")]
     PartialSaleProjection,
+    #[error("sale prices must contain either all or none of the expanded currencies")]
+    PartialExpandedSalePrices,
     #[error("product sale prices require sale projection metadata")]
     SalePricesWithoutSaleObservation,
     #[error("product sale prices require a monetary source price")]
@@ -334,6 +366,15 @@ impl ProductListingDocument {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ProductListingDocumentValidationError> {
+        if let Some(prices) = &self.sale_prices {
+            let expanded = [
+                prices.sek, prices.dkk, prices.nok, prices.krw, prices.inr, prices.twd, prices.huf,
+                prices.ron, prices.mxn, prices.thb,
+            ];
+            if expanded.iter().any(Option::is_some) && expanded.iter().any(Option::is_none) {
+                return Err(ProductListingDocumentValidationError::PartialExpandedSalePrices);
+            }
+        }
         let has_sale_metadata = match (self.sale_observation_fx_rate_id, self.sale_observed_at) {
             (None, None) => false,
             (Some(_), Some(_)) => true,
@@ -369,7 +410,7 @@ impl ProductListingDocument {
     pub(crate) fn sale_price(&self, currency: Currency) -> Option<u64> {
         self.sale_prices
             .as_ref()
-            .map(|prices| prices.amount_in(currency))
+            .and_then(|prices| prices.amount_in(currency))
     }
 
     pub(crate) fn has_sale_observation(&self) -> bool {
@@ -670,6 +711,16 @@ mod tests {
             sgd: 100,
             chf: 100,
             zar: 100,
+            sek: Some(100),
+            dkk: Some(100),
+            nok: Some(100),
+            krw: Some(100),
+            inr: Some(100),
+            twd: Some(100),
+            huf: Some(100),
+            ron: Some(100),
+            mxn: Some(100),
+            thb: Some(100),
         });
 
         assert_eq!(valid, document.validate().is_ok());

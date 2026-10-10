@@ -154,6 +154,16 @@ fn parse_currency(code: &str) -> Currency {
         "SGD" => Currency::Sgd,
         "CHF" => Currency::Chf,
         "ZAR" => Currency::Zar,
+        "SEK" => Currency::Sek,
+        "DKK" => Currency::Dkk,
+        "NOK" => Currency::Nok,
+        "KRW" => Currency::Krw,
+        "INR" => Currency::Inr,
+        "TWD" => Currency::Twd,
+        "HUF" => Currency::Huf,
+        "RON" => Currency::Ron,
+        "MXN" => Currency::Mxn,
+        "THB" => Currency::Thb,
         other => panic!("unsupported currency '{other}' in fixtures.json"),
     }
 }
