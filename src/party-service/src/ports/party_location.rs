@@ -73,7 +73,9 @@ pub trait PartyLocationRepository: Send {
         actor: &str,
     ) -> Result<StoredPartyLocation, PartyLocationError>;
 }
-pub trait PartyLocationRepositoryFactory<Tx>: Send + Sync {
+pub trait PartyLocationRepositoryFactory<Tx>:
+    geo_service::resolution::ResolutionRepositoryFactory<Tx> + Send + Sync
+{
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl PartyLocationRepository + 'tx;
 }
 

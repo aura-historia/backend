@@ -328,6 +328,34 @@ pub enum GeocodingFailure {
     StorageNotPermitted,
 }
 
+impl GeocodingFailure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "TIMEOUT",
+            Self::Throttled => "THROTTLED",
+            Self::Unavailable => "UNAVAILABLE",
+            Self::Authentication => "AUTHENTICATION",
+            Self::Configuration => "CONFIGURATION",
+            Self::UnsupportedInput => "UNSUPPORTED_INPUT",
+            Self::InvalidResponse => "INVALID_RESPONSE",
+            Self::StorageNotPermitted => "STORAGE_NOT_PERMITTED",
+        }
+    }
+    pub fn from_code(value: &str) -> Option<Self> {
+        match value {
+            "TIMEOUT" => Some(Self::Timeout),
+            "THROTTLED" => Some(Self::Throttled),
+            "UNAVAILABLE" => Some(Self::Unavailable),
+            "AUTHENTICATION" => Some(Self::Authentication),
+            "CONFIGURATION" => Some(Self::Configuration),
+            "UNSUPPORTED_INPUT" => Some(Self::UnsupportedInput),
+            "INVALID_RESPONSE" => Some(Self::InvalidResponse),
+            "STORAGE_NOT_PERMITTED" => Some(Self::StorageNotPermitted),
+            _ => None,
+        }
+    }
+}
+
 #[derive(thiserror::Error)]
 #[error("geocoding failed: {kind:?}")]
 pub struct GeocodingError {

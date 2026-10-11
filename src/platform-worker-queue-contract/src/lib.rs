@@ -228,6 +228,7 @@ pub fn visibility(scope: WorkerScope) -> Duration {
         | WorkerScope::SearchFilterPercolator
         | WorkerScope::SearchFilterMatchNotification
         | WorkerScope::WatchlistNotification
+        | WorkerScope::GeoResolution
         | WorkerScope::ProductListingTranslation => 300,
         WorkerScope::MarketingConsentSync => 330,
         WorkerScope::ProductListingContentAssessment

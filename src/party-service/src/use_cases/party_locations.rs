@@ -8,6 +8,7 @@ use application::{
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use geo::{GeographicDescription, SpatialPosition};
+use geo_service::{geocoding::GeocodingRequest, resolution::*};
 use party_core::{
     party_id::PartyId,
     party_location::{
@@ -259,6 +260,209 @@ pub enum PartyLocationError {
     ),
 }
 
+impl From<ResolutionError> for PartyLocationError {
+    fn from(e: ResolutionError) -> Self {
+        match e {
+            ResolutionError::Conflict => Self::ConcurrencyConflict,
+            ResolutionError::Missing => Self::NotFound,
+            ResolutionError::InvalidInput => Self::InvalidInput,
+            ResolutionError::Forbidden => Self::Forbidden,
+            ResolutionError::Transaction(e) => Self::Transaction(e),
+            ResolutionError::Storage(source) => Self::TemporarilyUnavailable { source },
+            ResolutionError::InvalidState(source) => Self::InvalidPersistedState { source },
+            ResolutionError::Provider(source) => Self::Internal {
+                source: Box::new(source),
+            },
+        }
+    }
+}
+
+fn resolution_subject(id: PartyLocationId) -> Result<ResolutionSubject, PartyLocationError> {
+    Ok(ResolutionSubject::new(
+        RetentionPurpose::PartyLocation,
+        id.into_uuid(),
+    )?)
+}
+fn resolution_binding(s: &StoredPartyLocation) -> Result<ResolutionBinding, PartyLocationError> {
+    Ok(ResolutionBinding {
+        subject: resolution_subject(s.location.id())?,
+        input_revision: s.location.input_revision().into_inner(),
+        guard: s.revision.into_inner(),
+    })
+}
+async fn sync_resolution<Tx, R: PartyLocationRepositoryFactory<Tx>>(
+    factory: &R,
+    tx: &mut Tx,
+    s: &StoredPartyLocation,
+) -> Result<(), PartyLocationError> {
+    let binding = resolution_binding(s)?;
+    let description = s.location.content().geography.as_ref();
+    // Caller assertions remain useful without a geocoder. An explicit point wins;
+    // retirement immediately removes eligibility and cancels pending application.
+    if !s.location.eligible_for_assignment()
+        || s.location.content().position.is_some()
+        || description.and_then(|d| d.address_text()).is_none()
+    {
+        factory.resolutions(tx).detach(binding.subject).await?;
+        return Ok(());
+    }
+    let description = description.expect("address presence requires a description");
+    let request =
+        GeocodingRequest::new(description.address_text().expect("checked address").clone())
+            .with_submitted(geo::SubmittedGeography::new(description.clone()));
+    let scope = ResolutionScope::new(ScopeKind::Party, Some(s.location.party_id().into_uuid()))?;
+    let input = ResolutionInput::new(request, scope, RetentionPurpose::PartyLocation)?
+        .with_retention_context(s.location.content().disclosure.as_str())?;
+    factory.resolutions(tx).bind(&input, binding).await?;
+    Ok(())
+}
+
+/// Authorized inspection and review use the same Party management policy as edits.
+/// Candidate identity includes the exact resolution generation and current location CAS.
+pub enum PartyLocationResolutionCommand {
+    Request {
+        party_id: PartyId,
+        expected: ExpectedPartyLocation,
+    },
+    Inspect {
+        party_id: PartyId,
+        id: PartyLocationId,
+    },
+    AcceptCandidate {
+        party_id: PartyId,
+        expected: ExpectedPartyLocation,
+        work: ResolutionWork,
+        candidate_index: usize,
+    },
+    Retry {
+        party_id: PartyId,
+        expected: ExpectedPartyLocation,
+        work: ResolutionWork,
+        force: bool,
+    },
+}
+#[async_trait::async_trait]
+pub trait ManagePartyLocationResolutionUseCase: Send + Sync {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: PartyLocationResolutionCommand,
+    ) -> Result<Option<ResolutionView>, PartyLocationError>;
+}
+pub struct ManagePartyLocationResolutionHandler<U, R, F, A> {
+    uow: U,
+    locations: R,
+    access: F,
+    admin: A,
+}
+impl<U, R, F, A> ManagePartyLocationResolutionHandler<U, R, F, A> {
+    pub fn new(uow: U, locations: R, access: F, admin: A) -> Self {
+        Self {
+            uow,
+            locations,
+            access,
+            admin,
+        }
+    }
+}
+#[async_trait::async_trait]
+impl<
+    U: UnitOfWork,
+    R: PartyLocationRepositoryFactory<U::Tx>,
+    F: PartyLocationAccessFactory<U::Tx>,
+    A: CheckUserAdminUseCase,
+> ManagePartyLocationResolutionUseCase for ManagePartyLocationResolutionHandler<U, R, F, A>
+{
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: PartyLocationResolutionCommand,
+    ) -> Result<Option<ResolutionView>, PartyLocationError> {
+        let action = match &command {
+            PartyLocationResolutionCommand::Request { .. } => "REQUEST",
+            PartyLocationResolutionCommand::Inspect { .. } => "INSPECT",
+            PartyLocationResolutionCommand::AcceptCandidate { .. } => "ACCEPT_CANDIDATE",
+            PartyLocationResolutionCommand::Retry { .. } => "RETRY",
+        };
+        let (party_id, id, write) = match &command {
+            PartyLocationResolutionCommand::Inspect { party_id, id } => (*party_id, *id, false),
+            PartyLocationResolutionCommand::AcceptCandidate {
+                party_id, expected, ..
+            }
+            | PartyLocationResolutionCommand::Retry {
+                party_id, expected, ..
+            }
+            | PartyLocationResolutionCommand::Request { party_id, expected } => {
+                (*party_id, expected.id, true)
+            }
+        };
+        let privileged = privileged(context, &self.admin, write).await?;
+        let mut tx = self.uow.begin().await?;
+        authorize(context, privileged, &self.access, &mut tx, party_id).await?;
+        match command {
+            PartyLocationResolutionCommand::Request { expected, .. } => {
+                let s = load(&self.locations, &mut tx, party_id, expected).await?;
+                sync_resolution(&self.locations, &mut tx, &s).await?;
+            }
+            PartyLocationResolutionCommand::Inspect { .. } => {
+                self.locations
+                    .in_transaction(&mut tx)
+                    .find_for_update(party_id, id)
+                    .await?
+                    .ok_or(PartyLocationError::NotFound)?;
+            }
+            PartyLocationResolutionCommand::AcceptCandidate {
+                expected,
+                work,
+                candidate_index,
+                ..
+            } => {
+                let s = load(&self.locations, &mut tx, party_id, expected).await?;
+                self.locations
+                    .resolutions(&mut tx)
+                    .select(
+                        resolution_binding(&s)?,
+                        work,
+                        candidate_index,
+                        &actor(context),
+                    )
+                    .await?;
+            }
+            PartyLocationResolutionCommand::Retry {
+                expected,
+                work,
+                force,
+                ..
+            } => {
+                let s = load(&self.locations, &mut tx, party_id, expected).await?;
+                self.locations
+                    .resolutions(&mut tx)
+                    .requeue(resolution_binding(&s)?, work, force)
+                    .await?;
+            }
+        }
+        let view = self
+            .locations
+            .resolution_reader(&mut tx)
+            .inspect(resolution_subject(id)?)
+            .await?;
+        tx.commit().await?;
+        if write {
+            tracing::info!(
+                event = "party_location.resolution_managed",
+                action,
+                actor = %actor(context),
+                location_id = %id,
+                request_id = %context.request_id,
+                correlation_id = %context.correlation_id,
+                generation = view.as_ref().map(|v| v.work.generation),
+                outcome = "success"
+            );
+        }
+        Ok(view)
+    }
+}
+
 async fn privileged<A: CheckUserAdminUseCase>(
     context: &OperationContext,
     admin: &A,
@@ -422,10 +626,12 @@ where
                 return Err(PartyLocationError::InvalidInput);
             }
             old.location.set_lifecycle(PartyLocationLifecycle::Retired);
-            self.locations
+            let retired = self
+                .locations
                 .in_transaction(&mut tx)
                 .update(&old, &actor)
                 .await?;
+            sync_resolution(&self.locations, &mut tx, &retired).await?;
         }
         let location = PartyLocation::create(
             PartyLocationId::new(),
@@ -437,6 +643,7 @@ where
             .in_transaction(&mut tx)
             .insert(&location, command.evidence.as_ref(), &actor)
             .await?;
+        sync_resolution(&self.locations, &mut tx, &result).await?;
         self.locations
             .in_transaction(&mut tx)
             .record_create(&actor, &command, &result)
@@ -509,6 +716,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&stored, &actor(context))
                 .await?;
+            sync_resolution(&self.locations, &mut tx, &stored).await?;
         }
         tx.commit().await?;
         tracing::info!(event = "party_location.corrected", actor = %actor(context), location_id = %stored.location.id(), outcome = "success");
@@ -564,6 +772,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&stored, &actor(context))
                 .await?;
+            sync_resolution(&self.locations, &mut tx, &stored).await?;
         }
         tx.commit().await?;
         tracing::info!(event = "party_location.lifecycle_changed", actor = %actor(context), location_id = %stored.location.id(), lifecycle = command.lifecycle.as_str(), outcome = "success");

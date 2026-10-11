@@ -50,6 +50,8 @@ members = [
     "src/public-network-policy",
     "src/geo",
     "src/geo-service",
+    "src/geo-postgres",
+    "src/geo-resolution-lambda",
     "src/geo-amazon-location",
     "src/search-filter-core",
     "src/search-filter-service",
@@ -157,6 +159,7 @@ image-fetcher = { path = "src/image-fetcher" }
 public-network-policy = { path = "src/public-network-policy" }
 geo = { path = "src/geo" }
 geo-service = { path = "src/geo-service" }
+geo-postgres = { path = "src/geo-postgres" }
 geo-amazon-location = { path = "src/geo-amazon-location" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"

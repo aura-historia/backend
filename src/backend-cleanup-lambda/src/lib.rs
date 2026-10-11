@@ -1,3 +1,5 @@
+use application::operation_context::{OperationContext, Principal};
+use geo_service::resolution::MaintainResolutionsUseCase;
 use lambda_runtime::Error;
 use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
@@ -52,6 +54,7 @@ fn cleanup_batch_size_from_result(
 pub async fn run_cleanup(
     cleanup: &(dyn CleanupExpiredCredentialsAndProviderReceiptsUseCase + Send + Sync),
     consent_cleanup: &(dyn CleanupConsentWorkflowUseCase + Send + Sync),
+    geography_cleanup: &dyn MaintainResolutionsUseCase,
     batch_size: ExpiryCleanupBatchSize,
 ) -> Result<(), Error> {
     let started_at = Instant::now();
@@ -97,7 +100,30 @@ pub async fn run_cleanup(
             duration_ms = started_at.elapsed().as_millis(),
         ),
     }
-    if credential_result.is_err() || consent_result.is_err() {
+    let context = OperationContext {
+        principal: Principal::Service("backend-cleanup-worker".into()),
+        request_id: "backend-cleanup".into(),
+        correlation_id: "backend-cleanup".into(),
+    };
+    let geography_limit = batch_size.get().min(100) as u32;
+    let geography_result = geography_cleanup.execute(&context, geography_limit).await;
+    match &geography_result {
+        Ok(counts) => tracing::info!(
+            event = "backend_cleanup.geographic_resolution.completed",
+            outcome = "success",
+            batch_size = geography_limit,
+            expired = counts.expired,
+            requeued = counts.requeued,
+            duration_ms = started_at.elapsed().as_millis(),
+        ),
+        Err(_) => tracing::warn!(
+            event = "backend_cleanup.geographic_resolution.completed",
+            outcome = "failure",
+            batch_size = geography_limit,
+            duration_ms = started_at.elapsed().as_millis(),
+        ),
+    }
+    if credential_result.is_err() || consent_result.is_err() || geography_result.is_err() {
         Err(Error::from("backend cleanup failed"))
     } else {
         Ok(())
@@ -107,6 +133,7 @@ pub async fn run_cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -120,6 +147,33 @@ mod tests {
     struct RecordingConsentCleanup {
         calls: AtomicUsize,
         fail: bool,
+    }
+
+    struct RecordingGeographyCleanup {
+        calls: AtomicUsize,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl MaintainResolutionsUseCase for RecordingGeographyCleanup {
+        async fn execute(
+            &self,
+            context: &OperationContext,
+            limit: u32,
+        ) -> Result<ResolutionMaintenanceCounts, ResolutionError> {
+            assert!(matches!(context.principal, Principal::Service(_)));
+            assert_eq!(100, limit);
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                return Err(ResolutionError::Storage(Box::new(std::io::Error::other(
+                    "fixture failure",
+                ))));
+            }
+            Ok(ResolutionMaintenanceCounts {
+                expired: 1,
+                requeued: 2,
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -193,12 +247,19 @@ mod tests {
             calls: AtomicUsize::new(0),
             fail: false,
         };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
         let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
 
-        run_cleanup(&cleanup, &consent, batch_size).await.unwrap();
+        run_cleanup(&cleanup, &consent, &geography, batch_size)
+            .await
+            .unwrap();
 
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
         assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -211,11 +272,20 @@ mod tests {
             calls: AtomicUsize::new(0),
             fail: true,
         };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
         let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
 
-        assert!(run_cleanup(&cleanup, &consent, batch_size).await.is_err());
+        assert!(
+            run_cleanup(&cleanup, &consent, &geography, batch_size)
+                .await
+                .is_err()
+        );
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
         assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -228,10 +298,44 @@ mod tests {
             calls: AtomicUsize::new(0),
             fail: false,
         };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
         let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
 
-        assert!(run_cleanup(&cleanup, &consent, batch_size).await.is_err());
+        assert!(
+            run_cleanup(&cleanup, &consent, &geography, batch_size)
+                .await
+                .is_err()
+        );
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
         assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn geography_failure_fails_invocation_after_other_cleanup_and_caps_batch_size() {
+        let cleanup = RecordingCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: false,
+        };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let batch_size = ExpiryCleanupBatchSize::try_from(1000).unwrap();
+        assert!(
+            run_cleanup(&cleanup, &consent, &geography, batch_size)
+                .await
+                .is_err()
+        );
+        assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
     }
 }

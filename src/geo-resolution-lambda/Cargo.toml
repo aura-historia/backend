@@ -1,0 +1,31 @@
+[package]
+name = "geo-resolution-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+aura-historia-jobs = { path = "../aura-historia-jobs" }
+aws-config = { workspace = true }
+aws-sdk-geoplaces = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["sqs"] }
+geo-service = { workspace = true }
+geo-postgres = { workspace = true }
+geo-amazon-location = { workspace = true }
+lambda_runtime = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-lambda-sqs = { path = "../platform-lambda-sqs" }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-secretsmanager = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+geo = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+uuid = { workspace = true, features = ["v7"] }

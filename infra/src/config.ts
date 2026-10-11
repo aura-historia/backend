@@ -100,6 +100,7 @@ const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierC
 };
 
 export interface StageConfig {
+  readonly geoResolutionEnabled: boolean;
   readonly stage: StageName;
   readonly isProd: boolean;
   readonly network: NetworkConfig | undefined;
@@ -174,6 +175,7 @@ export function stageConfig(stage: StageName): StageConfig {
     searchFilterClassifier: SEARCH_FILTER_CLASSIFIER_CONFIG[stage],
     removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     workerQueues: WORKER_QUEUE_SETTINGS,
+    geoResolutionEnabled: false,
     apiEndpointUrl: `https://${apiDomainName}`,
     apiDomainName,
     apiGatewayCertificateArn: ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),

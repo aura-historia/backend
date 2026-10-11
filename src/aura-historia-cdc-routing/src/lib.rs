@@ -1,4 +1,5 @@
 //! Transport-independent CDC route policy, validation and compact job construction.
+use geo_service::resolution::ResolutionId;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 
@@ -105,6 +106,31 @@ pub fn route_change<O: RouteOperation>(
 ) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
     let table = CdcTable::from(change.table.as_str());
     match (table, change.operation.kind()) {
+        (CdcTable::GeoResolutionWakeups, Operation::Insert) => {
+            let row = required_row(change)?;
+            let id = required_string(row, "resolution_id")?;
+            let resolution_id: ResolutionId = parse_canonical_storage_object_id(
+                &id,
+                || CdcRouteError::InvalidObjectId("resolution_id"),
+                || CdcRouteError::InvalidObjectId("resolution_id"),
+            )?;
+            let generation = required_integer(row, "generation")?;
+            if generation <= 0 {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "resolution generation",
+                ));
+            }
+            Ok(vec![domain_job(
+                WorkerQueue::GeoResolution,
+                IdempotencyKey::new(format!("geo-resolution:{resolution_id}:{generation}")),
+                OrderingKey::new(format!("geo-resolution:{resolution_id}")),
+                DomainJobPayload::GeoResolution(aura_historia_jobs::jobs::GeoResolutionJob {
+                    resolution_id,
+                    generation: generation as u64,
+                }),
+            )])
+        }
+        (CdcTable::GeoResolutionWakeups, _) => Ok(Vec::new()),
         (CdcTable::ProductListingEvents, Operation::Insert) => product_event_jobs(change),
         (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
         (CdcTable::ProductListingRawRevisions, Operation::Insert) => {
@@ -135,6 +161,7 @@ pub fn route_change<O: RouteOperation>(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdcTable {
+    GeoResolutionWakeups,
     ProductListingEvents,
     ProductListingRawRevisions,
     ProductListings,
@@ -150,6 +177,7 @@ pub enum CdcTable {
 impl From<&str> for CdcTable {
     fn from(value: &str) -> Self {
         match value {
+            "geo_resolution_wakeups" => Self::GeoResolutionWakeups,
             "product_listing_events" => Self::ProductListingEvents,
             "product_listing_raw_revisions" => Self::ProductListingRawRevisions,
             "product_listings" => Self::ProductListings,

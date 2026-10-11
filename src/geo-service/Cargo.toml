@@ -8,6 +8,13 @@ application = { workspace = true }
 async-trait = { workspace = true }
 geo = { workspace = true }
 localization = { workspace = true }
+domain-primitives = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

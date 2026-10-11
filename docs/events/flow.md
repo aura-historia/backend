@@ -90,6 +90,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `search_filter_matches` | INSERT | Match-notification generator |
 | `notification_deliveries` | INSERT | Notification delivery |
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
+| `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 
 Product event fanout:
 
@@ -107,6 +108,23 @@ Consent CDC is deliberately minimized: INSERT/UPDATE carry only `intent_id` and
 `recipient_key`; DELETE carries only the primary key under default replica identity.
 Only INSERT produces work; extra fields fail validation even on non-trigger operations.
 Email, profile, proof, source keys, leases and provider data must not enter this CDC path.
+
+Geographic resolution CDC selects only the immutable resolution ID/generation wake-up
+table, with exact decimal-string generations. All operations reject extra columns.
+Private inputs, cache fingerprints, tenant scope, review choices and provider evidence
+remain outside CDC. Resolution claims/completions reread PostgreSQL; old generations
+complete as superseded and active leases retain retry custody. Hourly backend cleanup
+supplies recovery for missed deliveries by advancing runnable pending generations and
+inserting fresh immutable wake-ups, preserving attempts and budget reservations. It
+also purges ineligible evidence and commits invalidation. Cleanup makes no provider
+calls; fresh recovery wake-ups require the normal CDC/SQS path to be healthy.
+Accepted evidence and the content-free enrichment/invalidation journal commit together.
+Dependent listing geography will consume
+that journal in its owning projection work; this change does not activate a listing
+projector or independently geocode inherited listings. See [durable geography](../geography.md#durable-resolution-and-party-integration-2002).
+Cached reuse emits a subject-specific RESOLVED signal for a new source binding;
+source revision changes clear reviewed geography and atomically emit INVALIDATED,
+including when they retain the same resolution identity. Unchanged binding replays are silent.
 
 Jobs use schema version **2** and typed application IDs; version 1 is rejected.
 ProductListing event payloads have their own version, independent of the job envelope.
@@ -135,6 +153,7 @@ commit/effect do not. SQS transport IDs are not business idempotency keys.
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
 | Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
+| Geographic resolution | Reserve a bounded, database-budgeted claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Negative outcomes have reconsideration deadlines; provider/configuration failures retain failure custody. |
 
 Product and saved-filter projections use externally versioned, content-free
 `projectionDeleted: true` tombstones. Readers exclude them; older/equal writes cannot

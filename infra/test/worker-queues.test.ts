@@ -19,6 +19,7 @@ const EXPECTED_WORKERS = {
   "product-listing-normalization": { id: "ProductListingNormalization", visibility: 270 },
   "notification-delivery": { id: "NotificationDelivery", visibility: 330 },
   "marketing-consent-sync": { id: "MarketingConsentSync", visibility: 330, fifo: true },
+  "geo-resolution": { id: "GeoResolution", visibility: 300 },
 } as const;
 const EXPECTED_SCOPES = Object.keys(EXPECTED_WORKERS) as WorkerScope[];
 
@@ -167,7 +168,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     compute = Template.fromStack(stacks.compute);
   });
 
-  test("enables exactly eleven scopes, separate from the Shopify catalog", () => {
+  test("enables exactly twelve scopes, separate from the Shopify catalog", () => {
     expect(WORKER_SCOPES).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
@@ -193,7 +194,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
       `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(26);
+    expect(new Set(names).size).toBe(28);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -400,7 +401,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
         Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(14);
+    expect(mappings).toHaveLength(15);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -415,7 +416,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(14);
+    expect(mappings).toHaveLength(15);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -442,8 +443,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration, CDC router and cleanup target,
-    // and all eleven queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(15);
+    // and all twelve queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(16);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -490,7 +491,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(14);
+    expect(mappings).toHaveLength(15);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -920,7 +921,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => resource.Properties.Namespace === "AWS/SQS")
       .filter((resource) => String(resource.Properties.AlarmName).startsWith("prod-worker-"));
-    expect(alarms).toHaveLength(22);
+    expect(alarms).toHaveLength(24);
     const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
     expect(topicIds).toHaveLength(1);
     for (const scope of EXPECTED_SCOPES) {

@@ -13,10 +13,11 @@ pub enum WorkerScope {
     ProductListingRawNormalization,
     NotificationDelivery,
     MarketingConsentSync,
+    GeoResolution,
 }
 
 impl WorkerScope {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::SearchFilterProjection,
         Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
@@ -28,6 +29,7 @@ impl WorkerScope {
         Self::ProductListingRawNormalization,
         Self::NotificationDelivery,
         Self::MarketingConsentSync,
+        Self::GeoResolution,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -43,6 +45,7 @@ impl WorkerScope {
             Self::ProductListingRawNormalization => "product-listing-normalization",
             Self::NotificationDelivery => "notification-delivery",
             Self::MarketingConsentSync => "marketing-consent-sync",
+            Self::GeoResolution => "geo-resolution",
         }
     }
 
@@ -75,6 +78,7 @@ impl WorkerScope {
             }
             Self::NotificationDelivery => "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY",
             Self::MarketingConsentSync => "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
+            Self::GeoResolution => "AURA_HISTORIA_ROUTER_QUEUE_URL_GEO_RESOLUTION",
         }
     }
 
@@ -91,6 +95,7 @@ impl WorkerScope {
             Self::ProductListingRawNormalization => WorkerQueue::ProductListingRawNormalization,
             Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
             Self::MarketingConsentSync => WorkerQueue::MarketingConsentSync,
+            Self::GeoResolution => WorkerQueue::GeoResolution,
         }
     }
 
@@ -145,6 +150,7 @@ mod tests {
             ),
             ("notification-delivery", WorkerQueue::NotificationDelivery),
             ("marketing-consent-sync", WorkerQueue::MarketingConsentSync),
+            ("geo-resolution", WorkerQueue::GeoResolution),
         ];
         assert_eq!(
             WorkerScope::ALL,

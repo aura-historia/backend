@@ -201,6 +201,15 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
     environment: marketingConsentSyncEnvironment,
   },
+  geoResolution: {
+    id: "GeoResolutionLambda",
+    binaryName: "geo-resolution-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+    environment: (context) => ({ GEO_RESOLUTION_ENABLED: String(context.config.geoResolutionEnabled) }),
+  },
   searchFilterPercolator: {
     id: "SearchFilterPercolatorLambda",
     binaryName: "search-filter-percolator-lambda",
@@ -273,6 +282,7 @@ export class Lambdas extends Construct {
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
   readonly marketingConsentSyncVersion: lambda.Version;
+  readonly geoResolutionVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
 
@@ -344,7 +354,7 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" ? 2 : undefined,
+        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"
@@ -413,6 +423,10 @@ export class Lambdas extends Construct {
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
+    });
+    this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
+      lambda: this.functions.geoResolution,
+      description: `geo-resolution-${props.parameters.commitSha}`,
     });
     this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
       lambda: this.functions.backendCleanup,
@@ -562,6 +576,11 @@ function withMigrationPostgresEnvironment(
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
+  functions.geoResolution.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["geo-places:Geocode"],
+    resources: ["*"],
+    conditions: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } },
+  }));
   const logGroupArnPattern = cdk.Stack.of(functions.cloudWatchLogRetention).formatArn({
     service: "logs",
     resource: "log-group",

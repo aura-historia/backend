@@ -228,8 +228,10 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                         return Err(dms_record_error("data classification"));
                     }
                     DmsKinesisRecordClassification::Noop
-                        if metadata.table_name.as_deref()
-                            == Some("marketing_email_consent_sync_intents") =>
+                        if matches!(
+                            metadata.table_name.as_deref(),
+                            Some("marketing_email_consent_sync_intents" | "geo_resolution_wakeups")
+                        ) =>
                     {
                         let operation = metadata
                             .operation
@@ -436,6 +438,7 @@ fn classify_dms_table_operation(
 ) -> DmsKinesisRecordClassification {
     match (CdcTable::from(table), operation) {
         (CdcTable::ProductListingEvents, CdcOperation::Insert)
+        | (CdcTable::GeoResolutionWakeups, CdcOperation::Insert)
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
         | (CdcTable::SearchFilters, _)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
@@ -444,6 +447,7 @@ fn classify_dms_table_operation(
             DmsKinesisRecordClassification::Trigger
         }
         (CdcTable::ProductListingEvents, _)
+        | (CdcTable::GeoResolutionWakeups, _)
         | (CdcTable::ProductListingRawRevisions, _)
         | (CdcTable::SearchFilterMatches, _)
         | (CdcTable::NotificationDeliveries, _)
@@ -456,6 +460,7 @@ fn dms_table_is_selected(table: &str) -> bool {
     matches!(
         CdcTable::from(table),
         CdcTable::ProductListingEvents
+            | CdcTable::GeoResolutionWakeups
             | CdcTable::ProductListingRawRevisions
             | CdcTable::SearchFilters
             | CdcTable::SearchFilterMatches
@@ -490,6 +495,14 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
     for change in &batch.changes {
         match classify_dms_change(change) {
             DmsKinesisRecordClassification::Trigger => {}
+            DmsKinesisRecordClassification::Noop if change.table == "geo_resolution_wakeups" => {
+                require_exact_dms_columns(
+                    row_for_operation(change)?,
+                    &["resolution_id", "generation"],
+                )?;
+                validate_resolution_wakeup(row_for_operation(change)?)?;
+                continue;
+            }
             DmsKinesisRecordClassification::Noop
                 if change.table == "marketing_email_consent_sync_intents" =>
             {
@@ -513,6 +526,9 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         }
 
         let required_columns = match (change.table.as_str(), change.operation) {
+            ("geo_resolution_wakeups", CdcOperation::Insert) => {
+                ["resolution_id", "generation"].as_slice()
+            }
             ("product_listing_events", CdcOperation::Insert) => [
                 "event_id",
                 "product_listing_id",
@@ -550,10 +566,13 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
 
         let row = row_for_operation(change)?;
         require_dms_columns(row, required_columns)?;
-        if change.table == "marketing_email_consent_sync_intents" {
+        if change.table == "marketing_email_consent_sync_intents"
+            || change.table == "geo_resolution_wakeups"
+        {
             require_exact_dms_columns(row, required_columns)?;
         }
         match change.table.as_str() {
+            "geo_resolution_wakeups" => validate_resolution_wakeup(row)?,
             "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
             "search_filters" => validate_dms_positive_decimal(row, "version")?,
             _ => {}
@@ -580,7 +599,7 @@ fn require_exact_dms_columns(row: &Value, fields: &[&'static str]) -> Result<(),
         .ok_or(CdcRouteError::InvalidSourceContract("data object"))?;
     if row.len() != fields.len() || fields.iter().any(|field| !row.contains_key(*field)) {
         return Err(CdcRouteError::InvalidSourceContract(
-            "unexpected marketing consent CDC columns",
+            "unexpected CDC columns",
         ));
     }
     Ok(())
@@ -597,6 +616,20 @@ fn validate_dms_positive_decimal(row: &Value, field: &'static str) -> Result<(),
         return Err(CdcRouteError::InvalidSourceContract(
             "positive decimal value",
         ));
+    }
+    Ok(())
+}
+
+fn validate_resolution_wakeup(row: &Value) -> Result<(), CdcRouteError> {
+    validate_dms_positive_decimal(row, "generation")?;
+    let raw = row
+        .get("resolution_id")
+        .and_then(Value::as_str)
+        .ok_or(CdcRouteError::InvalidObjectId("resolution_id"))?;
+    let id =
+        uuid::Uuid::parse_str(raw).map_err(|_| CdcRouteError::InvalidObjectId("resolution_id"))?;
+    if id.to_string() != raw || domain_primitives::object_id::validate_uuid(id).is_err() {
+        return Err(CdcRouteError::InvalidObjectId("resolution_id"));
     }
     Ok(())
 }
@@ -688,10 +721,65 @@ mod tests {
         assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
     }
 
+    #[test]
+    fn resolution_routing_replays_compact_identity_and_rejects_sensitive_extra_columns() {
+        let (router, publisher) = fanout();
+        let fixture = include_str!("../tests/fixtures/dms-kinesis/geo-resolution-insert.json");
+        let first = published_jobs(fixture);
+        let replay = published_jobs(fixture);
+        assert_eq!(first, replay);
+        assert_eq!(1, first.len());
+        assert_eq!("geo-resolution", first[0]["scope"]);
+        assert_eq!(i64::MAX, first[0]["payload"]["generation"]);
+        assert_eq!(2, first[0]["payload"].as_object().unwrap().len());
+        for operation in ["insert", "update", "delete"] {
+            let mut invalid: Value = serde_json::from_str(fixture).unwrap();
+            invalid["metadata"]["operation"] = json!(operation);
+            invalid["data"]["address"] = json!("private address");
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(invalid.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        for generation in [
+            json!("0"),
+            json!("01"),
+            json!("9223372036854775808"),
+            json!(0),
+        ] {
+            let mut invalid: Value = serde_json::from_str(fixture).unwrap();
+            invalid["data"]["generation"] = generation;
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(invalid.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        for table in [
+            "geo_resolutions",
+            "geo_resolution_bindings",
+            "party_locations",
+        ] {
+            let mut invalid: Value = serde_json::from_str(fixture).unwrap();
+            invalid["metadata"]["table-name"] = json!(table);
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(invalid.to_string().as_bytes())
+                    .is_err()
+            );
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
+    }
+
     #[tokio::test]
     async fn publishes_schema_two_compact_jobs_only_after_full_record_validation() {
         let (router, publisher) = fanout();
         let fixtures: &[(&str, usize)] = &[
+            (
+                include_str!("../tests/fixtures/dms-kinesis/geo-resolution-insert.json"),
+                1,
+            ),
             (
                 include_str!("../tests/fixtures/dms-kinesis/product-listing-event-insert.json"),
                 5,
@@ -738,7 +826,7 @@ mod tests {
             );
         }
         let bodies = publisher.bodies.lock().unwrap();
-        assert_eq!(12, bodies.len());
+        assert_eq!(13, bodies.len());
         for body in bodies.iter() {
             let job: Value = serde_json::from_str(body).unwrap();
             assert_eq!(2, job["schema_version"]);

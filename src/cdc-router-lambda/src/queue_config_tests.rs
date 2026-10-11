@@ -69,7 +69,7 @@ fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
 }
 
 #[test]
-fn exact_eleven_scope_configuration_keeps_router_environment_identity() {
+fn exact_twelve_scope_configuration_keeps_router_environment_identity() {
     let mut values = HashMap::from([
         ("AWS_REGION", "eu-central-1".to_owned()),
         ("STAGE", "prod".to_owned()),
@@ -83,7 +83,7 @@ fn exact_eleven_scope_configuration_keeps_router_environment_identity() {
     let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(11, queues.len());
+    assert_eq!(12, queues.len());
     assert_eq!(
         WorkerScope::ALL.to_vec(),
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>()
@@ -115,7 +115,7 @@ fn consent_queue_url_remains_optional_until_c06_activation() {
     let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(10, queues.len());
+    assert_eq!(11, queues.len());
     assert!(
         queues
             .iter()
