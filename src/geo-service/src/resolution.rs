@@ -556,6 +556,13 @@ pub trait ResolutionRepository: Send {
 }
 #[async_trait::async_trait]
 pub trait ResolutionReader: Send {
+    /// Bounded current bindings; adapters override with batched authority reads.
+    async fn inspect_many(
+        &mut self,
+        _subjects: &[ResolutionSubject],
+    ) -> Result<std::collections::HashMap<Uuid, ResolutionView>, ResolutionError> {
+        Err(ResolutionError::InvalidInput)
+    }
     async fn inspect(
         &mut self,
         subject: ResolutionSubject,

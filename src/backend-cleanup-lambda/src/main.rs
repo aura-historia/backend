@@ -11,6 +11,10 @@ use platform_lambda_bootstrap::{
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
+use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
+use product_listing_service::geography::{
+    ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
+};
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
 use user_postgres::{SqlxConsentWorkflowCleanup, SqlxNewsletterConfirmationChallengesRepository};
@@ -59,20 +63,32 @@ async fn main() -> Result<(), Error> {
                             SystemNewsletterConfirmationClock,
                         ),
                         MaintainResolutionsHandler::new(
+                            SqlxUnitOfWork::new(pool.clone()),
+                            SqlxResolutionRepositoryFactory,
+                        ),
+                        ProjectListingGeographyHandler::new(
                             SqlxUnitOfWork::new(pool),
+                            SqlxGeographyProjectionStoreFactory,
                             SqlxResolutionRepositoryFactory,
                         ),
                     ))
                 })
                 .await?;
 
-            run_cleanup(
+            let cleanup_result = run_cleanup(
                 &cleanup.value().0,
                 &cleanup.value().1,
                 &cleanup.value().2,
                 batch_size,
             )
-            .await
+            .await;
+            let recovery_result = cleanup.value().3.execute(None, 100).await;
+            if recovery_result.is_err() {
+                tracing::warn!(event = "backend_cleanup.listing_geography.failed");
+            }
+            cleanup_result?;
+            recovery_result?;
+            Ok::<(), Error>(())
         }
     }))
     .await

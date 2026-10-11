@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tracing = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+geo-service = { workspace = true }
+party-core = { workspace = true }
 application = { workspace = true }
 auction-core = { workspace = true }
 search-filter-core = { workspace = true }
@@ -35,6 +39,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+geo-postgres = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }

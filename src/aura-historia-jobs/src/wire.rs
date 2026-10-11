@@ -44,6 +44,11 @@ struct EnvelopeV2 {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "job_type", content = "payload")]
 enum PayloadV2 {
+    #[serde(rename = "LISTING_GEOGRAPHY")]
+    ListingGeography {
+        work_id: product_listing_service::geography::GeographyWorkId,
+        generation: u64,
+    },
     #[serde(rename = "GEO_RESOLUTION")]
     GeoResolution {
         resolution_id: ResolutionId,
@@ -158,6 +163,10 @@ where
 {
     let scope = job.validate()?;
     let payload = match &job.payload {
+        DomainJobPayload::ListingGeography(job) => PayloadV2::ListingGeography {
+            work_id: job.work_id,
+            generation: job.generation,
+        },
         DomainJobPayload::GeoResolution(job) => PayloadV2::GeoResolution {
             resolution_id: job.resolution_id,
             generation: job.generation,
@@ -267,6 +276,13 @@ where
         return Err(WireError::Scope);
     }
     let payload = match envelope.job {
+        PayloadV2::ListingGeography {
+            work_id,
+            generation,
+        } => DomainJobPayload::ListingGeography(crate::jobs::ListingGeographyJob {
+            work_id,
+            generation,
+        }),
         PayloadV2::GeoResolution {
             resolution_id,
             generation,
@@ -363,6 +379,12 @@ mod tests {
         let mut snapshots = vec![];
         for scope in WorkerScope::iter() {
             let (kind, payload, key, ordering) = match scope {
+                WorkerScope::ListingGeography => (
+                    "LISTING_GEOGRAPHY",
+                    json!({"work_id":format!("gwork_{SUFFIX}"),"generation":3}),
+                    format!("listing-geography:gwork_{SUFFIX}:3"),
+                    format!("listing-geography:gwork_{SUFFIX}"),
+                ),
                 WorkerScope::GeoResolution => (
                     "GEO_RESOLUTION",
                     json!({"resolution_id":format!("gres_{SUFFIX}"),"generation":3}),
@@ -450,6 +472,10 @@ mod tests {
     {
         for (scope, snapshot) in snapshots() {
             let (job_type, payload) = match scope {
+                WorkerScope::ListingGeography => (
+                    "LISTING_GEOGRAPHY",
+                    format!("{{\"work_id\":\"gwork_{SUFFIX}\",\"generation\":3}}"),
+                ),
                 WorkerScope::GeoResolution => (
                     "GEO_RESOLUTION",
                     format!("{{\"resolution_id\":\"gres_{SUFFIX}\",\"generation\":3}}"),

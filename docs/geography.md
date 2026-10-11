@@ -271,7 +271,7 @@ survive replacement, clearing and source deletion; source configuration is remov
 its source. The selected location cannot be physically deleted while referenced. Private
 assignment evidence stays outside CDC/public projections. Signal ownership and later
 asynchronous propagation are described in [event flow](events/flow.md#geography-dependency-invalidation).
-No routing or fanout is activated by this feature.
+Effective listing geography now consumes these signals asynchronously; see [its projection contract](#effective-listing-geography-2003).
 
 The authoritative derived read returns each meaning independently with
 SOURCE_DEFAULT_DERIVED basis: source ID, current assignment revision, location ID,
@@ -572,3 +572,76 @@ negative reconsideration also create wake-ups; there is no separate geography sc
 Protected Request use cases establish work for preexisting eligible sites; CDC-only
 capture does not backfill them. [The worker runbook](durable-worker-runbook.md#geographic-resolution-recovery)
 owns operator recovery and safe monitoring.
+
+## Effective listing geography (#2003)
+
+`product-listing-service::geography` owns this enrichment and its query/read ports.
+It selects the one explicit source default independently for associated business and
+advertised inventory. Business association never establishes item geography. A missing,
+private or retired default gives absence. An unresolved default without reliable submitted facts gives absence. Reliable submitted
+country/subdivision remain useful when resolution has no point.
+No PlaceId, Party hydration, generic location graph or per-listing provider call is needed.
+
+Submitted country/subdivision and caller position retain precedence over current accepted
+resolution. Resolution requires the binding's current input and location revisions and
+permitted, unexpired evidence. Coarse disclosure includes administrative codes and never
+includes coordinates, including a supplied representative point. Compact derived storage
+and documents contain only selected location, SOURCE_DEFAULT_DERIVED basis, pinned ISO
+release, administrative codes and eligible point/precision. Addresses, postal text,
+localized names, source applicability evidence and provider payloads stay out. Inventory
+basis conveys the source's assertion, not individually verified stock or custody.
+
+Dependency markers retain listing canonical version, source assignment/applicability
+revision, location identity/input/revision/lifecycle/disclosure, current resolution
+identity/generation/review selection/retention deadline and policy versions. They are
+internal equality guards, never ordered external versions. Current authorities are locked
+and rechecked in the short page transaction. Applicability evidence and geographic values
+rehydrate through their domain constructors; invalid stored state fails the page without
+committing a projection or opening the public gate. Batched resolution reads follow the
+resolver's provider-control, resolution, binding lock order. G11 must replace inheritance **as a whole**
+for an explicit listing assertion, and must block inheritance for suppression; partial
+assertions must never be merged with source address fields.
+
+Shared change journals atomically establish coalesced dependency work through database
+triggers. Work follows indexed source/location/resolution references and an ascending
+(source UUID, listing UUID) cursor, with bounded pages, fenced leases and transactional
+checkpoints. Newer input resets cursors and fences the old claim. Every canonical listing
+event separately establishes durable listing work, so creation after a cursor passed,
+including an ID preceding that cursor, is recovered. Changes update compact derived state;
+only actual derived changes append ENRICHMENT_GEOGRAPHY_UPDATED and advance the existing
+monotonic projection version/current event. Aggregate version, source facts, updated time
+and public domain history stay unchanged. Projector and saved-filter percolator receive
+the enrichment; price-watchlist, embedding and translation do not.
+
+### Public eligibility barrier and G7 integration
+
+`GeographicQueryGate` reads PostgreSQL on every request, without caching. Pending shared
+dependency/lifecycle invalidation, unacknowledged replacement/removal of existing geography,
+missing gate authority or expired derived retention closes the gate. Provider storage-right
+changes enqueue profile work atomically. Ordinary canonical listing catch-up and creation
+remain durable but do not close the gate or advance its epoch. First geographic additions
+cannot expose forbidden stale data and do not require a barrier; lifecycle changes and any
+replacement of existing geography retain custody until indexing is visible. Coalescing
+never downgrades a pending blocking invalidation. G11 must extend the trigger classification
+when explicit listing geography changes become canonical inputs.
+Replacing/removing a derived value also advances the epoch within the page transaction;
+this fences requests when ordinary catch-up discovers expiry before maintenance signals it.
+Completion of a fanout page alone never establishes index freshness: projector custody
+is recorded only after the externally versioned document/tombstone write is refresh-visible.
+Conflict/replay completion explicitly refreshes the product index before confirming custody,
+including an uncertain earlier write or a concurrent equal/higher write.
+
+`with_geographic_eligibility` checks before executing a geographic query and again after
+execution against the same invalidation epoch. A closed or changed gate suppresses the
+**entire** geographic result, including distance ordering, counts and facets. This is a
+conservative global barrier: unrelated geographic matches can temporarily be suppressed
+while shared or restrictive changes propagate. Sustained invalidation backlog reduces geographic availability; backlog age
+and index custody must be monitored. Ordinary non-geographic queries remain independent.
+This deliberately supplies immediate public privacy in addition to eventual reindexing.
+
+G7's country/subdivision/radius/facet/saved-filter entry points must wrap their complete
+query in this capability; a hit-level serialization check cannot satisfy the contract.
+The supplied public batch reader uses it already and reads at most 100 listing IDs in one
+query. G7 owns public filter/response/API shapes and the real geographic-query tests;
+this feature introduces no public API parameters or override writes. Rebuild/replay and
+activation are described in the [worker runbook](durable-worker-runbook.md#listing-geography-recovery).

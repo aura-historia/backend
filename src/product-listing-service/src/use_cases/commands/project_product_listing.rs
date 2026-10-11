@@ -160,6 +160,21 @@ where
         .map_err(|source| ProjectProductListingError::WriteFailed {
             source: box_error(source),
         })?;
+        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
+            ProjectProductListingError::BeginFailed {
+                source: box_error(source),
+            }
+        })?;
+        self.sources
+            .in_transaction(&mut tx)
+            .mark_projected(source.product_listing_id, source.projection_version)
+            .await
+            .map_err(source_read_error)?;
+        tx.commit()
+            .await
+            .map_err(|source| ProjectProductListingError::CommitFailed {
+                source: box_error(source),
+            })?;
         Ok(ProjectProductListingResult {
             outcome: match (source.lifecycle, outcome) {
                 (
@@ -533,6 +548,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 41,
+            geography: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
@@ -820,7 +836,7 @@ mod tests {
 
         assert_eq!(ProjectProductListingOutcome::Stale, result.outcome);
         let state = lock_state(&state);
-        assert_eq!(1, state.commit_count);
+        assert_eq!(2, state.commit_count);
         assert_eq!(1, state.deletes.len());
         Ok(())
     }

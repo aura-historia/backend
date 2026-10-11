@@ -204,6 +204,68 @@ async fn complete(pool: &PgPool, c: &ResolutionClaim, e: ResolutionCompletion) -
     tx.commit().await.unwrap();
     done
 }
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn batch_read_waits_for_provider_control_before_locking_resolution() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let source = binding();
+    let input = input(Uuid::now_v7(), "Shared reader lock ordering");
+    let work = bind(&pool, &input, source).await;
+    let ClaimOutcome::Claimed(claim) = claim(&pool, work).await else {
+        panic!("expected resolution claim");
+    };
+    let mut completion = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT profile FROM geo_resolution_provider_controls WHERE profile=$1 FOR NO KEY UPDATE",
+    )
+    .bind(PROFILE)
+    .fetch_one(&mut *completion)
+    .await
+    .unwrap();
+    let mut reader = pool.begin().await.unwrap();
+    let reader_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await
+        .unwrap();
+    let reading = tokio::spawn(async move {
+        let result = SqlxResolutionRepositoryFactory::on_connection(&mut reader)
+            .inspect_many(&[source.subject])
+            .await;
+        reader.commit().await.unwrap();
+        result
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')")
+                .bind(reader_pid).fetch_one(&pool).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }).await.expect("reader must wait on provider controls");
+    // A resolver already holding controls must still be able to lock/complete the
+    // resolution. The previous inverse order timed out here (or deadlocked).
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *completion)
+        .await
+        .unwrap();
+    assert!(
+        SqlxResolutionRepositoryFactory::on_connection(&mut completion)
+            .complete(
+                &claim,
+                ResolutionCompletion::Evidence(evaluate(&input, result(), PROFILE).unwrap())
+            )
+            .await
+            .unwrap()
+    );
+    completion.commit().await.unwrap();
+    let views = tokio::time::timeout(std::time::Duration::from_secs(5), reading)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(views[&source.subject.id()].accepted_geography().is_some());
+}
 async fn party(pool: &PgPool) -> PartyId {
     let p = Party::create(NewParty {
         id: PartyId::new(),

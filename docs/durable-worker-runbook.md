@@ -242,8 +242,8 @@ physical erasure. Geography cleanup runs with paid work off to purge expired, re
 and orphaned evidence and review selections. Readers hide ineligible evidence immediately.
 Verify INVALIDATED/REQUEUED journal entries and changed generations after maintenance;
 the journal contains no provider derivatives. Each cleanup capability runs even when
-another returns an error, and any error fails the invocation. Listing
-projection consumption is a separate roadmap integration and must use current state.
+another returns an error, and any error fails the invocation. Listing projection consumes
+current state through [durable dependency fanout](#listing-geography-recovery).
 
 For recovery, use bounded read-only metadata queries to inspect current binding,
 generation, lease, attempt count, last failure, deadline and provider/scope budgets. An
@@ -262,3 +262,43 @@ completed current generations reuse evidence, active claims defer, and malformed
 retain custody. Never fabricate a new generation by editing transport payloads or copy a
 private input into a diagnostic job. Confirm completion and current eligibility before
 expanding redrive.
+
+## Listing geography recovery
+
+The `listing-geography` source/DLQ and `listing-geography-lambda` process compact schema-2
+LISTING_GEOGRAPHY work ID/generation wake-ups. The Lambda reserves concurrency 2, one
+PostgreSQL connection per invocation and one message per batch; each page is at most 100
+listings. No geocoder, OpenSearch or queue send permission belongs to this worker.
+Continuation wake-ups commit with each unfinished page. Claim leases last 60 seconds;
+uncertain/crashed page transactions roll back, and a replacement claim resumes from the
+last committed cursor. The hourly backend cleanup independently drains one page and
+reestablishes continuation custody even if wake-up delivery was missed or exhausted.
+
+Deploy the compatible enrichment decoder/router/projector/percolator and compact geo
+mappings before enabling the migration's producers and CDC selection for
+`listing_geography_wakeups`. Keep private inputs, bindings, work checkpoints and gate state
+outside CDC. Migration establishes initial source-level rebuild work; it never rewrites
+all listings in a management transaction. Use the existing DLQ/archive replay procedure,
+then reread current authority; never replay coordinates or resurrect a captured default.
+
+For a deliberate rebuild, fence old projection writers and use the existing isolated
+OpenSearch generation procedure. Enqueue source UUIDs in bounded ascending keyset pages
+using `SELECT enqueue_listing_geography('SOURCE', $1)` inside the operational transaction.
+Draining reuses only current permitted authoritative resolution and needs no provider
+access. Deleted/withdrawn listings retain the existing monotonic tombstone guarantees.
+Replay the product projection journal into the replacement index after draining derived
+state, then complete the existing generation validation before activating it. Source
+enqueue alone does not repopulate a missing index: unchanged derived fields intentionally
+emit no new enrichment event.
+Do not clear checkpoints or reset projection versions. Backfill sources repeatedly if
+source creation overlaps the traversal; new listing journals independently cover listings.
+
+Monitor `listing_geography_backlog` oldest pending seconds, pending work/expired claims,
+`product_listing_geographies` rows awaiting index custody and earliest retention deadline,
+plus queue age/DLQ alarms. A completed invalidation with pending replacement/removal index
+custody keeps geographic queries suppressed. Ordinary canonical catch-up and first safe
+additions do not block queries or change permits. Monitor blocking work/custody separately
+from that ordinary backlog. Repair/replay the product projector; never manually acknowledge
+index custody to open the gate. Retention expiry closes the gate immediately, even before
+hourly provider derivative cleanup emits invalidation. Runbook checks establish local
+contracts, not production activation or provider rights.

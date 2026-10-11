@@ -33,6 +33,7 @@ export interface EventingProps {
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly marketingConsentSyncVersion: lambda.IVersion;
   readonly geoResolutionVersion: lambda.IVersion;
+  readonly listingGeographyVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
   readonly cdcRouterActivation: cdk.CfnCondition;
@@ -52,6 +53,7 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   NOTIFICATION_DELIVERY: "notification-delivery",
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
   GEO_RESOLUTION: "geo-resolution",
+  LISTING_GEOGRAPHY: "listing-geography",
 } as const satisfies Record<string, WorkerScope>;
 
 export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
@@ -113,6 +115,7 @@ export class Eventing extends Construct {
       props.notificationDeliveryVersion,
       props.marketingConsentSyncVersion,
       props.geoResolutionVersion,
+      props.listingGeographyVersion,
     );
   }
 }
@@ -398,6 +401,7 @@ function createSqsEventSources(
   notificationDeliveryVersion: lambda.IVersion,
   marketingConsentSyncVersion: lambda.IVersion,
   geoResolutionVersion: lambda.IVersion,
+  listingGeographyVersion: lambda.IVersion,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
@@ -588,6 +592,15 @@ function createSqsEventSources(
     marketingConsentSyncVersion,
     "Marketing consent sync",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true },
+  );
+  addWorkerLambdaEventSource(
+    scope,
+    "ListingGeographyQueueEventSource",
+    functions.listingGeography,
+    workerQueues["listing-geography"],
+    listingGeographyVersion,
+    "Listing geography",
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 },
   );
   addWorkerLambdaEventSource(scope, "GeoResolutionQueueEventSource", functions.geoResolution,
     workerQueues["geo-resolution"], geoResolutionVersion, "Geographic resolution",

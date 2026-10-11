@@ -318,6 +318,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
       marketingConsentSyncVersion: this.lambdas.marketingConsentSyncVersion,
       geoResolutionVersion: this.lambdas.geoResolutionVersion,
+      listingGeographyVersion: this.lambdas.listingGeographyVersion,
       backendCleanupVersion: this.lambdas.backendCleanupVersion,
       cdcRouterVersion: this.lambdas.cdcRouterVersion,
       cdcRouterActivation: parameters.cdcRouterActivation,

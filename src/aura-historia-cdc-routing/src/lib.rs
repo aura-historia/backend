@@ -106,6 +106,41 @@ pub fn route_change<O: RouteOperation>(
 ) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
     let table = CdcTable::from(change.table.as_str());
     match (table, change.operation.kind()) {
+        (CdcTable::ListingGeographyWakeups, Operation::Insert) => {
+            let row = required_row(change)?;
+            let object = row
+                .as_object()
+                .ok_or(CdcRouteError::InvalidSourceContract("geography wake-up"))?;
+            if object.len() != 2
+                || !object.contains_key("work_id")
+                || !object.contains_key("generation")
+            {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "geography wake-up fields",
+                ));
+            }
+            let id = required_string(row, "work_id")?;
+            let work_id: product_listing_service::geography::GeographyWorkId =
+                parse_canonical_storage_object_id(
+                    &id,
+                    || CdcRouteError::InvalidObjectId("work_id"),
+                    || CdcRouteError::InvalidObjectId("work_id"),
+                )?;
+            let generation = required_integer(row, "generation")?;
+            if generation <= 0 {
+                return Err(CdcRouteError::InvalidSourceContract("geography generation"));
+            }
+            Ok(vec![domain_job(
+                WorkerQueue::ListingGeography,
+                IdempotencyKey::new(format!("listing-geography:{work_id}:{generation}")),
+                OrderingKey::new(format!("listing-geography:{work_id}")),
+                DomainJobPayload::ListingGeography(aura_historia_jobs::jobs::ListingGeographyJob {
+                    work_id,
+                    generation: generation as u64,
+                }),
+            )])
+        }
+        (CdcTable::ListingGeographyWakeups, _) => Ok(Vec::new()),
         (CdcTable::GeoResolutionWakeups, Operation::Insert) => {
             let row = required_row(change)?;
             let id = required_string(row, "resolution_id")?;
@@ -162,6 +197,7 @@ pub fn route_change<O: RouteOperation>(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdcTable {
     GeoResolutionWakeups,
+    ListingGeographyWakeups,
     ProductListingEvents,
     ProductListingRawRevisions,
     ProductListings,
@@ -177,6 +213,7 @@ pub enum CdcTable {
 impl From<&str> for CdcTable {
     fn from(value: &str) -> Self {
         match value {
+            "listing_geography_wakeups" => Self::ListingGeographyWakeups,
             "geo_resolution_wakeups" => Self::GeoResolutionWakeups,
             "product_listing_events" => Self::ProductListingEvents,
             "product_listing_raw_revisions" => Self::ProductListingRawRevisions,
@@ -200,6 +237,7 @@ enum ProductListingRoutingEventKind {
     Changed,
     Embedded,
     TranslatedTitles,
+    GeographyUpdated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +293,14 @@ fn product_event_routing_facts<O: RouteOperation>(
                 has_availability_change,
                 has_image_change,
             });
+        }
+        ("ENRICHMENT_GEOGRAPHY_UPDATED", "ENRICHMENT") => {
+            if payload != &serde_json::json!({}) {
+                return Err(CdcRouteError::InvalidSourceContract(
+                    "geography enrichment payload",
+                ));
+            }
+            ProductListingRoutingEventKind::GeographyUpdated
         }
         ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => {
             validate_embedded_payload(payload)?;
@@ -347,7 +393,8 @@ pub fn product_event_jobs<O: RouteOperation>(
             }
         }
         ProductListingRoutingEventKind::Embedded
-        | ProductListingRoutingEventKind::TranslatedTitles => {}
+        | ProductListingRoutingEventKind::TranslatedTitles
+        | ProductListingRoutingEventKind::GeographyUpdated => {}
     }
 
     Ok(jobs)
@@ -1570,5 +1617,50 @@ mod tests {
             }))
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod geography_tests {
+    use super::*;
+    fn change(table: &str, row: Value) -> CdcChange<SearchFilterOperation> {
+        CdcChange {
+            schema: Some("public".into()),
+            table: table.into(),
+            operation: SearchFilterOperation::Insert,
+            primary_key: Default::default(),
+            record: Some(row),
+            old_record: None,
+            changed_columns: vec![],
+            commit_lsn: None,
+            commit_timestamp: None,
+        }
+    }
+    #[test]
+    fn geography_routes_only_compact_work_and_actual_enrichment() {
+        let row = serde_json::json!({"event_id":EventId::new().into_uuid(),"product_listing_id":ProductListingId::new().into_uuid(),"event_type":"ENRICHMENT_GEOGRAPHY_UPDATED","event_group":"ENRICHMENT","event_type_schema_version":1,"payload":{}});
+        let jobs =
+            route_change(&change("product_listing_events", row.clone())).expect("valid enrichment");
+        assert_eq!(
+            vec![
+                WorkerQueue::ProductListingOpenSearch,
+                WorkerQueue::SearchFilterPercolator
+            ],
+            jobs.iter().map(|j| j.target_queue).collect::<Vec<_>>()
+        );
+        let mut poison = row;
+        poison["payload"] = serde_json::json!({"coordinates":[1,2]});
+        assert!(route_change(&change("product_listing_events", poison)).is_err());
+        let row = serde_json::json!({"work_id":product_listing_service::geography::GeographyWorkId::new().into_uuid(),"generation":"2"});
+        let jobs = route_change(&change("listing_geography_wakeups", row.clone()))
+            .expect("compact wake-up");
+        assert_eq!(WorkerQueue::ListingGeography, jobs[0].target_queue);
+        assert!(aura_historia_jobs::encode(&jobs[0]).is_ok());
+        let mut poison = row.clone();
+        poison["generation"] = serde_json::json!(0);
+        assert!(route_change(&change("listing_geography_wakeups", poison)).is_err());
+        let mut poison = row;
+        poison["address"] = serde_json::json!("must never enter a job");
+        assert!(route_change(&change("listing_geography_wakeups", poison)).is_err());
     }
 }

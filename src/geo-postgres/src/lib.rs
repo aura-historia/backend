@@ -682,6 +682,94 @@ impl ResolutionRepository for Repository<'_> {
 
 #[async_trait::async_trait]
 impl ResolutionReader for Repository<'_> {
+    async fn inspect_many(
+        &mut self,
+        subjects: &[ResolutionSubject],
+    ) -> Result<std::collections::HashMap<Uuid, ResolutionView>, ResolutionError> {
+        if subjects.len() > 100 {
+            return Err(ResolutionError::InvalidInput);
+        }
+        let kinds = subjects
+            .iter()
+            .map(|s| s.kind().as_str())
+            .collect::<Vec<_>>();
+        let ids = subjects.iter().map(|s| s.id()).collect::<Vec<_>>();
+        // Discover immutable resolution/profile identities without locks, then use
+        // the provider -> resolution -> binding order shared by claim/completion.
+        // Recheck authority after waits; multiple locations may share a resolution.
+        let rows = sqlx::query_as::<_, ResolutionRow>(r#"
+            SELECT DISTINCT r.* FROM geo_resolutions r JOIN geo_resolution_bindings b USING(resolution_id)
+            JOIN UNNEST($1::text[],$2::uuid[]) requested(kind,id) ON b.subject_kind=requested.kind AND b.subject_id=requested.id
+            ORDER BY r.resolution_id
+        "#).bind(&kinds).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let profiles = rows.iter().map(|r| r.profile.clone()).collect::<Vec<_>>();
+        let controls: Vec<(String,bool)> = sqlx::query_as("SELECT profile,storage_permitted FROM geo_resolution_provider_controls WHERE profile=ANY($1) ORDER BY profile FOR SHARE")
+            .bind(profiles).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let controls = controls
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        let resolution_ids = rows.iter().map(|r| r.resolution_id).collect::<Vec<_>>();
+        // DISTINCT queries cannot use row locking; lock the referenced authority separately.
+        sqlx::query("SELECT resolution_id FROM geo_resolutions WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE")
+            .bind(&resolution_ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let rows = sqlx::query_as::<_, ResolutionRow>(
+            "SELECT * FROM geo_resolutions WHERE resolution_id=ANY($1) ORDER BY resolution_id",
+        )
+        .bind(&resolution_ids)
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        let bindings: Vec<(Uuid,Uuid,i64,i64,Option<i32>,Option<i64>)> = sqlx::query_as(r#"
+            SELECT b.subject_id,b.resolution_id,b.input_revision,b.guard,b.selected_candidate,b.selected_generation
+            FROM geo_resolution_bindings b JOIN UNNEST($1::text[],$2::uuid[]) requested(kind,id)
+            ON b.subject_kind=requested.kind AND b.subject_id=requested.id
+            WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id FOR SHARE OF b
+        "#).bind(kinds).bind(ids).bind(resolution_ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let rows = rows
+            .into_iter()
+            .map(|r| (r.resolution_id, r))
+            .collect::<std::collections::HashMap<_, _>>();
+        let now = self.clock().await?;
+        let mut result = std::collections::HashMap::new();
+        for (subject, id, input_revision, guard, selected, selected_generation) in bindings {
+            let r = rows.get(&id).ok_or_else(corrupt)?;
+            let input = r.input()?;
+            let eligible =
+                controls.get(&r.profile) == Some(&true) && r.valid_until.is_some_and(|v| v > now);
+            let evidence = if eligible { r.evidence(&input)? } else { None };
+            let selected_candidate = if eligible && selected_generation == Some(r.generation) {
+                selected
+                    .map(|v| usize::try_from(v).map_err(invalid))
+                    .transpose()?
+            } else {
+                None
+            };
+            if let Some(index) = selected_candidate {
+                let c = evidence
+                    .as_ref()
+                    .and_then(|e| e.candidates.get(index))
+                    .ok_or_else(corrupt)?;
+                if !c.acceptable || !candidate_compatible(&input, &c.geography) {
+                    return Err(corrupt());
+                }
+            }
+            result.insert(
+                subject,
+                ResolutionView {
+                    work: work(id, r.generation)?,
+                    input_revision: u64::try_from(input_revision).map_err(invalid)?,
+                    guard: u64::try_from(guard).map_err(invalid)?,
+                    status: ResolutionStatus::from_code(&r.status).ok_or_else(corrupt)?,
+                    evidence,
+                    valid_until: if eligible { r.valid_until } else { None },
+                    selected_candidate,
+                    last_failure: r.last_failure.clone(),
+                    attempts: r.attempts as u32,
+                },
+            );
+        }
+        Ok(result)
+    }
     async fn inspect(
         &mut self,
         subject: ResolutionSubject,

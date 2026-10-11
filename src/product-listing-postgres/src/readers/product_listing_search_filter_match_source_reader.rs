@@ -52,6 +52,7 @@ struct SourceRow {
     origin_event_time: OffsetDateTime,
     current_event_id: uuid::Uuid,
     projection_version: i64,
+    effective_geography: Option<serde_json::Value>,
     product_listing_id: uuid::Uuid,
     product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
@@ -154,6 +155,15 @@ impl ProductListingSearchFilterMatchSourceReaderFactory<SqlxTransaction>
 impl ProductListingSearchFilterMatchSourceReader
     for SqlxProductListingSearchFilterMatchSourceReader<'_>
 {
+    async fn mark_projected(
+        &mut self,
+        id: ProductListingId,
+        version: i64,
+    ) -> Result<(), ProductListingSearchFilterMatchSourceReadError> {
+        sqlx::query("UPDATE product_listing_geographies SET indexed_version=GREATEST(indexed_version,$2),blocks_queries=false WHERE product_listing_id=$1 AND geography_version<=$2")
+            .bind(id.into_uuid()).bind(version).execute(&mut *self.connection).await.map_err(SourceQuerySqlxError)?;
+        Ok(())
+    }
     async fn find_source(
         &mut self,
         event_id: EventId,
@@ -203,6 +213,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 event.event_time AS origin_event_time,
                 product.current_event_id,
                 product.projection_version,
+                geography.geography AS effective_geography,
                 product.product_listing_id,
                 product.product_listing_title_slug_id,
                 listing_source.listing_source_id,
@@ -244,6 +255,7 @@ impl ProductListingSearchFilterMatchSourceReader
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
 
+            LEFT JOIN product_listing_geographies geography ON geography.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
             FOR SHARE OF product
@@ -367,6 +379,13 @@ fn source_from_rows(
         current_event_id: try_from_uuid(row.current_event_id, "current event ID")
             .map_err(SourceRowMappingError::with_source)?,
         projection_version: row.projection_version,
+        geography: row
+            .effective_geography
+            .clone()
+            .map(crate::geography::decode)
+            .transpose()
+            .map_err(SourceRowMappingError::with_source)?
+            .unwrap_or_default(),
         product_listing_id: try_from_uuid(row.product_listing_id, "ProductListing ID")
             .map_err(SourceRowMappingError::with_source)?,
         product_listing_title_slug_id: ProductListingSlugId::raw(
@@ -654,7 +673,8 @@ fn event_kind_from_row(
             ProductListingSearchFilterMatchSourceEventKind::Domain
         }
         product_listing_event_codec::ProductListingPersistedEvent::Embedded
-        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles
+        | product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
             ProductListingSearchFilterMatchSourceEventKind::Enrichment
         }
     })

@@ -377,6 +377,7 @@ dependencies = [
  "money",
  "notification-core",
  "product-listing-core",
+ "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
@@ -396,6 +397,7 @@ dependencies = [
  "geo-service",
  "notification-core",
  "product-listing-core",
+ "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
@@ -1277,6 +1279,8 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -4603,6 +4607,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "listing-geography-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "geo-postgres",
+ "geo-service",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "listing-source-core"
 version = "0.1.0"
 dependencies = [
@@ -6299,11 +6325,13 @@ dependencies = [
  "auction-core",
  "domain-primitives",
  "fxrate-core",
+ "geo",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
  "money",
  "opensearch",
+ "party-core",
  "platform-opensearch",
  "product-listing-core",
  "product-listing-service",
@@ -6365,11 +6393,15 @@ dependencies = [
  "auction-service",
  "domain-primitives",
  "fxrate-core",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
  "money",
  "notification-core",
+ "party-core",
  "platform-postgres",
  "product-listing-core",
  "product-listing-ingestion-sqs",
@@ -6388,6 +6420,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tracing",
  "url",
  "user-core",
  "uuid",
@@ -6406,6 +6439,8 @@ dependencies = [
  "fake",
  "fxrate-core",
  "fxrate-service",
+ "geo",
+ "geo-service",
  "indexmap 2.14.2",
  "listing-source-core",
  "listing-source-service",
