@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use testcontainers::core::error::{ClientError, TestcontainersError};
 use tokio::sync::OnceCell;
 use tracing::debug;
 
@@ -18,6 +19,7 @@ const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
 const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
+const IMAGE_PULL_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
 const HOST_GATEWAY: &str = "host.docker.internal";
 const POSTGRES_TLS_ROOT_CERTIFICATE: &str = "/tmp/aura-historia-postgres-tls/ca.crt";
 const POSTGRES_TLS_ENTRYPOINT: &str = "set -eu\nmkdir -p /tmp/aura-historia-postgres-tls\nopenssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -subj /CN=AuraHistoriaTestCA -keyout /tmp/aura-historia-postgres-tls/ca.key -out /tmp/aura-historia-postgres-tls/ca.crt\nopenssl req -newkey rsa:2048 -nodes -sha256 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal -keyout /tmp/aura-historia-postgres-tls/server.key -out /tmp/aura-historia-postgres-tls/server.csr\nprintf 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:host.docker.internal\\nextendedKeyUsage=serverAuth\\n' > /tmp/aura-historia-postgres-tls/server.ext\nopenssl x509 -req -in /tmp/aura-historia-postgres-tls/server.csr -CA /tmp/aura-historia-postgres-tls/ca.crt -CAkey /tmp/aura-historia-postgres-tls/ca.key -CAcreateserial -out /tmp/aura-historia-postgres-tls/server.crt -days 1 -sha256 -extfile /tmp/aura-historia-postgres-tls/server.ext\nchown postgres:postgres /tmp/aura-historia-postgres-tls/server.crt /tmp/aura-historia-postgres-tls/server.key\nchmod 0600 /tmp/aura-historia-postgres-tls/server.key\nexec /usr/local/bin/docker-entrypoint.sh postgres -c fsync=off -c wal_level=logical -c ssl=on -c ssl_cert_file=/tmp/aura-historia-postgres-tls/server.crt -c ssl_key_file=/tmp/aura-historia-postgres-tls/server.key";
@@ -126,6 +128,36 @@ async fn wait_for_postgres_connection() -> PgConnection {
     }
 }
 
+/// Image pulling precedes container creation, so only that failure can be retried safely.
+/// Return other startup failures immediately, and retain the final pull error on exhaustion.
+async fn retry_image_pull<T, F, Fut>(
+    mut start: F,
+    retry_delays: &[Duration],
+) -> Result<T, TestcontainersError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, TestcontainersError>>,
+{
+    let mut delays = retry_delays.iter().enumerate();
+    loop {
+        let result = start().await;
+        if !matches!(
+            &result,
+            Err(TestcontainersError::Client(ClientError::PullImage { .. }))
+        ) {
+            return result;
+        }
+        let Some((attempt, delay)) = delays.next() else {
+            return result;
+        };
+        tracing::warn!(
+            attempt = attempt + 1,
+            "Postgres test image pull failed; retrying."
+        );
+        tokio::time::sleep(*delay).await;
+    }
+}
+
 /// Ensures the Postgres container is running, starting it at most once per process.
 ///
 /// All concurrent callers await the same [`OnceCell`] initialisation future, so only one
@@ -136,10 +168,9 @@ async fn ensure_container_started() {
         .get_or_init(|| async {
             install_cleanup();
             let name = postgres_container_name();
-            let port = find_free_port();
-            POSTGRES_HOST_PORT
-                .set(port)
-                .expect("shouldn't fail setting Postgres host port");
+            // OnceCell retries initialization after failure/cancellation. Reuse the port
+            // so an interrupted startup cannot poison subsequent attempts.
+            let port = *POSTGRES_HOST_PORT.get_or_init(find_free_port);
 
             // Remove any container left over from a previous aborted run of this process id.
             let _ = docker_remove(&name);
@@ -155,27 +186,31 @@ async fn ensure_container_started() {
             let (repository, tag) = image.rsplit_once(':').unwrap_or_else(|| {
                 panic!("invalid Postgres test image reference '{image}'; expected repository:tag")
             });
-            let container = GenericImage::new(repository, tag)
-                .with_entrypoint("/bin/sh")
-                .with_wait_for(WaitFor::message_on_stdout(
-                    "database system is ready to accept connections",
-                ))
-                .with_env_var("POSTGRES_USER", POSTGRES_USER)
-                .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
-                .with_env_var("POSTGRES_DB", POSTGRES_DB)
-                .with_cmd(["-ec", POSTGRES_TLS_ENTRYPOINT])
-                .with_container_name(name.clone())
-                .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
-                .start()
-                .await
-                .expect("shouldn't fail starting Postgres test container");
+            let container = retry_image_pull(
+                || async {
+                    GenericImage::new(repository, tag)
+                        .with_entrypoint("/bin/sh")
+                        .with_wait_for(WaitFor::message_on_stdout(
+                            "database system is ready to accept connections",
+                        ))
+                        .with_env_var("POSTGRES_USER", POSTGRES_USER)
+                        .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
+                        .with_env_var("POSTGRES_DB", POSTGRES_DB)
+                        .with_cmd(["-ec", POSTGRES_TLS_ENTRYPOINT])
+                        .with_container_name(name.clone())
+                        .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
+                        .start()
+                        .await
+                },
+                &IMAGE_PULL_RETRY_DELAYS,
+            )
+            .await
+            .expect("shouldn't fail starting Postgres test container");
 
             let certificate_path = postgres_tls_root_certificate_path_for_process();
             copy_from_container(&name, POSTGRES_TLS_ROOT_CERTIFICATE, &certificate_path)
                 .expect("shouldn't fail copying Postgres test CA from container");
-            POSTGRES_TLS_ROOT_CERTIFICATE_PATH
-                .set(certificate_path)
-                .expect("shouldn't fail setting Postgres TLS root certificate path");
+            POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| certificate_path);
 
             let _connection = wait_for_postgres_connection().await;
 
@@ -527,6 +562,76 @@ impl IntegrationTestService for Postgres {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pull_failure(attempt: usize) -> TestcontainersError {
+        ClientError::PullImage {
+            descriptor: format!("postgres:attempt-{attempt}"),
+            err: std::io::Error::other("bytes remaining on stream").into(),
+        }
+        .into()
+    }
+
+    #[tokio::test]
+    async fn should_recover_from_transient_image_pull_failures() {
+        let mut attempts = 0;
+        let result = retry_image_pull(
+            || {
+                attempts += 1;
+                let attempt = attempts;
+                async move {
+                    if attempt < 3 {
+                        Err(pull_failure(attempt))
+                    } else {
+                        Ok("ready")
+                    }
+                }
+            },
+            &[Duration::ZERO; 2],
+        )
+        .await;
+        assert_eq!("ready", result.unwrap());
+        assert_eq!(3, attempts);
+    }
+
+    #[tokio::test]
+    async fn should_bound_image_pull_retries_and_preserve_the_final_error() {
+        let mut attempts = 0;
+        let result = retry_image_pull(
+            || {
+                attempts += 1;
+                let attempt = attempts;
+                async move { Err::<(), _>(pull_failure(attempt)) }
+            },
+            &[Duration::ZERO; 2],
+        )
+        .await;
+        assert_eq!(3, attempts);
+        let Err(TestcontainersError::Client(ClientError::PullImage { descriptor, err })) = result
+        else {
+            panic!("expected the original image pull error");
+        };
+        assert_eq!("postgres:attempt-3", descriptor);
+        assert!(err.to_string().contains("bytes remaining on stream"));
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_container_readiness_failures() {
+        let mut attempts = 0;
+        let result = retry_image_pull(
+            || {
+                attempts += 1;
+                async {
+                    Err::<(), _>(
+                        testcontainers::core::error::WaitContainerError::StartupTimeout.into(),
+                    )
+                }
+            },
+            &[Duration::ZERO; 2],
+        )
+        .await;
+        assert_eq!(1, attempts);
+        assert!(matches!(result, Err(TestcontainersError::WaitContainer(_))));
+    }
 
     #[tokio::test]
     async fn should_connect_to_the_fixture_with_verified_tls() {
