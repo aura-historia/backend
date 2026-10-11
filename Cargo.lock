@@ -1266,7 +1266,10 @@ dependencies = [
 name = "backend-cleanup-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
+ "geo-postgres",
+ "geo-service",
  "lambda_runtime",
  "oauth-postgres",
  "oauth-service",

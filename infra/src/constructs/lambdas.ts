@@ -354,7 +354,7 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" ? 2 : key === "geoResolution" ? 3 : undefined,
+        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"

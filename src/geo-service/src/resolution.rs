@@ -536,11 +536,8 @@ pub trait ResolutionRepository: Send {
         claim: &ResolutionClaim,
         completion: ResolutionCompletion,
     ) -> Result<bool, ResolutionError>;
-    async fn pending(
-        &mut self,
-        limit: u32,
-        profile: &str,
-    ) -> Result<Vec<ResolutionWork>, ResolutionError>;
+    /// Publish fresh fenced wake-ups for runnable work without resetting paid attempts.
+    async fn recover_pending(&mut self, limit: u32) -> Result<u32, ResolutionError>;
     /// Purge every expired provider derivative and commit invalidation before requeue.
     async fn expire(&mut self, limit: u32) -> Result<u32, ResolutionError>;
     async fn select(
@@ -580,7 +577,60 @@ pub trait ResolveUseCase: Send + Sync {
         context: &OperationContext,
         work: ResolutionWork,
     ) -> Result<ResolveOutcome, ResolutionError>;
-    async fn drain(&self, context: &OperationContext, limit: u32) -> Result<u32, ResolutionError>;
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ResolutionMaintenanceCounts {
+    pub expired: u32,
+    pub requeued: u32,
+}
+
+#[async_trait::async_trait]
+pub trait MaintainResolutionsUseCase: Send + Sync {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        limit: u32,
+    ) -> Result<ResolutionMaintenanceCounts, ResolutionError>;
+}
+
+/// Database housekeeping creates durable wake-ups; only the queue worker calls providers.
+pub struct MaintainResolutionsHandler<U, R> {
+    uow: U,
+    repository: R,
+}
+
+impl<U, R> MaintainResolutionsHandler<U, R> {
+    pub fn new(uow: U, repository: R) -> Self {
+        Self { uow, repository }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>> MaintainResolutionsUseCase
+    for MaintainResolutionsHandler<U, R>
+{
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        limit: u32,
+    ) -> Result<ResolutionMaintenanceCounts, ResolutionError> {
+        authorize_worker(context)?;
+        if !(1..=100).contains(&limit) {
+            return Err(ResolutionError::InvalidInput);
+        }
+        let mut tx = self.uow.begin().await?;
+        // Recover first so newly expired results receive just the expiry wake-up.
+        let requeued = self
+            .repository
+            .resolutions(&mut tx)
+            .recover_pending(limit)
+            .await?;
+        let expired = self.repository.resolutions(&mut tx).expire(limit).await?;
+        tx.commit().await?;
+        tracing::info!(metric = "geo_resolution_maintenance", expired, requeued);
+        Ok(ResolutionMaintenanceCounts { expired, requeued })
+    }
 }
 pub struct ResolveHandler<U, R, P> {
     uow: U,
@@ -675,42 +725,6 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
         } else {
             ResolveOutcome::Deferred
         })
-    }
-    async fn drain(&self, context: &OperationContext, limit: u32) -> Result<u32, ResolutionError> {
-        authorize_worker(context)?;
-        if !(1..=100).contains(&limit) {
-            return Err(ResolutionError::InvalidInput);
-        }
-        let mut tx = self.uow.begin().await?;
-        let expired = self.repository.resolutions(&mut tx).expire(limit).await?;
-        let pending = self
-            .repository
-            .resolutions(&mut tx)
-            .pending(limit, &self.profile)
-            .await?;
-        tx.commit().await?;
-        tracing::info!(
-            metric = "geo_resolution_drain",
-            expired,
-            pending = pending.len()
-        );
-        let mut completed = 0;
-        let mut failure = None;
-        for work in pending {
-            match self.execute(context, work).await {
-                Ok(ResolveOutcome::Complete) => completed += 1,
-                Ok(ResolveOutcome::Deferred) => {}
-                Err(error) => {
-                    if failure.is_none() {
-                        failure = Some(error);
-                    }
-                }
-            }
-        }
-        match failure {
-            Some(error) => Err(error),
-            None => Ok(completed),
-        }
     }
 }
 

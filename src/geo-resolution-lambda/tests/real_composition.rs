@@ -213,12 +213,32 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     );
     sqlx::query("UPDATE geo_resolutions SET lease_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
         .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
-    assert_eq!(
-        serde_json::json!({"completed":1}),
-        geo_resolution_lambda::drain(&use_case).await.unwrap()
+    let maintenance = MaintainResolutionsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxResolutionRepositoryFactory,
     );
+    let context = OperationContext {
+        principal: Principal::Service("backend-cleanup-worker".into()),
+        request_id: "test".into(),
+        correlation_id: "test".into(),
+    };
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 0,
+            requeued: 1
+        },
+        maintenance.execute(&context, 100).await.unwrap()
+    );
+    let recovered = view(&pool, binding).await.work;
+    assert_eq!(current.generation + 1, recovered.generation);
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
     assert!(
         process([("recovered-redrive", job(current))], &use_case)
+            .await
+            .is_empty()
+    );
+    assert!(
+        process([("recovered-wakeup", job(recovered))], &use_case)
             .await
             .is_empty()
     );
@@ -227,9 +247,19 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
         .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
     assert!(view(&pool, binding).await.evidence.is_none());
-    geo_resolution_lambda::drain(&disabled).await.unwrap();
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 1,
+            requeued: 0
+        },
+        maintenance.execute(&context, 100).await.unwrap()
+    );
     let expired = view(&pool, binding).await;
-    assert_eq!(current.generation + 1, expired.work.generation);
+    assert_eq!(recovered.generation + 1, expired.work.generation);
     assert!(expired.evidence.is_none());
     assert!(
         process([("expired-stale-redrive", job(current))], &disabled)

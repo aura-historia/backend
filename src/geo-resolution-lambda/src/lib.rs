@@ -50,14 +50,6 @@ pub async fn handler(
         complete
     }))
 }
-/// A scheduled drain recovers missed CDC, expired leases, retention and negative-cache TTLs.
-pub async fn drain(use_case: &dyn ResolveUseCase) -> Result<serde_json::Value, Error> {
-    let completed = use_case
-        .drain(&context(), 2)
-        .await
-        .map_err(|_| Error::from("geographic resolution drain failed"))?;
-    Ok(serde_json::json!({"completed":completed}))
-}
 
 #[cfg(test)]
 mod tests {
@@ -78,10 +70,6 @@ mod tests {
             assert!(matches!(context.principal, Principal::Service(_)));
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.result)
-        }
-        async fn drain(&self, _: &OperationContext, limit: u32) -> Result<u32, ResolutionError> {
-            assert_eq!(2, limit);
-            Ok(1)
         }
     }
     const JOB: &str = r#"{"schema_version":2,"scope":"geo-resolution","idempotency_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn:1","ordering_key":"geo-resolution:gres_01h455vb4pex5vy7enb1p677vn","job_type":"GEO_RESOLUTION","payload":{"resolution_id":"gres_01h455vb4pex5vy7enb1p677vn","generation":1}}"#;
@@ -105,9 +93,5 @@ mod tests {
             result: ResolveOutcome::Deferred,
         };
         assert!(!process_job(JOB, &deferred).await);
-        assert_eq!(
-            serde_json::json!({"completed":1}),
-            drain(&stub).await.unwrap()
-        );
     }
 }

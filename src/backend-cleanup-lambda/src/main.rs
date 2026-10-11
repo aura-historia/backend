@@ -1,4 +1,6 @@
 use backend_cleanup_lambda::{cleanup_batch_size_from_env, run_cleanup};
+use geo_postgres::SqlxResolutionRepositoryFactory;
+use geo_service::resolution::MaintainResolutionsHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
@@ -51,16 +53,26 @@ async fn main() -> Result<(), Error> {
                             SqlxExpiredCredentialCleanup::new(pool.clone()),
                         ),
                         CleanupConsentWorkflowHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxNewsletterConfirmationChallengesRepository::new(),
                             SqlxConsentWorkflowCleanup::new(),
                             SystemNewsletterConfirmationClock,
+                        ),
+                        MaintainResolutionsHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxResolutionRepositoryFactory,
                         ),
                     ))
                 })
                 .await?;
 
-            run_cleanup(&cleanup.value().0, &cleanup.value().1, batch_size).await
+            run_cleanup(
+                &cleanup.value().0,
+                &cleanup.value().1,
+                &cleanup.value().2,
+                batch_size,
+            )
+            .await
         }
     }))
     .await

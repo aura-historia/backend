@@ -463,8 +463,9 @@ or lease expiry, so manual requeue cannot create another concurrent paid reserva
 Current evidence requires the same current source binding and unexpired provider rights
 and retention. Readers suppress stale/expired/revoked evidence immediately, including
 reviewed points, and recheck bindings after waiting for resolution coordination;
-original country assertions remain useful. The bounded scheduled drain
-physically purges expired, revoked and orphaned provider derivatives, clears selections,
+original country assertions remain useful. Bounded geography maintenance in the existing
+hourly backend cleanup Lambda physically purges expired, revoked and orphaned provider
+derivatives, clears selections,
 commits invalidation and establishes a new generation where retention is permitted.
 The journal and wake-ups contain no address, scope owner or provider evidence, so erasure
 does not leave copies of prohibited derivatives in event history. Future dependent
@@ -485,8 +486,14 @@ turning off paid calls alone deliberately preserves still-permitted cached evide
 
 Only `geo_resolution_wakeups` is selected for CDC, carrying `gres_` identity/generation
 through schema-2 jobs. The versioned SQS worker uses partial failure responses and the
-ordinary scoped DLQ. The one-minute scheduled drain recovers missed wake-ups, restarts,
-expired leases, negative reconsideration and retention invalidation independently of CDC.
+ordinary scoped DLQ. The existing hourly backend cleanup Lambda purges ineligible
+evidence and publishes fresh durable wake-ups for runnable pending work, including lost
+deliveries and expired leases. Recovery advances the generation to fence old jobs while
+preserving attempt counts, pending age, backoff eligibility and budget reservations;
+it skips live claims, exhausted budgets and inactive provider profiles. Cleanup makes no
+provider calls and still purges evidence with paid work disabled. Fresh wake-ups follow
+the normal CDC/SQS path, which must be healthy for resolution to resume. Expiry and
+negative reconsideration also create wake-ups; there is no separate geography schedule.
 Protected Request use cases establish work for preexisting eligible sites; CDC-only
 capture does not backfill them. [The worker runbook](durable-worker-runbook.md#geographic-resolution-recovery)
 owns operator recovery and safe monitoring.

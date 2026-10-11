@@ -66,7 +66,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   test("schedules cleanup version and the unqualified initialization FX function", () => {
     const { compute, initialize } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
-    expect(schedules).toHaveLength(4);
+    expect(schedules).toHaveLength(3);
     const fx = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)");
     const cleanup = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 * * * ? *)");
     for (const schedule of [fx, cleanup]) {

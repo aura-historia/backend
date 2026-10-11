@@ -52,6 +52,7 @@ fn work(id: Uuid, generation: i64) -> Result<ResolutionWork, ResolutionError> {
 
 #[derive(FromRow)]
 struct ResolutionRow {
+    resolution_id: Uuid,
     fingerprint: String,
     profile: String,
     policy_version: String,
@@ -464,22 +465,23 @@ impl ResolutionRepository for Repository<'_> {
             }
         }
     }
-    async fn pending(
-        &mut self,
-        limit: u32,
-        profile: &str,
-    ) -> Result<Vec<ResolutionWork>, ResolutionError> {
+    async fn recover_pending(&mut self, limit: u32) -> Result<u32, ResolutionError> {
         if !(1..=100).contains(&limit) {
             return Err(ResolutionError::InvalidInput);
         }
         let now = self.clock().await?;
         sqlx::query(
             r#"
-            UPDATE geo_resolutions SET
-            status='FAILED',last_failure='LEASE_ATTEMPTS_EXHAUSTED',lease_token=NULL,lease_until=NULL WHERE
-            status='PENDING' AND attempts=5 AND lease_until<=$1
+            WITH exhausted AS (
+                SELECT resolution_id FROM geo_resolutions
+                WHERE status='PENDING' AND attempts=5 AND lease_until<=$1
+                ORDER BY lease_until LIMIT $2 FOR NO KEY UPDATE SKIP LOCKED
+            )
+            UPDATE geo_resolutions r SET
+            status='FAILED',last_failure='LEASE_ATTEMPTS_EXHAUSTED',lease_token=NULL,lease_until=NULL
+            FROM exhausted e WHERE r.resolution_id=e.resolution_id
             "#,
-        ).bind(now).execute(&mut *self.connection).await.map_err(sql_error)?;
+        ).bind(now).bind(i64::from(limit)).execute(&mut *self.connection).await.map_err(sql_error)?;
         let oldest:Option<OffsetDateTime>=sqlx::query_scalar(
             r#"
             SELECT min(pending_since) FROM geo_resolutions WHERE status='PENDING' AND EXISTS(SELECT 1 FROM
@@ -492,11 +494,11 @@ impl ResolutionRepository for Repository<'_> {
                 .map(|v| (now - v).whole_seconds().max(0))
                 .unwrap_or(0)
         );
-        let rows: Vec<(Uuid,i64)> = sqlx::query_as(r#"
-            SELECT r.resolution_id,r.generation
+        let rows: Vec<ResolutionRow> = sqlx::query_as(r#"
+            SELECT r.*
             FROM geo_resolutions r
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
-            WHERE r.profile=$3 AND r.status='PENDING' AND r.attempts<5
+            WHERE c.is_default AND r.status='PENDING' AND r.attempts<5
                 AND r.next_attempt_at<=$1 AND (r.lease_until IS NULL OR r.lease_until<=$1)
                 AND c.enabled AND c.storage_permitted
                 AND (c.open_until IS NULL OR c.open_until<=$1)
@@ -508,10 +510,33 @@ impl ResolutionRepository for Repository<'_> {
                         AND s.calls>=c.scope_daily_limit
                 )
                 AND EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id)
-            ORDER BY r.next_attempt_at,r.created LIMIT $2
-        "#).bind(now).bind(i64::from(limit)).bind(profile)
+            ORDER BY r.next_attempt_at,r.created LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED
+        "#).bind(now).bind(i64::from(limit))
             .fetch_all(&mut *self.connection).await.map_err(sql_error)?;
-        rows.into_iter().map(|(id, g)| work(id, g)).collect()
+        let count = rows.len() as u32;
+        for row in rows {
+            row.input()?;
+            let id = ResolutionId::try_from(row.resolution_id).map_err(invalid)?;
+            let next = row.generation.checked_add(1).ok_or_else(corrupt)?;
+            let w = work(id.into_uuid(), next)?;
+            // A new immutable journal row also repairs a previously missed CDC event.
+            // Keep attempts, pending age and all budget reservations across recovery.
+            sqlx::query(
+                r#"
+                UPDATE geo_resolutions SET generation=$2,lease_token=NULL,lease_until=NULL,
+                next_attempt_at=$3 WHERE resolution_id=$1
+                "#,
+            )
+            .bind(id.into_uuid())
+            .bind(next)
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(sql_error)?;
+            self.signal(w, "REQUEUED", None).await?;
+            self.wake(w).await?;
+        }
+        Ok(count)
     }
     async fn expire(&mut self, limit: u32) -> Result<u32, ResolutionError> {
         if !(1..=100).contains(&limit) {

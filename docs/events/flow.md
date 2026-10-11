@@ -93,9 +93,13 @@ Geographic resolution CDC selects only the immutable resolution ID/generation wa
 table, with exact decimal-string generations. All operations reject extra columns.
 Private inputs, cache fingerprints, tenant scope, review choices and provider evidence
 remain outside CDC. Resolution claims/completions reread PostgreSQL; old generations
-complete as superseded and active leases retain retry custody. The scheduled drain
-supplies recovery when CDC or a wake-up is missed. Accepted evidence and the content-free
-enrichment/invalidation journal commit together. Dependent listing geography will consume
+complete as superseded and active leases retain retry custody. Hourly backend cleanup
+supplies recovery for missed deliveries by advancing runnable pending generations and
+inserting fresh immutable wake-ups, preserving attempts and budget reservations. It
+also purges ineligible evidence and commits invalidation. Cleanup makes no provider
+calls; fresh recovery wake-ups require the normal CDC/SQS path to be healthy.
+Accepted evidence and the content-free enrichment/invalidation journal commit together.
+Dependent listing geography will consume
 that journal in its owning projection work; this change does not activate a listing
 projector or independently geocode inherited listings. See [durable geography](../geography.md#durable-resolution-and-party-integration-2002).
 Cached reuse emits a subject-specific RESOLVED signal for a new source binding;

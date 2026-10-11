@@ -1,4 +1,5 @@
 use aws_config::BehaviorVersion;
+use aws_lambda_events::sqs::SqsEvent;
 use geo_amazon_location::{AmazonLocationConfig, AmazonLocationGeocoder, REGION, TERMS_PROFILE};
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::{
@@ -43,7 +44,7 @@ async fn main() -> Result<(), Error> {
     )?);
     let cache = Arc::new(VersionedCompositionCache::<Arc<dyn ResolveUseCase>>::new());
     log_cold_start("geo-resolution-lambda", started);
-    run(service_fn(move |event: LambdaEvent<serde_json::Value>| {
+    run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
         let provider = Arc::clone(&provider);
@@ -76,19 +77,8 @@ async fn main() -> Result<(), Error> {
                         )) as Arc<dyn ResolveUseCase>)
                     })
                     .await?;
-                if event.payload == serde_json::json!({"action":"DRAIN"}) {
-                    return geo_resolution_lambda::drain(use_case.value().as_ref()).await;
-                }
-                let sqs = serde_json::from_value(event.payload)
-                    .map_err(|_| Error::from("invalid geographic resolution event"))?;
-                let result = geo_resolution_lambda::handler(
-                    LambdaEvent::new(sqs, event.context),
-                    use_case.value().as_ref(),
-                    budget.remaining(),
-                )
-                .await?;
-                serde_json::to_value(result)
-                    .map_err(|_| Error::from("invalid geographic resolution response"))
+                geo_resolution_lambda::handler(event, use_case.value().as_ref(), budget.remaining())
+                    .await
             })
             .await
             .map_err(|_| Error::from("geographic resolution invocation timed out"))?

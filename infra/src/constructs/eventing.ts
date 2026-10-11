@@ -80,7 +80,7 @@ export class Eventing extends Construct {
     if (!props.backendCleanupVersion) {
       throw new Error("Real eventing requires a cleanup Lambda version.");
     }
-    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion, props.geoResolutionVersion);
+    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
 
     if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
       throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
@@ -142,7 +142,6 @@ function createMaintenanceSchedules(
   scope: Construct,
   config: StageConfig,
   cleanupVersion: lambda.IVersion,
-  geoResolutionVersion: lambda.IVersion,
 ): void {
   const fxRateSyncArn = cdk.Stack.of(scope).formatArn({
     service: "lambda",
@@ -162,26 +161,12 @@ function createMaintenanceSchedules(
   });
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["lambda:InvokeFunction"],
-    resources: [cleanupVersion.functionArn, fxRateSyncArn, geoResolutionVersion.functionArn],
+    resources: [cleanupVersion.functionArn, fxRateSyncArn],
   }));
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["sqs:SendMessage"],
     resources: [deadLetterQueue.queueArn],
   }));
-  new scheduler.CfnSchedule(scope, "GeoResolutionDrainSchedule", {
-    name: `aura-historia-geo-resolution-drain-${config.stage}`,
-    scheduleExpression: "rate(1 minute)",
-    flexibleTimeWindow: { mode: "OFF" },
-    state: "ENABLED",
-    target: {
-      arn: geoResolutionVersion.functionArn,
-      roleArn: role.roleArn,
-      input: JSON.stringify({ action: "DRAIN" }),
-      deadLetterConfig: { arn: deadLetterQueue.queueArn },
-      retryPolicy: { maximumEventAgeInSeconds: SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS, maximumRetryAttempts: SCHEDULE_MAXIMUM_RETRY_ATTEMPTS },
-    },
-  });
-
   new scheduler.CfnSchedule(scope, "ExpiredCredentialCleanupSchedule", {
     name: `aura-historia-expired-credential-cleanup-${config.stage}`,
     scheduleExpression: "cron(0 * * * ? *)",

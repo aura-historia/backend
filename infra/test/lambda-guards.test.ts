@@ -30,7 +30,7 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
       for (const resource of resources(template, "AWS::Lambda::Function")) {
         expect(resource.Properties?.ReservedConcurrentExecutions).toBe(
           resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2
-            : resource.Properties?.FunctionName === `geo-resolution-lambda-${stage}` ? 3 : undefined,
+            : resource.Properties?.FunctionName === `geo-resolution-lambda-${stage}` ? 2 : undefined,
         );
       }
 

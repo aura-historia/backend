@@ -289,7 +289,7 @@ fn location_binding(v: &PartyLocationView) -> ResolutionBinding {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn creation_disabled_and_then_restart_drain_reuses_unchanged_inputs_without_provider_transactions()
+async fn creation_disabled_and_then_maintenance_recovery_reuses_unchanged_inputs_without_provider_transactions()
  {
     let pool = get_postgres_client().await;
     default_off(&pool).await;
@@ -315,12 +315,28 @@ async fn creation_disabled_and_then_restart_drain_reuses_unchanged_inputs_withou
         .execute(&pool)
         .await
         .unwrap();
-    // Simulate a lost CDC wake-up and a newly started runtime using the database drain.
-    sqlx::query("DELETE FROM geo_resolution_wakeups")
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert_eq!(1, handler.drain(&context(), 10).await.unwrap());
+    // The original journal entry still exists, but its CDC delivery was lost.
+    let maintenance = MaintainResolutionsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxResolutionRepositoryFactory,
+    );
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 0,
+            requeued: 1
+        },
+        maintenance.execute(&context(), 10).await.unwrap()
+    );
+    assert_eq!(0, provider.calls.load(Ordering::SeqCst));
+    let original = view.work;
+    let view = inspect(&pool, b).await.unwrap();
+    assert_eq!(original.id, view.work.id);
+    assert_eq!(original.generation + 1, view.work.generation);
+    assert_eq!(
+        ResolveOutcome::Complete,
+        handler.execute(&context(), original).await.unwrap()
+    );
+    handler.execute(&context(), view.work).await.unwrap();
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
     assert!(
         inspect(&pool, b)
@@ -852,7 +868,7 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .pending(10, PROFILE)
+        .recover_pending(10)
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -866,7 +882,7 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn pending_drain_skips_exhausted_scopes_and_other_provider_profiles() {
+async fn pending_recovery_skips_exhausted_scopes_and_inactive_provider_profiles() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let owner = Uuid::now_v7();
@@ -882,34 +898,146 @@ async fn pending_drain_skips_exhausted_scopes_and_other_provider_profiles() {
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let pending = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .pending(1, PROFILE)
+        .recover_pending(1)
         .await
         .unwrap();
-    assert_eq!(vec![eligible], pending);
-    assert!(!pending.contains(&exhausted));
-    assert!(
+    assert_eq!(1, pending);
+    tx.commit().await.unwrap();
+    let current: i64 =
+        sqlx::query_scalar("SELECT generation FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(eligible.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(eligible.generation + 1, current as u64);
+    let current: i64 =
+        sqlx::query_scalar("SELECT generation FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(exhausted.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(exhausted.generation, current as u64);
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert_eq!(
+        0,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
-            .pending(1, "OTHER_PROFILE")
+            .recover_pending(1)
             .await
             .unwrap()
-            .is_empty()
     );
     tx.commit().await.unwrap();
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=true WHERE profile=$1")
+        .bind(PROFILE)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE geo_resolution_scope_budgets SET budget_day=budget_day-1")
         .execute(&pool)
         .await
         .unwrap();
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     assert_eq!(
-        vec![exhausted],
+        1,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
-            .pending(1, PROFILE)
+            .recover_pending(1)
             .await
             .unwrap()
     );
     tx.commit().await.unwrap();
+    let current: i64 =
+        sqlx::query_scalar("SELECT generation FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(exhausted.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(exhausted.generation + 1, current as u64);
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn maintenance_recovery_preserves_paid_attempts_and_skips_live_or_locked_work() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let subject = binding();
+    let retry = bind(&pool, &input(Uuid::now_v7(), "retry"), subject).await;
+    let active = bind(&pool, &input(Uuid::now_v7(), "active"), binding()).await;
+    let locked = bind(&pool, &input(Uuid::now_v7(), "locked"), binding()).await;
+    let ClaimOutcome::Claimed(failed_claim) = claim(&pool, retry).await else {
+        panic!("claim required")
+    };
+    complete(
+        &pool,
+        &failed_claim,
+        ResolutionCompletion::Failure(GeocodingFailure::Unavailable),
+    )
+    .await;
+    assert!(matches!(
+        claim(&pool, active).await,
+        ClaimOutcome::Claimed(_)
+    ));
+    let maintenance = MaintainResolutionsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxResolutionRepositoryFactory,
+    );
+    // A future retry deadline remains authoritative; the other runnable row is locked.
+    let mut locked_tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM geo_resolutions WHERE resolution_id=$1 FOR NO KEY UPDATE")
+        .bind(locked.id.into_uuid())
+        .execute(&mut *locked_tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        ResolutionMaintenanceCounts::default(),
+        maintenance.execute(&context(), 100).await.unwrap()
+    );
+    sqlx::query("UPDATE geo_resolutions SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
+        .bind(retry.id.into_uuid()).execute(&pool).await.unwrap();
+    let before: (i32, i32) = sqlx::query_as(
+        "SELECT calls,consecutive_failures FROM geo_resolution_provider_controls WHERE profile=$1",
+    )
+    .bind(PROFILE)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 0,
+            requeued: 1
+        },
+        maintenance.execute(&context(), 100).await.unwrap()
+    );
+    locked_tx.rollback().await.unwrap();
+    let recovered = inspect(&pool, subject).await.unwrap();
+    assert_eq!(retry.id, recovered.work.id);
+    assert_eq!(retry.generation + 1, recovered.work.generation);
+    assert_eq!(1, recovered.attempts);
+    assert_eq!(Some("UNAVAILABLE"), recovered.last_failure.as_deref());
+    let after: (i32, i32) = sqlx::query_as(
+        "SELECT calls,consecutive_failures FROM geo_resolution_provider_controls WHERE profile=$1",
+    )
+    .bind(PROFILE)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    let wakeups: Vec<i64> = sqlx::query_scalar(
+        "SELECT generation FROM geo_resolution_wakeups WHERE resolution_id=$1 ORDER BY generation",
+    )
+    .bind(retry.id.into_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(vec![1, 2], wakeups);
+    assert!(matches!(claim(&pool, retry).await, ClaimOutcome::Complete));
+    let ClaimOutcome::Claimed(next_claim) = claim(&pool, recovered.work).await else {
+        panic!("recovered claim required")
+    };
+    assert_eq!(2, next_claim.attempt);
 }
 
 #[aura_integration_test(services=[SCHEMA])]

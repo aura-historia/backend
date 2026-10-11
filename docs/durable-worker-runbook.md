@@ -222,24 +222,34 @@ revoking rights requires `storage_permitted=false` and verification of physical 
 Only compact resolution IDs/generations cross CDC and SQS. Private input, provider
 evidence and scope owners must stay out of logs, jobs and operator evidence. Monitor
 `geo_resolution_input` reuse, `geo_resolution_outcome` method/policy/outcome/failure and
-attempt counts, `geo_resolution_oldest_pending` age and `geo_resolution_drain` counts,
-plus queue age/depth/DLQ and
-scheduled drain failures. These structured log fields are aggregate observations, not
+attempt counts, `geo_resolution_oldest_pending` age and `geo_resolution_maintenance`
+expired/requeued counts, plus queue age/depth/DLQ and backend cleanup failures.
+These structured log fields are aggregate observations, not
 provisioned CloudWatch metric filters. Investigate BLOCKED/FAILED database state as well
 as transport custody; partial failures need not increment Lambda Errors.
 
-The one-minute scheduled drain processes at most two pending inputs per invocation and
-bounded retention cleanup, independently of wake-up delivery. It runs with paid work off
-to purge expired, revoked and orphaned provider evidence and review selections. Readers
-hide ineligible evidence immediately. Verify the INVALIDATED journal entry and changed
-generation after cleanup; the journal contains no provider derivatives. Listing
+The existing hourly `backend-cleanup-lambda` handles geography maintenance alongside
+credential and consent cleanup. Each invocation purges at most 100 evidence records and
+requeues at most 100 runnable inputs, using `EXPIRY_CLEANUP_BATCH_SIZE` capped at 100.
+It makes no provider calls and needs no geocoding or SQS publishing permission. Recovery
+advances generations and inserts new compact immutable CDC wake-ups without resetting
+attempts, pending age or budget reservations; active leases, backoff deadlines and
+provider/scope budgets remain authoritative. CDC and SQS must be healthy for these fresh
+wake-ups to reach the worker. Recovery can wait until the next hourly invocation;
+monitor backlog age and capacity, and run additional bounded cleanup invocations under
+the normal operational approval when a backlog or rights withdrawal requires faster
+physical erasure. Geography cleanup runs with paid work off to purge expired, revoked
+and orphaned evidence and review selections. Readers hide ineligible evidence immediately.
+Verify INVALIDATED/REQUEUED journal entries and changed generations after maintenance;
+the journal contains no provider derivatives. Each cleanup capability runs even when
+another returns an error, and any error fails the invocation. Listing
 projection consumption is a separate roadmap integration and must use current state.
 
 For recovery, use bounded read-only metadata queries to inspect current binding,
 generation, lease, attempt count, last failure, deadline and provider/scope budgets. An
 active claim is incomplete. A paid-call/commit crash can repeat charging after lease
 expiry; five durable attempts and one SDK attempt per reservation bound ordinary retries.
-Budget reservations are not refunded after uncertain calls. The scheduled drain resumes
+Budget reservations are not refunded after uncertain calls. Hourly maintenance requeues
 expired leases; exhausted work requires an explicit protected Retry after correcting the
 cause. Authentication/configuration/retention failures are not geographic no-match.
 
