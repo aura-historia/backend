@@ -2,6 +2,18 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-11 — Administrator ListingSource location defaults (#2000)
+
+- Added GET/PUT/PATCH/DELETE `/api/v1/admin/listing-sources/{listing_source_id}/location-default` with the same request, response, expected-revision and no-store contracts as the protected source-management routes.
+- Admin routes require a current unsuspended administrator; operator-partnership membership or a source grant alone is insufficient. Delegated credentials additionally require `listing-sources:read` for GET and `listing-sources:write` for mutations. Administrator authority is revalidated within the operation transaction.
+
+## 2026-10-10 — ListingSource location defaults (#2000)
+
+- Added protected GET/PUT/PATCH/DELETE `/api/v1/listing-sources/{listing_source_id}/location-default`. A source selects zero or one operator-owned PartyLocation. PUT replaces the reference and applicability together; PATCH changes applicability on that reference; DELETE clears it with a JSON `expectedRevision` body.
+- Business association and advertised inventory each require their own scoped evidence; absent applicability asserts nothing. Source configuration creates no seller, shipping, pickup or production-origin assertion.
+- Unsuspended administrators or active operator-partnership members with the exact source grant may manage defaults. Delegated tokens additionally require `listing-sources:read` or `listing-sources:write`. Current authority and location eligibility are checked during execution. Ordinary product-listing scope confers no authority.
+- Results contain a protected revision (initially 1), nullable assignment and current ACTIVE/RETIRED eligibility. Every mutation requires `expectedRevision`; stale/exhausted revisions, retired assignments and applicability changes without an assignment return `409 CONFLICT`. Current-revision no-ops preserve revisions. All responses use `Cache-Control: no-store`; protected retained references include evidence but no location address or point.
+
 ## 2026-10-10 — Party location management (#1999)
 
 - Added protected create/get/list/correct/lifecycle endpoints under `/api/v1/parties/{party_id}/locations`. One Party can hold multiple independent sites. Creation requires `Idempotency-Key`, defaults to private disclosure, and optionally relocates an explicitly referenced old site atomically.

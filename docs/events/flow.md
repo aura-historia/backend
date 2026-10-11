@@ -44,6 +44,26 @@ require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)
   are independent of downstream normalization and projection.
 
+## Geography dependency invalidation
+
+Party service owns `party_location_changes`; ListingSource service owns
+`listing_source_location_default_changes`. Each minimal immutable revision signal commits
+with its authoritative semantic mutation. Default signals contain source/operator and
+optional location identities, assignment/location revision, applicability flags, actor
+and occurrence time, without address, point or evidence. Duplicate current-revision
+no-ops emit nothing; clearing emits a null selection and preserves the ordering fence.
+Private location/default rows and receipts remain outside CDC. Exact persistence and
+inheritance semantics belong to [geography](../geography.md#listingsource-location-defaults-2000).
+
+These signals are durable invalidation sources for G6, with no new DMS selection,
+router job or worker activated here. Future consumers must deduplicate by owner/revision,
+reread authoritative assignment and location state, apply current disclosure/lifecycle,
+and retain assignment/location revisions and meaning in derived views. They must handle
+location correction/retirement/disclosure as well as source replacement/clear, without
+rewriting historical listing assertions. Source deletion leaves retained default signals;
+missing authoritative sources suppress inherited geography. Fanout and catch-up require
+the later G6 operational contract, including the existing source deletion route.
+
 ## CDC routing
 
 The router consumes native Kinesis envelopes containing strict DMS records. It

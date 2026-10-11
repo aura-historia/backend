@@ -4626,6 +4626,7 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "geo",
  "listing-source-core",
  "listing-source-service",
  "localization",
@@ -4633,6 +4634,7 @@ dependencies = [
  "openssl",
  "party-core",
  "platform-postgres",
+ "serde",
  "serde_json",
  "serial_test",
  "sqlx",
@@ -4642,6 +4644,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -4653,6 +4656,7 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
+ "geo",
  "listing-source-core",
  "localization",
  "money",

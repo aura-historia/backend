@@ -14148,6 +14148,1020 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PartyLocationManagementGrantData'
+  /api/v1/listing-sources/{listing_source_id}/location-default:
+    get:
+      summary: Get source location default
+      operationId: getSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator, or membership in the operator
+        Party active partnership with this exact source grant. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:read.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current source management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      summary: Assign or replace source location default
+      operationId: assignSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator, or membership in the operator
+        Party active partnership with this exact source grant. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current source management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignSourceLocationDefaultData'
+    patch:
+      summary: Change source location applicability
+      operationId: changeSourceLocationDefaultApplicability
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator, or membership in the operator
+        Party active partnership with this exact source grant. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current source management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeSourceLocationDefaultApplicabilityData'
+    delete:
+      summary: Clear source location default
+      operationId: clearSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator, or membership in the operator
+        Party active partnership with this exact source grant. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current source management authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClearSourceLocationDefaultData'
+  /api/v1/admin/listing-sources/{listing_source_id}/location-default:
+    get:
+      summary: Get source location default as administrator
+      operationId: adminGetSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator. Operator-partnership membership
+        or a source grant alone does not authorize this admin route. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:read.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current unsuspended administrator authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      summary: Assign or replace source location default as administrator
+      operationId: adminAssignSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator. Operator-partnership membership
+        or a source grant alone does not authorize this admin route. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current unsuspended administrator authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignSourceLocationDefaultData'
+    patch:
+      summary: Change source location applicability as administrator
+      operationId: adminChangeSourceLocationDefaultApplicability
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator. Operator-partnership membership
+        or a source grant alone does not authorize this admin route. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current unsuspended administrator authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeSourceLocationDefaultApplicabilityData'
+    delete:
+      summary: Clear source location default as administrator
+      operationId: adminClearSourceLocationDefault
+      tags:
+      - ListingSources
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      parameters:
+      - name: listing_source_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Strict ls_ UUIDv7 ListingSource TypeID.
+      description: Requires an unsuspended administrator. Operator-partnership membership
+        or a source grant alone does not authorize this admin route. Trusted service/system
+        use cases are also supported. Delegated callers additionally need listing-sources:write.
+        Assignment does not mutate Party locations or attribute a listing seller. Protected
+        reads retain private/retired references for traceability but return no location
+        address/point. All responses are no-store. Current-revision no-ops preserve
+        revisions; stale retries conflict.
+      responses:
+        '200':
+          description: Protected default configuration with evidence and expected-revision
+            token, without a copied location address or point.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceLocationDefaultData'
+        '400':
+          description: Invalid body/path (BAD_BODY_VALUE or INVALID_OBJECT_ID).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer authentication required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Missing scope or current unsuspended administrator authority (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Source (LISTING_SOURCE_NOT_FOUND) or operator-owned location
+            (PARTY_NOT_FOUND) does not exist.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale/exhausted revision, retired selection or applicability
+            change without an assignment (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (LISTING_SOURCE_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Persistence or transaction unavailable (LISTING_SOURCE_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClearSourceLocationDefaultData'
 components:
   securitySchemes:
     BearerAuth:
@@ -14200,6 +15214,144 @@ components:
         pattern: '^[\x21-\x2B\x2D-\x7E]{1,128}$'
       example: catalog-sync-2026-09-29
   schemas:
+    SourceLocationDefaultEvidence:
+      type: object
+      additionalProperties: false
+      required:
+      - reference
+      - scope
+      properties:
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Nonblank opaque source-scoped observation, at most 2048 UTF-8 bytes,
+            without control or line-separator characters. Never fetched.
+        scope:
+          type: string
+          enum:
+          - ASSOCIATED_BUSINESS
+          - ADVERTISED_INVENTORY
+    SourceLocationDefaultAssignment:
+      type: object
+      additionalProperties: false
+      required:
+      - partyLocationId
+      properties:
+        partyLocationId:
+          $ref: '#/components/schemas/PartyLocationId'
+        businessAssociation:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Explicit associated-business evidence; scope must be ASSOCIATED_BUSINESS.
+        advertisedInventory:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Explicit inventory evidence; scope must be ADVERTISED_INVENTORY.
+            Business, legal or correspondence evidence alone never establishes this meaning.
+    SourceLocationDefaultData:
+      type: object
+      additionalProperties: false
+      required:
+      - listingSourceId
+      - revision
+      - assignment
+      - eligibility
+      properties:
+        listingSourceId:
+          type: string
+          pattern: ^ls_[0-7][0-9a-hjkmnp-tv-z]{25}$
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+          description: Expected source-default revision; an untouched source has revision
+            1. Stale writes conflict, including no-ops.
+        assignment:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultAssignment'
+          nullable: true
+        eligibility:
+          type: string
+          enum:
+          - ACTIVE
+          - RETIRED
+          nullable: true
+          description: Current eligibility of the retained reference, null if no assignment.
+            Retirement preserves the reference but disables inherited geography.
+    AssignSourceLocationDefaultData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      - partyLocationId
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+          description: Expected source-default revision; an untouched source has revision
+            1. Stale writes conflict, including no-ops.
+        partyLocationId:
+          $ref: '#/components/schemas/PartyLocationId'
+        businessAssociation:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Explicit associated-business evidence; scope must be ASSOCIATED_BUSINESS.
+        advertisedInventory:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Explicit inventory evidence; scope must be ADVERTISED_INVENTORY.
+            Business, legal or correspondence evidence alone never establishes this meaning.
+      description: Replaces the one reference and both applicability meanings atomically.
+        Omitted/null evidence means absent, including on replacement. No automatic location
+        selection.
+    ChangeSourceLocationDefaultApplicabilityData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+          description: Expected source-default revision; an untouched source has revision
+            1. Stale writes conflict, including no-ops.
+        businessAssociation:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Omitted retains the assertion; null removes it; set requires ASSOCIATED_BUSINESS
+            scope.
+        advertisedInventory:
+          allOf:
+          - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
+          nullable: true
+          description: Omitted retains the assertion; null removes it; set requires ADVERTISED_INVENTORY
+            scope.
+      description: Changes applicability on the existing, active reference without changing
+        its location ID.
+    ClearSourceLocationDefaultData:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      properties:
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+          description: Expected source-default revision; an untouched source has revision
+            1. Stale writes conflict, including no-ops.
     PartyLocationId:
       type: string
       pattern: ^ploc_[0-7][0-9a-hjkmnp-tv-z]{25}$
