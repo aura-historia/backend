@@ -20,3 +20,5 @@ pub use shopify_source_reader::*;
 pub use web_crawl_source_reader::*;
 pub use woocommerce_signature_verifier::*;
 pub use woocommerce_source_reader::*;
+
+pub mod location_default;

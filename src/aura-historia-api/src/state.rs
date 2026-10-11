@@ -126,6 +126,7 @@ pub struct AppState {
     pub(crate) admin_overview: Option<AdminOverviewState>,
     pub(crate) parties: Option<PartiesState>,
     pub(crate) party_locations: Option<PartyLocationsState>,
+    pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
@@ -158,6 +159,7 @@ impl AppState {
             admin_overview: None,
             parties: None,
             party_locations: None,
+            source_location_defaults: None,
             users: None,
             watchlist: None,
             partnership_applications: None,
@@ -212,6 +214,11 @@ impl AppState {
 
     pub fn with_users(mut self, users: UsersState) -> Self {
         self.users = Some(users);
+        self
+    }
+
+    pub fn with_source_location_defaults(mut self, state: SourceLocationDefaultsState) -> Self {
+        self.source_location_defaults = Some(state);
         self
     }
 
@@ -1022,4 +1029,13 @@ impl PartyLocationsState {
             authenticator,
         }
     }
+}
+
+#[derive(Clone)]
+pub struct SourceLocationDefaultsState {
+    pub assign: Arc<dyn listing_source_service::use_cases::location_default::AssignLocationDefaultUseCase>,
+    pub clear: Arc<dyn listing_source_service::use_cases::location_default::ClearLocationDefaultUseCase>,
+    pub change: Arc<dyn listing_source_service::use_cases::location_default::ChangeLocationDefaultApplicabilityUseCase>,
+    pub get: Arc<dyn listing_source_service::use_cases::location_default::GetLocationDefaultUseCase>,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
 }

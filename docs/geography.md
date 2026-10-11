@@ -218,6 +218,78 @@ shapes and errors belong to [OpenAPI](swagger.yaml). Lists use ascending native 
 keyset order, bounded page sizes and `ploc_` continuation IDs, without listing hydration.
 Lists are live traversals; management authority is reevaluated each page.
 
+## ListingSource location defaults (#2000)
+
+Each source owns zero or one explicit operator-owned PartyLocation reference. Sources of
+one Party may select different sites; there is no Party-level default or automatic
+first/nearest/only-site selection. Applicability has independent optional
+ASSOCIATED_BUSINESS and ADVERTISED_INVENTORY assertions on that same reference. Each
+requires bounded caller-supplied evidence explicitly scoped to its meaning and source.
+Legal/correspondence addresses and PartyLocation roles never establish inventory.
+Neither meaning establishes seller identity, stock verification, dispatch, collection
+or object production origin. Acquisition and evidence evaluation remain caller work.
+
+The service owns get, assign/replace, clear and change-applicability use cases. Protected
+[REST contracts](swagger.yaml) make them callable by external agents. Unsuspended
+administrators and trusted internal callers may manage defaults; other users require
+active membership in the operator Party partnership plus that exact source grant.
+Delegated credentials additionally require `listing-sources:read`/`listing-sources:write`.
+These operations confer no PartyLocation editing permission. Current user, source,
+membership/grant and location authority is validated within one transaction. Lock order
+is owner Party, source, user/policy rows, default and selected location; policy/location
+locks protect execution from revocation, suspension and retirement races.
+
+The assignment stores only a typed reference and scoped evidence. Source/location
+mutations never synchronously hydrate or rewrite dependent ProductListings. Protected
+management reads retain private and retired references and evidence for traceability,
+without returning PartyLocation content. Authoritative effective-geography reads exclude
+PRIVATE and retired selections immediately and apply PartyLocation disclosure. Coarse
+reads include asserted country/subdivision only, with no coordinates/address/postal/label.
+There is no alternative fallback. Restoration makes the same retained reference eligible;
+it never selects a different site. Assignment/replacement and applicability changes require
+an active location; clear remains available for a retired assignment.
+
+### Revision, invalidation and derived basis
+
+The default has its own positive CAS revision, initially 1 when never configured.
+Every mutation supplies the current expected revision. Changed assignment, evidence,
+applicability or clear commits with one revision advance and one immutable minimal
+invalidation signal; identical current-revision commands do neither. Stale commands
+conflict even for no-ops. Clear retains a revision tombstone so delayed writes cannot
+revive an earlier assignment. Revision exhaustion rejects changes while allowing no-ops.
+This protected CAS contract follows the documented PartyLocation exception to ordinary
+internal storage versions.
+
+`listing_source_location_default_changes` is keyed by source/revision and contains only
+source/operator/selected-location IDs, selected location revision, applicability flags,
+trusted actor and occurrence time. Clear records a null selection. Historical signals
+survive replacement, clearing and source deletion; source configuration is removed with
+its source. The selected location cannot be physically deleted while referenced. Private
+assignment evidence stays outside CDC/public projections. Signal ownership and later
+asynchronous propagation are described in [event flow](events/flow.md#geography-dependency-invalidation).
+No routing or fanout is activated by this feature.
+
+The authoritative derived read returns each meaning independently with
+SOURCE_DEFAULT_DERIVED basis: source ID, current assignment revision, location ID,
+current location revision/input revision and meaning. Basis tokens are internal/protected;
+public presentation must remove them and evidence. Business association alone leaves
+item inventory geography absent. An applicable unresolved site retains its basis but
+has no geography/point: pending resolution never invents a country or coordinates.
+Partial asserted descriptions remain partial, and mandatory geocoding is unnecessary.
+
+### Listing precedence and suppression (G11 contract)
+
+For each meaning, a listing-specific assertion takes precedence as a whole, even when
+partial or awaiting resolution. Never fill its missing fields from a source default or
+combine a listing country with a source street/city. Explicit suppression produces
+absence and blocks fallback. Clearing an assertion restores inheritance; it differs
+from suppression. With inheritance, only an active, disclosed, explicitly applicable
+source default supplies derived geography; an absent or ambiguous inventory assertion
+leaves item geography absent. Existing default-derived records must retain the revision
+basis so G11 can add overrides without changing their meaning. Full listing override
+writes and target models belong to G11. Replacing a source default affects current
+inherited meaning and later asynchronous projections, never historical listing assertions.
+
 ## Geocoding capability
 
 `geo-service` owns the provider-neutral geocoding port and use case; `geo` remains
@@ -371,4 +443,4 @@ For a separately authorized manual evaluation:
    same port. Never silently substitute Google or public Nominatim. Review sample-derived
    acceptance rules separately before using results to mutate business state.
 
-No current business rows or public REST contracts change.
+The geocoding capability does not persist business state or expose a REST endpoint.
