@@ -53,11 +53,12 @@ fn work(id: Uuid, generation: i64) -> Result<ResolutionWork, ResolutionError> {
 #[derive(FromRow)]
 struct ResolutionRow {
     resolution_id: Uuid,
+    erased: bool,
     fingerprint: String,
     profile: String,
     policy_version: String,
     scope_key: String,
-    input: serde_json::Value,
+    input: Option<serde_json::Value>,
     generation: i64,
     status: String,
     attempts: i32,
@@ -70,7 +71,8 @@ struct ResolutionRow {
 }
 impl ResolutionRow {
     fn input(&self) -> Result<ResolutionInput, ResolutionError> {
-        let input: ResolutionInput = decode::<InputData>(self.input.clone())?.try_into()?;
+        let input: ResolutionInput =
+            decode::<InputData>(self.input.clone().ok_or_else(corrupt)?)?.try_into()?;
         if self.policy_version != POLICY_VERSION
             || input.fingerprint(&self.profile) != self.fingerprint
             || input.budget_key() != self.scope_key
@@ -135,7 +137,7 @@ impl Repository<'_> {
         sqlx::query_as(
             r#"
             SELECT
-            resolution_id,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,valid_until,last_failure
+            resolution_id,erased,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,valid_until,last_failure
             FROM geo_resolutions WHERE resolution_id=$1 FOR NO KEY UPDATE
             "#,
         ).bind(id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(sql_error)
@@ -297,6 +299,9 @@ impl ResolutionRepository for Repository<'_> {
         let Some(r) = self.row(w.id).await? else {
             return Err(ResolutionError::Missing);
         };
+        if r.erased {
+            return Ok(ClaimOutcome::Complete);
+        }
         let input = r.input()?;
         if w.generation != r.generation as u64 {
             return Ok(ClaimOutcome::Complete);
@@ -393,6 +398,13 @@ impl ResolutionRepository for Repository<'_> {
         let Some(r) = self.row(c.work.id).await? else {
             return Err(ResolutionError::Missing);
         };
+        if r.erased {
+            if r.lease_token == Some(c.token) {
+                sqlx::query("UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1")
+                    .bind(c.work.id.into_uuid()).execute(&mut *self.connection).await.map_err(sql_error)?;
+            }
+            return Ok(true);
+        }
         r.input()?;
         let now = self.clock().await?;
         if r.generation as u64 != c.work.generation

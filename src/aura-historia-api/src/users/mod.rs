@@ -1,5 +1,6 @@
 pub mod access_tokens;
 pub mod account;
+pub(crate) mod addresses;
 pub mod admin_users;
 pub mod revoke_user_sessions;
 pub mod suspend_user;

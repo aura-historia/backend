@@ -2,6 +2,13 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-11 — Private user addresses and browsing destinations (#2005)
+
+- Added private create/list/get/replace/delete `/api/v1/me/addresses` and `/{address_id}` routes. Creation requires a caller-generated `uaddr_` UUIDv7 ID for idempotent retries; replacement/deletion require `expectedVersion`. Entries keep verbatim free-text geographic assertions, without parsed street components or PlaceId. Lists use `after` and `limit` (1–100, default 25).
+- Added GET/PUT `/api/v1/me/browsing-destination` with one mutually exclusive `NONE`, `ADDRESS` or `COUNTRY_POSTAL` choice and preference CAS. At most one address is preferred. Deleting that address atomically clears the preference without selecting another. POST `/resolve` returns an authorized submitted/derived snapshot; an explicit request choice wins over the stored preference, including explicit `NONE`.
+- Added GET `/{address_id}/resolution`, POST `/resolution/retry` and PUT `/resolution/selection` with owner-only access, address version and resolution ID/generation fencing. Geocoding remains asynchronous and failed/unresolved bookmarks stay saved. Expired/revoked evidence is `UNAVAILABLE`; candidates and points are suppressed.
+- All routes require an unsuspended current user; delegated reads require `users:read`, mutations `users:write`. All responses are `no-store`; owner fields and mixed destination variants are rejected. Existing profile, email, consent and billing contracts are unchanged.
+
 ## 2026-10-11 — Administrator ListingSource location defaults (#2000)
 
 - Added GET/PUT/PATCH/DELETE `/api/v1/admin/listing-sources/{listing_source_id}/location-default` with the same request, response, expected-revision and no-store contracts as the protected source-management routes.

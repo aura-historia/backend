@@ -572,3 +572,94 @@ negative reconsideration also create wake-ups; there is no separate geography sc
 Protected Request use cases establish work for preexisting eligible sites; CDC-only
 capture does not backfill them. [The worker runbook](durable-worker-runbook.md#geographic-resolution-recovery)
 owns operator recovery and safe monitoring.
+
+## Private user address books and browsing destinations (#2005)
+
+A `uaddr_` entry is an editable, named bookmark owned by the authenticated user.
+It has no PartyLocation or public Place identity. A create request supplies its UUIDv7
+TypeID: retries with the same ID and unchanged content return the existing entry;
+conflicting content or a deleted ID returns conflict. Deleted IDs remain content-free
+receipt tombstones until account erasure. Replacement preserves identity, increments
+input revision only for geographic changes and fences old enrichment; label changes
+advance the storage version without another paid call. Full replacements and deletion
+require the current version. Reads use bounded keyset pages and separate resolution
+inspection, without per-entry hydration.
+
+Protected address/preference version tokens are the narrow exception to hiding storage
+versions: these private management operations expose them to implement the required CAS
+and prevent edits, review or preference selection from overwriting a concurrent change.
+
+Each user has one optional browsing destination: `NONE`, `ADDRESS`, or `COUNTRY_POSTAL`.
+Selecting an address requires current ownership. Selection, explicit country/postal
+replacement and clearing are atomic and require the preference version; an untouched
+preference has version 1. There can be at most one preferred address. Creation does not
+select one automatically. Deleting the selected entry clears the preference in the same
+transaction and never selects an alternative. This choice asserts neither residence,
+nationality, tax domicile, billing nor deliverability. Language, currency and IP never
+supply authoritative destination facts.
+
+The protected destination resolver accepts an optional explicit choice. An explicit
+choice takes precedence over the stored preference; explicit `NONE` suppresses it.
+Omission/null uses the stored preference. Each variant is exclusive: an address ID
+cannot accompany an explicit country/postal choice. The use case returns an authorized
+snapshot of submitted assertions and separately eligible derived evidence; a foreign
+ID cannot become an origin. Geographic search/filter consumers (G7/G9) must call this
+capability and copy the authorized values. Existing listing searches do not yet accept
+geographic destination selectors; the resolution endpoint does not change search results.
+
+Private resolution uses `USER` scope, the immutable owner ID, `USER_LOCATION` purpose,
+and `PRIVATE` retention context. Equality across users cannot reuse input/results;
+private work cannot seed Party or public listing geography. Creation/edit bind durable
+work atomically, never call the provider synchronously. Saving remains possible with
+paid work and provider retention disabled. Country/subdivision assertions are retained
+separately; provider failure never deletes a saved entry. Owner-only inspection, retry
+and candidate selection use address CAS plus the current resolution generation.
+The shared provider terms/storage gate and budget rules apply. Inspection reports
+`UNAVAILABLE` when completed evidence has expired or retention rights were revoked;
+such candidates and coordinates are suppressed immediately.
+
+The tables contain private content in the encrypted business PostgreSQL database and
+are excluded from DMS table selection, public indexes and ordinary CDC/job envelopes.
+Only existing resolution ID/generation wake-ups enter the worker pipeline. REST success
+and errors are `no-store`. Delegated reads require `users:read`; mutations
+require `users:write` for their operation. Suspended/deleted owners and non-user actors
+are rejected inside the authoritative transaction. No address text, postal code, point,
+provider payload or private input fingerprint is logged or used as a metric dimension.
+
+### Deletion, erasure and retained snapshots
+
+Address deletion erases its label and submitted geography immediately. Replacing the
+geographic input detaches the previous binding; deleting an entry or deleting its user
+also detaches it. When no private binding remains, the PostgreSQL erasure hook removes
+resolution input and provider evidence, removes pending wake-ups and advances the worker
+fence. A leased call can still send the old text after erasure; its reply cannot restore
+input or enrichment. Its reservation survives only until reply/lease expiry to preserve
+paid concurrency limits. The retained resolution record and signal history contain IDs,
+provider profile, generation and accounting metadata, never old address revisions or
+provider derivatives. Scoped budget hashes retain spent-call accounting; they are not
+address hashes or reusable geocoding results.
+
+Account deletion through the existing consent coordinator cascades to address entries,
+preferences and saved filters. The address erasure hook runs on that cascade, including
+for pending/leased work. It also runs for database deletion, so callers cannot bypass
+private-data cleanup by skipping an application-specific erasure call. Only an entry's
+own selected preference is cleared; explicit country/postal choices survive deletion
+of unrelated entries.
+
+Any saved geographic search filter must own a user-authorized coordinate snapshot,
+independent of these mutable bookmarks. Address edit/deletion must not move or delete
+that filter silently. Users manage retained filters through the existing private
+search-filter get/list/update/delete endpoints; account erasure deletes them. G7/G9 own
+the coordinate-filter contract when introduced; the current filter schema has no
+address reference or coordinate destination. Orders, when introduced, must likewise
+snapshot destination and agreed delivery terms.
+
+Physical erasure applies to the active database. Existing encrypted RDS automated
+backups may retain prior content until their configured expiry (currently 14 days in
+production and 7 in other stages); retained manual snapshots require operator lifecycle
+management. A restore must replay erasures before restored data is served or resolution
+workers are enabled. Provider-side request retention follows the approved provider terms
+and cannot be recalled by deleting a local bookmark. No old full address revisions are
+retained as debugging history. Apply the address-book migration first, deploy workers
+that understand content-free erased resolution fences next, then enable the new
+address API.
