@@ -95,6 +95,7 @@ pub use queries::get_product_listing_history::{
     GetProductListingHistoryRequest, GetProductListingHistoryUseCase,
     ProductListingDiscoveryHistory, ProductListingHistoryChange, ProductListingHistoryChanges,
     ProductListingHistoryEntry, ProductListingHistoryEntryKind, ProductListingHistoryLookup,
+    ProductListingHistoryPrice, ProductListingHistoryPriceDisplay, ProductListingHistoryPricing,
 };
 pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsError, GetSimilarProductListingsHandler,

@@ -2,6 +2,12 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-10 — Historical ProductListing price display (#2018)
+
+- `GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`. Omission preserves the existing response. Monetary discovery prices/estimates and both sides of price/estimate changes can include additive `display` values with the requested currency, minor-unit amount, `fxRateId` and `capturedAt`.
+- Each entry uses the latest persisted FX snapshot at or before its timestamp, with HalfUp rounding (JPY/KRW: 0 decimals; others: 2). Source values remain unchanged. Missing snapshots or required historical quotes omit that value's `display` while still returning `200`; consumers fall back to labelled source values. `ON_REQUEST` and null values have no projection. Current/later rates are never substituted.
+- Unsupported currency returns `400 BAD_QUERY_PARAMETER_VALUE`. Anonymous success keeps its 300-second shared cache, with currency variants in the edge cache key; credential-bearing responses and errors stay `private, no-store`.
+
 ## 2026-10-09 — Additional supported currencies (#1578)
 
 - Currency fields now accept `SEK`, `DKK`, `NOK`, `KRW`, `INR`, `TWD`, `HUF`, `RON`, `MXN`, and `THB`, including user preferences, listing-source configuration, listing prices, and search filters. `KRW` amounts use zero decimal places; the other additions use two ISO 4217 minor-unit decimal places.

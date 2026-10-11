@@ -181,6 +181,13 @@ impl<R> FxRateSnapshotReader for CachedFxRateSnapshotReader<R>
 where
     R: FxRateSnapshotReader,
 {
+    async fn find_latest_at_or_before_many(
+        &self,
+        timestamps: &[OffsetDateTime],
+    ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+        self.inner.find_latest_at_or_before_many(timestamps).await
+    }
+
     async fn find_by_id(
         &self,
         id: FxRateId,
@@ -473,6 +480,13 @@ mod tests {
 
     #[async_trait]
     impl FxRateSnapshotReader for FakeReader {
+        async fn find_latest_at_or_before_many(
+            &self,
+            _timestamps: &[OffsetDateTime],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+            panic!("search cache tests do not batch historical selections")
+        }
+
         async fn find_by_id(
             &self,
             id: FxRateId,

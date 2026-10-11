@@ -1531,14 +1531,16 @@ impl From<GetProductListingHistoryError> for ApiError {
                     .with_detail("ProductListing was not found.")
             }
             GetProductListingHistoryError::QueryFailed { .. }
+            | GetProductListingHistoryError::FxSnapshotUnavailable { .. }
             | GetProductListingHistoryError::BeginTransactionFailed(_)
             | GetProductListingHistoryError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing history is temporarily unavailable.")
             }
-            GetProductListingHistoryError::InvalidReadModel { .. } => {
+            GetProductListingHistoryError::InvalidReadModel { .. }
+            | GetProductListingHistoryError::PriceConversionFailed(_) => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-                    .with_detail("ProductListing history contains invalid event data.")
+                    .with_detail("ProductListing history contains invalid event or pricing data.")
             }
         }
     }

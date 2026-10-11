@@ -196,7 +196,7 @@ fn history_kind(
                 source_listing_id: discovered.source_listing_id().clone(),
                 title: discovered.title().cloned(),
                 description: discovered.description().cloned(),
-                pricing: discovered.pricing(),
+                pricing: discovered.pricing().into(),
                 availability: discovered.availability(),
                 url: discovered.url().clone(),
                 image_count: discovered.image_count().value(),
@@ -208,20 +208,20 @@ fn history_kind(
 
             if let Some(change) = changed.price() {
                 changes.push(ProductListingHistoryChange::MainPriceChanged {
-                    previous: *change.previous(),
-                    current: *change.current(),
+                    previous: change.previous().map(Into::into),
+                    current: change.current().map(Into::into),
                 });
             }
             if let Some(change) = changed.price_estimate_min() {
                 changes.push(ProductListingHistoryChange::MinimumEstimateChanged {
-                    previous: *change.previous(),
-                    current: *change.current(),
+                    previous: change.previous().map(Into::into),
+                    current: change.current().map(Into::into),
                 });
             }
             if let Some(change) = changed.price_estimate_max() {
                 changes.push(ProductListingHistoryChange::MaximumEstimateChanged {
-                    previous: *change.previous(),
-                    current: *change.current(),
+                    previous: change.previous().map(Into::into),
+                    current: change.current().map(Into::into),
                 });
             }
             if let Some(change) = changed.availability() {

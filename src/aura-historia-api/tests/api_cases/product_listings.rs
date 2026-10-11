@@ -773,6 +773,85 @@ async fn should_get_product_listing_history_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_project_history_using_persisted_historical_snapshot() {
+    let product_listing_id = seed_product().await;
+    let pool = get_postgres_client().await;
+    // Give the discovery fixture monetary values without changing the stored event shape.
+    sqlx::query(
+        "UPDATE product_listing_events SET payload = jsonb_set(payload, '{pricing}', $2) WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.as_uuid())
+    .bind(json!({
+        "price": {"type": "MONETARY", "currency": "EUR", "amount": 3},
+        "priceEstimateMin": {"currency": "EUR", "amount": 5},
+        "priceEstimateMax": {"currency": "EUR", "amount": 7}
+    }))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (fx_rate_id, captured_at): (uuid::Uuid, OffsetDateTime) = sqlx::query_as(
+        "SELECT fx_rate_id, captured_at FROM fx_rates ORDER BY captured_at DESC, generation DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // A newer capture must not change the history entry's projection.
+    seed_current_fx_snapshot(&pool).await;
+    let path = format!("/api/v1/product-listings/{product_listing_id}/history");
+    let (response, _) = get_json(path.clone()).await;
+    let (status, baseline) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(1, baseline.as_array().unwrap().len());
+    for (currency, amounts) in [("RON", [4, 6, 9]), ("EUR", [3, 5, 7])] {
+        let (response, _) = get_json(format!("{path}?currency={currency}")).await;
+        assert_eq!(
+            "public, max-age=0, s-maxage=300, stale-if-error=0",
+            response.headers()[reqwest::header::CACHE_CONTROL]
+        );
+        let (status, mut projected) = json_response(response).await;
+        assert_eq!(
+            reqwest::StatusCode::OK,
+            status,
+            "response body: {projected}"
+        );
+        for (key, amount) in ["price", "priceEstimateMin", "priceEstimateMax"]
+            .into_iter()
+            .zip(amounts)
+        {
+            let display = projected[0]["payload"]["pricing"][key]
+                .as_object_mut()
+                .unwrap()
+                .remove("display")
+                .unwrap();
+            assert_eq!(
+                json!({
+                    "currency": currency,
+                    "amount": amount,
+                    "fxRateId": FxRateId::try_from(fx_rate_id).unwrap(),
+                    "capturedAt": captured_at.format(&time::format_description::well_known::Rfc3339).unwrap()
+                }),
+                display
+            );
+        }
+        assert_eq!(baseline, projected);
+    }
+    sqlx::query("DELETE FROM fx_rate_quotes WHERE fx_rate_id = $1 AND currency = ANY($2)")
+        .bind(fx_rate_id)
+        .bind(vec![
+            "SEK", "DKK", "NOK", "KRW", "INR", "TWD", "HUF", "RON", "MXN", "THB",
+        ])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (response, _) = get_json(format!("{path}?currency=RON")).await;
+    let (status, legacy) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(baseline, legacy);
+    let (response, _) = get_json(path).await;
+    assert_eq!(baseline, json_response(response).await.1);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let listing_source_id = api_support::seed_listing_source().await;
     let product_listing_id = ProductListingId::new();

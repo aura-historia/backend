@@ -31,4 +31,12 @@ pub trait FxRateSnapshotReader: Send + Sync {
         &self,
         at: OffsetDateTime,
     ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotReadError>;
+
+    /// Select the latest snapshot at or before each cutoff in one batch read.
+    /// Returns only the distinct selected snapshots, ordered by capture time and
+    /// generation. Cutoffs before the first capture contribute no snapshot.
+    async fn find_latest_at_or_before_many(
+        &self,
+        timestamps: &[OffsetDateTime],
+    ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError>;
 }
