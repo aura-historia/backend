@@ -52,13 +52,13 @@ with its authoritative semantic mutation. Default signals contain source/operato
 optional location identities, assignment/location revision, applicability flags, actor
 and occurrence time, without address, point or evidence. Duplicate current-revision
 no-ops emit nothing; clearing emits a null selection and preserves the ordering fence.
-Private location/default rows and receipts remain outside CDC. Exact persistence and
+Location/default rows and receipts remain outside CDC. Exact persistence and
 inheritance semantics belong to [geography](../geography.md#listingsource-location-defaults-2000).
 
 These signals atomically establish coalesced durable dependency work for G6. The
 `listing_geography_wakeups` table alone adds CDC/job routing; the original journals stay
 outside DMS. Consumers reread current authority under dependency equality guards and
-use the listing's monotonic projection fence. Location correction, retirement, disclosure,
+use the listing's monotonic projection fence. Location correction, retirement,
 source replacement/clear and provider rights/expiry refresh current read state without
 rewriting historical listing assertions. Missing authority produces absence. See the
 [effective geography contract](../geography.md#effective-listing-geography-2003) and

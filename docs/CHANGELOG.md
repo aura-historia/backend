@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-11 — Exact PartyLocation geography (#2003)
+
+- Removed `disclosure` from PartyLocation create/correct requests and management responses. Requests containing the removed field return `400`; active locations always provide exact geography to eligible public consumers.
+- Retired locations remain ineligible for effective geography. Explicit source applicability, provider retention, and protected management/evidence access still govern their respective consumers.
+
 ## 2026-10-11 — Administrator ListingSource location defaults (#2000)
 
 - Added GET/PUT/PATCH/DELETE `/api/v1/admin/listing-sources/{listing_source_id}/location-default` with the same request, response, expected-revision and no-store contracts as the protected source-management routes.

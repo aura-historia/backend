@@ -143,10 +143,10 @@ an independent ID and retires the old location atomically. Retirement preserves 
 blocks new assignments and excludes the old site from current public/inherited geography.
 Restore is explicit and never reassigns consumers. Retained locations and grants block
 Party deletion. No location operation automatically selects a ListingSource default.
-Cross-context consumers must check active eligibility; dependency invalidation belongs
-to subsequent roadmap issues.
+Cross-context consumers must check active eligibility; listing dependency invalidation
+uses the [effective geography contract](#effective-listing-geography-2003).
 
-### Authorization and disclosure
+### Authorization and public geography
 
 Use cases accept the existing trusted OperationContext. Services/system callers and
 verified administrators may manage locations. Other users need an explicit, revocable
@@ -170,23 +170,21 @@ REST and application use cases expose only protected location management and
 administrator grant/revoke operations. Get/list always enforce management authority.
 Membership must belong to the requested Party's active partnership. There are no public
 Party-location get/list endpoints or application use cases. Management reads include
-private and retired sites, with their evidence and revision tokens.
+active and retired sites, with their evidence and revision tokens.
 
-Creation defaults to PRIVATE. The persisted disclosure policy governs future public
-geography consumers, which must exclude PRIVATE and retired locations.
-COARSE_PUBLIC permits only roles and asserted country/subdivision; it excludes label,
-free-text address, postal text and every coordinate, even with claimed coarse precision.
-EXACT_PUBLIC permits label, address/postal assertions and coordinates. Evidence and
-protected revision tokens must be excluded from every public view. A ListingSource
-reference cannot make a location less private.
+Active PartyLocations always permit exact public geography; there is no disclosure
+setting. Retired locations are ineligible. Public consumers still honor explicit source
+applicability and current provider-retention eligibility. Evidence and protected revision
+tokens stay outside public views. Listing documents contain only bounded derived fields,
+never raw address/evidence/provider payloads.
 
 Caller evidence contains an opaque bounded reference, optional observation time and
 one declared assertion scope: site description, registered address or correspondence
 address. It establishes neither listing storage/pickup nor caller identity/trust. Actor
 identity comes from OperationContext; evidence cannot override it. Evidence and address
-content are excluded from structured logs. Private state and creation receipts must
-remain outside CDC/public projections. Only the minimal change signal is intended for
-later invalidation routing; no downstream invalidation route is activated here.
+content are excluded from structured logs. Protected location state and creation receipts
+remain outside CDC/public projections. The minimal change signal establishes listing
+dependency invalidation without publishing location content.
 
 ### Retry, revision and persistence guarantees
 
@@ -206,13 +204,13 @@ replaced with an explicit set; an empty set clears them. Identical
 commands at the current revision do not advance revisions, update timestamps or emit a
 semantic change signal. Changed writes advance authoritative revision once; exhausted
 revisions reject changes with conflict while permitting same-state no-ops. Geography,
-asserted position or evidence changes also advance input revision; label/roles/disclosure
-changes and lifecycle transitions do not rewrite inputs. Future derived resolution must
+asserted position or evidence changes also advance input revision; label/role
+changes and lifecycle transitions do not rewrite inputs. Derived resolution must
 pin this input revision and ignore mismatched results.
 
 `party_location_changes` is an append-only revision signal committed with semantic writes,
 keyed by location ID/revision. It contains only owner/location identities, revision, input
-revision, lifecycle, trusted actor and occurrence time. Future consumers must process it
+revision, lifecycle, trusted actor and occurrence time. Consumers must process it
 idempotently and check authoritative eligibility. It is not an event-sourced aggregate
 or a second business model. Exact constraints belong to migrations/adapters; public
 shapes and errors belong to [OpenAPI](swagger.yaml). Lists use ascending native UUID
@@ -237,7 +235,7 @@ active membership in the operator Party partnership plus that exact source grant
 Delegated credentials additionally require `listing-sources:read`/`listing-sources:write`.
 The dedicated admin routes enforce administrator/internal authority even for users
 with operator membership and a source grant; both route families share the same
-assignment, applicability, revision and disclosure rules.
+assignment, applicability and revision rules.
 These operations confer no PartyLocation editing permission. Current user, source,
 membership/grant and location authority is validated within one transaction. Lock order
 is owner Party, source, user/policy rows, default and selected location; policy/location
@@ -245,10 +243,9 @@ locks protect execution from revocation, suspension and retirement races.
 
 The assignment stores only a typed reference and scoped evidence. Source/location
 mutations never synchronously hydrate or rewrite dependent ProductListings. Protected
-management reads retain private and retired references and evidence for traceability,
+management reads retain active and retired references and evidence for traceability,
 without returning PartyLocation content. Authoritative effective-geography reads exclude
-PRIVATE and retired selections immediately and apply PartyLocation disclosure. Coarse
-reads include asserted country/subdivision only, with no coordinates/address/postal/label.
+retired selections and retain exact asserted geography for active selections.
 There is no alternative fallback. Restoration makes the same retained reference eligible;
 it never selects a different site. Assignment/replacement and applicability changes require
 an active location; clear remains available for a retired assignment.
@@ -462,18 +459,21 @@ locations. No public cross-user cache is inferred from address equality or a has
 Committed creation/correction atomically binds eligible address input to durable work.
 Caller points take precedence and remove the derived binding; country-only, address-only
 and unresolved locations remain valid without provider availability. Retirement detaches
-the binding, and restoration explicitly reestablishes eligible work. A changed address,
-assertion or disclosure gets its current scoped input identity. Evidence changes advance
+the binding, and restoration explicitly reestablishes eligible work. A changed address or
+assertion gets its current scoped input identity. Evidence changes advance
 the source marker while unchanged geographic input can reuse permitted evidence. Label
 and role edits update the binding guard without paying again. No provider call occurs in
 Party creation or correction, a listing write or a search request.
 
 Fingerprints length-prefix exact address, postal, assertion, constraint, hint and language
-bytes with scope/owner, purpose, disclosure context, reference release, acceptance policy
+bytes with scope/owner, purpose, reference release, acceptance policy
 and immutable provider interpretation profile. There is no case/whitespace/unit stripping.
 The current provider exposes no data-release identifier; its pinned interpretation/terms
 profile is retained rather than inventing a supplier release. A changed provider profile
-creates a distinct identity. Shared inputs never merge PartyLocation IDs or permissions.
+creates a distinct identity. Current input keys omit the removed disclosure context;
+the PostgreSQL adapter validates older persisted keys for replay without restoring that
+setting. Existing cache scope/owner isolation and paid-attempt accounting are preserved.
+Shared inputs never merge PartyLocation IDs or permissions.
 Both input and hash remain private personal/business data.
 
 ### Acceptance and review
@@ -501,7 +501,7 @@ Original address/evidence/caller assertions remain in Party storage. Provider co
 precision, provider/product/data source, region, external reference, attribution and
 interpretation profile remain separate permitted evidence; the resolution records its
 input marker and policy. Consumers must preserve original country/subdivision assertions
-and apply disclosure to the current binding. Resolution storage is not a public address
+and current lifecycle/retention eligibility. Resolution storage is not a public address
 directory or a raw-provider export interface.
 
 ### Claims, retries and current eligibility
@@ -543,9 +543,9 @@ hourly backend cleanup Lambda physically purges expired, revoked and orphaned pr
 derivatives, clears selections,
 commits invalidation and establishes a new generation where retention is permitted.
 The journal and wake-ups contain no address, scope owner or provider evidence, so erasure
-does not leave copies of prohibited derivatives in event history. Future dependent
-projections must re-read these eligibility rules and consume invalidation/rebuild work;
-listing projection itself remains the next roadmap integration.
+does not leave copies of prohibited derivatives in event history. Dependent projections
+must re-read these eligibility rules and consume invalidation/rebuild work, as required
+by the [effective listing geography contract](#effective-listing-geography-2003).
 
 ### Activation and recovery
 
@@ -577,22 +577,21 @@ owns operator recovery and safe monitoring.
 
 `product-listing-service::geography` owns this enrichment and its query/read ports.
 It selects the one explicit source default independently for associated business and
-advertised inventory. Business association never establishes item geography. A missing,
-private or retired default gives absence. An unresolved default without reliable submitted facts gives absence. Reliable submitted
-country/subdivision remain useful when resolution has no point.
+advertised inventory. Business association never establishes item geography. A missing or
+retired default gives absence. An unresolved default without reliable submitted facts
+gives absence. Reliable submitted country/subdivision remain useful when resolution has no point.
 No PlaceId, Party hydration, generic location graph or per-listing provider call is needed.
 
 Submitted country/subdivision and caller position retain precedence over current accepted
 resolution. Resolution requires the binding's current input and location revisions and
-permitted, unexpired evidence. Coarse disclosure includes administrative codes and never
-includes coordinates, including a supplied representative point. Compact derived storage
-and documents contain only selected location, SOURCE_DEFAULT_DERIVED basis, pinned ISO
+permitted, unexpired evidence. Active defaults preserve exact caller positions or eligible
+resolved positions. Compact derived storage and documents contain only selected location, SOURCE_DEFAULT_DERIVED basis, pinned ISO
 release, administrative codes and eligible point/precision. Addresses, postal text,
 localized names, source applicability evidence and provider payloads stay out. Inventory
 basis conveys the source's assertion, not individually verified stock or custody.
 
 Dependency markers retain listing canonical version, source assignment/applicability
-revision, location identity/input/revision/lifecycle/disclosure, current resolution
+revision, location identity/input/revision/lifecycle, current resolution
 identity/generation/review selection/retention deadline and policy versions. They are
 internal equality guards, never ordered external versions. Current authorities are locked
 and rechecked in the short page transaction. Applicability evidence and geographic values
@@ -637,7 +636,7 @@ execution against the same invalidation epoch. A closed or changed gate suppress
 conservative global barrier: unrelated geographic matches can temporarily be suppressed
 while shared or restrictive changes propagate. Sustained invalidation backlog reduces geographic availability; backlog age
 and index custody must be monitored. Ordinary non-geographic queries remain independent.
-This deliberately supplies immediate public privacy in addition to eventual reindexing.
+This prevents retired or retention-expired geography from remaining eligible during reindexing.
 
 G7's country/subdivision/radius/facet/saved-filter entry points must wrap their complete
 query in this capability; a hit-level serialization check cannot satisfy the contract.

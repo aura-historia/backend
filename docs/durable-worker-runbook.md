@@ -281,6 +281,15 @@ outside CDC. Migration establishes initial source-level rebuild work; it never r
 all listings in a management transaction. Use the existing DLQ/archive replay procedure,
 then reread current authority; never replay coordinates or resurrect a captured default.
 
+The PartyLocation disclosure-removal migration requires a coordinated release: quiesce
+the affected API, resolution and geography workers, and cleanup schedule, and wait for
+older invocations to finish before applying it. Older binaries require the dropped column
+and cannot read new resolution inputs. Deploy all affected runtimes from the same migration
+SHA before resuming them; rollback also requires the compatible binaries. The migration
+adapts completed creation receipts and enqueues source rebuilds, while existing resolution
+bindings, reviewed selections and paid attempts remain reusable. Follow the
+[schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
+
 For a deliberate rebuild, fence old projection writers and use the existing isolated
 OpenSearch generation procedure. Enqueue source UUIDs in bounded ascending keyset pages
 using `SELECT enqueue_listing_geography('SOURCE', $1)` inside the operational transaction.

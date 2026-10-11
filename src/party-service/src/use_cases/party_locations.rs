@@ -12,8 +12,8 @@ use geo_service::{geocoding::GeocodingRequest, resolution::*};
 use party_core::{
     party_id::PartyId,
     party_location::{
-        PartyLocation, PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel,
-        PartyLocationLifecycle, PartyLocationRole,
+        PartyLocation, PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle,
+        PartyLocationRole,
     },
     party_location_id::PartyLocationId,
 };
@@ -130,7 +130,6 @@ pub struct UpdatePartyLocationCommand {
     pub roles: PatchField<BTreeSet<PartyLocationRole>>,
     pub geography: PatchField<GeographicDescription>,
     pub position: PatchField<SpatialPosition>,
-    pub disclosure: PatchField<PartyLocationDisclosure>,
     pub evidence: PatchField<LocationEvidence>,
 }
 impl std::fmt::Debug for UpdatePartyLocationCommand {
@@ -174,7 +173,6 @@ pub struct PartyLocationView {
     pub roles: BTreeSet<PartyLocationRole>,
     pub geography: Option<GeographicDescription>,
     pub position: Option<SpatialPosition>,
-    pub disclosure: PartyLocationDisclosure,
     pub lifecycle: PartyLocationLifecycle,
     pub revision: PartyLocationRevision,
     pub input_revision: u64,
@@ -185,7 +183,6 @@ impl std::fmt::Debug for PartyLocationView {
         f.debug_struct("PartyLocationView")
             .field("id", &self.id)
             .field("party_id", &self.party_id)
-            .field("disclosure", &self.disclosure)
             .field("lifecycle", &self.lifecycle)
             .field("revision", &self.revision)
             .finish_non_exhaustive()
@@ -201,7 +198,6 @@ impl From<StoredPartyLocation> for PartyLocationView {
             roles: c.roles.clone(),
             geography: c.geography.clone(),
             position: c.position,
-            disclosure: c.disclosure,
             lifecycle: value.location.lifecycle(),
             revision: value.revision,
             input_revision: value.location.input_revision().into_inner(),
@@ -311,8 +307,7 @@ async fn sync_resolution<Tx, R: PartyLocationRepositoryFactory<Tx>>(
         GeocodingRequest::new(description.address_text().expect("checked address").clone())
             .with_submitted(geo::SubmittedGeography::new(description.clone()));
     let scope = ResolutionScope::new(ScopeKind::Party, Some(s.location.party_id().into_uuid()))?;
-    let input = ResolutionInput::new(request, scope, RetentionPurpose::PartyLocation)?
-        .with_retention_context(s.location.content().disclosure.as_str())?;
+    let input = ResolutionInput::new(request, scope, RetentionPurpose::PartyLocation)?;
     factory.resolutions(tx).bind(&input, binding).await?;
     Ok(())
 }
@@ -702,7 +697,6 @@ where
             roles: required(c.roles, command.roles)?,
             geography: optional(c.geography, command.geography),
             position: optional(c.position, command.position),
-            disclosure: required(c.disclosure, command.disclosure)?,
         };
         let evidence = optional(stored.evidence.clone(), command.evidence);
         if stored
@@ -991,7 +985,6 @@ mod tests {
             roles: BTreeSet::new(),
             geography: Some(geography.clone()),
             position: Some(position),
-            disclosure: PartyLocationDisclosure::Private,
             lifecycle: PartyLocationLifecycle::Active,
             revision: PartyLocationRevision::INITIAL,
             input_revision: 1,
@@ -1007,7 +1000,6 @@ mod tests {
             roles: PatchField::Unchanged,
             geography: PatchField::Set(geography),
             position: PatchField::Set(position),
-            disclosure: PatchField::Unchanged,
             evidence: PatchField::Unchanged,
         };
         for debug in [format!("{view:?}"), format!("{command:?}")] {

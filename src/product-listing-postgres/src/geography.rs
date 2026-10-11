@@ -138,7 +138,6 @@ struct InputRow {
     party_location_id: Option<Uuid>,
     location_revision: Option<i64>,
     input_revision: Option<i64>,
-    disclosure: Option<String>,
     location_lifecycle: Option<String>,
     business_evidence: Option<serde_json::Value>,
     inventory_evidence: Option<serde_json::Value>,
@@ -149,9 +148,6 @@ impl TryFrom<InputRow> for GeographyInput {
     type Error = GeographyError;
     fn try_from(r: InputRow) -> Result<Self, Self::Error> {
         if !matches!(r.lifecycle.as_str(), "ACTIVE" | "WITHDRAWN")
-            || r.disclosure
-                .as_deref()
-                .is_some_and(|v| !matches!(v, "PRIVATE" | "COARSE_PUBLIC" | "EXACT_PUBLIC"))
             || r.location_lifecycle
                 .as_deref()
                 .is_some_and(|v| !matches!(v, "ACTIVE" | "RETIRED"))
@@ -168,7 +164,6 @@ impl TryFrom<InputRow> for GeographyInput {
                     || r.party_location_id != Some(id)
                     || r.input_revision.is_none_or(|revision| revision <= 0)
                     || r.location_revision < r.input_revision
-                    || r.disclosure.is_none()
                     || r.location_lifecycle.is_none()
                 {
                     return Err(invalid());
@@ -215,14 +210,6 @@ impl TryFrom<InputRow> for GeographyInput {
                 .map_err(storage)?,
             location_revision: r.location_revision,
             input_revision: r.input_revision,
-            disclosure: r
-                .disclosure
-                .as_deref()
-                .map(|value| {
-                    party_core::party_location::PartyLocationDisclosure::from_code(value)
-                        .ok_or_else(invalid)
-                })
-                .transpose()?,
             location_active: r.location_lifecycle.as_deref() == Some("ACTIVE"),
             business: assignment
                 .as_ref()
@@ -345,7 +332,7 @@ impl GeographyProjectionStore for Store<'_> {
             .bind(&source_ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let rows=sqlx::query_as::<_,InputRow>(r#"
             SELECT p.product_listing_id,p.listing_source_id,p.version,p.lifecycle,d.revision AS assignment_revision,d.party_location_id AS selected_location_id,
-                l.party_location_id,l.revision AS location_revision,l.input_revision,l.disclosure,l.lifecycle AS location_lifecycle,
+                l.party_location_id,l.revision AS location_revision,l.input_revision,l.lifecycle AS location_lifecycle,
                 d.business_evidence,d.inventory_evidence,l.geography,l.position
             FROM product_listings p JOIN listing_sources s USING(listing_source_id)
             LEFT JOIN listing_source_location_defaults d ON d.listing_source_id=s.listing_source_id
@@ -375,7 +362,7 @@ impl GeographyProjectionStore for Store<'_> {
                         && (w.geography.business.is_some() || w.geography.inventory.is_some())
                 })
                 .and_then(|r| r.valid_until);
-            let dependency = json!({"policy":POLICY,"listingVersion":i.listing_version,"listingActive":i.active,"sourceId":i.source_id,"assignmentRevision":i.assignment_revision,"locationId":i.location_id,"locationRevision":i.location_revision,"inputRevision":i.input_revision,"disclosure":i.disclosure.map(|d|d.as_str()),"locationActive":i.location_active,"business":i.business,"inventory":i.inventory,"resolution":w.resolution.as_ref().map(|r|json!({"id":r.work.id,"generation":r.work.generation,"guard":r.guard,"inputRevision":r.input_revision,"selection":r.selected_candidate,"validUntil":r.valid_until.map(|v|v.unix_timestamp_nanos().to_string()),"policy":geo_service::resolution::POLICY_VERSION}))});
+            let dependency = json!({"policy":POLICY,"listingVersion":i.listing_version,"listingActive":i.active,"sourceId":i.source_id,"assignmentRevision":i.assignment_revision,"locationId":i.location_id,"locationRevision":i.location_revision,"inputRevision":i.input_revision,"locationActive":i.location_active,"business":i.business,"inventory":i.inventory,"resolution":w.resolution.as_ref().map(|r|json!({"id":r.work.id,"generation":r.work.generation,"guard":r.guard,"inputRevision":r.input_revision,"selection":r.selected_candidate,"validUntil":r.valid_until.map(|v|v.unix_timestamp_nanos().to_string()),"policy":geo_service::resolution::POLICY_VERSION}))});
             let geography =
                 serde_json::to_value(GeographyData::from(&w.geography)).map_err(storage)?;
             let old:Option<(serde_json::Value,i64,i64,serde_json::Value,bool)>=sqlx::query_as("SELECT geography,geography_version,indexed_version,dependency,blocks_queries FROM product_listing_geographies WHERE product_listing_id=$1").bind(i.listing_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;

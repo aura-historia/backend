@@ -19,8 +19,7 @@ use geo::{
 use party_core::{
     party_id::PartyId,
     party_location::{
-        PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel, PartyLocationLifecycle,
-        PartyLocationRole,
+        PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
     },
     party_location_id::PartyLocationId,
 };
@@ -171,7 +170,6 @@ struct LocationData {
     geography: Option<GeographyData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     position: Option<PositionData>,
-    disclosure: &'static str,
     lifecycle: &'static str,
     revision: PartyLocationRevision,
     input_revision: u64,
@@ -187,7 +185,6 @@ impl From<PartyLocationView> for LocationData {
             roles: v.roles.iter().map(|v| v.as_str()).collect(),
             geography: v.geography.map(Into::into),
             position: v.position.map(Into::into),
-            disclosure: v.disclosure.as_str(),
             lifecycle: v.lifecycle.as_str(),
             revision: v.revision,
             input_revision: v.input_revision,
@@ -234,8 +231,6 @@ struct CreateData {
     #[serde(default)]
     position: Option<PositionData>,
     #[serde(default)]
-    disclosure: PatchValue<String>,
-    #[serde(default)]
     evidence: Option<EvidenceData>,
     #[serde(default)]
     relocates: Option<ExpectedData>,
@@ -259,10 +254,6 @@ fn create_command(
     if keys.next().is_some() {
         return Err(key_error());
     }
-    let disclosure = match non_nullable_patch(d.disclosure, "disclosure")? {
-        PatchField::Set(v) => PartyLocationDisclosure::from_code(&v).ok_or_else(bad)?,
-        _ => PartyLocationDisclosure::Private,
-    };
     Ok(CreatePartyLocationCommand {
         party_id,
         idempotency_key: PartyLocationIdempotencyKey::new(key.to_owned())
@@ -272,7 +263,6 @@ fn create_command(
             roles: role_set(d.roles)?,
             geography: d.geography.map(GeographyData::into_core).transpose()?,
             position: d.position.map(PositionData::into_core).transpose()?,
-            disclosure,
         },
         evidence: d.evidence.map(EvidenceData::into_service).transpose()?,
         relocates: d.relocates.map(Into::into),
@@ -291,8 +281,6 @@ struct UpdateData {
     geography: PatchValue<GeographyData>,
     #[serde(default)]
     position: PatchValue<PositionData>,
-    #[serde(default)]
-    disclosure: PatchValue<String>,
     #[serde(default)]
     evidence: PatchValue<EvidenceData>,
 }
@@ -317,9 +305,6 @@ fn update_command(
         roles: map_patch(non_nullable_patch(d.roles, "roles")?, role_set)?,
         geography: map_patch(clearable(d.geography), GeographyData::into_core)?,
         position: map_patch(clearable(d.position), PositionData::into_core)?,
-        disclosure: map_patch(non_nullable_patch(d.disclosure, "disclosure")?, |v| {
-            PartyLocationDisclosure::from_code(&v).ok_or_else(bad)
-        })?,
         evidence: map_patch(clearable(d.evidence), EvidenceData::into_service)?,
     })
 }
@@ -552,7 +537,7 @@ pub async fn no_store_response(mut response: Response) -> Response {
 mod tests {
     use super::*;
     #[test]
-    fn creates_unresolved_sites_privately_without_any_geocoder() {
+    fn creates_unresolved_sites_without_any_geocoder() {
         let mut headers = HeaderMap::new();
         headers.insert(
             "idempotency-key",
@@ -564,7 +549,6 @@ mod tests {
             r#"{"label":"Store","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Unknown road"}}"#,
         ] {
             let c = create_command(PartyId::new(), &headers, body).unwrap();
-            assert_eq!(PartyLocationDisclosure::Private, c.content.disclosure);
             assert!(c.content.position.is_none());
         }
         for body in [
@@ -588,7 +572,12 @@ mod tests {
         assert_eq!(PatchField::Clear, c.position);
         assert_eq!(PatchField::Clear, c.evidence);
         assert_eq!(PatchField::Set(BTreeSet::new()), c.roles);
-        let c = update_command(party,id,r#"{"expectedRevision":1,"correction":"SAME_SITE","label":"Corrected","disclosure":"COARSE_PUBLIC"}"#).unwrap();
+        let c = update_command(
+            party,
+            id,
+            r#"{"expectedRevision":1,"correction":"SAME_SITE","label":"Corrected"}"#,
+        )
+        .unwrap();
         assert!(matches!(c.label, PatchField::Set(_)));
         for body in [
             r#"{}"#,
@@ -649,7 +638,6 @@ mod route_tests {
                 roles: BTreeSet::new(),
                 geography: None,
                 position: None,
-                disclosure: PartyLocationDisclosure::CoarsePublic,
                 lifecycle: PartyLocationLifecycle::Active,
                 revision: PartyLocationRevision::INITIAL,
                 input_revision: 1,

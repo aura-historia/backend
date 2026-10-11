@@ -51,7 +51,7 @@ async fn fixture(
     let (id, _) = insert_product_with_created_event(pool).await?;
     let (source,party):(Uuid,Uuid)=sqlx::query_as("SELECT p.listing_source_id,s.operator_party_id FROM product_listings p JOIN listing_sources s USING(listing_source_id) WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(pool).await?;
     let location = Uuid::now_v7();
-    sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,geography,position,disclosure,lifecycle,created_actor,updated_actor) VALUES($1,$2,'Secret premises',$3,$4,'EXACT_PUBLIC','ACTIVE','SERVICE:test','SERVICE:test')")
+    sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,geography,position,lifecycle,created_actor,updated_actor) VALUES($1,$2,'Secret premises',$3,$4,'ACTIVE','SERVICE:test','SERVICE:test')")
         .bind(location).bind(party).bind(json!({"reference_release":"iso-codes-4.20.1","address_text":"Private supplied address","country":"DE","subdivision":"DE-BY","postal_code":null}))
         .bind(json!({"point":{"latitude_degrees":48.1,"longitude_degrees":11.5},"precision":"PREMISES","accuracy_metres":null})).execute(pool).await?;
     sqlx::query("INSERT INTO listing_source_location_defaults(listing_source_id,party_id,party_location_id,business_evidence,revision,updated_actor) VALUES($1,$2,$3,$4,2,'SERVICE:test')")
@@ -127,14 +127,14 @@ async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_fac
         // Repeated dependency signals update markers without downstream enrichment.
         sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)").bind(source.to_string()).execute(&pool).await?;drain(&pool,1).await?;
         let unchanged:i64=sqlx::query_scalar("SELECT geography_version FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(version,unchanged);
-        // Disclosure reduction is visible before any fanout page/index acknowledgment.
-        sqlx::query("UPDATE party_locations SET disclosure='COARSE_PUBLIC',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&pool).await?;
+        // Retirement is visible before any fanout page/index acknowledgment.
+        sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&pool).await?;
         sqlx::query("INSERT INTO party_location_changes(party_location_id,party_id,revision,input_revision,lifecycle,actor) SELECT party_location_id,party_id,revision,input_revision,lifecycle,'SERVICE:test' FROM party_locations WHERE party_location_id=$1").bind(location).execute(&pool).await?;
         assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[id]).await?.is_empty());
         drain(&pool,1).await?;
-        let coarse:serde_json::Value=sqlx::query_scalar("SELECT geography FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
-        assert!(coarse["business"]["position"].is_null());assert_eq!("DE-BY",coarse["business"]["subdivision"]);
+        let retired:serde_json::Value=sqlx::query_scalar("SELECT geography FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
+        assert!(retired["business"].is_null());assert!(retired["inventory"].is_null());
         assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());acknowledge(&pool).await?;
         assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_some());
         Ok(())
@@ -255,7 +255,7 @@ async fn assignment_replacement_waits_for_projection_and_old_wakeups_read_curren
         let new_location = Uuid::now_v7();
         let mut replacement = pool.begin().await?;
         sqlx::query("SELECT listing_source_id FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE").bind(source).fetch_all(&mut *replacement).await?;
-        sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,geography,disclosure,lifecycle,created_actor,updated_actor) SELECT $1,party_id,'Replacement',$3,'COARSE_PUBLIC','ACTIVE','SERVICE:test','SERVICE:test' FROM party_locations WHERE party_location_id=$2")
+        sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,geography,lifecycle,created_actor,updated_actor) SELECT $1,party_id,'Replacement',$3,'ACTIVE','SERVICE:test','SERVICE:test' FROM party_locations WHERE party_location_id=$2")
             .bind(new_location).bind(old_location).bind(json!({"reference_release":"iso-codes-4.20.1","address_text":null,"country":"FR","subdivision":null,"postal_code":null})).execute(&mut *replacement).await?;
         sqlx::query("UPDATE listing_source_location_defaults SET party_location_id=$2,revision=revision+1 WHERE listing_source_id=$1").bind(source).bind(new_location).execute(&mut *replacement).await?;
         sqlx::query("INSERT INTO listing_source_location_default_changes(listing_source_id,revision,party_id,party_location_id,location_revision,business_association,advertised_inventory,actor) SELECT listing_source_id,revision,party_id,party_location_id,1,true,false,'SERVICE:test' FROM listing_source_location_defaults WHERE listing_source_id=$1").bind(source).execute(&mut *replacement).await?;

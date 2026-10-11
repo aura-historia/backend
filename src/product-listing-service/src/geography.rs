@@ -8,11 +8,11 @@ use geo_service::resolution::{
     ResolutionReader, ResolutionRepositoryFactory, ResolutionSubject, ResolutionView,
 };
 use listing_source_core::ListingSourceId;
-use party_core::{party_location::PartyLocationDisclosure, party_location_id::PartyLocationId};
+use party_core::party_location_id::PartyLocationId;
 use product_listing_core::product_listing_id::ProductListingId;
 use uuid::Uuid;
 
-pub const POLICY: &str = "EFFECTIVE_GEOGRAPHY_V1";
+pub const POLICY: &str = "EFFECTIVE_GEOGRAPHY_V2";
 domain_primitives::object_id_newtype!(GeographyWorkId, "gwork");
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +42,6 @@ pub struct GeographyInput {
     pub location_id: Option<PartyLocationId>,
     pub location_revision: Option<i64>,
     pub input_revision: Option<i64>,
-    pub disclosure: Option<PartyLocationDisclosure>,
     pub location_active: bool,
     pub business: bool,
     pub inventory: bool,
@@ -218,13 +217,7 @@ pub fn derive(
     input: &GeographyInput,
     resolution: Option<&ResolutionView>,
 ) -> EffectiveListingGeography {
-    if !input.active
-        || !input.location_active
-        || !matches!(
-            input.disclosure,
-            Some(PartyLocationDisclosure::ExactPublic | PartyLocationDisclosure::CoarsePublic)
-        )
-    {
+    if !input.active || !input.location_active {
         return EffectiveListingGeography::default();
     }
     let Some(location_id) = input.location_id else {
@@ -250,13 +243,9 @@ pub fn derive(
         subdivision: submitted
             .and_then(|d| d.subdivision())
             .or_else(|| description.and_then(|d| d.subdivision())),
-        position: if input.disclosure == Some(PartyLocationDisclosure::ExactPublic) {
-            input
-                .position
-                .or_else(|| resolved.and_then(|r| r.position()))
-        } else {
-            None
-        },
+        position: input
+            .position
+            .or_else(|| resolved.and_then(|r| r.position())),
     };
     if dimension.country.is_none()
         && dimension.subdivision.is_none()
@@ -324,7 +313,6 @@ mod tests {
             location_id: Some(PartyLocationId::new()),
             location_revision: Some(1),
             input_revision: Some(1),
-            disclosure: Some(PartyLocationDisclosure::ExactPublic),
             location_active: true,
             business: true,
             inventory: false,
@@ -347,7 +335,7 @@ mod tests {
         }
     }
     #[test]
-    fn applicability_and_disclosure_are_independent_of_resolution() {
+    fn applicability_and_lifecycle_are_independent_of_resolution() {
         let mut i = input();
         let g = derive(&i, None);
         assert!(g.inventory.is_none());
@@ -356,18 +344,17 @@ mod tests {
             g.business.as_ref().and_then(|g| g.country)
         );
         i.inventory = true;
-        i.disclosure = Some(PartyLocationDisclosure::CoarsePublic);
         let g = derive(&i, None);
-        assert!(g.inventory.as_ref().expect("applicable").position.is_none());
+        assert_eq!(
+            i.position,
+            g.inventory.as_ref().expect("applicable").position
+        );
         assert_eq!(
             Some("DE-BY"),
             g.inventory
                 .as_ref()
                 .and_then(|g| g.subdivision.as_ref().map(|s| s.as_str()))
         );
-        i.disclosure = Some(PartyLocationDisclosure::Private);
-        assert_eq!(EffectiveListingGeography::default(), derive(&i, None));
-        i.disclosure = Some(PartyLocationDisclosure::ExactPublic);
         i.location_active = false;
         assert_eq!(EffectiveListingGeography::default(), derive(&i, None));
         i.location_active = true;

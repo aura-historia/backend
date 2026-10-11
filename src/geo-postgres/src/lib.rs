@@ -70,9 +70,10 @@ struct ResolutionRow {
 }
 impl ResolutionRow {
     fn input(&self) -> Result<ResolutionInput, ResolutionError> {
-        let input: ResolutionInput = decode::<InputData>(self.input.clone())?.try_into()?;
+        let data = decode::<InputData>(self.input.clone())?;
+        let input: ResolutionInput = data.clone().try_into()?;
         if self.policy_version != POLICY_VERSION
-            || input.fingerprint(&self.profile) != self.fingerprint
+            || data.stored_fingerprint(&input, &self.profile) != self.fingerprint
             || input.budget_key() != self.scope_key
             || self.generation <= 0
             || !(0..=5).contains(&self.attempts)
@@ -190,16 +191,34 @@ impl ResolutionRepository for Repository<'_> {
         .ok_or_else(corrupt)?;
         let fingerprint = input.fingerprint(&profile);
         let id = ResolutionId::new();
-        let (stored_id,generation):(Uuid,i64)=sqlx::query_as(
+        // Reuse existing V1 work after removing disclosure from the cache key.
+        // Prefer this subject's binding to preserve its review and paid attempts.
+        let existing: Option<(Uuid, i64)> = sqlx::query_as(r#"
+            SELECT r.resolution_id,r.generation FROM geo_resolutions r
+            WHERE r.fingerprint=ANY($1)
+            ORDER BY EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id
+                AND b.subject_kind=$2 AND b.subject_id=$3) DESC,
+                (r.fingerprint=$4) DESC,r.resolution_id LIMIT 1
+        "#).bind(compatible_input_fingerprints(input, &profile))
+            .bind(b.subject.kind().as_str()).bind(b.subject.id()).bind(&fingerprint)
+            .fetch_optional(&mut *self.connection).await.map_err(sql_error)?;
+        let (stored_id, _) = if let Some(existing) = existing {
+            existing
+        } else {
+            sqlx::query_as::<_, (Uuid, i64)>(
             r#"
             INSERT INTO geo_resolutions(resolution_id,fingerprint,profile,policy_version,scope_key,input) VALUES
             ($1,$2,$3,$4,$5,$6) ON CONFLICT(fingerprint) DO UPDATE SET generation=geo_resolutions.generation
             RETURNING resolution_id,generation
             "#,
         )
-            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(POLICY_VERSION).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
-        let w = work(stored_id, generation)?;
-        let row = self.row(w.id).await?.ok_or_else(corrupt)?;
+            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(POLICY_VERSION).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?
+        };
+        let row = self
+            .row(ResolutionId::try_from(stored_id).map_err(invalid)?)
+            .await?
+            .ok_or_else(corrupt)?;
+        let w = work(stored_id, row.generation)?;
         let stored_input = row.input()?;
         let previous: Option<(Uuid, i64)> = sqlx::query_as(
             "SELECT resolution_id,input_revision FROM geo_resolution_bindings WHERE subject_kind=$1 AND subject_id=$2",

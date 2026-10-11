@@ -100,7 +100,7 @@ async fn source(pool: &PgPool, owner: PartyId) -> ListingSourceId {
     sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES($1,$2,'Default source',$3)").bind(id.into_uuid()).bind(format!("source-{}",id.as_uuid().simple())).bind(owner.into_uuid()).execute(pool).await.unwrap();
     id
 }
-async fn location(pool: &PgPool, owner: PartyId, disclosure: &str) -> PartyLocationId {
+async fn location(pool: &PgPool, owner: PartyId) -> PartyLocationId {
     let id = PartyLocationId::new();
     let description = GeographicDescription::new(
         Some(AddressText::new("Sensitive premises").unwrap()),
@@ -117,7 +117,7 @@ async fn location(pool: &PgPool, owner: PartyId, disclosure: &str) -> PartyLocat
     )
     .unwrap();
     let point = geo::data::geography_data::SpatialPositionData::from(position);
-    sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,disclosure,lifecycle,geography,position,created_actor,updated_actor) VALUES($1,$2,'Sensitive label',$3,'ACTIVE',$4,$5,'test','test')").bind(id.into_uuid()).bind(owner.into_uuid()).bind(disclosure).bind(serde_json::to_value(GeographicDescriptionData::from(&description)).unwrap()).bind(serde_json::to_value(point).unwrap()).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO party_locations(party_location_id,party_id,label,lifecycle,geography,position,created_actor,updated_actor) VALUES($1,$2,'Sensitive label','ACTIVE',$3,$4,'test','test')").bind(id.into_uuid()).bind(owner.into_uuid()).bind(serde_json::to_value(GeographicDescriptionData::from(&description)).unwrap()).bind(serde_json::to_value(point).unwrap()).execute(pool).await.unwrap();
     id
 }
 fn evidence(scope: SourceLocationMeaning) -> SourceLocationEvidence {
@@ -200,8 +200,8 @@ async fn separate_sources_select_one_location_and_changes_are_atomic_noops() {
     let owner = party(&pool).await;
     let x = source(&pool, owner).await;
     let y = source(&pool, owner).await;
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
-    let b = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
+    let b = location(&pool, owner).await;
     assert!(read(&pool, x).await.assignment.is_none());
     assert_eq!(0, signals(&pool, x).await);
     let original = assign(&pool)
@@ -353,8 +353,8 @@ async fn foreign_missing_retired_and_unscoped_references_fail_closed() {
     let owner = party(&pool).await;
     let other = party(&pool).await;
     let id = source(&pool, owner).await;
-    let foreign = location(&pool, other, "EXACT_PUBLIC").await;
-    let retired = location(&pool, owner, "EXACT_PUBLIC").await;
+    let foreign = location(&pool, other).await;
+    let retired = location(&pool, owner).await;
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED' WHERE party_location_id=$1")
         .bind(retired.into_uuid())
         .execute(&pool)
@@ -387,7 +387,7 @@ async fn foreign_missing_retired_and_unscoped_references_fail_closed() {
             .unwrap()
             .is_foreign_key_violation()
     );
-    let active = location(&pool, owner, "EXACT_PUBLIC").await;
+    let active = location(&pool, owner).await;
     let v = assign(&pool)
         .execute(&trusted(), command(id, active))
         .await
@@ -412,13 +412,13 @@ async fn foreign_missing_retired_and_unscoped_references_fail_closed() {
     assert_eq!(1, signals(&pool, id).await);
 }
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-async fn authoritative_geography_checks_independent_meanings_privacy_retirement_and_pending_resolution()
+async fn authoritative_geography_checks_independent_meanings_exact_points_retirement_and_pending_resolution()
  {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
-    let _alternative = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
+    let _alternative = location(&pool, owner).await;
     let reader = SqlxEffectiveSourceGeographyReader::new(pool.clone());
     assert_eq!(
         EffectiveSourceGeographyView::default(),
@@ -442,26 +442,20 @@ async fn authoritative_geography_checks_independent_meanings_privacy_retirement_
     .unwrap();
     assign(&pool).execute(&trusted(), c).await.unwrap();
     assert!(reader.get(id).await.unwrap().advertised_inventory.is_some());
-    sqlx::query("UPDATE party_locations SET disclosure='COARSE_PUBLIC',revision=revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(&pool).await.unwrap();
-    let coarse = reader.get(id).await.unwrap().advertised_inventory.unwrap();
-    assert_eq!(2, coarse.basis.location_revision);
-    let geography = coarse.geography.unwrap();
-    assert!(geography.position().is_none());
-    let description = geography.description().unwrap();
-    assert_eq!(Some(CountryCode::DEU), description.country());
-    assert!(description.address_text().is_none());
-    assert!(description.postal_code().is_none());
+    let inventory = reader.get(id).await.unwrap().advertised_inventory.unwrap();
+    let geography = inventory.geography.unwrap();
+    assert!(geography.position().is_some());
+    assert_eq!(
+        Some(CountryCode::DEU),
+        geography.description().unwrap().country()
+    );
+    assert!(geography.description().unwrap().address_text().is_some());
     sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL,revision=revision+1,input_revision=input_revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(&pool).await.unwrap();
     let pending = reader.get(id).await.unwrap().advertised_inventory.unwrap();
     assert!(pending.geography.is_none());
     assert_eq!(a, pending.basis.location_id);
     assert_eq!(2, pending.basis.location_input_revision);
-    sqlx::query("UPDATE party_locations SET disclosure='PRIVATE',revision=revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(&pool).await.unwrap();
-    assert_eq!(
-        EffectiveSourceGeographyView::default(),
-        reader.get(id).await.unwrap()
-    );
-    sqlx::query("UPDATE party_locations SET disclosure='EXACT_PUBLIC',lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(a.into_uuid()).execute(&pool).await.unwrap();
     assert_eq!(
         EffectiveSourceGeographyView::default(),
         reader.get(id).await.unwrap()
@@ -522,8 +516,8 @@ async fn concurrent_changes_have_one_winner_and_invalidation_failure_rolls_back(
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
-    let b = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
+    let b = location(&pool, owner).await;
     let ctx = trusted();
     let h1 = assign(&pool);
     let h2 = assign(&pool);
@@ -625,7 +619,7 @@ async fn current_operator_membership_source_grant_and_scope_are_required() {
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
     let other_source = source(&pool, owner).await;
-    let a = location(&pool, owner, "PRIVATE").await;
+    let a = location(&pool, owner).await;
     let principal = member(&pool, owner, id).await;
     let ctx = context(principal.clone());
     for capability in [
@@ -767,8 +761,8 @@ async fn admin_policy_excludes_operator_members_and_preserves_default_contract()
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "PRIVATE").await;
-    let b = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
+    let b = location(&pool, owner).await;
     let principal = member(&pool, owner, id).await;
     let ctx = context(principal.clone());
     let request = GetLocationDefaultRequest { source_id: id };
@@ -879,7 +873,7 @@ async fn delegated_admin_defaults_require_the_exact_read_or_write_capability() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "PRIVATE").await;
+    let a = location(&pool, owner).await;
     let Principal::DelegatedUser { user_id, .. } = member(&pool, owner, id).await else {
         unreachable!()
     };
@@ -994,7 +988,7 @@ async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
     let mut retirement = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     sqlx::query("SELECT party_id FROM parties WHERE party_id=$1 FOR UPDATE")
         .bind(owner.into_uuid())
@@ -1013,7 +1007,7 @@ async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {
         Err(LocationDefaultError::LocationRetired)
     ));
     assert!(read(&pool, id).await.assignment.is_none());
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
     let principal = member(&pool, owner, id).await;
     // Grant deletion does not currently lock the Party in the existing grant adapter.
     // The authoritative permission read must therefore lock the grant row itself.
@@ -1044,7 +1038,7 @@ async fn malformed_persisted_evidence_and_geography_fail_closed() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let id = source(&pool, owner).await;
-    let a = location(&pool, owner, "EXACT_PUBLIC").await;
+    let a = location(&pool, owner).await;
     let v = assign(&pool)
         .execute(&trusted(), command(id, a))
         .await
