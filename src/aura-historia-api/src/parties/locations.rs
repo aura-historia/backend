@@ -51,7 +51,7 @@ fn map_patch<T, U>(
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct GeographyData {
+pub(crate) struct GeographyData {
     reference_release: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     address_text: Option<String>,
@@ -63,7 +63,7 @@ struct GeographyData {
     postal_code: Option<String>,
 }
 impl GeographyData {
-    fn into_core(self) -> Result<GeographicDescription, ApiError> {
+    pub(crate) fn into_core(self) -> Result<GeographicDescription, ApiError> {
         let release = ReferenceRelease::from_code(&self.reference_release).map_err(|_| bad())?;
         GeographicDescription::new_in_release(
             release,
@@ -101,7 +101,7 @@ impl From<GeographicDescription> for GeographyData {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PositionData {
+pub(crate) struct PositionData {
     latitude_degrees: f64,
     longitude_degrees: f64,
     precision: String,

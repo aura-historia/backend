@@ -129,6 +129,7 @@ pub struct AppState {
     pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) admin_source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
+    pub(crate) user_addresses: Option<UserAddressesState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
     pub(crate) partnerships: Option<PartnershipsState>,
@@ -163,6 +164,7 @@ impl AppState {
             source_location_defaults: None,
             admin_source_location_defaults: None,
             users: None,
+            user_addresses: None,
             watchlist: None,
             partnership_applications: None,
             partnerships: None,
@@ -211,6 +213,11 @@ impl AppState {
 
     pub fn with_admin_overview(mut self, admin_overview: AdminOverviewState) -> Self {
         self.admin_overview = Some(admin_overview);
+        self
+    }
+
+    pub fn with_user_addresses(mut self, addresses: UserAddressesState) -> Self {
+        self.user_addresses = Some(addresses);
         self
     }
 
@@ -1047,5 +1054,12 @@ pub struct SourceLocationDefaultsState {
     pub clear: Arc<dyn listing_source_service::use_cases::location_default::ClearLocationDefaultUseCase>,
     pub change: Arc<dyn listing_source_service::use_cases::location_default::ChangeLocationDefaultApplicabilityUseCase>,
     pub get: Arc<dyn listing_source_service::use_cases::location_default::GetLocationDefaultUseCase>,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+#[derive(Clone)]
+pub struct UserAddressesState {
+    pub commands: Arc<dyn user_service::address_book::AddressBookCommands>,
+    pub queries: Arc<dyn user_service::address_book::AddressBookQueries>,
     pub authenticator: Arc<dyn TokenAuthenticator>,
 }

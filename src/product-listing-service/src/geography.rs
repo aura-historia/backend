@@ -186,6 +186,19 @@ where
             .resolution_reader(&mut tx)
             .inspect_many(&subjects)
             .await?;
+        if resolutions.len() != subjects.len() {
+            return Err(
+                geo_service::resolution::ResolutionError::InvalidState(Box::new(
+                    std::io::Error::other("invalid resolution read cardinality"),
+                ))
+                .into(),
+            );
+        }
+        let resolutions = subjects
+            .iter()
+            .zip(resolutions)
+            .filter_map(|(subject, resolution)| resolution.map(|view| (subject.id(), view)))
+            .collect::<std::collections::HashMap<_, _>>();
         let writes = page
             .inputs
             .iter()

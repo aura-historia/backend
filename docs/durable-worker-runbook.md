@@ -251,7 +251,16 @@ active claim is incomplete. A paid-call/commit crash can repeat charging after l
 expiry; five durable attempts and one SDK attempt per reservation bound ordinary retries.
 Budget reservations are not refunded after uncertain calls. Hourly maintenance requeues
 expired leases; exhausted work requires an explicit protected Retry after correcting the
-cause. Authentication/configuration/retention failures are not geographic no-match.
+cause for business locations. Private user addresses expose status through normal address
+reads and correction through ordinary replacement; they have no manual retry/selection
+API. After operators correct authentication/configuration/storage gates, hourly recovery
+can resume blocked private work within the existing five-attempt allowance, preserving
+backoff and spent-call budgets. Exhausted attempts and invalid/unsupported inputs require
+cause correction and changed input or approved operational recovery; they do not loop
+automatically. Authentication/configuration/retention failures are
+not geographic no-match. Follow the purpose-specific acceptance and policy-upgrade
+rollout in [geography](geography.md#policy-migration-and-rollout); autocomplete selection
+is not a reason to bypass the backend policy or provider storage gate.
 
 Request establishes work for a preexisting eligible site; CDC-only capture does not
 backfill PartyLocations. Protected Retry and candidate selection require current location

@@ -53,6 +53,824 @@ servers:
   - url: https://api.aura-historia.com
     description: Production environment
 paths:
+  /api/v1/me/addresses:
+    post:
+      summary: Save a private address
+      operationId: createUserAddress
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Opaque owner-scoped creation retry key. Reuse with the original body to recover the server-generated ID. Different keys permit equal-content bookmarks.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_.:-]+$'
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
+        errors are no-store. The server generates addressId. The body contains label/geography; exactly one valid Idempotency-Key
+        header identifies retries within this owner. Same-key original creation content returns the same entry's current view (201), including after edits.
+        Changed creation content or a deleted entry conflicts. Saving does not synchronously geocode or select a preferred address.
+      responses:
+        '201':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAddress'
+        '400':
+          description: Invalid body (BAD_BODY_VALUE), including a caller-supplied addressId, or missing, repeated or invalid Idempotency-Key (BAD_HEADER_VALUE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserAddress'
+    get:
+      summary: Paginate own private addresses
+      operationId: listUserAddresses
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:read. Success and errors
+        are no-store. Current geocoding state and eligible accepted results are included using bounded batch hydration.
+      responses:
+        '200':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAddressPage'
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - in: query
+        name: after
+        schema:
+          $ref: '#/components/schemas/UserAddressId'
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+  /api/v1/me/addresses/{address_id}:
+    get:
+      summary: Read an own private address
+      operationId: getUserAddress
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: 'Requires the current unsuspended owner. Delegated credentials require users:read. Success and
+        errors are no-store. '
+      responses:
+        '200':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAddress'
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - in: path
+        name: address_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/UserAddressId'
+    put:
+      summary: Replace an own private address
+      operationId: updateUserAddress
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
+        errors are no-store. Full replacement preserves ID. Geographic changes increment inputRevision and fence old
+        enrichment. Label-only changes preserve resolution input. No-op writes require current version and preserve
+        versions.
+      responses:
+        '200':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAddress'
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserAddress'
+      parameters:
+      - in: path
+        name: address_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/UserAddressId'
+    delete:
+      summary: Erase an own private address
+      operationId: deleteUserAddress
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
+        errors are no-store. Erases text/enrichment/pending binding. Deleting the preferred address clears only that
+        preference atomically; no alternative is selected.
+      responses:
+        '204':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAddressExpectedVersion'
+      parameters:
+      - in: path
+        name: address_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/UserAddressId'
+  /api/v1/me/browsing-destination:
+    get:
+      summary: Read own browsing destination
+      operationId: getBrowsingDestination
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:read. Success and errors
+        are no-store. An untouched preference has version 1 and NONE.
+      responses:
+        '200':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowsingDestinationView'
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      summary: Select or clear browsing destination
+      operationId: setBrowsingDestination
+      tags:
+      - Users
+      security:
+      - BearerAuth: []
+      - AccessTokenAuth: []
+      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
+        errors are no-store. Atomic mutually exclusive preference. NONE clears. ADDRESS must belong to current owner.
+        COUNTRY_POSTAL needs no full address. At most one address is preferred.
+      responses:
+        '200':
+          description: Successful private operation.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowsingDestinationView'
+        '400':
+          description: Invalid body, query or strict object ID.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer credential required (INVALID_CREDENTIALS).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Current user or delegated scope is not permitted (FORBIDDEN).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Stale version or conflicting creation key (CONFLICT).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetBrowsingDestination'
   /api/v1/health:
     get:
       summary: Check process liveness
@@ -15214,6 +16032,246 @@ components:
         pattern: '^[\x21-\x2B\x2D-\x7E]{1,128}$'
       example: catalog-sync-2026-09-29
   schemas:
+    UserAddressId:
+      type: string
+      pattern: ^uaddr_[0-7][0-9a-hjkmnp-tv-z]{25}$
+      description: Strict server-generated UUIDv7 UserAddress TypeID, returned on creation. No bare UUID or owner input.
+    UserAddressLabel:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: Nonblank private label, at most 128 UTF-8 bytes, without control characters.
+    UserAddressGeography:
+      allOf:
+      - $ref: '#/components/schemas/PartyLocationGeography'
+      - type: object
+        required:
+        - addressText
+        properties:
+          addressText:
+            type: string
+            nullable: false
+            minLength: 1
+            maxLength: 4096
+      description: Verbatim free-text geographic assertions. addressText is required and non-null; no parsed street
+        or PlaceId. Provider-derived values remain separate.
+    CreateUserAddress:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      - geography
+      properties:
+        label:
+          $ref: '#/components/schemas/UserAddressLabel'
+        geography:
+          $ref: '#/components/schemas/UserAddressGeography'
+    UpdateUserAddress:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedVersion
+      - label
+      - geography
+      properties:
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        label:
+          $ref: '#/components/schemas/UserAddressLabel'
+        geography:
+          $ref: '#/components/schemas/UserAddressGeography'
+    UserAddressExpectedVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedVersion
+      properties:
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+    UserAddress:
+      type: object
+      additionalProperties: false
+      required:
+      - addressId
+      - label
+      - geography
+      - inputRevision
+      - version
+      - preferred
+      - resolution
+      properties:
+        addressId:
+          $ref: '#/components/schemas/UserAddressId'
+        label:
+          $ref: '#/components/schemas/UserAddressLabel'
+        geography:
+          $ref: '#/components/schemas/UserAddressGeography'
+        inputRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        preferred:
+          type: boolean
+        resolution:
+          $ref: '#/components/schemas/UserAddressResolution'
+    UserAddressPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserAddress'
+          maxItems: 100
+        next:
+          allOf:
+          - $ref: '#/components/schemas/UserAddressId'
+          nullable: true
+    BrowsingDestination:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        properties:
+          kind:
+            type: string
+            enum:
+            - NONE
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - addressId
+        properties:
+          kind:
+            type: string
+            enum:
+            - ADDRESS
+          addressId:
+            $ref: '#/components/schemas/UserAddressId'
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - country
+        properties:
+          kind:
+            type: string
+            enum:
+            - COUNTRY_POSTAL
+          country:
+            type: string
+            pattern: ^[A-Z]{2}$
+            description: Current ISO alpha-2 assertion; never inferred from language/currency/IP.
+          postalCode:
+            type: string
+            nullable: true
+            minLength: 1
+            maxLength: 64
+            description: Optional verbatim postal assertion, at most 64 UTF-8 bytes.
+      description: Exclusive browsing selector. An ADDRESS reference must belong to the current user. No shipping, billing
+        or residence assertion.
+    BrowsingDestinationView:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - destination
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        destination:
+          $ref: '#/components/schemas/BrowsingDestination'
+    SetBrowsingDestination:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedVersion
+      - destination
+      properties:
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9223372036854775807
+        destination:
+          $ref: '#/components/schemas/BrowsingDestination'
+    UserAddressDerivedGeography:
+      type: object
+      additionalProperties: false
+      required:
+      - geography
+      - position
+      properties:
+        geography:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationGeography'
+          nullable: true
+        position:
+          allOf:
+          - $ref: '#/components/schemas/PartyLocationPosition'
+          nullable: true
+    UserAddressResolution:
+      type: object
+      additionalProperties: false
+      description: Current backend geocoding state, returned with address CRUD/list reads. A unique compatible premises result can supply a point
+        automatically. Coarse results can supply administrative geography only. Expired or revoked evidence is UNAVAILABLE and suppressed. This is
+        browsing enrichment, not address or delivery verification.
+      required:
+      - status
+      - derived
+      - attribution
+      properties:
+        status:
+          type: string
+          enum:
+          - PENDING
+          - ACCEPTED
+          - AMBIGUOUS
+          - NO_MATCH
+          - FAILED
+          - BLOCKED
+          - UNAVAILABLE
+        derived:
+          allOf:
+          - $ref: '#/components/schemas/UserAddressDerivedGeography'
+          nullable: true
+        attribution:
+          allOf:
+          - $ref: '#/components/schemas/UserAddressAttribution'
+          nullable: true
+    UserAddressAttribution:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - attributionUrl
+      description: Display the attribution when showing accepted provider-derived geography.
+      properties:
+        provider:
+          type: string
+        attributionUrl:
+          type: string
+          format: uri
     SourceLocationDefaultEvidence:
       type: object
       additionalProperties: false

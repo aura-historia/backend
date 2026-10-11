@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 domain_primitives::object_id_newtype!(ResolutionId, "gres");
 pub const POLICY_VERSION: &str = "PRECISION_FIRST_V1";
+pub const USER_BROWSING_POLICY_VERSION: &str = "AUTOMATIC_USER_BROWSING_V1";
 pub const MAX_ATTEMPTS: u32 = 5;
 
 pub fn retry_delay(attempt: u32) -> time::Duration {
@@ -129,6 +130,14 @@ impl ResolutionInput {
     pub fn purpose(&self) -> RetentionPurpose {
         self.purpose
     }
+    /// Browsing addresses accept eligible premises evidence without a review step.
+    /// Business-location review retains its independent, existing policy.
+    pub fn policy_version(&self) -> &'static str {
+        match self.purpose {
+            RetentionPurpose::UserLocation => USER_BROWSING_POLICY_VERSION,
+            RetentionPurpose::PartyLocation => POLICY_VERSION,
+        }
+    }
     /// Length-prefixed exact bytes: preserve units, punctuation, Unicode and whitespace.
     /// A digest remains sensitive and is never a public identifier or metric dimension.
     pub fn fingerprint(&self, profile: &str) -> String {
@@ -139,7 +148,7 @@ impl ResolutionInput {
         };
         field("RESOLUTION_INPUT_V2");
         field(profile);
-        field(POLICY_VERSION);
+        field(self.policy_version());
         field(geo::reference::ReferenceRelease::CURRENT.as_str());
         field(self.scope.kind.as_str());
         field(
@@ -331,6 +340,7 @@ pub struct ResolutionEvidence {
 }
 #[derive(Debug, Clone)]
 pub struct ResolutionView {
+    pub scope: ResolutionScope,
     pub work: ResolutionWork,
     pub input_revision: u64,
     pub guard: u64,
@@ -355,9 +365,10 @@ pub enum ResolutionCompletion {
     Failure(GeocodingFailure),
 }
 
-/// Precision-first v1 has no calibrated premises auto-acceptance rule yet.
-/// A unique compatible result may add country/subdivision. A point requires explicit
-/// review, and review can only select compatible, non-approximate premises evidence.
+/// A unique compatible result may add country/subdivision. Private user browsing also
+/// accepts a premises point when the single returned candidate has no approximation or
+/// unsupported precision. Other purposes retain explicit point review. Provider scores
+/// and client autocomplete flags never establish acceptance.
 pub fn evaluate(
     input: &ResolutionInput,
     result: GeocodingResult,
@@ -419,6 +430,24 @@ pub fn evaluate(
     }
     // Count all returned alternatives, including ones we cannot normalize.
     if set.as_slice().len() == 1 && compatible_count == 1 {
+        if input.purpose == RetentionPurpose::UserLocation
+            && candidates[0].acceptable
+            && candidates[0].geography.position().is_some()
+            && candidates[0]
+                .geography
+                .description()
+                .and_then(|d| d.country())
+                .is_some()
+            && !set.as_slice()[0]
+                .issues()
+                .contains(&CandidateIssue::UnsupportedCountry)
+        {
+            return Ok(ResolutionEvidence {
+                status: ResolutionStatus::Accepted,
+                accepted_index: Some(0),
+                candidates,
+            });
+        }
         let description = candidates[0].geography.description();
         let coarse = description
             .map(|d| {
@@ -463,14 +492,26 @@ pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeograph
     let matches = |c: Option<geo::CountryCode>, s: Option<geo::SubdivisionCode>| {
         c.is_none_or(|c| country == Some(c)) && s.is_none_or(|s| subdivision == Some(s))
     };
-    input
+    let administrative_match = input
         .request
         .submitted()
         .is_none_or(|s| matches(s.description().country(), s.description().subdivision()))
         && input
             .request
             .constraint()
-            .is_none_or(|c| matches(c.country(), c.subdivision()))
+            .is_none_or(|c| matches(c.country(), c.subdivision()));
+    administrative_match
+        && (input.purpose != RetentionPurpose::UserLocation
+            || input.request.submitted().is_none_or(|s| {
+                s.description().postal_code().is_none_or(|postal| {
+                    d.and_then(|d| d.postal_code()).is_some_and(|derived| {
+                        country.map_or_else(
+                            || derived == postal,
+                            |country| derived.equivalent_in(postal, country),
+                        )
+                    })
+                })
+            }))
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -535,15 +576,15 @@ pub trait ResolutionRepository: Send {
 }
 #[async_trait::async_trait]
 pub trait ResolutionReader: Send {
-    /// Read current bindings in a bounded batch.
-    async fn inspect_many(
-        &mut self,
-        subjects: &[ResolutionSubject],
-    ) -> Result<std::collections::HashMap<Uuid, ResolutionView>, ResolutionError>;
     async fn inspect(
         &mut self,
         subject: ResolutionSubject,
     ) -> Result<Option<ResolutionView>, ResolutionError>;
+    /// Bounded presentation hydration; preserve order and avoid one read per address.
+    async fn inspect_many(
+        &mut self,
+        subjects: &[ResolutionSubject],
+    ) -> Result<Vec<Option<ResolutionView>>, ResolutionError>;
 }
 pub trait ResolutionRepositoryFactory<Tx>: Send + Sync {
     fn resolutions<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ResolutionRepository + 'tx;
@@ -695,7 +736,7 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
         tracing::info!(
             metric = "geo_resolution_outcome",
             method = "GEOCODER",
-            policy = POLICY_VERSION,
+            policy = claim.input.policy_version(),
             outcome = if completed { status } else { "UNCOMPLETED" },
             failure,
             attempt = claim.attempt,
@@ -934,5 +975,109 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(GeocodingFailure::Configuration, error.kind);
+    }
+
+    fn user_input() -> ResolutionInput {
+        ResolutionInput::new(
+            GeocodingRequest::new(AddressText::new("Synthetic selected address").unwrap()),
+            ResolutionScope::new(ScopeKind::User, Some(Uuid::now_v7())).unwrap(),
+            RetentionPurpose::UserLocation,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn user_browsing_automatically_accepts_only_unique_compatible_premises_points() {
+        let input = user_input();
+        assert_eq!(USER_BROWSING_POLICY_VERSION, input.policy_version());
+        for precision in [
+            None,
+            Some(SpatialPrecision::Premises),
+            Some(SpatialPrecision::Street),
+            Some(SpatialPrecision::Locality),
+            Some(SpatialPrecision::Representative),
+        ] {
+            let e = evidence(&input, vec![candidate(CountryCode::DEU, precision)]);
+            assert_eq!(ResolutionStatus::Accepted, e.status);
+            assert_eq!(
+                precision == Some(SpatialPrecision::Premises),
+                e.candidates[e.accepted_index.unwrap()]
+                    .geography
+                    .position()
+                    .is_some()
+            );
+        }
+        let e = evidence(
+            &input,
+            vec![
+                candidate(CountryCode::DEU, Some(SpatialPrecision::Premises)),
+                candidate(CountryCode::DEU, Some(SpatialPrecision::Premises)),
+            ],
+        );
+        assert_eq!(ResolutionStatus::Ambiguous, e.status);
+        assert!(e.accepted_index.is_none());
+        // Even an alternative we cannot normalize prevents automatic point selection.
+        let base = candidate(CountryCode::DEU, None);
+        let unsupported = GeocodingCandidate::new(
+            None,
+            vec![CandidateIssue::UnsupportedCountry],
+            None,
+            base.provenance().clone(),
+        );
+        let e = evidence(
+            &input,
+            vec![
+                candidate(CountryCode::DEU, Some(SpatialPrecision::Premises)),
+                unsupported,
+            ],
+        );
+        assert_eq!(ResolutionStatus::Ambiguous, e.status);
+        assert!(e.accepted_index.is_none());
+    }
+
+    #[test]
+    fn user_browsing_rejects_approximation_unsupported_precision_and_assertion_mismatches() {
+        let mut input = user_input();
+        for issue in [
+            CandidateIssue::ApproximatePosition,
+            CandidateIssue::UnsupportedPrecision,
+            CandidateIssue::UnsupportedCountry,
+            CandidateIssue::InconsistentComponents,
+            CandidateIssue::UnverifiedConstraint,
+        ] {
+            let base = candidate(CountryCode::DEU, Some(SpatialPrecision::Premises));
+            let c = GeocodingCandidate::new(
+                base.geography().cloned(),
+                vec![issue],
+                None,
+                base.provenance().clone(),
+            );
+            let e = evidence(&input, vec![c]);
+            assert!(
+                e.accepted_index
+                    .is_none_or(|i| e.candidates[i].geography.position().is_none())
+            );
+        }
+        input.request = input
+            .request
+            .clone()
+            .with_submitted(SubmittedGeography::new(
+                GeographicDescription::new(
+                    None,
+                    Some(CountryCode::GBR),
+                    None,
+                    Some(geo::PostalCode::new("SW1A 1AA").unwrap()),
+                )
+                .unwrap()
+                .unwrap(),
+            ));
+        for c in [
+            candidate(CountryCode::DEU, Some(SpatialPrecision::Premises)),
+            candidate(CountryCode::GBR, Some(SpatialPrecision::Premises)),
+        ] {
+            let e = evidence(&input, vec![c]);
+            assert_eq!(ResolutionStatus::Ambiguous, e.status);
+            assert!(e.accepted_index.is_none());
+        }
     }
 }

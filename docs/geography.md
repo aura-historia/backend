@@ -478,7 +478,7 @@ Both input and hash remain private personal/business data.
 
 ### Acceptance and review
 
-**PRECISION_FIRST_V1** accepts only a unique compatible candidate's country/subdivision
+For business-location resolution, **PRECISION_FIRST_V1** accepts only a unique compatible candidate's country/subdivision
 automatically, with its allowed provenance and reference release. It never fabricates a
 point or treats provider match scores as confidence. Every returned alternative counts,
 including unsupported alternatives. Multiple candidates, contradictions, unverified
@@ -644,3 +644,173 @@ The supplied public batch reader uses it already and reads at most 100 listing I
 query. G7 owns public filter/response/API shapes and the real geographic-query tests;
 this feature introduces no public API parameters or override writes. Rebuild/replay and
 activation are described in the [worker runbook](durable-worker-runbook.md#listing-geography-recovery).
+
+## Private user address books and browsing destinations (#2005)
+
+A `uaddr_` entry is an editable, named bookmark owned by the authenticated user.
+It has no PartyLocation or public Place identity. The service generates its UUIDv7 TypeID
+on creation. The create body contains label and geography; an `Idempotency-Key` header
+(1–128 ASCII letters/digits or `-_.:`) identifies retries within the trusted owner's
+namespace. Creation and retry metadata commit together under the owner lock. The same
+key and original creation content return the same entry's current authorized view,
+including after subsequent edits, without creating another entry or repeating work.
+Changed creation content or a deleted entry returns conflict. Distinct keys permit
+independent bookmarks with equal content. Stored keys and original creation semantics
+are private scoped hashes, excluded from reads/logs/CDC; no old address body is retained.
+Deletion removes the semantic fingerprint and retains only the key/ID tombstone until
+account erasure. Replacement preserves identity, increments
+input revision only for geographic changes and fences old enrichment; label changes
+advance the storage version without another paid call. Full replacements and deletion
+require the current version. Create/get/replace/list responses include the current
+`resolution` status, eligible `derived` geography/point and display attribution.
+Keyset pages hydrate resolution in bounded batches, without per-entry queries.
+
+Protected address/preference version tokens are the narrow exception to hiding storage
+versions: these private management operations expose them to implement the required CAS
+and prevent edits or preference selection from overwriting a concurrent change.
+
+Each user has one optional browsing destination: `NONE`, `ADDRESS`, or `COUNTRY_POSTAL`.
+Selecting an address requires current ownership. Selection, explicit country/postal
+replacement and clearing are atomic and require the preference version; an untouched
+preference has version 1. There can be at most one preferred address. Creation does not
+select one automatically. Deleting the selected entry clears the preference in the same
+transaction and never selects an alternative. This choice asserts neither residence,
+nationality, tax domicile, billing nor deliverability. Language, currency and IP never
+supply authoritative destination facts.
+
+The service-owned destination resolver accepts an optional explicit choice. An explicit
+choice takes precedence over the stored preference; explicit `NONE` suppresses it.
+Omission/null uses the stored preference. Each variant is exclusive: an address ID
+cannot accompany an explicit country/postal choice. The use case returns an authorized
+snapshot of submitted assertions and separately eligible derived evidence; a foreign
+ID cannot become an origin. Geographic search/filter consumers (G7/G9) must call this
+capability and copy the authorized values. Existing listing searches do not yet accept
+geographic destination selectors. G9 integrates the use case into search; the frontend
+needs no separate destination-resolution HTTP call.
+
+Private resolution uses `USER` scope, the immutable owner ID and `USER_LOCATION`
+purpose. Equality across users cannot reuse input/results;
+private work cannot seed Party or public listing geography. Creation/edit bind durable
+work atomically, never call the provider synchronously. Saving remains possible with
+paid work and provider retention disabled. Country/subdivision assertions are retained
+separately; provider failure never deletes a saved entry. Background retries, expiry
+and recovery remain bounded by the shared provider terms/storage and budget gates.
+Address responses report `UNAVAILABLE` when completed evidence has expired or retention
+rights were revoked; its derived data and attribution are suppressed immediately.
+
+### Address entry and automatic browsing acceptance
+
+A frontend may help users select an address using autocomplete. It submits the selected
+free text and optional explicit ISO country/subdivision/postal assertions through normal
+address create/replace. Manual free-text input remains supported. No autocomplete
+provider, universal street/house-number parser, provider Place ID or frontend map is a
+backend prerequisite. Client selections and flags do not establish verified facts or
+prove that a different geocoder will find a unique premises point.
+
+`AUTOMATIC_USER_BROWSING_V1` applies only to private `USER_LOCATION` resolution.
+It automatically accepts a point only when the provider returns exactly one candidate
+(with a requested limit of at least two), that candidate is usable and compatible with
+submitted country/subdivision/postal assertions, its country is supported, and its
+point has `PREMISES` precision without approximate or unsupported-precision evidence.
+Scores are ranking evidence, never confidence thresholds. Returned unsupported
+alternatives count towards ambiguity. A unique compatible coarse result may add only
+country/subdivision; it cannot supply a street/locality/region centroid for strict
+proximity. This rule is conservative acceptance of normalized evidence, not proof of
+global uniqueness, residence or carrier deliverability.
+
+`PENDING`, `ACCEPTED`, `AMBIGUOUS`, `NO_MATCH`, `FAILED`, `BLOCKED` and `UNAVAILABLE`
+are current read states. `ACCEPTED` may contain administrative geography without a
+point: radius consumers must inspect the point and precision separately. Users correct
+ambiguous/no-match input through ordinary address replacement. Provider outages retry
+in the background. After operators correct authentication/configuration/storage gates,
+hourly recovery can resume blocked private work within the same five-attempt allowance;
+it preserves spent-call accounting and backoff. Exhausted or invalid/unsupported work
+requires cause correction and a meaningful input change or an approved operational
+recovery, never an unbounded retry loop. The API
+exposes no user candidate lists, manual selection/retry operations, work IDs or paid-call
+counters. Business-location review keeps its separate `PRECISION_FIRST_V1` contract.
+
+Autocomplete licensing and backend geocoding rights are separate. Google documents a
+narrow [end-user street-address autocomplete exception](https://developers.google.com/maps/documentation/javascript/policies#autocomplete_for_end_user_addresses),
+limited to addresses users could accurately supply themselves and their specific
+transaction. It does not grant blanket rights for arbitrary place lookup, persistent
+address books or Google-derived coordinates. Establish applicable rights before using
+that provider. Backend enrichment follows the independently configured provider's
+storage purpose, provenance, expiry and erasure contract described above.
+
+G7/G9 consume authorized, eligible point snapshots and preserve origin precision,
+privacy and pagination stability; unresolved addresses do not silently become centroids.
+G10's release matrix must cover automatic acceptance, unsupported alternatives,
+approximate points, correction, bounded retry, expiry/revocation and policy upgrades.
+G14's optional structured-address extension preserves submitted/derived separation and
+must not turn autocomplete into a globally verified address. P3 locality enrichment
+keeps its independent directory policy; an autocomplete ID never becomes an Aura Place
+ID and a locality representative point never replaces an accepted premises point.
+
+### Policy migration and rollout
+
+Apply the address-book migration and then
+`20261011130000_automatic_user_browsing_resolution.sql`, followed by
+`20261011140000_server_generated_user_addresses.sql`, before enabling the revised API.
+The creation migration preserves existing IDs and content; legacy entries have no
+inferable creation key. Deploy its compatible server-generated creation API afterward.
+The automatic-policy migration permits the new purpose-specific policy, rekeys existing legacy G8 private
+inputs with the exact fingerprint, invalidates their evidence and selections, advances
+worker generations and journals new wake-ups. Address IDs, input revisions, owners and
+preferences stay stable. Fresh attempts keep spent-call budgets and outstanding leases;
+old replies cannot restore invalidated evidence. The migration fails on unexpected,
+missing or malformed legacy fingerprint fields and exhausted generations rather than
+guessing identity or losing the old-lease fence. Resolve those preflight failures through
+reviewed recovery before resuming the upgrade. Erased fences and business-location
+resolution stay under their previous policy.
+
+Pause private producers/workers during this upgrade, apply migrations, deploy compatible
+resolution/cleanup consumers, then deploy the API and matching gateway routes and resume
+bounded recovery. Older readers/workers cannot interpret the new private policy. Rollback
+must retain compatible consumers or disable private resolution; it must not restore old
+evidence, bypass erasures or relabel new-policy cache entries as reviewed facts.
+
+The tables contain private content in the encrypted business PostgreSQL database and
+are excluded from DMS table selection, public indexes and ordinary CDC/job envelopes.
+Only existing resolution ID/generation wake-ups enter the worker pipeline. REST success
+and errors are `no-store`. Delegated reads require `users:read`; mutations
+require `users:write` for their operation. Suspended/deleted owners and non-user actors
+are rejected inside the authoritative transaction. No address text, postal code, point,
+provider payload or private input fingerprint is logged or used as a metric dimension.
+
+### Deletion, erasure and retained snapshots
+
+Address deletion erases its label and submitted geography immediately. Replacing the
+geographic input detaches the previous binding; deleting an entry or deleting its user
+also detaches it. When no private binding remains, the PostgreSQL erasure hook removes
+resolution input and provider evidence, removes pending wake-ups and advances the worker
+fence. A leased call can still send the old text after erasure; its reply cannot restore
+input or enrichment. Its reservation survives only until reply/lease expiry to preserve
+paid concurrency limits. The retained resolution record and signal history contain IDs,
+provider profile, generation and accounting metadata, never old address revisions or
+provider derivatives. Scoped budget hashes retain spent-call accounting; they are not
+address hashes or reusable geocoding results.
+
+Account deletion through the existing consent coordinator cascades to address entries,
+preferences and saved filters. The address erasure hook runs on that cascade, including
+for pending/leased work. It also runs for database deletion, so callers cannot bypass
+private-data cleanup by skipping an application-specific erasure call. Only an entry's
+own selected preference is cleared; explicit country/postal choices survive deletion
+of unrelated entries.
+
+Any saved geographic search filter must own a user-authorized coordinate snapshot,
+independent of these mutable bookmarks. Address edit/deletion must not move or delete
+that filter silently. Users manage retained filters through the existing private
+search-filter get/list/update/delete endpoints; account erasure deletes them. G7/G9 own
+the coordinate-filter contract when introduced; the current filter schema has no
+address reference or coordinate destination. Orders, when introduced, must likewise
+snapshot destination and agreed delivery terms.
+
+Physical erasure applies to the active database. Existing encrypted RDS automated
+backups may retain prior content until their configured expiry (currently 14 days in
+production and 7 in other stages); retained manual snapshots require operator lifecycle
+management. A restore must replay erasures before restored data is served or resolution
+workers are enabled. Provider-side request retention follows the approved provider terms
+and cannot be recalled by deleting a local bookmark. No old full address revisions are
+retained as debugging history. Follow the migration and compatible-consumer rollout
+above before enabling private paid work or the address API.
