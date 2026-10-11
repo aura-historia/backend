@@ -213,10 +213,8 @@ impl<U, R, A> AssignLocationDefaultHandler<U, R, A> {
 
     pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
         Self {
-            uow,
-            locations,
-            access,
             policy: SourceLocationAccessPolicy::AdministratorOnly,
+            ..Self::new(uow, locations, access)
         }
     }
 }
@@ -295,10 +293,8 @@ impl<U, R, A> ClearLocationDefaultHandler<U, R, A> {
 
     pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
         Self {
-            uow,
-            locations,
-            access,
             policy: SourceLocationAccessPolicy::AdministratorOnly,
+            ..Self::new(uow, locations, access)
         }
     }
 }
@@ -361,10 +357,8 @@ impl<U, R, A> ChangeLocationDefaultApplicabilityHandler<U, R, A> {
 
     pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
         Self {
-            uow,
-            locations,
-            access,
             policy: SourceLocationAccessPolicy::AdministratorOnly,
+            ..Self::new(uow, locations, access)
         }
     }
 }
@@ -445,10 +439,8 @@ impl<U, R, A> GetLocationDefaultHandler<U, R, A> {
 
     pub fn new_admin_only(uow: U, reader: R, access: A) -> Self {
         Self {
-            uow,
-            reader,
-            access,
             policy: SourceLocationAccessPolicy::AdministratorOnly,
+            ..Self::new(uow, reader, access)
         }
     }
 }
