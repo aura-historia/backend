@@ -41,7 +41,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(14);
+    expect(mappings).toHaveLength(15);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
     expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
     for (const mapping of mappings.filter((candidate) => candidate !== router)) {
@@ -66,7 +66,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
   test("schedules cleanup version and the unqualified initialization FX function", () => {
     const { compute, initialize } = templates(stage);
     const schedules = resources(compute, "AWS::Scheduler::Schedule");
-    expect(schedules).toHaveLength(3);
+    expect(schedules).toHaveLength(4);
     const fx = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 6,18 * * ? *)");
     const cleanup = schedules.find((schedule) => schedule.Properties.ScheduleExpression === "cron(0 * * * ? *)");
     for (const schedule of [fx, cleanup]) {

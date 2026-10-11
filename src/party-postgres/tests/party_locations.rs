@@ -97,6 +97,8 @@ fn list(pool: &PgPool) -> impl ListPartyLocationsUseCase {
     )
 }
 async fn party(pool: &PgPool) -> PartyId {
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES ('AMAZON_LOCATION_PLACES_V2_DEFAULT_FRANKFURT_2026_10',true) ON CONFLICT DO NOTHING")
+        .execute(pool).await.unwrap();
     let p = Party::create(NewParty {
         id: PartyId::new(),
         name: PartyName::try_from("Location test").unwrap(),

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo-service = { workspace = true }
 domain-primitives = { workspace = true }
 notification-core = { workspace = true }
 product-listing-core = { workspace = true }

@@ -134,7 +134,8 @@ Parties at the same address keep different IDs and permissions. Roles describe b
 use only; a warehouse role grants no claim about stock, dispatch or collection. Partial
 descriptions, free text, country-only assertions and entirely unresolved sites are valid.
 Creation does not contact evidence URLs, geocoders or an LLM. Coordinates accepted here
-are caller assertions with explicit precision; derived resolution is future enrichment.
+are caller assertions with explicit precision; [durable derived resolution](#durable-resolution-and-party-integration-2002)
+is separate enrichment.
 
 Correction explicitly asserts the same physical site and retains the ID. Relocation is
 an explicit create command referencing the old ID and its expected revision; it creates
@@ -371,4 +372,121 @@ For a separately authorized manual evaluation:
    same port. Never silently substitute Google or public Nominatim. Review sample-derived
    acceptance rules separately before using results to mutate business state.
 
-No current business rows or public REST contracts change.
+The stateless provider capability does not change public REST contracts.
+
+## Durable resolution and Party integration (#2002)
+
+`geo-service::resolution` owns shared resolution orchestration, conservative acceptance,
+scope/purpose identity and transaction ports; `geo-postgres` owns private storage and
+database coordination. Party services own authorization, PartyLocation identity and
+source transitions. The capability supports private Party, User and source namespaces
+and explicit shared-business reuse. User-location purpose requires a private User scope;
+Party integration defaults to private reuse within the owning Party, including for public
+locations. No public cross-user cache is inferred from address equality or a hash.
+
+Committed creation/correction atomically binds eligible address input to durable work.
+Caller points take precedence and remove the derived binding; country-only, address-only
+and unresolved locations remain valid without provider availability. Retirement detaches
+the binding, and restoration explicitly reestablishes eligible work. A changed address,
+assertion or disclosure gets its current scoped input identity. Evidence changes advance
+the source marker while unchanged geographic input can reuse permitted evidence. Label
+and role edits update the binding guard without paying again. No provider call occurs in
+Party creation or correction, a listing write or a search request.
+
+Fingerprints length-prefix exact address, postal, assertion, constraint, hint and language
+bytes with scope/owner, purpose, disclosure context, reference release, acceptance policy
+and immutable provider interpretation profile. There is no case/whitespace/unit stripping.
+The current provider exposes no data-release identifier; its pinned interpretation/terms
+profile is retained rather than inventing a supplier release. A changed provider profile
+creates a distinct identity. Shared inputs never merge PartyLocation IDs or permissions.
+Both input and hash remain private personal/business data.
+
+### Acceptance and review
+
+**PRECISION_FIRST_V1** accepts only a unique compatible candidate's country/subdivision
+automatically, with its allowed provenance and reference release. It never fabricates a
+point or treats provider match scores as confidence. Every returned alternative counts,
+including unsupported alternatives. Multiple candidates, contradictions, unverified
+constraints and unsupported-only responses abstain as ambiguous; an explicit empty
+response is no match. Coarse acceptance retains the complete normalized candidate for
+authorized review, separately from its accepted administrative geography.
+
+Protected application use cases inspect permitted candidates, select one compatible
+candidate, establish work for a preexisting site, or request retry/re-resolution. They use
+the existing Party management/credential policy and owner lock. Candidate acceptance
+submits the current location CAS and resolution ID/generation/index; the server checks
+current binding/input, provider retention and normalized compatibility. An explicit point
+selection requires premises evidence without approximate/unsupported precision. Selection
+affects only that location binding, never other locations sharing the result. Repeating
+the same selection produces no extra signal. A newer supplied manual correction is made
+through the existing correction use case and always wins. No client-supplied verified flag
+or new REST/review UI is introduced.
+
+Original address/evidence/caller assertions remain in Party storage. Provider components,
+precision, provider/product/data source, region, external reference, attribution and
+interpretation profile remain separate permitted evidence; the resolution records its
+input marker and policy. Consumers must preserve original country/subdivision assertions
+and apply disclosure to the current binding. Resolution storage is not a public address
+directory or a raw-provider export interface.
+
+### Claims, retries and current eligibility
+
+PostgreSQL uniqueness coalesces an eligible input. A committed claim reserves provider
+and scope budget before I/O, with an unexpired lease token and generation fence. Ordinary
+concurrent workers coalesce; provider I/O has no open transaction or retained connection.
+Completion rechecks the claim, current bindings and provider rights before atomically
+storing permitted evidence and its minimal signal. A detached/replaced subject cannot
+receive old geography; the same input may still resolve for other eligible bindings.
+Uncertain commits and active claims retain failure custody and reconcile on retry.
+Binding an eligible cached result also journals a subject-specific resolution signal.
+Changing its source revision journals invalidation even when the shared input identity
+is unchanged and a reviewed selection is cleared. Replays and presentation-only guard
+changes do not emit another geographic signal.
+
+The current runtime makes one SDK attempt per reservation and allows five durable
+attempts per generation, with exponential backoff and a shared circuit after repeated
+provider failures. Provider and scope daily call/concurrency caps are database authority.
+Authentication, configuration, invalid response, unsupported input and storage violations
+block for explicit operator correction/retry. Exhausted transient work is FAILED, never
+NO_MATCH. Failure classifications are persisted in SCREAMING_SNAKE_CASE; original provider
+causes remain available through service error sources and are excluded from runtime logs.
+
+A crash after a paid call and before commit can cause another paid call after lease
+expiry. Reservations consume budget even on crashes; there is no exactly-once charging
+claim. Manual re-resolution requires the current generation and cannot bypass daily
+budgets. An unchanged completed retry reuses eligible accepted, ambiguous or no-match
+evidence. Negative results have bounded reconsideration deadlines. Explicit forced
+re-resolution invalidates old evidence and review selections before another attempt.
+An invalidated in-flight call keeps its concurrency reservation until its fenced reply
+or lease expiry, so manual requeue cannot create another concurrent paid reservation.
+
+Current evidence requires the same current source binding and unexpired provider rights
+and retention. Readers suppress stale/expired/revoked evidence immediately, including
+reviewed points, and recheck bindings after waiting for resolution coordination;
+original country assertions remain useful. The bounded scheduled drain
+physically purges expired, revoked and orphaned provider derivatives, clears selections,
+commits invalidation and establishes a new generation where retention is permitted.
+The journal and wake-ups contain no address, scope owner or provider evidence, so erasure
+does not leave copies of prohibited derivatives in event history. Future dependent
+projections must re-read these eligibility rules and consume invalidation/rebuild work;
+listing projection itself remains the next roadmap integration.
+
+### Activation and recovery
+
+Apply the resolution migration before affected runtimes. Paid resolution defaults off
+in both stage configuration and provider controls, and storage permission defaults off.
+Deploy the compatible CDC router and retained queue/worker before new Party bindings
+produce wake-ups; coordinate the selected DMS source with the existing capture checkpoint.
+The retained Amazon profile uses the existing reviewed Frankfurt terms gate above.
+Provider permission is an operator decision, not evidence that deployment grants rights.
+Only enable storage and paid work after confirming the applicable terms, private-address
+purpose, attribution and budget. Withdrawal of rights must set storage permission false;
+turning off paid calls alone deliberately preserves still-permitted cached evidence.
+
+Only `geo_resolution_wakeups` is selected for CDC, carrying `gres_` identity/generation
+through schema-2 jobs. The versioned SQS worker uses partial failure responses and the
+ordinary scoped DLQ. The one-minute scheduled drain recovers missed wake-ups, restarts,
+expired leases, negative reconsideration and retention invalidation independently of CDC.
+Protected Request use cases establish work for preexisting eligible sites; CDC-only
+capture does not backfill them. [The worker runbook](durable-worker-runbook.md#geographic-resolution-recovery)
+owns operator recovery and safe monitoring.

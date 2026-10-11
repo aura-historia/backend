@@ -26,6 +26,22 @@ pub struct SqlxPartyLocationRepositoryFactory;
 pub struct SqlxPartyLocationAccessFactory;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPartyLocationReaderFactory;
+impl geo_service::resolution::ResolutionRepositoryFactory<SqlxTransaction>
+    for SqlxPartyLocationRepositoryFactory
+{
+    fn resolutions<'tx>(
+        &'tx self,
+        tx: &'tx mut SqlxTransaction,
+    ) -> impl geo_service::resolution::ResolutionRepository + 'tx {
+        geo_postgres::SqlxResolutionRepositoryFactory::on_connection(tx.connection())
+    }
+    fn resolution_reader<'tx>(
+        &'tx self,
+        tx: &'tx mut SqlxTransaction,
+    ) -> impl geo_service::resolution::ResolutionReader + 'tx {
+        geo_postgres::SqlxResolutionRepositoryFactory::on_connection(tx.connection())
+    }
+}
 struct LocationRepository<'a> {
     connection: &'a mut PgConnection,
 }

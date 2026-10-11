@@ -372,6 +372,7 @@ dependencies = [
  "aura-historia-jobs",
  "domain-primitives",
  "fxrate-core",
+ "geo-service",
  "localization",
  "money",
  "notification-core",
@@ -392,6 +393,7 @@ name = "aura-historia-jobs"
 version = "0.1.0"
 dependencies = [
  "domain-primitives",
+ "geo-service",
  "notification-core",
  "product-listing-core",
  "search-filter-core",
@@ -3175,15 +3177,75 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo-service"
+name = "geo-postgres"
 version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
  "geo",
+ "geo-service",
  "localization",
- "thiserror 2.0.21",
+ "party-core",
+ "party-postgres",
+ "party-service",
+ "platform-postgres",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
  "tokio",
+ "tracing",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "geo-resolution-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-geoplaces",
+ "aws_lambda_events",
+ "geo",
+ "geo-amazon-location",
+ "geo-postgres",
+ "geo-service",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "geo-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "geo",
+ "localization",
+ "serde",
+ "sha2 0.11.0",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -5464,6 +5526,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "geo",
+ "geo-postgres",
+ "geo-service",
  "party-core",
  "party-service",
  "platform-postgres",
@@ -5490,6 +5554,7 @@ dependencies = [
  "domain-primitives",
  "fake",
  "geo",
+ "geo-service",
  "party-core",
  "serde",
  "serde-email",

@@ -209,6 +209,7 @@ function replicationTaskSettings(lobMaxSizeKiB: number): Record<string, unknown>
 
 function tableMappings(): Record<string, unknown> {
   const selectedTables = [
+    { table: "geo_resolution_wakeups", removedColumns: [] },
     {
       table: "product_listing_events",
       removedColumns: ["created"],
@@ -340,6 +341,7 @@ function tableMappings(): Record<string, unknown> {
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },
     { table: "search_filters", column: "version" },
+    { table: "geo_resolution_wakeups", column: "generation" },
   ]) {
     rules.push({
       "rule-type": "transformation",

@@ -32,6 +32,7 @@ export interface EventingProps {
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
   readonly marketingConsentSyncVersion: lambda.IVersion;
+  readonly geoResolutionVersion: lambda.IVersion;
   readonly backendCleanupVersion: lambda.IVersion | undefined;
   readonly cdcRouterVersion: lambda.IVersion | undefined;
   readonly cdcRouterActivation: cdk.CfnCondition;
@@ -50,6 +51,7 @@ const CDC_ROUTER_QUEUE_SCOPES = {
   PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
   NOTIFICATION_DELIVERY: "notification-delivery",
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
+  GEO_RESOLUTION: "geo-resolution",
 } as const satisfies Record<string, WorkerScope>;
 
 export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
@@ -78,7 +80,7 @@ export class Eventing extends Construct {
     if (!props.backendCleanupVersion) {
       throw new Error("Real eventing requires a cleanup Lambda version.");
     }
-    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion);
+    createMaintenanceSchedules(this, props.config, props.backendCleanupVersion, props.geoResolutionVersion);
 
     if (!props.functions.cdcRouter || !props.cdcRouterVersion || !props.dmsCdc || !props.cdcRouterActivation) {
       throw new Error("Real eventing requires the DMS CDC router Lambda version, stream, and activation condition.");
@@ -110,6 +112,7 @@ export class Eventing extends Construct {
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
       props.marketingConsentSyncVersion,
+      props.geoResolutionVersion,
     );
   }
 }
@@ -139,6 +142,7 @@ function createMaintenanceSchedules(
   scope: Construct,
   config: StageConfig,
   cleanupVersion: lambda.IVersion,
+  geoResolutionVersion: lambda.IVersion,
 ): void {
   const fxRateSyncArn = cdk.Stack.of(scope).formatArn({
     service: "lambda",
@@ -158,12 +162,25 @@ function createMaintenanceSchedules(
   });
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["lambda:InvokeFunction"],
-    resources: [cleanupVersion.functionArn, fxRateSyncArn],
+    resources: [cleanupVersion.functionArn, fxRateSyncArn, geoResolutionVersion.functionArn],
   }));
   role.addToPolicy(new iam.PolicyStatement({
     actions: ["sqs:SendMessage"],
     resources: [deadLetterQueue.queueArn],
   }));
+  new scheduler.CfnSchedule(scope, "GeoResolutionDrainSchedule", {
+    name: `aura-historia-geo-resolution-drain-${config.stage}`,
+    scheduleExpression: "rate(1 minute)",
+    flexibleTimeWindow: { mode: "OFF" },
+    state: "ENABLED",
+    target: {
+      arn: geoResolutionVersion.functionArn,
+      roleArn: role.roleArn,
+      input: JSON.stringify({ action: "DRAIN" }),
+      deadLetterConfig: { arn: deadLetterQueue.queueArn },
+      retryPolicy: { maximumEventAgeInSeconds: SCHEDULE_MAXIMUM_EVENT_AGE_SECONDS, maximumRetryAttempts: SCHEDULE_MAXIMUM_RETRY_ATTEMPTS },
+    },
+  });
 
   new scheduler.CfnSchedule(scope, "ExpiredCredentialCleanupSchedule", {
     name: `aura-historia-expired-credential-cleanup-${config.stage}`,
@@ -395,6 +412,7 @@ function createSqsEventSources(
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
   marketingConsentSyncVersion: lambda.IVersion,
+  geoResolutionVersion: lambda.IVersion,
 ): void {
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
@@ -586,6 +604,9 @@ function createSqsEventSources(
     "Marketing consent sync",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true },
   );
+  addWorkerLambdaEventSource(scope, "GeoResolutionQueueEventSource", functions.geoResolution,
+    workerQueues["geo-resolution"], geoResolutionVersion, "Geographic resolution",
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 });
 }
 
 function addWorkerLambdaEventSource(
@@ -595,7 +616,7 @@ function addWorkerLambdaEventSource(
   workerQueue: WorkerQueueCatalog[WorkerScope] | undefined,
   version: lambda.IVersion,
   description: string,
-  options: { readonly includeGetQueueUrl?: boolean; readonly dependOnAccessPolicy?: boolean } = {},
+  options: { readonly includeGetQueueUrl?: boolean; readonly dependOnAccessPolicy?: boolean; readonly maximumConcurrency?: number } = {},
 ): void {
   if (!workerQueue) {
     throw new Error(`${description} worker queue is required for its Lambda event source.`);
@@ -616,6 +637,7 @@ function addWorkerLambdaEventSource(
     eventSourceArn: workerQueue.queue.queueArn,
     functionName: version.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
+    scalingConfig: options.maximumConcurrency ? { maximumConcurrency: options.maximumConcurrency } : undefined,
   });
   if (options.dependOnAccessPolicy) {
     const executionPolicy = fn.role?.node.tryFindChild("DefaultPolicy") as iam.Policy | undefined;
