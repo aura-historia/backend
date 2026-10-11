@@ -27,9 +27,9 @@ fn geography(text: &str) -> GeographicDescription {
         .unwrap()
         .unwrap()
 }
-fn create(id: UserAddressId, text: &str) -> CreateUserAddress {
+fn create(key: &str, text: &str) -> CreateUserAddress {
     CreateUserAddress {
-        id,
+        idempotency_key: UserAddressIdempotencyKey::new(key.to_owned()).unwrap(),
         label: UserAddressLabel::new("Home".into()).unwrap(),
         geography: geography(text),
     }
@@ -85,17 +85,28 @@ async fn inspect(
 #[aura_integration_test(services=[SCHEMA])]
 async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
     let (pool, h, a, b) = fixture().await;
-    let first = UserAddressId::new();
-    let second = UserAddressId::new();
-    let one = h.create(&a, create(first, "Synthetic One")).await.unwrap();
+    let one = h
+        .create(&a, create("first", "Synthetic One"))
+        .await
+        .unwrap();
+    let first = one.id;
     assert_eq!(1, one.version);
     assert!(!one.preferred);
-    h.create(&a, create(first, "Synthetic One")).await.unwrap();
+    let replay = h
+        .create(&a, create("first", "Synthetic One"))
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(first, replay);
     assert!(matches!(
-        h.create(&a, create(first, "Different")).await,
+        h.create(&a, create("first", "Different")).await,
         Err(AddressBookError::Conflict)
     ));
-    h.create(&a, create(second, "Synthetic Two")).await.unwrap();
+    let second = h
+        .create(&a, create("second", "Synthetic Two"))
+        .await
+        .unwrap()
+        .id;
     let page = h.list(&a, None, 1).await.unwrap();
     assert_eq!(1, page.items.len());
     assert_eq!(Some(first), page.next);
@@ -133,10 +144,11 @@ async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
             .await,
         Err(AddressBookError::NotFound)
     ));
-    let foreign = UserAddressId::new();
-    h.create(&b, create(foreign, "Synthetic One"))
+    let foreign = h
+        .create(&b, create("first", "Synthetic One"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let ra = inspect(&pool, &h, &a, first).await.unwrap().unwrap();
     let rb = inspect(&pool, &h, &b, foreign).await.unwrap().unwrap();
     assert_ne!(ra.work.id, rb.work.id);
@@ -155,6 +167,14 @@ async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
     assert_eq!(first, changed.id);
     assert_eq!(2, changed.input_revision);
     assert_eq!(2, changed.version);
+    let replay = h
+        .create(&a, create("first", "Synthetic One"))
+        .await
+        .unwrap();
+    assert_eq!(first, replay.id);
+    assert_eq!(2, replay.version);
+    assert_eq!(changed.geography, replay.geography);
+    assert_eq!(2, h.list(&a, None, 100).await.unwrap().items.len());
     let old: (bool, Option<serde_json::Value>) =
         sqlx::query_as("SELECT erased,input FROM geo_resolutions WHERE resolution_id=$1")
             .bind(ra.work.id.into_uuid())
@@ -181,29 +201,33 @@ async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
         Err(AddressBookError::NotFound)
     ));
     assert!(matches!(
-        h.create(&a, create(first, "Replacement")).await,
+        h.create(&a, create("first", "Replacement")).await,
         Err(AddressBookError::Conflict)
     ));
-    let tombstone: (Option<String>, Option<serde_json::Value>) =
-        sqlx::query_as("SELECT label,geography FROM user_addresses WHERE address_id=$1")
+    let tombstone: (Option<String>, Option<serde_json::Value>, Option<String>, String) =
+        sqlx::query_as("SELECT label,geography,create_fingerprint,create_key_hash FROM user_addresses WHERE address_id=$1")
             .bind(first.into_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!((None, None), tombstone);
+    assert_eq!((None, None, None), (tombstone.0, tombstone.1, tombstone.2));
+    assert_eq!(64, tombstone.3.len());
+    assert!(matches!(
+        h.create(&a, create("first", "Synthetic One")).await,
+        Err(AddressBookError::Conflict)
+    ));
 }
 #[aura_integration_test(services=[SCHEMA])]
 async fn independent_sessions_fence_updates_preferences_and_create_retries() {
     let (_pool, h, a, _) = fixture().await;
-    let id = UserAddressId::new();
-    let other = UserAddressId::new();
     let (l, r) = tokio::join!(
-        h.create(&a, create(id, "Synthetic Race")),
-        h.create(&a, create(id, "Synthetic Race"))
+        h.create(&a, create("id", "Synthetic Race")),
+        h.create(&a, create("id", "Synthetic Race"))
     );
-    assert!(l.is_ok() && r.is_ok());
+    let id = l.unwrap().id;
+    assert_eq!(id, r.unwrap().id);
     assert_eq!(1, h.list(&a, None, 100).await.unwrap().items.len());
-    h.create(&a, create(other, "Other")).await.unwrap();
+    let other = h.create(&a, create("other", "Other")).await.unwrap().id;
     let (l, r) = tokio::join!(
         h.update(
             &a,
@@ -252,10 +276,11 @@ async fn independent_sessions_fence_updates_preferences_and_create_retries() {
             .filter(|v| v.preferred)
             .count()
     );
-    let raced = UserAddressId::new();
-    h.create(&a, create(raced, "Synthetic preference deletion race"))
+    let raced = h
+        .create(&a, create("raced", "Synthetic preference deletion race"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let version = h.destination(&a).await.unwrap().version;
     let (selection, deletion) = tokio::join!(
         h.set_destination(&a, BrowsingDestination::Address(raced), version),
@@ -271,10 +296,11 @@ async fn independent_sessions_fence_updates_preferences_and_create_retries() {
 #[aura_integration_test(services=[SCHEMA])]
 async fn explicit_destinations_and_delegated_scope_are_authorized() {
     let (pool, h, a, b) = fixture().await;
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic Destination"))
+    let id = h
+        .create(&a, create("id", "Synthetic Destination"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     h.set_destination(&a, BrowsingDestination::Address(id), 1)
         .await
         .unwrap();
@@ -356,8 +382,11 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         .execute(&pool)
         .await
         .unwrap();
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic Claim")).await.unwrap();
+    let id = h
+        .create(&a, create("id", "Synthetic Claim"))
+        .await
+        .unwrap()
+        .id;
     let view = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
@@ -532,14 +561,16 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
 #[aura_integration_test(services=[SCHEMA])]
 async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_removed() {
     let (pool, h, a, _) = fixture().await;
-    let first = UserAddressId::new();
-    let second = UserAddressId::new();
-    h.create(&a, create(first, "Shared synthetic address"))
+    let first = h
+        .create(&a, create("first", "Shared synthetic address"))
         .await
-        .unwrap();
-    h.create(&a, create(second, "Shared synthetic address"))
+        .unwrap()
+        .id;
+    let second = h
+        .create(&a, create("second", "Shared synthetic address"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let resolution = inspect(&pool, &h, &a, first).await.unwrap().unwrap().work;
     assert_eq!(
         resolution,
@@ -597,10 +628,11 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
         .unwrap()
     );
     // Returning to removed text starts fresh work instead of reviving an erased cache.
-    let third = UserAddressId::new();
-    h.create(&a, create(third, "Shared synthetic address"))
+    let third = h
+        .create(&a, create("third", "Shared synthetic address"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     assert_ne!(
         resolution.id,
         inspect(&pool, &h, &a, third)
@@ -621,10 +653,11 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
     let Principal::User(owner) = a.principal else {
         unreachable!();
     };
-    let address = UserAddressId::new();
-    h.create(&a, create(address, "Synthetic original address"))
+    let address = h
+        .create(&a, create("address", "Synthetic original address"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let filter = uuid::Uuid::now_v7();
     // The current filter contract has no destination field or address reference.
     sqlx::query("INSERT INTO search_filters(user_search_filter_id,user_id,name,state,search,language,currency) VALUES($1,$2,'Saved private filter','ACTIVE','{}','en','GBP')")
@@ -677,14 +710,16 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
         .execute(&pool)
         .await
         .unwrap();
-    let id = UserAddressId::new();
-    let other = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic Candidate"))
+    let id = h
+        .create(&a, create("id", "Synthetic Candidate"))
         .await
-        .unwrap();
-    h.create(&a, create(other, "Synthetic Candidate"))
+        .unwrap()
+        .id;
+    let other = h
+        .create(&a, create("other", "Synthetic Candidate"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
@@ -834,10 +869,11 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
 #[aura_integration_test(services=[SCHEMA])]
 async fn erasure_remains_possible_after_counter_exhaustion() {
     let (pool, h, a, _) = fixture().await;
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic exhausted counters"))
+    let id = h
+        .create(&a, create("id", "Synthetic exhausted counters"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     h.set_destination(&a, BrowsingDestination::Address(id), 1)
         .await
         .unwrap();
@@ -881,18 +917,19 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
         Principal::User(id) => id,
         _ => unreachable!(),
     };
-    let id = UserAddressId::new();
     let description = geography("Straße 12\n東京都 — synthetic private input");
-    h.create(
-        &a,
-        CreateUserAddress {
-            id,
-            label: UserAddressLabel::new("Home".into()).unwrap(),
-            geography: description.clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let id = h
+        .create(
+            &a,
+            CreateUserAddress {
+                idempotency_key: UserAddressIdempotencyKey::new("id".into()).unwrap(),
+                label: UserAddressLabel::new("Home".into()).unwrap(),
+                geography: description.clone(),
+            },
+        )
+        .await
+        .unwrap()
+        .id;
     let old = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
@@ -958,7 +995,6 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
     sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex'),lease_token=$2,lease_until=now()+interval '1 minute' WHERE resolution_id=$1")
         .bind(old.work.id.into_uuid()).bind(claim.token).execute(&pool).await.unwrap();
     sqlx::query("UPDATE geo_resolution_bindings SET selected_candidate=0,selected_generation=1,reviewed_actor='synthetic' WHERE subject_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
-    let second = UserAddressId::new();
     let detailed = GeographicDescription::new(
         Some(AddressText::new("Straße 99 — Berlin").unwrap()),
         Some(CountryCode::DEU),
@@ -967,16 +1003,18 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
     )
     .unwrap()
     .unwrap();
-    h.create(
-        &a,
-        CreateUserAddress {
-            id: second,
-            label: UserAddressLabel::new("Office".into()).unwrap(),
-            geography: detailed.clone(),
-        },
-    )
-    .await
-    .unwrap();
+    let second = h
+        .create(
+            &a,
+            CreateUserAddress {
+                idempotency_key: UserAddressIdempotencyKey::new("second".into()).unwrap(),
+                label: UserAddressLabel::new("Office".into()).unwrap(),
+                geography: detailed.clone(),
+            },
+        )
+        .await
+        .unwrap()
+        .id;
     let second_work = inspect(&pool, &h, &a, second).await.unwrap().unwrap().work;
     sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex') WHERE resolution_id=$1").bind(second_work.id.into_uuid()).execute(&pool).await.unwrap();
     let mut tx = uow.begin().await.unwrap();
@@ -997,10 +1035,11 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let deleted = UserAddressId::new();
-    h.create(&a, create(deleted, "Synthetic erased migration fence"))
+    let deleted = h
+        .create(&a, create("deleted", "Synthetic erased migration fence"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let erased = inspect(&pool, &h, &a, deleted)
         .await
         .unwrap()
@@ -1099,10 +1138,11 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
 #[aura_integration_test(services=[SCHEMA])]
 async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
     let (pool, h, a, _) = fixture().await;
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic unexpected legacy policy input"))
+    let id = h
+        .create(&a, create("id", "Synthetic unexpected legacy policy input"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let work = inspect(&pool, &h, &a, id).await.unwrap().unwrap().work;
     let original: serde_json::Value =
         sqlx::query_scalar("SELECT input FROM geo_resolutions WHERE resolution_id=$1")
@@ -1169,14 +1209,16 @@ async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
 #[aura_integration_test(services=[SCHEMA])]
 async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
     let (pool, h, a, b) = fixture().await;
-    let first = UserAddressId::new();
-    let second = UserAddressId::new();
-    h.create(&a, create(first, "Synthetic ownership first"))
+    let first = h
+        .create(&a, create("first", "Synthetic ownership first"))
         .await
-        .unwrap();
-    h.create(&b, create(second, "Synthetic ownership second"))
+        .unwrap()
+        .id;
+    let second = h
+        .create(&b, create("second", "Synthetic ownership second"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let foreign = inspect(&pool, &h, &b, second).await.unwrap().unwrap().work;
     sqlx::query("UPDATE geo_resolution_bindings SET resolution_id=$1 WHERE subject_id=$2")
         .bind(foreign.id.into_uuid())
@@ -1227,10 +1269,11 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
         .execute(&pool)
         .await
         .unwrap();
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic automatic retry"))
+    let id = h
+        .create(&a, create("id", "Synthetic automatic retry"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let uow = SqlxUnitOfWork::new(pool.clone());
     for attempt in 1..=MAX_ATTEMPTS {
         let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
@@ -1292,10 +1335,11 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
 #[aura_integration_test(services=[SCHEMA])]
 async fn provider_profile_rebinding_erases_the_final_old_private_input() {
     let (pool, h, a, _) = fixture().await;
-    let id = UserAddressId::new();
-    h.create(&a, create(id, "Synthetic profile change"))
+    let id = h
+        .create(&a, create("id", "Synthetic profile change"))
         .await
-        .unwrap();
+        .unwrap()
+        .id;
     let previous = inspect(&pool, &h, &a, id).await.unwrap().unwrap().work;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(&pool)
@@ -1323,4 +1367,79 @@ async fn provider_profile_rebinding_erases_the_final_old_private_input() {
             .await
             .unwrap();
     assert_eq!((true, None, None), state);
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn server_creation_receipts_roll_back_and_remain_immutable() {
+    let (pool, h, a, _) = fixture().await;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.create(&a, create("retry", "Synthetic transactional creation"))
+            .await,
+        Err(AddressBookError::Resolution(ResolutionError::InvalidState(
+            _
+        )))
+    ));
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM user_addresses")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=true WHERE profile=$1")
+        .bind(PROFILE)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let saved = h
+        .create(&a, create("retry", "Synthetic transactional creation"))
+        .await
+        .unwrap();
+    let replay = h
+        .create(&a, create("retry", "Synthetic transactional creation"))
+        .await
+        .unwrap();
+    assert_eq!(saved.id, replay.id);
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM user_addresses")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM geo_resolution_bindings WHERE subject_kind='USER_LOCATION'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    for statement in [
+        "UPDATE user_addresses SET create_key_hash=repeat('a',64) WHERE address_id=$1",
+        "UPDATE user_addresses SET create_fingerprint=repeat('b',64) WHERE address_id=$1",
+        "UPDATE user_addresses SET create_fingerprint=NULL WHERE address_id=$1",
+    ] {
+        let error = sqlx::query(statement)
+            .bind(saved.id.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            Some("23514"),
+            error.as_database_error().unwrap().code().as_deref()
+        );
+    }
+    assert_eq!(
+        saved.id,
+        h.create(&a, create("retry", "Synthetic transactional creation"))
+            .await
+            .unwrap()
+            .id
+    );
 }

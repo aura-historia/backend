@@ -120,6 +120,31 @@ impl AddressBookAccess for Adapter<'_> {
 }
 #[async_trait::async_trait]
 impl UserAddressRepository for Adapter<'_> {
+    async fn find_creation(
+        &mut self,
+        owner: UserId,
+        key: &UserAddressIdempotencyKey,
+    ) -> Result<Option<UserAddressCreationReceipt>, AddressBookError> {
+        let receipt: Option<(Uuid, Option<String>)> = sqlx::query_as(
+            "SELECT address_id,create_fingerprint FROM user_addresses WHERE user_id=$1 AND create_key_hash=encode(sha256(uuid_send($1)||convert_to($2,'UTF8')),'hex')",
+        ).bind(owner.into_uuid()).bind(key.as_str()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
+        receipt
+            .map(|(id, fingerprint)| {
+                if fingerprint.as_ref().is_some_and(|v| {
+                    v.len() != 64
+                        || !v
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                }) {
+                    return Err(corrupt());
+                }
+                Ok(UserAddressCreationReceipt {
+                    id: UserAddressId::try_from(id).map_err(invalid)?,
+                    fingerprint,
+                })
+            })
+            .transpose()
+    }
     async fn find(
         &mut self,
         owner: UserId,
@@ -131,11 +156,13 @@ impl UserAddressRepository for Adapter<'_> {
     async fn insert(
         &mut self,
         address: &UserAddress,
+        key: &UserAddressIdempotencyKey,
+        fingerprint: &str,
     ) -> Result<StoredUserAddress, AddressBookError> {
         let content = serde_json::to_value(GeographicDescriptionData::from(address.geography()))
             .map_err(invalid)?;
-        sqlx::query_as::<_, AddressRow>("INSERT INTO user_addresses(address_id,user_id,label,geography) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING address_id,user_id,label,geography,input_revision,version,false AS preferred")
-            .bind(address.id().into_uuid()).bind(address.owner().into_uuid()).bind(address.label().as_str()).bind(content).fetch_optional(&mut *self.connection).await.map_err(storage)?
+        sqlx::query_as::<_, AddressRow>("INSERT INTO user_addresses(address_id,user_id,label,geography,create_key_hash,create_fingerprint) VALUES($1,$2,$3,$4,encode(sha256(uuid_send($2)||convert_to($5,'UTF8')),'hex'),$6) ON CONFLICT DO NOTHING RETURNING address_id,user_id,label,geography,input_revision,version,false AS preferred")
+            .bind(address.id().into_uuid()).bind(address.owner().into_uuid()).bind(address.label().as_str()).bind(content).bind(key.as_str()).bind(fingerprint).fetch_optional(&mut *self.connection).await.map_err(storage)?
             .ok_or(AddressBookError::Conflict)?.aggregate()
     }
     async fn update(

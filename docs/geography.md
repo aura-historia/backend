@@ -576,10 +576,17 @@ owns operator recovery and safe monitoring.
 ## Private user address books and browsing destinations (#2005)
 
 A `uaddr_` entry is an editable, named bookmark owned by the authenticated user.
-It has no PartyLocation or public Place identity. A create request supplies its UUIDv7
-TypeID: retries with the same ID and unchanged content return the existing entry;
-conflicting content or a deleted ID returns conflict. Deleted IDs remain content-free
-receipt tombstones until account erasure. Replacement preserves identity, increments
+It has no PartyLocation or public Place identity. The service generates its UUIDv7 TypeID
+on creation. The create body contains label and geography; an `Idempotency-Key` header
+(1–128 ASCII letters/digits or `-_.:`) identifies retries within the trusted owner's
+namespace. Creation and retry metadata commit together under the owner lock. The same
+key and original creation content return the same entry's current authorized view,
+including after subsequent edits, without creating another entry or repeating work.
+Changed creation content or a deleted entry returns conflict. Distinct keys permit
+independent bookmarks with equal content. Stored keys and original creation semantics
+are private scoped hashes, excluded from reads/logs/CDC; no old address body is retained.
+Deletion removes the semantic fingerprint and retains only the key/ID tombstone until
+account erasure. Replacement preserves identity, increments
 input revision only for geographic changes and fences old enrichment; label changes
 advance the storage version without another paid call. Full replacements and deletion
 require the current version. Create/get/replace/list responses include the current
@@ -671,8 +678,11 @@ ID and a locality representative point never replaces an accepted premises point
 ### Policy migration and rollout
 
 Apply the address-book migration and then
-`20261011130000_automatic_user_browsing_resolution.sql` before enabling the revised API.
-The latter permits the new purpose-specific policy, rekeys existing legacy G8 private
+`20261011130000_automatic_user_browsing_resolution.sql`, followed by
+`20261011140000_server_generated_user_addresses.sql`, before enabling the revised API.
+The creation migration preserves existing IDs and content; legacy entries have no
+inferable creation key. Deploy its compatible server-generated creation API afterward.
+The automatic-policy migration permits the new purpose-specific policy, rekeys existing legacy G8 private
 inputs with the exact fingerprint, invalidates their evidence and selections, advances
 worker generations and journals new wake-ups. Address IDs, input revisions, owners and
 preferences stay stable. Fresh attempts keep spent-call budgets and outstanding leases;

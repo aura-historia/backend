@@ -142,12 +142,37 @@ async fn request(
     token: Option<&str>,
     body: Value,
 ) -> (StatusCode, Value) {
+    request_with_keys(
+        router,
+        method,
+        path,
+        token,
+        body,
+        if method == "POST" {
+            &["save-private-address"]
+        } else {
+            &[]
+        },
+    )
+    .await
+}
+async fn request_with_keys(
+    router: &axum::Router,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Value,
+    keys: &[&str],
+) -> (StatusCode, Value) {
     let mut r = Request::builder()
         .method(method)
         .uri(path)
         .header("content-type", "application/json");
     if let Some(token) = token {
         r = r.header("authorization", format!("Bearer {token}"));
+    }
+    for key in keys {
+        r = r.header("idempotency-key", *key);
     }
     let response = router
         .clone()
@@ -194,10 +219,8 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
         queries: handler,
         authenticator: Arc::new(Auth { owner, foreign }),
     }));
-    let id = UserAddressId::new();
     let base = "/api/v1/me/addresses";
-    let path = format!("{base}/{id}");
-    let input = json!({"addressId":id,"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Synthetic private home"}});
+    let input = json!({"label":"Home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Synthetic private home"}});
     assert_eq!(
         StatusCode::UNAUTHORIZED,
         request(&router, "POST", base, None, input.clone()).await.0
@@ -218,11 +241,34 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     );
     let (status, saved) = request(&router, "POST", base, Some("owner"), input.clone()).await;
     assert_eq!(StatusCode::CREATED, status);
+    let id = UserAddressId::try_from(saved["addressId"].as_str().unwrap()).unwrap();
+    let path = format!("{base}/{id}");
     assert_eq!(json!(id), saved["addressId"]);
     assert_eq!(json!(false), saved["preferred"]);
+    let (status, replay) = request(&router, "POST", base, Some("owner"), input.clone()).await;
+    assert_eq!(StatusCode::CREATED, status);
+    assert_eq!(saved, replay);
+    let mut supplied_id = input.clone();
+    supplied_id["addressId"] = json!(UserAddressId::new());
     assert_eq!(
-        StatusCode::CREATED,
-        request(&router, "POST", base, Some("owner"), input).await.0
+        StatusCode::BAD_REQUEST,
+        request(&router, "POST", base, Some("owner"), supplied_id)
+            .await
+            .0
+    );
+    for keys in [&[][..], &[""][..], &["bad key"][..], &["one", "two"][..]] {
+        let (status, problem) =
+            request_with_keys(&router, "POST", base, Some("owner"), input.clone(), keys).await;
+        assert_eq!(StatusCode::BAD_REQUEST, status);
+        assert_eq!("BAD_HEADER_VALUE", problem["error"]);
+    }
+    let mut conflicting = input.clone();
+    conflicting["label"] = json!("Different");
+    assert_eq!(
+        StatusCode::CONFLICT,
+        request(&router, "POST", base, Some("owner"), conflicting)
+            .await
+            .0
     );
     let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
     assert_eq!(1, page["items"].as_array().unwrap().len());
@@ -344,6 +390,10 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     assert_eq!(json!(2), changed["inputRevision"]);
     assert_eq!(json!("PENDING"), changed["resolution"]["status"]);
     assert!(changed["resolution"]["derived"].is_null());
+    let (status, replay) = request(&router, "POST", base, Some("owner"), input.clone()).await;
+    assert_eq!(StatusCode::CREATED, status);
+    assert_eq!(changed, replay);
+    assert_eq!(1, calls.load(Ordering::SeqCst));
     resolve(&pool, id, calls.clone()).await;
     let (_, ambiguous) = request(&router, "GET", &path, Some("owner"), json!({})).await;
     assert_eq!(json!("AMBIGUOUS"), ambiguous["resolution"]["status"]);
@@ -369,4 +419,11 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     let (_, dest) = request(&router, "GET", destination, Some("owner"), json!({})).await;
     assert_eq!(json!("NONE"), dest["destination"]["kind"]);
     assert_eq!(json!(3), dest["version"]);
+    assert_eq!(
+        StatusCode::CONFLICT,
+        request(&router, "POST", base, Some("owner"), input).await.0
+    );
+    let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
+    assert!(page["items"].as_array().unwrap().is_empty());
+    assert_eq!(2, calls.load(Ordering::SeqCst));
 }

@@ -2,8 +2,8 @@ use crate::{
     auth::protected_context,
     error::{
         ADDRESS_BOOK_INTERNAL_ERROR, ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE, ApiError,
-        BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, CONFLICT, FORBIDDEN, INVALID_CREDENTIALS,
-        USER_ADDRESS_NOT_FOUND,
+        BAD_BODY_VALUE, BAD_HEADER_VALUE, BAD_QUERY_PARAMETER_VALUE, CONFLICT, FORBIDDEN,
+        INVALID_CREDENTIALS, USER_ADDRESS_NOT_FOUND,
     },
     parties::locations::{GeographyData, PositionData},
     state::UserAddressesState,
@@ -54,7 +54,6 @@ impl From<AddressBookError> for ApiError {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CreateData {
-    address_id: UserAddressId,
     label: String,
     geography: GeographyData,
 }
@@ -184,8 +183,22 @@ pub(crate) async fn create(
     };
     let command = (|| {
         let d: CreateData = parse(&body)?;
+        let key_error = || {
+            ApiError::bad_request(BAD_HEADER_VALUE)
+                .with_header_field("Idempotency-Key")
+                .with_detail("Exactly one valid Idempotency-Key is required.")
+        };
+        let mut keys = headers.get_all("idempotency-key").iter();
+        let key = keys
+            .next()
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(key_error)?;
+        if keys.next().is_some() {
+            return Err(key_error());
+        }
         Ok::<_, ApiError>(CreateUserAddress {
-            id: d.address_id,
+            idempotency_key: UserAddressIdempotencyKey::new(key.to_owned())
+                .map_err(|_| key_error())?,
             label: UserAddressLabel::new(d.label).map_err(|_| bad())?,
             geography: d.geography.into_core()?,
         })

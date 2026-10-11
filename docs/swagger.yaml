@@ -57,14 +57,25 @@ paths:
     post:
       summary: Save a private address
       operationId: createUserAddress
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Opaque owner-scoped creation retry key. Reuse with the original body to recover the server-generated ID. Different keys permit equal-content bookmarks.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9_.:-]+$'
       tags:
       - Users
       security:
       - BearerAuth: []
       - AccessTokenAuth: []
       description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
-        errors are no-store. Caller supplies a new UUIDv7 addressId; exact retries return the same entry (201). Conflicting/deleted
-        IDs conflict. Saving does not synchronously geocode or select a preferred address.
+        errors are no-store. The server generates addressId. The body contains label/geography; exactly one valid Idempotency-Key
+        header identifies retries within this owner. Same-key original creation content returns the same entry's current view (201), including after edits.
+        Changed creation content or a deleted entry conflicts. Saving does not synchronously geocode or select a preferred address.
       responses:
         '201':
           description: Successful private operation.
@@ -79,7 +90,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserAddress'
         '400':
-          description: Invalid body, query or strict object ID.
+          description: Invalid body (BAD_BODY_VALUE), including a caller-supplied addressId, or missing, repeated or invalid Idempotency-Key (BAD_HEADER_VALUE).
           headers:
             Cache-Control:
               schema:
@@ -127,7 +138,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -240,7 +251,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -360,7 +371,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -475,7 +486,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -591,7 +602,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -711,7 +722,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -819,7 +830,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting creation key (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -16024,7 +16035,7 @@ components:
     UserAddressId:
       type: string
       pattern: ^uaddr_[0-7][0-9a-hjkmnp-tv-z]{25}$
-      description: Strict UUIDv7 UserAddress TypeID; caller-generated for create retries. No bare UUID or owner input.
+      description: Strict server-generated UUIDv7 UserAddress TypeID, returned on creation. No bare UUID or owner input.
     UserAddressLabel:
       type: string
       minLength: 1
@@ -16048,12 +16059,9 @@ components:
       type: object
       additionalProperties: false
       required:
-      - addressId
       - label
       - geography
       properties:
-        addressId:
-          $ref: '#/components/schemas/UserAddressId'
         label:
           $ref: '#/components/schemas/UserAddressLabel'
         geography:
