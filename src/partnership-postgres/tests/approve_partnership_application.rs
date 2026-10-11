@@ -27,7 +27,7 @@ use partnership_service::{
 };
 use party_core::{
     party_id::PartyId,
-    party_location::{PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel},
+    party_location::{PartyLocationContent, PartyLocationLabel},
 };
 use party_postgres::{
     SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
@@ -346,7 +346,6 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
                     roles: BTreeSet::new(),
                     geography: None,
                     position: None,
-                    disclosure: PartyLocationDisclosure::Private,
                 },
                 evidence: None,
                 relocates: None,

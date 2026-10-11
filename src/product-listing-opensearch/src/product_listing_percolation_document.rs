@@ -45,6 +45,10 @@ struct ProductListingPercolationDocument {
     source_listing_id: SourceListingId,
     event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
+    business_geography: Option<crate::product_listing_document::GeographicDimensionDocument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inventory_geography: Option<crate::product_listing_document::GeographicDimensionDocument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<AuctionId>,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,6 +133,8 @@ fn build_product_listing_percolation_document(
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
+        business_geography: product.geography.business.as_ref().map(Into::into),
+        inventory_geography: product.geography.inventory.as_ref().map(Into::into),
         auction_id: product
             .auction
             .as_ref()
@@ -196,6 +202,8 @@ pub(crate) fn product_listing_document(
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
+        business_geography: product.geography.business.as_ref().map(Into::into),
+        inventory_geography: product.geography.inventory.as_ref().map(Into::into),
         auction_id: product
             .auction
             .as_ref()
@@ -413,6 +421,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
+            geography: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("blue-vase-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

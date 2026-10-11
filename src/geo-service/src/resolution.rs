@@ -101,7 +101,6 @@ pub struct ResolutionInput {
     request: GeocodingRequest,
     scope: ResolutionScope,
     purpose: RetentionPurpose,
-    retention_context: String,
 }
 impl ResolutionInput {
     pub fn new(
@@ -120,26 +119,7 @@ impl ResolutionInput {
             request,
             scope,
             purpose,
-            retention_context: if scope.kind == ScopeKind::SharedBusiness {
-                "EXACT_PUBLIC"
-            } else {
-                "PRIVATE"
-            }
-            .into(),
         })
-    }
-    pub fn with_retention_context(mut self, context: &str) -> Result<Self, ResolutionError> {
-        if !matches!(context, "PRIVATE" | "COARSE_PUBLIC" | "EXACT_PUBLIC")
-            || (self.purpose == RetentionPurpose::UserLocation && context != "PRIVATE")
-            || (self.scope.kind == ScopeKind::SharedBusiness && context != "EXACT_PUBLIC")
-        {
-            return Err(ResolutionError::InvalidInput);
-        }
-        self.retention_context = context.into();
-        Ok(self)
-    }
-    pub fn retention_context(&self) -> &str {
-        &self.retention_context
     }
     pub fn request(&self) -> &GeocodingRequest {
         &self.request
@@ -166,7 +146,7 @@ impl ResolutionInput {
             hash.update((s.len() as u64).to_be_bytes());
             hash.update(s.as_bytes());
         };
-        field("RESOLUTION_INPUT_V1");
+        field("RESOLUTION_INPUT_V2");
         field(profile);
         field(self.policy_version());
         field(geo::reference::ReferenceRelease::CURRENT.as_str());
@@ -179,7 +159,6 @@ impl ResolutionInput {
                 .unwrap_or_default(),
         );
         field(self.purpose.as_str());
-        field(&self.retention_context);
         field(self.request.query().as_str());
         field(&self.request.candidate_limit().to_string());
         if let Some(s) = self.request.submitted() {
@@ -873,7 +852,6 @@ mod tests {
             input("123 Street, unit 2", owner),
             input("123 Street, unit 1 ", owner),
             input("123 Street, unit 1", Uuid::now_v7()),
-            a.clone().with_retention_context("EXACT_PUBLIC").unwrap(),
         ] {
             assert_ne!(a.fingerprint("TEST_V1"), other.fingerprint("TEST_V1"));
         }
@@ -896,7 +874,6 @@ mod tests {
             ResolutionInput::new(a.request.clone(), a.scope, RetentionPurpose::UserLocation)
                 .is_err()
         );
-        assert!(private.with_retention_context("EXACT_PUBLIC").is_err());
     }
     #[test]
     fn unique_evidence_accepts_administrative_geography_without_a_point() {

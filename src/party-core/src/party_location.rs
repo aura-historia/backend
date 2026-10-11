@@ -41,13 +41,6 @@ pub enum PartyLocationRole {
     RegisteredAddress,
     Correspondence,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PartyLocationDisclosure {
-    #[default]
-    Private,
-    CoarsePublic,
-    ExactPublic,
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartyLocationLifecycle {
     Active,
@@ -63,7 +56,6 @@ macro_rules! codes {
     };
 }
 codes!(PartyLocationRole, BusinessPremises => "BUSINESS_PREMISES", Warehouse => "WAREHOUSE", RegisteredAddress => "REGISTERED_ADDRESS", Correspondence => "CORRESPONDENCE");
-codes!(PartyLocationDisclosure, Private => "PRIVATE", CoarsePublic => "COARSE_PUBLIC", ExactPublic => "EXACT_PUBLIC");
 codes!(PartyLocationLifecycle, Active => "ACTIVE", Retired => "RETIRED");
 
 /// Role vocabulary bounds the set. Roles assert site use, never stock or pickup facts.
@@ -74,7 +66,6 @@ pub struct PartyLocationContent {
     pub geography: Option<GeographicDescription>,
     /// Caller-asserted coordinates, separate from future derived resolution.
     pub position: Option<SpatialPosition>,
-    pub disclosure: PartyLocationDisclosure,
 }
 
 impl std::fmt::Debug for PartyLocationContent {
@@ -193,7 +184,6 @@ mod tests {
                 roles: BTreeSet::from([PartyLocationRole::BusinessPremises]),
                 geography: None,
                 position: None,
-                disclosure: PartyLocationDisclosure::Private,
             },
         )
     }

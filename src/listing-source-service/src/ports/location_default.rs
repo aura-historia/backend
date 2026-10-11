@@ -71,7 +71,7 @@ pub trait LocationDefaultReaderFactory<Tx>: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait EffectiveSourceGeographyReader: Send + Sync {
-    /// Current, disclosure-filtered geography for both meanings in one authoritative read.
+    /// Current geography of active locations for both meanings in one authoritative read.
     async fn get(
         &self,
         source_id: ListingSourceId,

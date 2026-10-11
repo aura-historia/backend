@@ -52,17 +52,17 @@ with its authoritative semantic mutation. Default signals contain source/operato
 optional location identities, assignment/location revision, applicability flags, actor
 and occurrence time, without address, point or evidence. Duplicate current-revision
 no-ops emit nothing; clearing emits a null selection and preserves the ordering fence.
-Private location/default rows and receipts remain outside CDC. Exact persistence and
+Location/default rows and receipts remain outside CDC. Exact persistence and
 inheritance semantics belong to [geography](../geography.md#listingsource-location-defaults-2000).
 
-These signals are durable invalidation sources for G6, with no new DMS selection,
-router job or worker activated here. Future consumers must deduplicate by owner/revision,
-reread authoritative assignment and location state, apply current disclosure/lifecycle,
-and retain assignment/location revisions and meaning in derived views. They must handle
-location correction/retirement/disclosure as well as source replacement/clear, without
-rewriting historical listing assertions. Source deletion leaves retained default signals;
-missing authoritative sources suppress inherited geography. Fanout and catch-up require
-the later G6 operational contract, including the existing source deletion route.
+These signals atomically establish coalesced durable dependency work for G6. The
+`listing_geography_wakeups` table alone adds CDC/job routing; the original journals stay
+outside DMS. Consumers reread current authority under dependency equality guards and
+use the listing's monotonic projection fence. Location correction, retirement,
+source replacement/clear and provider rights/expiry refresh current read state without
+rewriting historical listing assertions. Missing authority produces absence. See the
+[effective geography contract](../geography.md#effective-listing-geography-2003) and
+[recovery runbook](../durable-worker-runbook.md#listing-geography-recovery).
 
 ## CDC routing
 
@@ -91,6 +91,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `notification_deliveries` | INSERT | Notification delivery |
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
+| `listing_geography_wakeups` | INSERT | Effective listing geography worker |
 
 Product event fanout:
 
@@ -98,7 +99,7 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES` | None beyond projector/percolator; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond projector/percolator; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
 rows, Users, watchlist entries, Auction events, proofs and operational receipts do not
@@ -119,9 +120,9 @@ inserting fresh immutable wake-ups, preserving attempts and budget reservations.
 also purges ineligible evidence and commits invalidation. Cleanup makes no provider
 calls; fresh recovery wake-ups require the normal CDC/SQS path to be healthy.
 Accepted evidence and the content-free enrichment/invalidation journal commit together.
-Dependent listing geography will consume
-that journal in its owning projection work; this change does not activate a listing
-projector or independently geocode inherited listings. See [durable geography](../geography.md#durable-resolution-and-party-integration-2002).
+Dependency journal inserts atomically coalesce effective-listing-geography work.
+Only its compact work ID/generation wake-ups participate in CDC; private source
+evidence, addresses, resolution payloads and checkpoints do not. See [durable geography](../geography.md#durable-resolution-and-party-integration-2002).
 Cached reuse emits a subject-specific RESOLVED signal for a new source binding;
 source revision changes clear reviewed geography and atomically emit INVALIDATED,
 including when they retain the same resolution identity. Unchanged binding replays are silent.
@@ -232,3 +233,8 @@ outcomes before retiring a producer or enabling traffic.
 Tests should cover strict CDC decoding, fanout, duplicate/reordered work, stale source
 markers, uncertain commits, FIFO partial failure, notification finalization and deletion
 fences/rebuilds. Use isolated real dependencies where needed; live probes require approval.
+
+Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly an empty
+object payload only when compact derived values change. It routes to product projection
+and saved-filter percolation, with no watchlist/price noise or enrichment loop. Work
+continuations and crash recovery are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).

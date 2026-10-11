@@ -50,6 +50,7 @@ pub struct ProductListingSearchFilterMatchSource {
     pub current_event_id: EventId,
     /// Monotonic authoritative version for external OpenSearch writes.
     pub projection_version: i64,
+    pub geography: crate::geography::EffectiveListingGeography,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub source: ListingSourceSummary,
@@ -93,6 +94,14 @@ pub enum ProductListingSearchFilterMatchSourceReadError {
 
 #[async_trait::async_trait]
 pub trait ProductListingSearchFilterMatchSourceReader: Send {
+    /// Confirm target custody after the external versioned write, never before it.
+    async fn mark_projected(
+        &mut self,
+        _id: ProductListingId,
+        _version: i64,
+    ) -> Result<(), ProductListingSearchFilterMatchSourceReadError> {
+        Ok(())
+    }
     async fn find_source(
         &mut self,
         event_id: EventId,

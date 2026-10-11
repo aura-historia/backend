@@ -1,7 +1,7 @@
 {
   "cluster_permissions": [],
   "index_permissions": [
-    {"index_patterns": ["product-listings"], "allowed_actions": ["indices:data/write/index", "indices:data/write/bulk*"]}
+    {"index_patterns": ["product-listings"], "allowed_actions": ["indices:data/write/index", "indices:data/write/bulk*", "indices:admin/refresh"]}
   ],
   "tenant_permissions": []
 }

@@ -6,9 +6,7 @@ use geo::{
 use listing_source_core::{ListingSourceId, location_default::*};
 use listing_source_service::{ports::location_default::*, use_cases::location_default::*};
 use party_core::{
-    party_id::PartyId,
-    party_location::{PartyLocationDisclosure, PartyLocationLifecycle},
-    party_location_id::PartyLocationId,
+    party_id::PartyId, party_location::PartyLocationLifecycle, party_location_id::PartyLocationId,
 };
 use platform_postgres::SqlxTransaction;
 use serde::{Deserialize, Serialize};
@@ -333,7 +331,6 @@ struct GeographyRow {
     location_revision: Option<i64>,
     input_revision: Option<i64>,
     lifecycle: Option<String>,
-    disclosure: Option<String>,
     geography: Option<serde_json::Value>,
     position: Option<serde_json::Value>,
 }
@@ -360,17 +357,12 @@ fn map_geography(row: GeographyRow) -> Result<EffectiveSourceGeographyView, Loca
         return Ok(EffectiveSourceGeographyView::default());
     };
     let lifecycle = eligibility(row.lifecycle.as_deref().ok_or_else(corrupt)?)?;
-    let disclosure =
-        PartyLocationDisclosure::from_code(row.disclosure.as_deref().ok_or_else(corrupt)?)
-            .ok_or_else(corrupt)?;
     let location_revision = row.location_revision.ok_or_else(corrupt)?;
     let input_revision = row.input_revision.ok_or_else(corrupt)?;
     if input_revision <= 0 || location_revision < input_revision {
         return Err(corrupt());
     }
-    if lifecycle != SelectedLocationEligibility::Active
-        || disclosure == PartyLocationDisclosure::Private
-    {
+    if lifecycle != SelectedLocationEligibility::Active {
         return Ok(EffectiveSourceGeographyView::default());
     }
     let description = row
@@ -389,26 +381,6 @@ fn map_geography(row: GeographyRow) -> Result<EffectiveSourceGeographyView, Loca
             SpatialPosition::try_from(data).map_err(invalid)
         })
         .transpose()?;
-    let (description, position) = match disclosure {
-        PartyLocationDisclosure::CoarsePublic => (
-            description
-                .map(|d| {
-                    GeographicDescription::new_in_release(
-                        d.reference_release(),
-                        None,
-                        d.country(),
-                        d.subdivision(),
-                        None,
-                    )
-                    .map_err(invalid)
-                })
-                .transpose()?
-                .flatten(),
-            None,
-        ),
-        PartyLocationDisclosure::ExactPublic => (description, position),
-        PartyLocationDisclosure::Private => unreachable!(),
-    };
     let geography = DerivedGeography::new(description, position);
     let view = |meaning| SourceDefaultGeographyView {
         basis: SourceDefaultGeographyBasis {
@@ -436,7 +408,7 @@ impl EffectiveSourceGeographyReader for SqlxEffectiveSourceGeographyReader {
         &self,
         id: ListingSourceId,
     ) -> Result<EffectiveSourceGeographyView, LocationDefaultError> {
-        let row = sqlx::query_as::<_, GeographyRow>("SELECT s.listing_source_id,d.party_location_id,d.business_evidence,d.inventory_evidence,d.revision,l.revision AS location_revision,l.input_revision,l.lifecycle,l.disclosure,CASE WHEN l.lifecycle='ACTIVE' AND l.disclosure IN ('COARSE_PUBLIC','EXACT_PUBLIC') THEN l.geography END AS geography,CASE WHEN l.lifecycle='ACTIVE' AND l.disclosure='EXACT_PUBLIC' THEN l.position END AS position FROM listing_sources s LEFT JOIN listing_source_location_defaults d ON d.listing_source_id=s.listing_source_id LEFT JOIN party_locations l ON l.party_location_id=d.party_location_id AND l.party_id=s.operator_party_id WHERE s.listing_source_id=$1")
+        let row = sqlx::query_as::<_, GeographyRow>("SELECT s.listing_source_id,d.party_location_id,d.business_evidence,d.inventory_evidence,d.revision,l.revision AS location_revision,l.input_revision,l.lifecycle,CASE WHEN l.lifecycle='ACTIVE' THEN l.geography END AS geography,CASE WHEN l.lifecycle='ACTIVE' THEN l.position END AS position FROM listing_sources s LEFT JOIN listing_source_location_defaults d ON d.listing_source_id=s.listing_source_id LEFT JOIN party_locations l ON l.party_location_id=d.party_location_id AND l.party_id=s.operator_party_id WHERE s.listing_source_id=$1")
             .bind(id.into_uuid()).fetch_optional(&self.pool).await.map_err(sql_error)?.ok_or(LocationDefaultError::SourceNotFound)?;
         map_geography(row)
     }

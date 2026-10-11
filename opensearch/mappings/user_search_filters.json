@@ -5,6 +5,60 @@
     },
     "mappings": {
         "properties": {
+            "businessGeography": {
+                "type": "object",
+                "dynamic": "strict",
+                "properties": {
+                    "locationId": {
+                        "type": "keyword"
+                    },
+                    "basis": {
+                        "type": "keyword"
+                    },
+                    "referenceRelease": {
+                        "type": "keyword"
+                    },
+                    "country": {
+                        "type": "keyword"
+                    },
+                    "subdivision": {
+                        "type": "keyword"
+                    },
+                    "precision": {
+                        "type": "keyword"
+                    },
+                    "point": {
+                        "type": "geo_point"
+                    }
+                }
+            },
+            "inventoryGeography": {
+                "type": "object",
+                "dynamic": "strict",
+                "properties": {
+                    "locationId": {
+                        "type": "keyword"
+                    },
+                    "basis": {
+                        "type": "keyword"
+                    },
+                    "referenceRelease": {
+                        "type": "keyword"
+                    },
+                    "country": {
+                        "type": "keyword"
+                    },
+                    "subdivision": {
+                        "type": "keyword"
+                    },
+                    "precision": {
+                        "type": "keyword"
+                    },
+                    "point": {
+                        "type": "geo_point"
+                    }
+                }
+            },
             "projectionDeleted": {"type": "boolean"},
             "userSearchFilterId": {"type": "keyword"},
             "userId": {"type": "keyword"},

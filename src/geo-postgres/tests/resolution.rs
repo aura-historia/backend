@@ -12,9 +12,7 @@ use geo_service::{geocoding::*, resolution::*};
 use party_core::{
     party::{NewParty, Party, PartyContact},
     party_id::PartyId,
-    party_location::{
-        PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel, PartyLocationLifecycle,
-    },
+    party_location::{PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle},
     party_name::PartyName,
 };
 use party_postgres::{
@@ -204,6 +202,68 @@ async fn complete(pool: &PgPool, c: &ResolutionClaim, e: ResolutionCompletion) -
     tx.commit().await.unwrap();
     done
 }
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn batch_read_waits_for_provider_control_before_locking_resolution() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let source = binding();
+    let input = input(Uuid::now_v7(), "Shared reader lock ordering");
+    let work = bind(&pool, &input, source).await;
+    let ClaimOutcome::Claimed(claim) = claim(&pool, work).await else {
+        panic!("expected resolution claim");
+    };
+    let mut completion = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT profile FROM geo_resolution_provider_controls WHERE profile=$1 FOR NO KEY UPDATE",
+    )
+    .bind(PROFILE)
+    .fetch_one(&mut *completion)
+    .await
+    .unwrap();
+    let mut reader = pool.begin().await.unwrap();
+    let reader_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await
+        .unwrap();
+    let reading = tokio::spawn(async move {
+        let result = SqlxResolutionRepositoryFactory::on_connection(&mut reader)
+            .inspect_many(&[source.subject])
+            .await;
+        reader.commit().await.unwrap();
+        result
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')")
+                .bind(reader_pid).fetch_one(&pool).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }).await.expect("reader must wait on provider controls");
+    // A resolver already holding controls must still be able to lock/complete the
+    // resolution. The previous inverse order timed out here (or deadlocked).
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *completion)
+        .await
+        .unwrap();
+    assert!(
+        SqlxResolutionRepositoryFactory::on_connection(&mut completion)
+            .complete(
+                &claim,
+                ResolutionCompletion::Evidence(evaluate(&input, result(), PROFILE).unwrap())
+            )
+            .await
+            .unwrap()
+    );
+    completion.commit().await.unwrap();
+    let views = tokio::time::timeout(std::time::Duration::from_secs(5), reading)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(views[0].as_ref().unwrap().accepted_geography().is_some());
+}
 async fn party(pool: &PgPool) -> PartyId {
     let p = Party::create(NewParty {
         id: PartyId::new(),
@@ -242,7 +302,6 @@ async fn create(pool: &PgPool, owner: PartyId, key: &str) -> PartyLocationView {
                 )
                 .unwrap(),
                 position: None,
-                disclosure: PartyLocationDisclosure::Private,
             },
             evidence: None,
             relocates: None,
@@ -265,7 +324,6 @@ fn correction(v: &PartyLocationView) -> UpdatePartyLocationCommand {
         roles: PatchField::Unchanged,
         geography: PatchField::Unchanged,
         position: PatchField::Unchanged,
-        disclosure: PatchField::Unchanged,
         evidence: PatchField::Unchanged,
     }
 }
@@ -593,11 +651,11 @@ async fn independent_sessions_coalesce_identical_inputs_and_expired_leases_are_f
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn address_disclosure_retirement_and_manual_corrections_cancel_stale_application() {
+async fn address_retirement_and_manual_corrections_cancel_stale_application() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let owner = party(&pool).await;
-    for case in ["address", "disclosure", "retirement", "manual"] {
+    for case in ["address", "retirement", "manual"] {
         let location = create(&pool, owner, case).await;
         let b = location_binding(&location);
         let original = inspect(&pool, b).await.unwrap();
@@ -637,9 +695,6 @@ async fn address_disclosure_retirement_and_manual_corrections_cancel_stale_appli
                             .unwrap()
                             .unwrap(),
                         )
-                    }
-                    "disclosure" => {
-                        change.disclosure = PatchField::Set(PartyLocationDisclosure::ExactPublic)
                     }
                     "manual" => {
                         change.position = PatchField::Set(
@@ -1245,6 +1300,59 @@ async fn corrupt_evidence_cannot_invent_an_automatically_accepted_precise_point(
             .await,
         Err(ResolutionError::InvalidState(_))
     ));
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn legacy_input_binding_reuses_the_same_work_and_paid_attempts() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let input = input(
+        Uuid::parse_str("019cb180-0000-7000-8000-000000000001").unwrap(),
+        "123 Street, unit 1",
+    );
+    let binding = binding();
+    let work = bind(&pool, &input, binding).await;
+    let ClaimOutcome::Claimed(reservation) = claim(&pool, work).await else {
+        panic!("claim required");
+    };
+    assert!(
+        complete(
+            &pool,
+            &reservation,
+            ResolutionCompletion::Evidence(evaluate(&input, result(), PROFILE).unwrap())
+        )
+        .await
+    );
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .select(binding, work, 0, "legacy-reviewer")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE geo_resolutions SET input=jsonb_set(input,'{retention_context}','\"PRIVATE\"'::jsonb),fingerprint=$2 WHERE resolution_id=$1")
+        .bind(work.id.into_uuid())
+        .bind("3d5e3b124d0287ffaee50ce7ca9357a34e3e8c9feb6fe93308189634e5751500")
+        .execute(&pool).await.unwrap();
+    // A new subject can reuse the legacy evidence without another paid call.
+    let second = ResolutionBinding {
+        subject: ResolutionSubject::new(RetentionPurpose::PartyLocation, Uuid::now_v7()).unwrap(),
+        ..binding
+    };
+    assert_eq!(work, bind(&pool, &input, second).await);
+    // If a current key also exists, preserve this subject's legacy binding and
+    // reviewed selection instead of redirecting it to the new pending work.
+    sqlx::query("INSERT INTO geo_resolutions(resolution_id,fingerprint,profile,policy_version,scope_key,input) SELECT $2,$3,profile,policy_version,scope_key,input-'retention_context' FROM geo_resolutions WHERE resolution_id=$1")
+        .bind(work.id.into_uuid()).bind(ResolutionId::new().into_uuid())
+        .bind(input.fingerprint(PROFILE)).execute(&pool).await.unwrap();
+    assert_eq!(work, bind(&pool, &input, binding).await);
+    let current = inspect(&pool, binding).await.unwrap();
+    assert_eq!(work, current.work);
+    assert_eq!(1, current.attempts);
+    assert_eq!(Some(0), current.selected_candidate);
+    assert!(current.evidence.is_some());
+    assert!(current.accepted_geography().unwrap().position().is_some());
+    assert!(matches!(claim(&pool, work).await, ClaimOutcome::Complete));
 }
 
 #[aura_integration_test(services=[SCHEMA])]

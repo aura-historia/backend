@@ -16543,13 +16543,6 @@ components:
           allOf:
           - $ref: '#/components/schemas/PartyLocationPosition'
           nullable: true
-        disclosure:
-          type: string
-          enum:
-          - PRIVATE
-          - COARSE_PUBLIC
-          - EXACT_PUBLIC
-          default: PRIVATE
         evidence:
           allOf:
           - $ref: '#/components/schemas/PartyLocationEvidence'
@@ -16558,7 +16551,7 @@ components:
           allOf:
           - $ref: '#/components/schemas/ExpectedPartyLocation'
           nullable: true
-      description: Create an independently identified site. Optional relocates creates a new identity and retires the
+      description: Create an independently identified site with exact public geography. Optional relocates creates a new identity and retires the
         referenced active site atomically; its Party and revision must match.
     CorrectPartyLocationData:
       type: object
@@ -16592,12 +16585,6 @@ components:
           allOf:
           - $ref: '#/components/schemas/PartyLocationPosition'
           nullable: true
-        disclosure:
-          type: string
-          enum:
-          - PRIVATE
-          - COARSE_PUBLIC
-          - EXACT_PUBLIC
         evidence:
           allOf:
           - $ref: '#/components/schemas/PartyLocationEvidence'
@@ -16612,7 +16599,7 @@ components:
           enum:
           - SAME_SITE
       description: Same physical site correction only. Omitted members remain unchanged. Geography/position/evidence
-        null clears; non-null geographic objects replace the complete partial assertion. Label, roles and disclosure
+        null clears; non-null geographic objects replace the complete partial assertion. Label and roles
         reject null. Roles [] clears the set. No-op at the current revision emits no change signal. Relocation uses
         create with relocates.
     SetPartyLocationLifecycleData:
@@ -16642,7 +16629,6 @@ components:
       - partyId
       - label
       - roles
-      - disclosure
       - lifecycle
       - revision
       - inputRevision
@@ -16673,13 +16659,6 @@ components:
           $ref: '#/components/schemas/PartyLocationGeography'
         position:
           $ref: '#/components/schemas/PartyLocationPosition'
-        disclosure:
-          type: string
-          enum:
-          - PRIVATE
-          - COARSE_PUBLIC
-          - EXACT_PUBLIC
-          default: PRIVATE
         lifecycle:
           type: string
           enum:

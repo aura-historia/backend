@@ -10,8 +10,7 @@ use party_core::{
     party::{NewParty, Party, PartyContact},
     party_id::PartyId,
     party_location::{
-        PartyLocationContent, PartyLocationDisclosure, PartyLocationLabel, PartyLocationLifecycle,
-        PartyLocationRole,
+        PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
     },
     party_location_id::PartyLocationId,
     party_name::PartyName,
@@ -135,7 +134,6 @@ fn command(party_id: PartyId, key: &str) -> CreatePartyLocationCommand {
                 )
                 .unwrap(),
             ),
-            disclosure: PartyLocationDisclosure::Private,
         },
         evidence: Some(
             LocationEvidence::new(
@@ -162,7 +160,6 @@ fn correction(party_id: PartyId, v: &PartyLocationView) -> UpdatePartyLocationCo
         roles: PatchField::Unchanged,
         geography: PatchField::Unchanged,
         position: PatchField::Unchanged,
-        disclosure: PatchField::Unchanged,
         evidence: PatchField::Unchanged,
     }
 }
@@ -172,6 +169,42 @@ async fn signals(pool: &PgPool, id: PartyLocationId) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn disclosure_removal_migrates_legacy_creation_receipts_for_replay() {
+    let pool = get_postgres_client().await;
+    let party = party(&pool).await;
+    let command = command(party, "legacy-receipt");
+    let original = create(&pool)
+        .execute(&trusted(), command.clone())
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    // Recreate the removed column and receipt members to exercise the actual
+    // forward migration against previously persisted creation semantics.
+    sqlx::query(
+        "ALTER TABLE party_locations ADD COLUMN disclosure text NOT NULL DEFAULT 'PRIVATE'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE party_location_create_receipts SET command=jsonb_set(command,'{content,disclosure}','\"PRIVATE\"'::jsonb),result=jsonb_set(result,'{content,disclosure}','\"PRIVATE\"'::jsonb) WHERE party_id=$1")
+        .bind(party.into_uuid()).execute(&mut *tx).await.unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261011150000_remove_party_location_disclosure.sql"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(
+        original,
+        create(&pool).execute(&trusted(), command).await.unwrap()
+    );
+    let has_column: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='party_locations' AND column_name='disclosure')")
+        .fetch_one(&pool).await.unwrap();
+    assert!(!has_column);
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
@@ -192,7 +225,7 @@ async fn concurrent_create_retries_converge_and_replay_original_result() {
     assert_eq!(2, updated.revision.into_inner());
     assert_eq!(a, create(&pool).execute(&ctx, c.clone()).await.unwrap());
     let mut conflict = c;
-    conflict.content.disclosure = PartyLocationDisclosure::ExactPublic;
+    conflict.content.label = PartyLocationLabel::new("Changed site".to_owned()).unwrap();
     assert!(matches!(
         create(&pool).execute(&ctx, conflict).await,
         Err(PartyLocationError::IdempotencyConflict)
@@ -513,7 +546,7 @@ async fn authorization_requires_scope_and_explicit_party_grant() {
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-async fn reads_require_management_authority_for_every_disclosure_policy() {
+async fn management_reads_require_authority_for_every_location() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
     let ctx = trusted();
@@ -523,13 +556,8 @@ async fn reads_require_management_authority_for_every_disclosure_policy() {
         capabilities: BTreeSet::from([CredentialCapability::PartiesRead]),
     });
     let mut locations = Vec::new();
-    for disclosure in [
-        PartyLocationDisclosure::Private,
-        PartyLocationDisclosure::CoarsePublic,
-        PartyLocationDisclosure::ExactPublic,
-    ] {
-        let mut c = command(party, disclosure.as_str());
-        c.content.disclosure = disclosure;
+    for label in ["Showroom", "Warehouse", "Office"] {
+        let c = command(party, label);
         let location = create(&pool).execute(&ctx, c).await.unwrap();
         let request = GetPartyLocationRequest {
             party_id: party,
@@ -756,12 +784,11 @@ async fn required_patch_fields_reject_clear_and_role_replacement_preserves_geogr
         .execute(&ctx, command(party, "patch-contract"))
         .await
         .unwrap();
-    for field in ["label", "roles", "disclosure"] {
+    for field in ["label", "roles"] {
         let mut c = correction(party, &v);
         match field {
             "label" => c.label = PatchField::Clear,
             "roles" => c.roles = PatchField::Clear,
-            "disclosure" => c.disclosure = PatchField::Clear,
             _ => unreachable!(),
         }
         assert!(matches!(
@@ -790,7 +817,7 @@ async fn invalid_stored_and_receipt_object_ids_fail_closed() {
     let c = command(party, "corrupt-identity");
     let v = create(&pool).execute(&ctx, c.clone()).await.unwrap();
     sqlx::query(
-        "INSERT INTO party_locations(party_location_id,party_id,label,disclosure,lifecycle,created_actor,updated_actor) VALUES ($1,$2,'Invalid site','PRIVATE','ACTIVE','test','test')",
+        "INSERT INTO party_locations(party_location_id,party_id,label,lifecycle,created_actor,updated_actor) VALUES ($1,$2,'Invalid site','ACTIVE','test','test')",
     )
     .bind(uuid::Uuid::nil())
     .bind(party.into_uuid())

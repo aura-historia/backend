@@ -6,8 +6,8 @@ use geo::{
 use party_core::{
     party_id::PartyId,
     party_location::{
-        PartyLocation, PartyLocationContent, PartyLocationDisclosure, PartyLocationInputRevision,
-        PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
+        PartyLocation, PartyLocationContent, PartyLocationInputRevision, PartyLocationLabel,
+        PartyLocationLifecycle, PartyLocationRole,
     },
     party_location_id::PartyLocationId,
 };
@@ -177,7 +177,6 @@ struct ContentData {
     roles: Vec<String>,
     geography: Option<GeographicDescriptionData>,
     position: Option<SpatialPositionData>,
-    disclosure: String,
 }
 impl From<&PartyLocationContent> for ContentData {
     fn from(c: &PartyLocationContent) -> Self {
@@ -186,7 +185,6 @@ impl From<&PartyLocationContent> for ContentData {
             roles: c.roles.iter().map(|r| r.as_str().to_owned()).collect(),
             geography: c.geography.as_ref().map(Into::into),
             position: c.position.map(Into::into),
-            disclosure: c.disclosure.as_str().to_owned(),
         }
     }
 }
@@ -202,7 +200,6 @@ impl TryFrom<ContentData> for PartyLocationContent {
                 .map(SpatialPosition::try_from)
                 .transpose()
                 .map_err(invalid)?,
-            disclosure: PartyLocationDisclosure::from_code(&c.disclosure).ok_or_else(corrupt)?,
         })
     }
 }
@@ -270,7 +267,6 @@ struct LocationRow {
     roles: Vec<String>,
     geography: Option<serde_json::Value>,
     position: Option<serde_json::Value>,
-    disclosure: String,
     lifecycle: String,
     revision: i64,
     input_revision: i64,
@@ -289,7 +285,6 @@ impl TryFrom<LocationRow> for StoredPartyLocation {
                 roles: r.roles,
                 geography: r.geography.map(decode).transpose()?,
                 position: r.position.map(decode).transpose()?,
-                disclosure: r.disclosure,
             },
             lifecycle: r.lifecycle,
             revision: u64::try_from(r.revision).map_err(invalid)?,
@@ -301,7 +296,7 @@ impl TryFrom<LocationRow> for StoredPartyLocation {
         .try_into()
     }
 }
-const COLUMNS: &str = "party_location_id, party_id, label, roles, geography, position, disclosure, lifecycle, revision, input_revision, evidence, created, updated";
+const COLUMNS: &str = "party_location_id, party_id, label, roles, geography, position, lifecycle, revision, input_revision, evidence, created, updated";
 
 #[async_trait::async_trait]
 impl PartyLocationAccess for LocationAccess<'_> {
@@ -437,7 +432,7 @@ impl PartyLocationRepository for LocationRepository<'_> {
     ) -> Result<StoredPartyLocation, PartyLocationError> {
         let c = ContentData::from(location.content());
         let mut q = QueryBuilder::<Postgres>::new(
-            "INSERT INTO party_locations (party_location_id,party_id,label,roles,geography,position,disclosure,lifecycle,input_revision,evidence,created_actor,updated_actor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING ",
+            "INSERT INTO party_locations (party_location_id,party_id,label,roles,geography,position,lifecycle,input_revision,evidence,created_actor,updated_actor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING ",
         );
         q.push(COLUMNS);
         let result: StoredPartyLocation = q
@@ -448,7 +443,6 @@ impl PartyLocationRepository for LocationRepository<'_> {
             .bind(c.roles)
             .bind(c.geography.map(|v| encode(&v)).transpose()?)
             .bind(c.position.map(|v| encode(&v)).transpose()?)
-            .bind(c.disclosure)
             .bind(location.lifecycle().as_str())
             .bind(i64::try_from(location.input_revision().into_inner()).map_err(invalid)?)
             .bind(
@@ -474,7 +468,7 @@ impl PartyLocationRepository for LocationRepository<'_> {
         }
         let c = ContentData::from(stored.location.content());
         let mut q = QueryBuilder::<Postgres>::new(
-            "UPDATE party_locations SET label=$1,roles=$2,geography=$3,position=$4,disclosure=$5,lifecycle=$6,input_revision=$7,evidence=$8,updated_actor=$9,revision=revision+1,updated=now() WHERE party_location_id=$10 AND party_id=$11 AND revision=$12 RETURNING ",
+            "UPDATE party_locations SET label=$1,roles=$2,geography=$3,position=$4,lifecycle=$5,input_revision=$6,evidence=$7,updated_actor=$8,revision=revision+1,updated=now() WHERE party_location_id=$9 AND party_id=$10 AND revision=$11 RETURNING ",
         );
         q.push(COLUMNS);
         let result: StoredPartyLocation = q
@@ -483,7 +477,6 @@ impl PartyLocationRepository for LocationRepository<'_> {
             .bind(c.roles)
             .bind(c.geography.map(|v| encode(&v)).transpose()?)
             .bind(c.position.map(|v| encode(&v)).transpose()?)
-            .bind(c.disclosure)
             .bind(stored.location.lifecycle().as_str())
             .bind(i64::try_from(stored.location.input_revision().into_inner()).map_err(invalid)?)
             .bind(
@@ -516,7 +509,6 @@ struct ViewRow {
     roles: Vec<String>,
     geography: Option<serde_json::Value>,
     position: Option<serde_json::Value>,
-    disclosure: String,
     lifecycle: String,
     revision: i64,
     input_revision: i64,
@@ -541,7 +533,6 @@ impl TryFrom<ViewRow> for PartyLocationView {
                 .map(SpatialPosition::try_from)
                 .transpose()
                 .map_err(invalid)?,
-            disclosure: PartyLocationDisclosure::from_code(&r.disclosure).ok_or_else(corrupt)?,
             lifecycle: PartyLocationLifecycle::from_code(&r.lifecycle).ok_or_else(corrupt)?,
             revision: PartyLocationRevision::try_from(r.revision).map_err(invalid)?,
             input_revision: PartyLocationInputRevision::try_from(r.input_revision)
@@ -558,7 +549,7 @@ impl TryFrom<ViewRow> for PartyLocationView {
 }
 fn view_query() -> QueryBuilder<Postgres> {
     QueryBuilder::new(
-        "SELECT party_location_id,party_id,label,roles,geography,position,disclosure,lifecycle,revision,input_revision,evidence FROM party_locations WHERE TRUE",
+        "SELECT party_location_id,party_id,label,roles,geography,position,lifecycle,revision,input_revision,evidence FROM party_locations WHERE TRUE",
     )
 }
 #[async_trait::async_trait]

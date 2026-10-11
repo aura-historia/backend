@@ -201,6 +201,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
     environment: marketingConsentSyncEnvironment,
   },
+  listingGeography: {
+    id: "ListingGeographyLambda",
+    binaryName: "listing-geography-lambda",
+    memorySize: 256,
+    postgres: true,
+    maxPostgresConnections: 1,
+    timeoutSeconds: 45,
+  },
   geoResolution: {
     id: "GeoResolutionLambda",
     binaryName: "geo-resolution-lambda",
@@ -283,6 +291,7 @@ export class Lambdas extends Construct {
   readonly notificationDeliveryVersion: lambda.Version;
   readonly marketingConsentSyncVersion: lambda.Version;
   readonly geoResolutionVersion: lambda.Version;
+  readonly listingGeographyVersion: lambda.Version;
   readonly backendCleanupVersion: lambda.Version | undefined;
   readonly cdcRouterVersion: lambda.Version | undefined;
 
@@ -354,7 +363,7 @@ export class Lambdas extends Construct {
           : undefined,
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" ? 2 : undefined,
+        reservedConcurrentExecutions: key === "productListingIngestion" || key === "geoResolution" || key === "listingGeography" ? 2 : undefined,
         logGroup: key === "productListingIngestion"
           ? ingestionLogGroup
           : key === "auraHistoriaApi"
@@ -423,6 +432,10 @@ export class Lambdas extends Construct {
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
       description: `marketing-consent-sync-${props.parameters.commitSha}`,
+    });
+    this.listingGeographyVersion = new lambda.Version(this, "ListingGeographyVersion", {
+      lambda: this.functions.listingGeography,
+      description: `listing-geography-${props.parameters.commitSha}`,
     });
     this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
       lambda: this.functions.geoResolution,
@@ -606,6 +619,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     }));
   }
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
+  props.search.grantIndexRefresh(functions.productListingOpenSearch, "product-listings");
   props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
   props.search.grantRead(functions.searchFilterPercolator);
   functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({

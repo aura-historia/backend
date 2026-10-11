@@ -243,6 +243,7 @@ fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
         event_id,
         current_event_id: event_id,
         projection_version: 1,
+        geography: Default::default(),
         event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
         product_listing_id: ProductListingId::new(),
@@ -274,4 +275,43 @@ fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
         created: OffsetDateTime::UNIX_EPOCH,
         updated: OffsetDateTime::UNIX_EPOCH,
     })
+}
+
+#[aura_integration_test(services=[TestOpenSearch()])]
+async fn geography_replacement_fences_old_points_and_preserves_country_only_queries() {
+    let result:TestResult=async {
+        let client=get_opensearch_client().await.clone();
+        let writer=OpenSearchProductListingSearchProjection::new(client.clone());
+        let mut source=source()?;
+        let dimension=product_listing_service::geography::GeographicDimension {
+            location_id:party_core::party_location_id::PartyLocationId::new(),reference_release:geo::reference::ReferenceRelease::CURRENT,
+            country:Some(geo::CountryCode::DEU),subdivision:Some(geo::SubdivisionCode::new("DE-BY")?),
+            position:Some(geo::SpatialPosition::new(geo::GeoPoint::new(48.1,11.5)?,geo::SpatialPrecision::Premises,None)?),
+        };
+        source.geography.business=Some(dimension.clone());
+        let mut paused=PausedWrite::new(client.clone()).await?;
+        let old_writer=OpenSearchProductListingSearchProjection::new(paused.client.clone());
+        let old=source.clone();
+        let stale=tokio::spawn(async move {old_writer.upsert(&old,None).await});
+        paused.wait_until_received().await?;
+        source.projection_version+=1;
+        source.geography.business.as_mut().ok_or("missing business")?.position=None;
+        assert_eq!(ProductListingSearchProjectionWriteOutcome::Applied,writer.upsert(&source,None).await?);
+        assert_eq!(StatusCode::CONFLICT,paused.resume().await?);
+        assert_eq!(ProductListingSearchProjectionWriteOutcome::Stale,stale.await??);
+        let document:Value=client.get(GetParts::IndexId(DEFAULT_INDEX,&source.product_listing_id.to_string())).send().await?.json().await?;
+        assert_eq!("DE",document["_source"]["businessGeography"]["country"]);
+        assert_eq!("DE-BY",document["_source"]["businessGeography"]["subdivision"]);
+        assert!(document["_source"]["businessGeography"]["point"].is_null());
+        assert!(document["_source"]["inventoryGeography"].is_null());
+        let result:Value=client.search(opensearch::SearchParts::Index(&[DEFAULT_INDEX])).body(json!({"query":{"term":{"businessGeography.country":"DE"}},"aggs":{"countries":{"terms":{"field":"businessGeography.country"}}}})).send().await?.json().await?;
+        assert_eq!(1,result["hits"]["total"]["value"]);assert_eq!("DE",result["aggregations"]["countries"]["buckets"][0]["key"]);
+        let document=product_listing_document(&product_listing_service::ports::ProductListingSearchFilterMatchSource {geography:product_listing_service::geography::EffectiveListingGeography{business:Some(dimension),inventory:None},..source.clone()},None)?;
+        let value=serde_json::to_value(document)?;assert_eq!(48.1,value["businessGeography"]["point"]["lat"]);assert_eq!(11.5,value["businessGeography"]["point"]["lon"]);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "geo external fence and country discovery: {result:?}"
+    );
 }

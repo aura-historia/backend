@@ -194,6 +194,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .sort();
     expect(includedTables).toEqual([
       "geo_resolution_wakeups",
+      "listing_geography_wakeups",
       "marketing_email_consent_sync_intents",
       "notification_deliveries",
       "product_listing_events",
@@ -273,6 +274,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .sort();
     expect(decimalStrings).toEqual([
       "geo_resolution_wakeups.generation",
+      "listing_geography_wakeups.generation",
       "product_listing_raw_revisions.revision",
       "search_filters.version",
     ]);

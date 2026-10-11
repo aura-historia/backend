@@ -284,6 +284,8 @@ impl SalePricesDocument {
 pub(crate) enum ProductListingDocumentValidationError {
     #[error("product sale projection metadata must be complete when present")]
     PartialSaleProjection,
+    #[error("product geographic projection is invalid")]
+    InvalidGeography,
     #[error("sale prices must contain either all or none of the expanded currencies")]
     PartialExpandedSalePrices,
     #[error("product sale prices require sale projection metadata")]
@@ -292,6 +294,62 @@ pub(crate) enum ProductListingDocumentValidationError {
     SalePricesRequireMonetarySourcePrice,
     #[error("a monetary source price with sale metadata requires sale prices")]
     MissingSalePricesForMonetarySaleObservation,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct GeographicDimensionDocument {
+    pub location_id: party_core::party_location_id::PartyLocationId,
+    pub basis: String,
+    pub reference_release: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subdivision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point: Option<GeographicPointDocument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precision: Option<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "GeographicPointData")]
+pub(crate) struct GeographicPointDocument {
+    pub lat: f64,
+    pub lon: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeographicPointData {
+    lat: f64,
+    lon: f64,
+}
+impl TryFrom<GeographicPointData> for GeographicPointDocument {
+    type Error = geo::InvalidPosition;
+    fn try_from(p: GeographicPointData) -> Result<Self, Self::Error> {
+        let p = geo::GeoPoint::new(p.lat, p.lon)?;
+        Ok(Self {
+            lat: p.latitude_degrees(),
+            lon: p.longitude_degrees(),
+        })
+    }
+}
+impl From<&product_listing_service::geography::GeographicDimension>
+    for GeographicDimensionDocument
+{
+    fn from(d: &product_listing_service::geography::GeographicDimension) -> Self {
+        Self {
+            location_id: d.location_id,
+            basis: product_listing_service::geography::GeographicDimension::BASIS.into(),
+            reference_release: d.reference_release.as_str().into(),
+            country: d.country.map(|c| c.alpha2().into()),
+            subdivision: d.subdivision.as_ref().map(|s| s.as_str().into()),
+            point: d.position.map(|p| GeographicPointDocument {
+                lat: p.point().latitude_degrees(),
+                lon: p.point().longitude_degrees(),
+            }),
+            precision: d.position.map(|p| p.precision().as_str().into()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -303,6 +361,10 @@ pub(crate) struct ProductListingDocument {
     #[serde(with = "source_listing_id")]
     pub(crate) source_listing_id: SourceListingId,
     pub(crate) event_id: EventId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) business_geography: Option<GeographicDimensionDocument>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) inventory_geography: Option<GeographicDimensionDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) auction_id: Option<AuctionId>,
     pub(crate) title: TextDocument,
@@ -366,6 +428,49 @@ impl ProductListingDocument {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ProductListingDocumentValidationError> {
+        for d in [&self.business_geography, &self.inventory_geography]
+            .into_iter()
+            .flatten()
+        {
+            let check = || {
+                if d.basis != product_listing_service::geography::GeographicDimension::BASIS {
+                    return None;
+                }
+                let release =
+                    geo::reference::ReferenceRelease::from_code(&d.reference_release).ok()?;
+                let country = d
+                    .country
+                    .as_deref()
+                    .map(|c| geo::country_from_code(c, release))
+                    .transpose()
+                    .ok()?;
+                let subdivision = d
+                    .subdivision
+                    .as_deref()
+                    .map(|c| geo::SubdivisionCode::from_code(c, release))
+                    .transpose()
+                    .ok()?;
+                geo::GeographicDescription::new_in_release(
+                    release,
+                    None,
+                    country,
+                    subdivision,
+                    None,
+                )
+                .ok()?;
+                if d.point.is_some() != d.precision.is_some()
+                    || (country.is_none() && d.subdivision.is_none() && d.point.is_none())
+                    || d.precision
+                        .as_deref()
+                        .is_some_and(|p| geo::SpatialPrecision::from_code(p).is_none())
+                {
+                    return None;
+                }
+                Some(())
+            };
+            check().ok_or(ProductListingDocumentValidationError::InvalidGeography)?;
+        }
+
         if let Some(prices) = &self.sale_prices {
             let expanded = [
                 prices.sek, prices.dkk, prices.nok, prices.krw, prices.inr, prices.twd, prices.huf,
@@ -434,6 +539,8 @@ mod tests {
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
+            business_geography: None,
+            inventory_geography: None,
             auction_id: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
@@ -525,6 +632,41 @@ mod tests {
                 .get("availability")
                 .is_none()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_validate_compact_geography_without_accepting_empty_or_synthetic_dimensions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        let dimension = GeographicDimensionDocument {
+            location_id: party_core::party_location_id::PartyLocationId::new(),
+            basis: product_listing_service::geography::GeographicDimension::BASIS.into(),
+            reference_release: geo::reference::ReferenceRelease::CURRENT.as_str().into(),
+            country: Some("DE".into()),
+            subdivision: Some("DE-BY".into()),
+            point: None,
+            precision: None,
+        };
+        document.business_geography = Some(dimension.clone());
+        document.validate()?;
+        let mut empty = dimension.clone();
+        empty.country = None;
+        empty.subdivision = None;
+        let mut incompatible = dimension.clone();
+        incompatible.country = Some("FR".into());
+        let mut partial_point = dimension;
+        partial_point.point = Some(GeographicPointDocument {
+            lat: 48.1,
+            lon: 11.5,
+        });
+        for malformed in [empty, incompatible, partial_point] {
+            document.business_geography = Some(malformed);
+            assert!(matches!(
+                document.validate(),
+                Err(ProductListingDocumentValidationError::InvalidGeography)
+            ));
+        }
         Ok(())
     }
 

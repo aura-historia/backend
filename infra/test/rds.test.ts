@@ -126,8 +126,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(21);
-    expect(runtimeFunctions).toHaveLength(20);
+    expect(functions).toHaveLength(22);
+    expect(runtimeFunctions).toHaveLength(21);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,

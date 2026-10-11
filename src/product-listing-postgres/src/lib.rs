@@ -45,3 +45,5 @@ pub use readers::{
     SqlxProductListingWatchlistDetailsReaderFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
+
+pub mod geography;

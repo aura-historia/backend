@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-11 — Exact PartyLocation geography (#2003)
+
+- Removed `disclosure` from PartyLocation create/correct requests and management responses. Requests containing the removed field return `400`; active locations always provide exact geography to eligible public consumers.
+- Retired locations remain ineligible for effective geography. Explicit source applicability, provider retention, and protected management/evidence access still govern their respective consumers.
+
 ## 2026-10-11 — Private user addresses and browsing destinations (#2005)
 
 - Added private create/list/get/replace/delete `/api/v1/me/addresses` and `/{address_id}` routes. Creation accepts only label/geography and returns a server-generated `uaddr_` UUIDv7 ID. Exactly one valid `Idempotency-Key` header is required: unchanged creation retries return the same entry's current view; changed content or deleted entries conflict. Replacement/deletion require `expectedVersion`. Entries keep verbatim free-text geographic assertions, without parsed street components or PlaceId. Lists use `after` and `limit` (1–100, default 25).

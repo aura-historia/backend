@@ -991,8 +991,8 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    // Model pre-upgrade private state with an old outstanding reservation and selection.
-    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex'),lease_token=$2,lease_until=now()+interval '1 minute' WHERE resolution_id=$1")
+    // Model the legacy V1 private input, outstanding reservation and selection.
+    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',input=input || '{\"retention_context\":\"PRIVATE\"}'::jsonb,fingerprint=encode(sha256(uuid_send(resolution_id)),'hex'),lease_token=$2,lease_until=now()+interval '1 minute' WHERE resolution_id=$1")
         .bind(old.work.id.into_uuid()).bind(claim.token).execute(&pool).await.unwrap();
     sqlx::query("UPDATE geo_resolution_bindings SET selected_candidate=0,selected_generation=1,reviewed_actor='synthetic' WHERE subject_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
     let detailed = GeographicDescription::new(
@@ -1016,7 +1016,7 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
         .unwrap()
         .id;
     let second_work = inspect(&pool, &h, &a, second).await.unwrap().unwrap().work;
-    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex') WHERE resolution_id=$1").bind(second_work.id.into_uuid()).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',input=input || '{\"retention_context\":\"PRIVATE\"}'::jsonb,fingerprint=encode(sha256(uuid_send(resolution_id)),'hex') WHERE resolution_id=$1").bind(second_work.id.into_uuid()).execute(&pool).await.unwrap();
     let mut tx = uow.begin().await.unwrap();
     let business = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -1087,11 +1087,28 @@ async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_le
             RetentionPurpose::UserLocation,
         )
         .unwrap();
-        let (policy,fingerprint,generation,evidence):(String,String,i64,Option<serde_json::Value>) = sqlx::query_as("SELECT policy_version,fingerprint,generation,evidence FROM geo_resolutions WHERE resolution_id=$1").bind(previous.id.into_uuid()).fetch_one(&pool).await.unwrap();
+        let (policy,generation,evidence):(String,i64,Option<serde_json::Value>) = sqlx::query_as("SELECT policy_version,generation,evidence FROM geo_resolutions WHERE resolution_id=$1").bind(previous.id.into_uuid()).fetch_one(&pool).await.unwrap();
         assert_eq!(USER_BROWSING_POLICY_VERSION, policy);
-        assert_eq!(expected.fingerprint(PROFILE), fingerprint);
         assert_eq!(previous.generation + 1, generation as u64);
         assert!(evidence.is_none());
+        // The current adapter must validate and reuse the migrated V1 key even
+        // though newly persisted inputs use the V2 fingerprint.
+        let mut tx = uow.begin().await.unwrap();
+        let rebound = SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .bind(
+                &expected,
+                ResolutionBinding {
+                    subject: ResolutionSubject::new(RetentionPurpose::UserLocation, id.into_uuid())
+                        .unwrap(),
+                    input_revision: 1,
+                    guard: 1,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(previous.id, rebound);
+        tx.commit().await.unwrap();
         let address = h.get(&a, id).await.unwrap();
         assert_eq!(1, address.version);
         assert_eq!(1, address.input_revision);
@@ -1144,12 +1161,13 @@ async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
         .unwrap()
         .id;
     let work = inspect(&pool, &h, &a, id).await.unwrap().unwrap().work;
-    let original: serde_json::Value =
+    let mut original: serde_json::Value =
         sqlx::query_scalar("SELECT input FROM geo_resolutions WHERE resolution_id=$1")
             .bind(work.id.into_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
+    original["retention_context"] = serde_json::json!("PRIVATE");
     let mut unexpected = Vec::new();
     for (field, value) in [
         ("language", serde_json::json!("en")),
@@ -1157,14 +1175,17 @@ async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
         ("query", serde_json::json!(12)),
         ("owner", serde_json::Value::Null),
         ("limit", serde_json::json!(1)),
+        ("retention_context", serde_json::json!("EXACT_PUBLIC")),
     ] {
         let mut input = original.clone();
         input[field] = value;
         unexpected.push((input, 1));
     }
-    let mut missing_query = original.clone();
-    missing_query.as_object_mut().unwrap().remove("query");
-    unexpected.push((missing_query, 1));
+    for field in ["query", "retention_context"] {
+        let mut missing = original.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        unexpected.push((missing, 1));
+    }
     for (field, value) in [
         ("future_component", serde_json::json!("synthetic")),
         ("reference_release", serde_json::json!("future-release")),
@@ -1194,6 +1215,14 @@ async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
         assert_eq!(
             Some("P0001"),
             error.as_database_error().unwrap().code().as_deref()
+        );
+        assert_eq!(
+            if generation == i64::MAX {
+                "Legacy private resolution generation is exhausted"
+            } else {
+                "Unsupported legacy private resolution input"
+            },
+            error.as_database_error().unwrap().message()
         );
         migration.rollback().await.unwrap();
         let after: serde_json::Value =

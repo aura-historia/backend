@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
+geo-service = { workspace = true }
+party-core = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
 fake = { workspace = true, optional = true }
@@ -40,7 +43,6 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 notification-core = { workspace = true }
-party-core = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
