@@ -22,6 +22,7 @@ fn deployed_names_and_visibility_stay_stable() {
         ("notification-delivery", 330),
         ("marketing-consent-sync", 330),
         ("geo-resolution", 300),
+        ("listing-geography", 300),
     ];
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
@@ -111,7 +112,7 @@ fn fifo_destination_identity_fails_closed_on_stage_region_account_or_type_mismat
 }
 
 #[test]
-fn router_requires_all_twelve_scoped_urls() {
+fn router_requires_all_scoped_urls() {
     let mut values = HashMap::from([
         ("AWS_REGION", "eu-central-1".to_owned()),
         ("STAGE", "prod".to_owned()),
@@ -133,18 +134,23 @@ fn router_requires_all_twelve_scoped_urls() {
     let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(queues.len(), 12);
+    assert_eq!(queues.len(), WorkerScope::ALL.len());
     assert_eq!(
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>(),
         WorkerScope::ALL
     );
-    values.remove(WorkerScope::NotificationDelivery.router_queue_url_env());
-    assert_eq!(
-        CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned()).err(),
-        Some(QueueError::MissingConfig(
-            "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY"
-        ))
-    );
+    for scope in WorkerScope::ALL
+        .into_iter()
+        .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
+    {
+        let name = scope.router_queue_url_env();
+        let value = values.remove(name).unwrap();
+        assert_eq!(
+            CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned()).err(),
+            Some(QueueError::MissingConfig(name))
+        );
+        values.insert(name, value);
+    }
 }
 
 #[test]
@@ -168,7 +174,7 @@ fn marketing_consent_router_url_is_optional_before_c06_activation() {
     let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(11, queues.len());
+    assert_eq!(WorkerScope::ALL.len() - 1, queues.len());
 }
 
 fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
