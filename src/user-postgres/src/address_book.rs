@@ -98,6 +98,7 @@ impl AddressRow {
             input_revision,
             version,
             preferred: self.preferred,
+            resolution: UserAddressResolution::unavailable(),
         })
     }
 }

@@ -1,4 +1,8 @@
 use application::operation_context::CredentialCapability;
+use application::{
+    operation_context::{OperationContext, Principal},
+    transaction::{Transaction, UnitOfWork},
+};
 use aura_historia_api::{
     app,
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
@@ -8,10 +12,16 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use geo::{
+    CountryCode, DerivedGeography, GeoPoint, GeographicDescription, SpatialPosition,
+    SpatialPrecision,
+};
 use geo_postgres::SqlxResolutionRepositoryFactory;
+use geo_service::{geocoding::*, resolution::*};
 use platform_postgres::SqlxUnitOfWork;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use tower::ServiceExt;
 use user_core::{user_address::UserAddressId, user_id::UserId};
@@ -55,6 +65,75 @@ impl TokenAuthenticator for Auth {
             capabilities,
         })
     }
+}
+struct SyntheticGeocoder(Arc<AtomicUsize>);
+#[async_trait::async_trait]
+impl GeocodingProvider for SyntheticGeocoder {
+    async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        let candidate = GeocodingCandidate::new(
+            DerivedGeography::new(
+                GeographicDescription::new(None, Some(CountryCode::GBR), None, None).unwrap(),
+                Some(
+                    SpatialPosition::new(
+                        GeoPoint::new(51.5, -0.1).unwrap(),
+                        SpatialPrecision::Premises,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+            ),
+            vec![],
+            None,
+            GeocodingProvenance {
+                provider: "TEST",
+                product: "TEST",
+                data_source: "TEST",
+                region: "TEST".into(),
+                interpretation_profile: "PRIVATE_API_TEST",
+                external_reference: "synthetic".into(),
+                attribution_url: "https://example.test/attribution",
+            },
+        );
+        let candidates = if request.query().as_str().contains("replacement") {
+            vec![candidate.clone(), candidate]
+        } else {
+            vec![candidate]
+        };
+        Ok(GeocodingResult {
+            outcome: GeocodingOutcome::Candidates(CandidateSet::new(candidates, 5).unwrap()),
+            retention: ResultRetention::Storage,
+        })
+    }
+}
+async fn resolve(pool: &sqlx::PgPool, id: UserAddressId, calls: Arc<AtomicUsize>) {
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let mut tx = uow.begin().await.unwrap();
+    let work = SqlxResolutionRepositoryFactory
+        .resolution_reader(&mut tx)
+        .inspect(ResolutionSubject::new(RetentionPurpose::UserLocation, id.into_uuid()).unwrap())
+        .await
+        .unwrap()
+        .unwrap()
+        .work;
+    tx.commit().await.unwrap();
+    ResolveHandler::new(
+        uow,
+        SqlxResolutionRepositoryFactory,
+        SyntheticGeocoder(calls),
+        "PRIVATE_API_TEST".into(),
+        true,
+    )
+    .execute(
+        &OperationContext {
+            principal: Principal::Service("synthetic-test-worker".into()),
+            request_id: "test".into(),
+            correlation_id: "test".into(),
+        },
+        work,
+    )
+    .await
+    .unwrap();
 }
 async fn request(
     router: &axum::Router,
@@ -106,7 +185,7 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
         .unwrap();
     sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('PRIVATE_API_TEST',true)").execute(&pool).await.unwrap();
     let handler = Arc::new(AddressBookHandler::new(
-        SqlxUnitOfWork::new(pool),
+        SqlxUnitOfWork::new(pool.clone()),
         SqlxAddressBookFactory,
         SqlxResolutionRepositoryFactory,
     ));
@@ -200,30 +279,77 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     )
     .await;
     assert_eq!(json!(2), preferred["version"]);
-    let (_, resolved) = request(
-        &router,
-        "POST",
-        &format!("{destination}/resolve"),
-        Some("owner"),
-        json!({"destination":{"kind":"COUNTRY_POSTAL","country":"GB","postalCode":"SW1A 1AA"}}),
-    )
-    .await;
-    assert_eq!(json!("GB"), resolved["submitted"]["country"]);
-    assert!(resolved["derived"].is_null());
-    let (_, resolution) = request(
-        &router,
-        "GET",
-        &format!("{path}/resolution"),
-        Some("owner"),
-        json!({}),
-    )
-    .await;
-    assert_eq!(json!("PENDING"), resolution["status"]);
-    assert_eq!(json!(false), resolution["evidenceAvailable"]);
+    let (_, address) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("PENDING"), address["resolution"]["status"]);
+    assert!(address["resolution"]["derived"].is_null());
+    assert!(address["resolution"]["attribution"].is_null());
+    assert!(address["resolution"].get("candidates").is_none());
+    assert!(address["resolution"].get("resolutionId").is_none());
+    assert_eq!(json!("PENDING"), page["items"][0]["resolution"]["status"]);
+    // The revised flow has no separate user review or destination-resolution routes.
+    for (method, suffix) in [
+        ("GET", "resolution"),
+        ("POST", "resolution/retry"),
+        ("PUT", "resolution/selection"),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(format!("{path}/{suffix}"))
+                    .header("authorization", "Bearer owner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+    }
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    resolve(&pool, id, calls.clone()).await;
+    let (_, accepted) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("ACCEPTED"), accepted["resolution"]["status"]);
+    assert_eq!(
+        json!(51.5),
+        accepted["resolution"]["derived"]["position"]["latitudeDegrees"]
+    );
+    assert_eq!(
+        json!("PREMISES"),
+        accepted["resolution"]["derived"]["position"]["precision"]
+    );
+    assert_eq!(
+        json!("https://example.test/attribution"),
+        accepted["resolution"]["attribution"]["attributionUrl"]
+    );
+    let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
+    assert_eq!(accepted["resolution"], page["items"][0]["resolution"]);
+    assert_eq!(1, calls.load(Ordering::SeqCst));
+    sqlx::query("UPDATE geo_resolutions SET valid_until=now()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, expired) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("UNAVAILABLE"), expired["resolution"]["status"]);
+    assert!(expired["resolution"]["derived"].is_null());
+    assert!(expired["resolution"]["attribution"].is_null());
+    assert_eq!(1, calls.load(Ordering::SeqCst));
     let edit = json!({"expectedVersion":1,"label":"New home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Synthetic replacement"}});
     let (status, changed) = request(&router, "PUT", &path, Some("owner"), edit.clone()).await;
     assert_eq!(StatusCode::OK, status);
     assert_eq!(json!(2), changed["inputRevision"]);
+    assert_eq!(json!("PENDING"), changed["resolution"]["status"]);
+    assert!(changed["resolution"]["derived"].is_null());
+    resolve(&pool, id, calls.clone()).await;
+    let (_, ambiguous) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("AMBIGUOUS"), ambiguous["resolution"]["status"]);
+    assert!(ambiguous["resolution"]["derived"].is_null());
+    assert!(ambiguous["resolution"].get("candidates").is_none());
+    assert_eq!(2, calls.load(Ordering::SeqCst));
     assert_eq!(
         StatusCode::CONFLICT,
         request(&router, "PUT", &path, Some("owner"), edit).await.0

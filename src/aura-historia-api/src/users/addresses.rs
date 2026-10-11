@@ -16,9 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use geo::{DerivedGeography, PostalCode, country_from_code, reference::ReferenceRelease};
-use geo_service::resolution::{
-    ResolutionError, ResolutionId, ResolutionStatus, ResolutionView, ResolutionWork,
-};
+use geo_service::resolution::ResolutionError;
 use serde::{Deserialize, Serialize};
 use user_core::user_address::*;
 use user_service::address_book::*;
@@ -81,6 +79,7 @@ struct AddressData {
     input_revision: u64,
     version: u64,
     preferred: bool,
+    resolution: AddressResolutionData,
 }
 impl From<UserAddressView> for AddressData {
     fn from(v: UserAddressView) -> Self {
@@ -91,6 +90,7 @@ impl From<UserAddressView> for AddressData {
             input_revision: v.input_revision,
             version: v.version,
             preferred: v.preferred,
+            resolution: v.resolution.into(),
         }
     }
 }
@@ -345,225 +345,27 @@ impl From<DerivedGeography> for DerivedData {
         }
     }
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ResolveData {
-    destination: Option<DestinationData>,
-}
-#[derive(Serialize)]
-struct ResolvedData {
-    destination: DestinationData,
-    submitted: Option<GeographyData>,
-    derived: Option<DerivedData>,
-}
-pub(crate) async fn resolve_destination(
-    State(s): State<UserAddressesState>,
-    headers: HeaderMap,
-    body: String,
-) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
-    let destination = match parse::<ResolveData>(&body)
-        .and_then(|d| d.destination.map(DestinationData::into_core).transpose())
-    {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-    match s.queries.resolve_destination(&ctx, destination).await {
-        Ok(v) => Json(ResolvedData {
-            destination: v.destination.into(),
-            submitted: v.submitted.map(Into::into),
-            derived: v.derived.map(Into::into),
-        })
-        .into_response(),
-        Err(e) => ApiError::from(e).into_response(),
-    }
-}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CandidateData {
-    index: usize,
-    acceptable: bool,
-    derived: DerivedData,
+struct AddressAttributionData {
     provider: String,
-    product: String,
-    data_source: String,
-    region: String,
-    profile: String,
-    external_reference: String,
     attribution_url: String,
 }
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ResolutionData {
-    resolution_id: ResolutionId,
-    generation: u64,
-    input_revision: u64,
-    version: u64,
-    status: String,
-    evidence_available: bool,
-    attempts: u32,
-    last_failure: Option<String>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    valid_until: Option<time::OffsetDateTime>,
-    selected_candidate: Option<usize>,
-    accepted: Option<DerivedData>,
-    candidates: Vec<CandidateData>,
+struct AddressResolutionData {
+    status: &'static str,
+    derived: Option<DerivedData>,
+    attribution: Option<AddressAttributionData>,
 }
-impl From<ResolutionView> for ResolutionData {
-    fn from(v: ResolutionView) -> Self {
-        let accepted = v.accepted_geography().cloned().map(Into::into);
-        let available = v.evidence.is_some();
-        let status = if !available
-            && matches!(
-                v.status,
-                ResolutionStatus::Accepted
-                    | ResolutionStatus::Ambiguous
-                    | ResolutionStatus::NoMatch
-            ) {
-            "UNAVAILABLE"
-        } else {
-            v.status.as_str()
-        };
-        let candidates = v
-            .evidence
-            .map(|e| {
-                e.candidates
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, c)| CandidateData {
-                        index,
-                        acceptable: c.acceptable,
-                        derived: c.geography.into(),
-                        provider: c.provider,
-                        product: c.product,
-                        data_source: c.data_source,
-                        region: c.region,
-                        profile: c.profile,
-                        external_reference: c.external_reference,
-                        attribution_url: c.attribution_url,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+impl From<UserAddressResolution> for AddressResolutionData {
+    fn from(v: UserAddressResolution) -> Self {
         Self {
-            resolution_id: v.work.id,
-            generation: v.work.generation,
-            input_revision: v.input_revision,
-            version: v.guard,
-            status: status.into(),
-            evidence_available: available,
-            attempts: v.attempts,
-            last_failure: v.last_failure,
-            valid_until: v.valid_until,
-            selected_candidate: v.selected_candidate,
-            accepted,
-            candidates,
+            status: v.status.as_str(),
+            derived: v.derived.map(Into::into),
+            attribution: v.attribution.map(|a| AddressAttributionData {
+                provider: a.provider,
+                attribution_url: a.attribution_url,
+            }),
         }
-    }
-}
-pub(crate) async fn inspect(
-    State(s): State<UserAddressesState>,
-    headers: HeaderMap,
-    Path(raw): Path<String>,
-) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
-    let id = match parse_path_object_id(&raw, "address_id", "UserAddress") {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-    match s.queries.inspect(&ctx, id).await {
-        Ok(v) => Json(v.map(ResolutionData::from)).into_response(),
-        Err(e) => ApiError::from(e).into_response(),
-    }
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RetryData {
-    expected_version: u64,
-    resolution_id: ResolutionId,
-    generation: u64,
-    #[serde(default)]
-    force: bool,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SelectData {
-    expected_version: u64,
-    resolution_id: ResolutionId,
-    generation: u64,
-    index: usize,
-}
-pub(crate) async fn retry(
-    State(s): State<UserAddressesState>,
-    headers: HeaderMap,
-    Path(raw): Path<String>,
-    body: String,
-) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
-    let input = (|| {
-        let id = parse_path_object_id(&raw, "address_id", "UserAddress")?;
-        let d: RetryData = parse(&body)?;
-        Ok::<_, ApiError>((
-            ReviewUserAddress {
-                id,
-                expected_version: d.expected_version,
-                work: ResolutionWork {
-                    id: d.resolution_id,
-                    generation: d.generation,
-                },
-            },
-            d.force,
-        ))
-    })();
-    let (c, force) = match input {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-    match s.commands.retry(&ctx, c, force).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => ApiError::from(e).into_response(),
-    }
-}
-pub(crate) async fn select(
-    State(s): State<UserAddressesState>,
-    headers: HeaderMap,
-    Path(raw): Path<String>,
-    body: String,
-) -> Response {
-    let (ctx, _) = match protected_context(s.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return *r,
-    };
-    let input = (|| {
-        let id = parse_path_object_id(&raw, "address_id", "UserAddress")?;
-        let d: SelectData = parse(&body)?;
-        Ok::<_, ApiError>((
-            ReviewUserAddress {
-                id,
-                expected_version: d.expected_version,
-                work: ResolutionWork {
-                    id: d.resolution_id,
-                    generation: d.generation,
-                },
-            },
-            d.index,
-        ))
-    })();
-    let (c, index) = match input {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-    match s.commands.select(&ctx, c, index).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => ApiError::from(e).into_response(),
     }
 }

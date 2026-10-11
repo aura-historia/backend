@@ -921,24 +921,8 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                         .delete(users::addresses::delete),
                 )
                 .route(
-                    "/api/v1/me/addresses/{address_id}/resolution",
-                    get(users::addresses::inspect),
-                )
-                .route(
-                    "/api/v1/me/addresses/{address_id}/resolution/retry",
-                    post(users::addresses::retry),
-                )
-                .route(
-                    "/api/v1/me/addresses/{address_id}/resolution/selection",
-                    axum::routing::put(users::addresses::select),
-                )
-                .route(
                     "/api/v1/me/browsing-destination",
                     get(users::addresses::get_destination).put(users::addresses::set_destination),
-                )
-                .route(
-                    "/api/v1/me/browsing-destination/resolve",
-                    post(users::addresses::resolve_destination),
                 )
                 .layer(axum::middleware::map_response(
                     parties::locations::no_store_response,

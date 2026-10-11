@@ -1263,3 +1263,116 @@ async fn corrupt_persisted_input_is_rejected_through_geography_constructors() {
         Err(ResolutionError::InvalidState(_))
     ));
 }
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn private_postal_assertions_survive_precise_and_administrative_acceptance() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let owner = Uuid::now_v7();
+    for precision in [SpatialPrecision::Premises, SpatialPrecision::Locality] {
+        let description = GeographicDescription::new(
+            Some(AddressText::new(format!("Synthetic postal input {precision:?}")).unwrap()),
+            Some(CountryCode::GBR),
+            None,
+            Some(geo::PostalCode::new("SW1A 1AA").unwrap()),
+        )
+        .unwrap()
+        .unwrap();
+        let input = ResolutionInput::new(
+            GeocodingRequest::new(description.address_text().unwrap().clone())
+                .with_submitted(geo::SubmittedGeography::new(description.clone())),
+            ResolutionScope::new(ScopeKind::User, Some(owner)).unwrap(),
+            RetentionPurpose::UserLocation,
+        )
+        .unwrap();
+        let b = ResolutionBinding {
+            subject: ResolutionSubject::new(RetentionPurpose::UserLocation, Uuid::now_v7())
+                .unwrap(),
+            input_revision: 1,
+            guard: 1,
+        };
+        let w = bind(&pool, &input, b).await;
+        let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
+            panic!("claim required")
+        };
+        let source = GeocodingCandidate::new(
+            DerivedGeography::new(
+                GeographicDescription::new(
+                    description.address_text().cloned(),
+                    description.country(),
+                    description.subdivision(),
+                    Some(geo::PostalCode::new("sw1a1aa").unwrap()),
+                )
+                .unwrap(),
+                Some(
+                    SpatialPosition::new(GeoPoint::new(51.5, -0.1).unwrap(), precision, None)
+                        .unwrap(),
+                ),
+            ),
+            vec![],
+            None,
+            candidate(CountryCode::GBR).provenance().clone(),
+        );
+        let e = evaluate(
+            &input,
+            GeocodingResult {
+                outcome: GeocodingOutcome::Candidates(CandidateSet::new(vec![source], 5).unwrap()),
+                retention: ResultRetention::Storage,
+            },
+            PROFILE,
+        )
+        .unwrap();
+        let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+        assert!(
+            SqlxResolutionRepositoryFactory
+                .resolutions(&mut tx)
+                .complete(&c, ResolutionCompletion::Evidence(e))
+                .await
+                .unwrap()
+        );
+        tx.commit().await.unwrap();
+        let stored = inspect(&pool, b).await.unwrap().evidence.unwrap();
+        assert_eq!(ResolutionStatus::Accepted, stored.status);
+        let accepted = &stored.candidates[stored.accepted_index.unwrap()].geography;
+        assert_eq!(
+            Some(CountryCode::GBR),
+            accepted.description().unwrap().country()
+        );
+        assert_eq!(
+            precision == SpatialPrecision::Premises,
+            accepted.position().is_some()
+        );
+        if precision == SpatialPrecision::Locality {
+            assert!(accepted.description().unwrap().postal_code().is_none());
+            assert!(accepted.description().unwrap().address_text().is_none());
+        }
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let a = binding();
+    let b = binding();
+    let missing = binding();
+    let owner = Uuid::now_v7();
+    let first = bind(&pool, &input(owner, "Synthetic first batch input"), a).await;
+    let second = bind(&pool, &input(owner, "Synthetic second batch input"), b).await;
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let mut reader = SqlxResolutionRepositoryFactory.resolution_reader(&mut tx);
+    let entries = reader
+        .inspect_many(&[b.subject, missing.subject, a.subject, b.subject])
+        .await
+        .unwrap();
+    assert_eq!(4, entries.len());
+    assert_eq!(second, entries[0].as_ref().unwrap().work);
+    assert!(entries[1].is_none());
+    assert_eq!(first, entries[2].as_ref().unwrap().work);
+    assert_eq!(second, entries[3].as_ref().unwrap().work);
+    assert!(reader.inspect_many(&[]).await.unwrap().is_empty());
+    assert!(matches!(
+        reader.inspect_many(&[a.subject; 101]).await,
+        Err(ResolutionError::InvalidInput)
+    ));
+}

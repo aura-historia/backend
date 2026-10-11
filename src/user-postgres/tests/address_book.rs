@@ -63,6 +63,25 @@ async fn fixture() -> (PgPool, Handler, OperationContext, OperationContext) {
     );
     (pool, handler, context(a), context(b))
 }
+async fn inspect(
+    pool: &PgPool,
+    handler: &Handler,
+    context: &OperationContext,
+    id: UserAddressId,
+) -> Result<Option<ResolutionView>, AddressBookError> {
+    handler.get(context, id).await?;
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+    let resolution = SqlxResolutionRepositoryFactory
+        .resolution_reader(&mut tx)
+        .inspect(ResolutionSubject::new(
+            RetentionPurpose::UserLocation,
+            id.into_uuid(),
+        )?)
+        .await?;
+    tx.commit().await?;
+    Ok(resolution)
+}
+
 #[aura_integration_test(services=[SCHEMA])]
 async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
     let (pool, h, a, b) = fixture().await;
@@ -118,8 +137,8 @@ async fn own_crud_pagination_idempotency_and_private_cache_isolation() {
     h.create(&b, create(foreign, "Synthetic One"))
         .await
         .unwrap();
-    let ra = h.inspect(&a, first).await.unwrap().unwrap();
-    let rb = h.inspect(&b, foreign).await.unwrap().unwrap();
+    let ra = inspect(&pool, &h, &a, first).await.unwrap().unwrap();
+    let rb = inspect(&pool, &h, &b, foreign).await.unwrap().unwrap();
     assert_ne!(ra.work.id, rb.work.id);
     let changed = h
         .update(
@@ -339,7 +358,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         .unwrap();
     let id = UserAddressId::new();
     h.create(&a, create(id, "Synthetic Claim")).await.unwrap();
-    let view = h.inspect(&a, id).await.unwrap().unwrap();
+    let view = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
@@ -362,46 +381,25 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         .unwrap();
     tx.commit().await.unwrap();
     assert!(h.get(&a, id).await.is_ok());
-    let current = h.inspect(&a, id).await.unwrap().unwrap();
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     assert_eq!(ResolutionStatus::Blocked, current.status);
     assert!(matches!(
-        h.retry(
-            &b,
-            ReviewUserAddress {
-                id,
-                expected_version: 1,
-                work: current.work
-            },
-            false
-        )
-        .await,
+        h.get(&b, id).await,
         Err(AddressBookError::NotFound)
     ));
-    assert!(matches!(
-        h.select(
-            &b,
-            ReviewUserAddress {
-                id,
-                expected_version: 1,
-                work: current.work
-            },
-            0
-        )
-        .await,
-        Err(AddressBookError::NotFound)
-    ));
-    h.retry(
+    // Correcting submitted input establishes a new background attempt without a retry API.
+    h.update(
         &a,
-        ReviewUserAddress {
+        UpdateUserAddress {
             id,
             expected_version: 1,
-            work: current.work,
+            label: UserAddressLabel::new("Home".into()).unwrap(),
+            geography: geography("Synthetic Claim corrected"),
         },
-        true,
     )
     .await
     .unwrap();
-    let current = h.inspect(&a, id).await.unwrap().unwrap();
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -416,7 +414,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         &a,
         UpdateUserAddress {
             id,
-            expected_version: 1,
+            expected_version: 2,
             label: UserAddressLabel::new("Home".into()).unwrap(),
             geography: geography("Edited"),
         },
@@ -445,8 +443,15 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
             .unwrap()
     );
     tx.commit().await.unwrap();
-    assert!(h.inspect(&a, id).await.unwrap().unwrap().evidence.is_none());
-    let current = h.inspect(&a, id).await.unwrap().unwrap();
+    assert!(
+        inspect(&pool, &h, &a, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .evidence
+            .is_none()
+    );
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -535,10 +540,10 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
     h.create(&a, create(second, "Shared synthetic address"))
         .await
         .unwrap();
-    let resolution = h.inspect(&a, first).await.unwrap().unwrap().work;
+    let resolution = inspect(&pool, &h, &a, first).await.unwrap().unwrap().work;
     assert_eq!(
         resolution,
-        h.inspect(&a, second).await.unwrap().unwrap().work
+        inspect(&pool, &h, &a, second).await.unwrap().unwrap().work
     );
     h.delete(&a, first, 1).await.unwrap();
     let state: (bool, Option<serde_json::Value>) =
@@ -551,7 +556,7 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
     assert!(state.1.is_some());
     assert_eq!(
         resolution,
-        h.inspect(&a, second).await.unwrap().unwrap().work
+        inspect(&pool, &h, &a, second).await.unwrap().unwrap().work
     );
     h.update(
         &a,
@@ -598,7 +603,12 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
         .unwrap();
     assert_ne!(
         resolution.id,
-        h.inspect(&a, third).await.unwrap().unwrap().work.id
+        inspect(&pool, &h, &a, third)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .id
     );
 }
 
@@ -661,7 +671,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
 }
 
 #[aura_integration_test(services=[SCHEMA])]
-async fn candidate_selection_expiry_snapshots_and_unrelated_preferences() {
+async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
         .execute(&pool)
@@ -675,7 +685,7 @@ async fn candidate_selection_expiry_snapshots_and_unrelated_preferences() {
     h.create(&a, create(other, "Synthetic Candidate"))
         .await
         .unwrap();
-    let current = h.inspect(&a, id).await.unwrap().unwrap();
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
@@ -729,46 +739,43 @@ async fn candidate_selection_expiry_snapshots_and_unrelated_preferences() {
             .unwrap()
     );
     tx.commit().await.unwrap();
-    let current = h.inspect(&a, id).await.unwrap().unwrap();
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     assert_eq!(ResolutionStatus::Accepted, current.status);
-    assert!(current.accepted_geography().unwrap().position().is_none());
+    assert!(current.accepted_geography().unwrap().position().is_some());
+    let address = h.get(&a, id).await.unwrap();
+    assert_eq!(
+        UserAddressResolutionStatus::Accepted,
+        address.resolution.status
+    );
+    assert!(address.resolution.derived.unwrap().position().is_some());
+    assert_eq!("TEST", address.resolution.attribution.unwrap().provider);
     assert!(matches!(
-        h.select(
-            &b,
-            ReviewUserAddress {
-                id,
-                expected_version: 1,
-                work: current.work
-            },
-            0
-        )
-        .await,
+        h.get(&b, id).await,
         Err(AddressBookError::NotFound)
     ));
-    h.select(
-        &a,
-        ReviewUserAddress {
-            id,
-            expected_version: 1,
-            work: current.work,
-        },
-        0,
-    )
-    .await
-    .unwrap();
     h.set_destination(&a, BrowsingDestination::Address(id), 1)
         .await
         .unwrap();
     let snapshot = h.resolve_destination(&a, None).await.unwrap();
     assert!(snapshot.derived.as_ref().unwrap().position().is_some());
-    let other_resolution = h.inspect(&a, other).await.unwrap().unwrap();
+    let other_resolution = inspect(&pool, &h, &a, other).await.unwrap().unwrap();
     assert!(
         other_resolution
             .accepted_geography()
             .unwrap()
             .position()
-            .is_none()
+            .is_some()
     );
+    let page = h.list(&a, None, 100).await.unwrap();
+    assert_eq!(2, page.items.len());
+    assert!(page.items.iter().all(|item| {
+        item.resolution
+            .derived
+            .as_ref()
+            .unwrap()
+            .position()
+            .is_some()
+    }));
     h.update(
         &a,
         UpdateUserAddress {
@@ -780,10 +787,10 @@ async fn candidate_selection_expiry_snapshots_and_unrelated_preferences() {
     )
     .await
     .unwrap();
-    let unchanged_input = h.inspect(&a, id).await.unwrap().unwrap();
+    let unchanged_input = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     assert_eq!(1, unchanged_input.input_revision);
     assert_eq!(current.work, unchanged_input.work);
-    assert_eq!(Some(0), unchanged_input.selected_candidate);
+    assert_eq!(None, unchanged_input.selected_candidate);
     sqlx::query(
         "UPDATE geo_resolutions SET valid_until=now()-interval '1 second' WHERE resolution_id=$1",
     )
@@ -798,7 +805,14 @@ async fn candidate_selection_expiry_snapshots_and_unrelated_preferences() {
             .derived
             .is_none()
     );
-    assert!(h.inspect(&a, id).await.unwrap().unwrap().evidence.is_none());
+    assert!(
+        inspect(&pool, &h, &a, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .evidence
+            .is_none()
+    );
     h.delete(&a, id, 2).await.unwrap();
     assert!(snapshot.derived.unwrap().position().is_some());
     assert_eq!(
@@ -827,7 +841,7 @@ async fn erasure_remains_possible_after_counter_exhaustion() {
     h.set_destination(&a, BrowsingDestination::Address(id), 1)
         .await
         .unwrap();
-    let view = h.inspect(&a, id).await.unwrap().unwrap();
+    let view = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     sqlx::query("UPDATE user_addresses SET version=9223372036854775807 WHERE address_id=$1")
         .bind(id.into_uuid())
         .execute(&pool)
@@ -854,4 +868,459 @@ async fn erasure_remains_possible_after_counter_exhaustion() {
             .await
             .unwrap();
     assert!(erased);
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn policy_upgrade_rekeys_private_inputs_invalidates_evidence_and_fences_leases() {
+    let (pool, h, a, _) = fixture().await;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let owner = match a.principal {
+        Principal::User(id) => id,
+        _ => unreachable!(),
+    };
+    let id = UserAddressId::new();
+    let description = geography("Straße 12\n東京都 — synthetic private input");
+    h.create(
+        &a,
+        CreateUserAddress {
+            id,
+            label: UserAddressLabel::new("Home".into()).unwrap(),
+            geography: description.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let old = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let mut tx = uow.begin().await.unwrap();
+    let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .claim(old.work, PROFILE, true)
+        .await
+        .unwrap()
+    else {
+        panic!("claim required")
+    };
+    tx.commit().await.unwrap();
+    let coarse_input = ResolutionInput::new(
+        GeocodingRequest::new(description.address_text().unwrap().clone()),
+        ResolutionScope::new(ScopeKind::Party, Some(uuid::Uuid::now_v7())).unwrap(),
+        RetentionPurpose::PartyLocation,
+    )
+    .unwrap();
+    let candidate = GeocodingCandidate::new(
+        geo::DerivedGeography::new(
+            GeographicDescription::new(None, Some(CountryCode::GBR), None, None).unwrap(),
+            Some(
+                geo::SpatialPosition::new(
+                    geo::GeoPoint::new(51.5, -0.1).unwrap(),
+                    geo::SpatialPrecision::Premises,
+                    None,
+                )
+                .unwrap(),
+            ),
+        ),
+        vec![],
+        None,
+        GeocodingProvenance {
+            provider: "TEST",
+            product: "TEST",
+            data_source: "TEST",
+            region: "TEST".into(),
+            interpretation_profile: PROFILE,
+            external_reference: "synthetic".into(),
+            attribution_url: "https://example.test/attribution",
+        },
+    );
+    let legacy_evidence = evaluate(
+        &coarse_input,
+        GeocodingResult {
+            outcome: GeocodingOutcome::Candidates(CandidateSet::new(vec![candidate], 5).unwrap()),
+            retention: ResultRetention::Storage,
+        },
+        PROFILE,
+    )
+    .unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .complete(
+            &claim,
+            ResolutionCompletion::Evidence(legacy_evidence.clone()),
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    // Model pre-upgrade private state with an old outstanding reservation and selection.
+    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex'),lease_token=$2,lease_until=now()+interval '1 minute' WHERE resolution_id=$1")
+        .bind(old.work.id.into_uuid()).bind(claim.token).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE geo_resolution_bindings SET selected_candidate=0,selected_generation=1,reviewed_actor='synthetic' WHERE subject_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
+    let second = UserAddressId::new();
+    let detailed = GeographicDescription::new(
+        Some(AddressText::new("Straße 99 — Berlin").unwrap()),
+        Some(CountryCode::DEU),
+        Some(geo::SubdivisionCode::new("DE-BE").unwrap()),
+        Some(PostalCode::new("10117").unwrap()),
+    )
+    .unwrap()
+    .unwrap();
+    h.create(
+        &a,
+        CreateUserAddress {
+            id: second,
+            label: UserAddressLabel::new("Office".into()).unwrap(),
+            geography: detailed.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let second_work = inspect(&pool, &h, &a, second).await.unwrap().unwrap().work;
+    sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',fingerprint=encode(sha256(uuid_send(resolution_id)),'hex') WHERE resolution_id=$1").bind(second_work.id.into_uuid()).execute(&pool).await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let business = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .bind(
+            &coarse_input,
+            ResolutionBinding {
+                subject: ResolutionSubject::new(
+                    RetentionPurpose::PartyLocation,
+                    uuid::Uuid::now_v7(),
+                )
+                .unwrap(),
+                input_revision: 1,
+                guard: 1,
+            },
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let deleted = UserAddressId::new();
+    h.create(&a, create(deleted, "Synthetic erased migration fence"))
+        .await
+        .unwrap();
+    let erased = inspect(&pool, &h, &a, deleted)
+        .await
+        .unwrap()
+        .unwrap()
+        .work
+        .id;
+    h.delete(&a, deleted, 1).await.unwrap();
+    let mut untouched = Vec::new();
+    for resolution in [business, erased] {
+        let row: serde_json::Value =
+            sqlx::query_scalar("SELECT to_jsonb(r) FROM geo_resolutions r WHERE resolution_id=$1")
+                .bind(resolution.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        untouched.push((resolution, row));
+    }
+    let mut migration = pool.begin().await.unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261011130000_automatic_user_browsing_resolution.sql"
+    ))
+    .execute(&mut *migration)
+    .await
+    .unwrap();
+    migration.commit().await.unwrap();
+    for (resolution, before) in untouched {
+        let after: serde_json::Value =
+            sqlx::query_scalar("SELECT to_jsonb(r) FROM geo_resolutions r WHERE resolution_id=$1")
+                .bind(resolution.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            before, after,
+            "business and erased state must stay unchanged"
+        );
+    }
+    for (id, description, previous) in
+        [(id, description, old.work), (second, detailed, second_work)]
+    {
+        let expected = ResolutionInput::new(
+            GeocodingRequest::new(description.address_text().unwrap().clone())
+                .with_submitted(geo::SubmittedGeography::new(description)),
+            ResolutionScope::new(ScopeKind::User, Some(owner.into_uuid())).unwrap(),
+            RetentionPurpose::UserLocation,
+        )
+        .unwrap();
+        let (policy,fingerprint,generation,evidence):(String,String,i64,Option<serde_json::Value>) = sqlx::query_as("SELECT policy_version,fingerprint,generation,evidence FROM geo_resolutions WHERE resolution_id=$1").bind(previous.id.into_uuid()).fetch_one(&pool).await.unwrap();
+        assert_eq!(USER_BROWSING_POLICY_VERSION, policy);
+        assert_eq!(expected.fingerprint(PROFILE), fingerprint);
+        assert_eq!(previous.generation + 1, generation as u64);
+        assert!(evidence.is_none());
+        let address = h.get(&a, id).await.unwrap();
+        assert_eq!(1, address.version);
+        assert_eq!(1, address.input_revision);
+        assert_eq!(
+            UserAddressResolutionStatus::Pending,
+            address.resolution.status
+        );
+    }
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i32>(
+            "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1"
+        )
+        .bind(PROFILE)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
+    assert!(current.selected_candidate.is_none());
+    let mut tx = uow.begin().await.unwrap();
+    assert!(matches!(
+        SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .claim(current.work, PROFILE, true)
+            .await
+            .unwrap(),
+        ClaimOutcome::Deferred
+    ));
+    assert!(
+        !SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .complete(&claim, ResolutionCompletion::Evidence(legacy_evidence))
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    assert_eq!(
+        UserAddressResolutionStatus::Pending,
+        h.get(&a, id).await.unwrap().resolution.status
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn policy_upgrade_aborts_on_unexpected_legacy_private_input() {
+    let (pool, h, a, _) = fixture().await;
+    let id = UserAddressId::new();
+    h.create(&a, create(id, "Synthetic unexpected legacy policy input"))
+        .await
+        .unwrap();
+    let work = inspect(&pool, &h, &a, id).await.unwrap().unwrap().work;
+    let original: serde_json::Value =
+        sqlx::query_scalar("SELECT input FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(work.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let mut unexpected = Vec::new();
+    for (field, value) in [
+        ("language", serde_json::json!("en")),
+        ("future_component", serde_json::json!("synthetic")),
+        ("query", serde_json::json!(12)),
+        ("owner", serde_json::Value::Null),
+        ("limit", serde_json::json!(1)),
+    ] {
+        let mut input = original.clone();
+        input[field] = value;
+        unexpected.push((input, 1));
+    }
+    let mut missing_query = original.clone();
+    missing_query.as_object_mut().unwrap().remove("query");
+    unexpected.push((missing_query, 1));
+    for (field, value) in [
+        ("future_component", serde_json::json!("synthetic")),
+        ("reference_release", serde_json::json!("future-release")),
+        ("postal_code", serde_json::json!(12)),
+    ] {
+        let mut input = original.clone();
+        input["submitted"][field] = value;
+        unexpected.push((input, 1));
+    }
+    unexpected.push((original, i64::MAX));
+    for (input, generation) in unexpected {
+        sqlx::query("UPDATE geo_resolutions SET policy_version='PRECISION_FIRST_V1',input=$2,generation=$3 WHERE resolution_id=$1")
+            .bind(work.id.into_uuid()).bind(input).bind(generation).execute(&pool).await.unwrap();
+        let before: serde_json::Value =
+            sqlx::query_scalar("SELECT to_jsonb(r) FROM geo_resolutions r WHERE resolution_id=$1")
+                .bind(work.id.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let mut migration = pool.begin().await.unwrap();
+        let error = sqlx::raw_sql(include_str!(
+            "../../../migrations/20261011130000_automatic_user_browsing_resolution.sql"
+        ))
+        .execute(&mut *migration)
+        .await
+        .unwrap_err();
+        assert_eq!(
+            Some("P0001"),
+            error.as_database_error().unwrap().code().as_deref()
+        );
+        migration.rollback().await.unwrap();
+        let after: serde_json::Value =
+            sqlx::query_scalar("SELECT to_jsonb(r) FROM geo_resolutions r WHERE resolution_id=$1")
+                .bind(work.id.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(before, after, "failed upgrade must preserve legacy state");
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
+    let (pool, h, a, b) = fixture().await;
+    let first = UserAddressId::new();
+    let second = UserAddressId::new();
+    h.create(&a, create(first, "Synthetic ownership first"))
+        .await
+        .unwrap();
+    h.create(&b, create(second, "Synthetic ownership second"))
+        .await
+        .unwrap();
+    let foreign = inspect(&pool, &h, &b, second).await.unwrap().unwrap().work;
+    sqlx::query("UPDATE geo_resolution_bindings SET resolution_id=$1 WHERE subject_id=$2")
+        .bind(foreign.id.into_uuid())
+        .bind(first.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.get(&a, first).await,
+        Err(AddressBookError::InvalidState(_))
+    ));
+    assert!(matches!(
+        h.list(&a, None, 100).await,
+        Err(AddressBookError::InvalidState(_))
+    ));
+    assert!(matches!(
+        h.resolve_destination(&a, Some(BrowsingDestination::Address(first)))
+            .await,
+        Err(AddressBookError::InvalidState(_))
+    ));
+    assert!(matches!(
+        h.update(
+            &a,
+            UpdateUserAddress {
+                id: first,
+                expected_version: 1,
+                label: UserAddressLabel::new("Renamed".into()).unwrap(),
+                geography: geography("Synthetic ownership first"),
+            }
+        )
+        .await,
+        Err(AddressBookError::Resolution(ResolutionError::InvalidState(
+            _
+        )))
+    ));
+    let version: i64 = sqlx::query_scalar("SELECT version FROM user_addresses WHERE address_id=$1")
+        .bind(first.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(1, version, "failed rebind must roll back the address edit");
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_attempts() {
+    let (pool, h, a, _) = fixture().await;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let id = UserAddressId::new();
+    h.create(&a, create(id, "Synthetic automatic retry"))
+        .await
+        .unwrap();
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    for attempt in 1..=MAX_ATTEMPTS {
+        let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
+        let mut tx = uow.begin().await.unwrap();
+        let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .claim(current.work, PROFILE, true)
+            .await
+            .unwrap()
+        else {
+            panic!("claim required")
+        };
+        assert_eq!(attempt, claim.attempt);
+        SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .complete(
+                &claim,
+                ResolutionCompletion::Failure(GeocodingFailure::Authentication),
+            )
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(
+            UserAddressResolutionStatus::Blocked,
+            h.get(&a, id).await.unwrap().resolution.status
+        );
+        sqlx::query("UPDATE geo_resolutions SET next_attempt_at=now()-interval '1 second' WHERE resolution_id=$1").bind(current.work.id.into_uuid()).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE geo_resolution_provider_controls SET open_until=NULL WHERE profile=$1")
+            .bind(PROFILE)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut tx = uow.begin().await.unwrap();
+        let recovered = SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .recover_pending(100)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(u32::from(attempt < MAX_ATTEMPTS), recovered);
+        assert_eq!(
+            attempt as i32,
+            sqlx::query_scalar::<_, i32>(
+                "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1"
+            )
+            .bind(PROFILE)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        );
+    }
+    assert_eq!(1, h.get(&a, id).await.unwrap().input_revision);
+    assert_eq!(
+        UserAddressResolutionStatus::Blocked,
+        h.get(&a, id).await.unwrap().resolution.status
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn provider_profile_rebinding_erases_the_final_old_private_input() {
+    let (pool, h, a, _) = fixture().await;
+    let id = UserAddressId::new();
+    h.create(&a, create(id, "Synthetic profile change"))
+        .await
+        .unwrap();
+    let previous = inspect(&pool, &h, &a, id).await.unwrap().unwrap().work;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('PRIVATE_USER_TEST_V2',true)").execute(&pool).await.unwrap();
+    h.update(
+        &a,
+        UpdateUserAddress {
+            id,
+            expected_version: 1,
+            label: UserAddressLabel::new("Renamed".into()).unwrap(),
+            geography: geography("Synthetic profile change"),
+        },
+    )
+    .await
+    .unwrap();
+    let current = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
+    assert_ne!(previous.id, current.work.id);
+    assert_eq!(1, current.input_revision);
+    let state: (bool, Option<serde_json::Value>, Option<serde_json::Value>) =
+        sqlx::query_as("SELECT erased,input,evidence FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(previous.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((true, None, None), state);
 }

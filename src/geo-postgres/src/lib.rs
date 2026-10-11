@@ -50,6 +50,70 @@ fn work(id: Uuid, generation: i64) -> Result<ResolutionWork, ResolutionError> {
     })
 }
 
+fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str) -> bool {
+    let administrative_index = e.accepted_index.filter(|&i| {
+        e.candidates
+            .get(i)
+            .is_some_and(|c| c.geography.position().is_none())
+    });
+    if e.candidates.iter().enumerate().any(|(i, c)| {
+        c.profile != profile
+            || (c.acceptable
+                && Some(i) != administrative_index
+                && !candidate_compatible(input, &c.geography))
+    }) {
+        return false;
+    }
+    let Some(index) = e.accepted_index else {
+        return true;
+    };
+    let Some(accepted) = e.candidates.get(index) else {
+        return false;
+    };
+    if accepted.geography.position().is_none() {
+        // Administrative acceptance strips postal/address text. Check assertions
+        // against the retained source candidate, then validate the exact projection.
+        let [source, projected] = e.candidates.as_slice() else {
+            return false;
+        };
+        let Some(description) = source.geography.description() else {
+            return false;
+        };
+        let projected_description = geo::GeographicDescription::new_in_release(
+            description.reference_release(),
+            None,
+            description.country(),
+            description.subdivision(),
+            None,
+        )
+        .ok()
+        .flatten();
+        return index == 1
+            && candidate_compatible(input, &source.geography)
+            && geo::DerivedGeography::new(projected_description, None)
+                .is_some_and(|g| g == projected.geography)
+            && source.provider == projected.provider
+            && source.product == projected.product
+            && source.data_source == projected.data_source
+            && source.region == projected.region
+            && source.external_reference == projected.external_reference
+            && source.attribution_url == projected.attribution_url;
+    }
+    input.purpose() == RetentionPurpose::UserLocation
+        && index == 0
+        && e.candidates.len() == 1
+        && accepted.acceptable
+        && accepted
+            .geography
+            .description()
+            .and_then(|d| d.country())
+            .is_some()
+        && accepted
+            .geography
+            .position()
+            .is_some_and(|p| p.precision() == geo::SpatialPrecision::Premises)
+}
+
 #[derive(FromRow)]
 struct ResolutionRow {
     resolution_id: Uuid,
@@ -73,7 +137,7 @@ impl ResolutionRow {
     fn input(&self) -> Result<ResolutionInput, ResolutionError> {
         let input: ResolutionInput =
             decode::<InputData>(self.input.clone().ok_or_else(corrupt)?)?.try_into()?;
-        if self.policy_version != POLICY_VERSION
+        if self.policy_version != input.policy_version()
             || input.fingerprint(&self.profile) != self.fingerprint
             || input.budget_key() != self.scope_key
             || self.generation <= 0
@@ -98,12 +162,7 @@ impl ResolutionRow {
             .clone()
             .map(|v| {
                 let e: ResolutionEvidence = decode::<EvidenceData>(v)?.try_into()?;
-                if e.status.as_str() != self.status
-                    || e.candidates.iter().any(|c| {
-                        c.profile != self.profile
-                            || (c.acceptable && !candidate_compatible(input, &c.geography))
-                    })
-                {
+                if e.status.as_str() != self.status || !valid_evidence(&e, input, &self.profile) {
                     return Err(corrupt());
                 }
                 Ok(e)
@@ -199,7 +258,7 @@ impl ResolutionRepository for Repository<'_> {
             RETURNING resolution_id,generation
             "#,
         )
-            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(POLICY_VERSION).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
+            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(input.policy_version()).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
         let w = work(stored_id, generation)?;
         let row = self.row(w.id).await?.ok_or_else(corrupt)?;
         let stored_input = row.input()?;
@@ -244,6 +303,27 @@ impl ResolutionRepository for Repository<'_> {
                     .map_err(sql_error)?;
             self.signal(work(old, g)?, "INVALIDATED", Some(b.subject))
                 .await?;
+            if input.purpose() == RetentionPurpose::UserLocation && old != stored_id {
+                // A provider/policy rebind can change work without changing address text.
+                // Erase the final old private cache just as the address erasure hook does.
+                let old_row = self
+                    .row(ResolutionId::try_from(old).map_err(invalid)?)
+                    .await?
+                    .ok_or_else(corrupt)?;
+                let old_input = old_row.input()?;
+                if old_input.scope() != input.scope() || old_input.purpose() != input.purpose() {
+                    return Err(corrupt());
+                }
+                sqlx::query(r#"
+                    UPDATE geo_resolutions SET erased=true,input=NULL,evidence=NULL,valid_until=NULL,
+                        last_failure=NULL,status='BLOCKED',generation=least(generation,9223372036854775806)+1,
+                        fingerprint=encode(sha256(uuid_send(resolution_id)),'hex')
+                    WHERE resolution_id=$1 AND NOT EXISTS(
+                        SELECT 1 FROM geo_resolution_bindings WHERE resolution_id=$1)
+                "#).bind(old).execute(&mut *self.connection).await.map_err(sql_error)?;
+                sqlx::query("DELETE FROM geo_resolution_wakeups WHERE resolution_id=$1 AND EXISTS(SELECT 1 FROM geo_resolutions WHERE resolution_id=$1 AND erased)")
+                    .bind(old).execute(&mut *self.connection).await.map_err(sql_error)?;
+            }
         }
         let now = self.clock().await?;
         if source_changed && row.valid_until.is_some_and(|until| until > now) {
@@ -266,7 +346,7 @@ impl ResolutionRepository for Repository<'_> {
             metric = "geo_resolution_input",
             reused = stored_id != id.into_uuid(),
             method = "GEOCODER",
-            policy = POLICY_VERSION
+            policy = input.policy_version()
         );
         Ok(w.id)
     }
@@ -405,16 +485,17 @@ impl ResolutionRepository for Repository<'_> {
             }
             return Ok(true);
         }
-        r.input()?;
+        let persisted_input = r.input()?;
         let now = self.clock().await?;
-        if r.generation as u64 != c.work.generation
+        if persisted_input.fingerprint(&c.profile) != c.input.fingerprint(&c.profile)
+            || r.generation as u64 != c.work.generation
             || r.lease_token != Some(c.token)
             || r.lease_until.is_none_or(|until| until <= now)
         {
             // A forced generation change keeps the old reservation until its call
             // finishes or the lease expires. Only that exact call may release it;
             // it cannot apply evidence or release a newer claim's reservation.
-            if r.generation as u64 != c.work.generation && r.lease_token == Some(c.token) {
+            if r.lease_token == Some(c.token) {
                 sqlx::query("UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1")
                     .bind(c.work.id.into_uuid()).execute(&mut *self.connection).await.map_err(sql_error)?;
             }
@@ -446,7 +527,7 @@ impl ResolutionRepository for Repository<'_> {
                     .ok_or(ResolutionError::InvalidInput)?;
                 let data = encode(&EvidenceData::from(&e))?;
                 let _: ResolutionEvidence = decode::<EvidenceData>(data.clone())?.try_into()?;
-                if e.candidates.iter().any(|v| v.profile != c.profile) {
+                if !valid_evidence(&e, &persisted_input, &c.profile) {
                     return Err(ResolutionError::InvalidInput);
                 }
                 sqlx::query(
@@ -510,7 +591,10 @@ impl ResolutionRepository for Repository<'_> {
             SELECT r.*
             FROM geo_resolutions r
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
-            WHERE c.is_default AND r.status='PENDING' AND r.attempts<5
+            WHERE c.is_default AND (r.status='PENDING' OR (
+                r.status='BLOCKED' AND r.policy_version='AUTOMATIC_USER_BROWSING_V1'
+                AND r.last_failure IN ('AUTHENTICATION','CONFIGURATION','STORAGE_NOT_PERMITTED')
+            )) AND r.attempts<5
                 AND r.next_attempt_at<=$1 AND (r.lease_until IS NULL OR r.lease_until<=$1)
                 AND c.enabled AND c.storage_permitted
                 AND (c.open_until IS NULL OR c.open_until<=$1)
@@ -535,7 +619,7 @@ impl ResolutionRepository for Repository<'_> {
             // Keep attempts, pending age and all budget reservations across recovery.
             sqlx::query(
                 r#"
-                UPDATE geo_resolutions SET generation=$2,lease_token=NULL,lease_until=NULL,
+                UPDATE geo_resolutions SET generation=$2,status='PENDING',lease_token=NULL,lease_until=NULL,
                 next_attempt_at=$3 WHERE resolution_id=$1
                 "#,
             )
@@ -692,59 +776,37 @@ impl ResolutionRepository for Repository<'_> {
     }
 }
 
-#[async_trait::async_trait]
-impl ResolutionReader for Repository<'_> {
-    async fn inspect(
-        &mut self,
-        subject: ResolutionSubject,
-    ) -> Result<Option<ResolutionView>, ResolutionError> {
-        let id: Option<Uuid> = sqlx::query_scalar(
-            "SELECT resolution_id FROM geo_resolution_bindings WHERE subject_kind=$1 AND subject_id=$2",
-        )
-        .bind(subject.kind().as_str())
-        .bind(subject.id())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        let Some(id) = id else {
-            return Ok(None);
+#[derive(FromRow)]
+struct BindingReadRow {
+    subject_kind: String,
+    subject_id: Uuid,
+    resolution_id: Uuid,
+    input_revision: i64,
+    guard: i64,
+    selected_candidate: Option<i32>,
+    selected_generation: Option<i64>,
+    storage_permitted: bool,
+}
+impl ResolutionRow {
+    fn view(
+        &self,
+        binding: &BindingReadRow,
+        now: OffsetDateTime,
+    ) -> Result<ResolutionView, ResolutionError> {
+        let input = self.input()?;
+        if binding.subject_kind != input.purpose().as_str() {
+            return Err(corrupt());
+        }
+        let eligible =
+            binding.storage_permitted && self.valid_until.is_some_and(|until| until > now);
+        let evidence = if eligible {
+            self.evidence(&input)?
+        } else {
+            None
         };
-        let r = self
-            .row(ResolutionId::try_from(id).map_err(invalid)?)
-            .await?
-            .ok_or_else(corrupt)?;
-        // Acquiring the resolution lock may wait while the subject changes. Read
-        // its guard and selection again under that lock, and hold the binding in
-        // the same lock order as selection/requeue/expiry until this read commits.
-        let binding: Option<(i64, i64, Option<i32>, Option<i64>)> = sqlx::query_as(
-            r#"
-            SELECT input_revision,guard,selected_candidate,selected_generation FROM
-            geo_resolution_bindings WHERE subject_kind=$1 AND subject_id=$2 AND resolution_id=$3
-            FOR SHARE
-            "#,
-        )
-        .bind(subject.kind().as_str())
-        .bind(subject.id())
-        .bind(id)
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        let Some((input_revision, guard, selected, selected_generation)) = binding else {
-            return Ok(None);
-        };
-        let input = r.input()?;
-        let permitted: bool = sqlx::query_scalar(
-            "SELECT storage_permitted FROM geo_resolution_provider_controls WHERE profile=$1",
-        )
-        .bind(&r.profile)
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        let now = self.clock().await?;
-        let eligible = permitted && r.valid_until.is_some_and(|until| until > now);
-        let evidence = if eligible { r.evidence(&input)? } else { None };
-        let selected = if selected_generation == Some(r.generation) && eligible {
-            selected
+        let selected = if binding.selected_generation == Some(self.generation) && eligible {
+            binding
+                .selected_candidate
                 .map(|i| usize::try_from(i).map_err(invalid))
                 .transpose()?
         } else {
@@ -759,16 +821,77 @@ impl ResolutionReader for Repository<'_> {
                 return Err(corrupt());
             }
         }
-        Ok(Some(ResolutionView {
-            work: work(id, r.generation)?,
-            input_revision: u64::try_from(input_revision).map_err(invalid)?,
-            guard: u64::try_from(guard).map_err(invalid)?,
-            status: ResolutionStatus::from_code(&r.status).ok_or_else(corrupt)?,
+        Ok(ResolutionView {
+            scope: input.scope(),
+            work: work(self.resolution_id, self.generation)?,
+            input_revision: u64::try_from(binding.input_revision).map_err(invalid)?,
+            guard: u64::try_from(binding.guard).map_err(invalid)?,
+            status: ResolutionStatus::from_code(&self.status).ok_or_else(corrupt)?,
             evidence,
-            valid_until: if eligible { r.valid_until } else { None },
+            valid_until: if eligible { self.valid_until } else { None },
             selected_candidate: selected,
-            last_failure: r.last_failure,
-            attempts: r.attempts as u32,
-        }))
+            last_failure: self.last_failure.clone(),
+            attempts: self.attempts as u32,
+        })
+    }
+}
+#[async_trait::async_trait]
+impl ResolutionReader for Repository<'_> {
+    async fn inspect(
+        &mut self,
+        subject: ResolutionSubject,
+    ) -> Result<Option<ResolutionView>, ResolutionError> {
+        Ok(self.inspect_many(&[subject]).await?.pop().flatten())
+    }
+    async fn inspect_many(
+        &mut self,
+        subjects: &[ResolutionSubject],
+    ) -> Result<Vec<Option<ResolutionView>>, ResolutionError> {
+        if subjects.len() > 100 {
+            return Err(ResolutionError::InvalidInput);
+        }
+        if subjects.is_empty() {
+            return Ok(vec![]);
+        }
+        let kinds: Vec<_> = subjects.iter().map(|s| s.kind().as_str()).collect();
+        let subject_ids: Vec<_> = subjects.iter().map(|s| s.id()).collect();
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT b.resolution_id FROM geo_resolution_bindings b JOIN unnest($1::text[],$2::uuid[]) AS wanted(subject_kind,subject_id) USING(subject_kind,subject_id)",
+        ).bind(&kinds).bind(&subject_ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        if ids.is_empty() {
+            return Ok(vec![None; subjects.len()]);
+        }
+        // Lock each resolution once in stable order, then reread and lock bindings.
+        // This preserves selection/expiry coordination with a constant query count.
+        let rows: Vec<ResolutionRow> = sqlx::query_as(
+            "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE",
+        ).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let rows: std::collections::HashMap<_, _> =
+            rows.into_iter().map(|r| (r.resolution_id, r)).collect();
+        let bindings: Vec<BindingReadRow> = sqlx::query_as(
+            r#"
+            SELECT b.subject_kind,b.subject_id,b.resolution_id,b.input_revision,b.guard,
+                b.selected_candidate,b.selected_generation,c.storage_permitted
+            FROM geo_resolution_bindings b
+            JOIN unnest($1::text[],$2::uuid[]) AS wanted(subject_kind,subject_id) USING(subject_kind,subject_id)
+            JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
+            JOIN geo_resolution_provider_controls c ON c.profile=r.profile
+            WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id FOR SHARE OF b
+            "#,
+        ).bind(&kinds).bind(&subject_ids).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        let bindings: std::collections::HashMap<_, _> = bindings
+            .into_iter()
+            .map(|b| ((b.subject_kind.clone(), b.subject_id), b))
+            .collect();
+        let now = self.clock().await?;
+        subjects
+            .iter()
+            .map(|s| {
+                bindings
+                    .get(&(s.kind().as_str().to_owned(), s.id()))
+                    .map(|b| rows.get(&b.resolution_id).ok_or_else(corrupt)?.view(b, now))
+                    .transpose()
+            })
+            .collect()
     }
 }

@@ -127,7 +127,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -177,7 +177,7 @@ paths:
       - BearerAuth: []
       - AccessTokenAuth: []
       description: Requires the current unsuspended owner. Delegated credentials require users:read. Success and errors
-        are no-store. Resolution details use the separate inspect route; no N+1 enrichment hydration.
+        are no-store. Current geocoding state and eligible accepted results are included using bounded batch hydration.
       responses:
         '200':
           description: Successful private operation.
@@ -240,7 +240,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -360,7 +360,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -475,7 +475,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -591,7 +591,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -632,357 +632,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UserAddressExpectedVersion'
-      parameters:
-      - in: path
-        name: address_id
-        required: true
-        schema:
-          $ref: '#/components/schemas/UserAddressId'
-  /api/v1/me/addresses/{address_id}/resolution:
-    get:
-      summary: Inspect current private address resolution
-      operationId: inspectUserAddressResolution
-      tags:
-      - Users
-      security:
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      description: Requires the current unsuspended owner. Delegated credentials require users:read. Success and errors
-        are no-store. Null means no current binding. Expired/revoked evidence is UNAVAILABLE with empty candidates
-        and null accepted/validUntil. Retained provider provenance/attribution is owner-only.
-      responses:
-        '200':
-          description: Successful private operation.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/json:
-              schema:
-                allOf:
-                - $ref: '#/components/schemas/UserAddressResolution'
-                nullable: true
-        '400':
-          description: Invalid body, query or strict object ID.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Bearer credential required (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user or delegated scope is not permitted (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-      parameters:
-      - in: path
-        name: address_id
-        required: true
-        schema:
-          $ref: '#/components/schemas/UserAddressId'
-  /api/v1/me/addresses/{address_id}/resolution/retry:
-    post:
-      summary: Request authorized resolution retry
-      operationId: retryUserAddressResolution
-      tags:
-      - Users
-      security:
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
-        errors are no-store. Address version and resolution generation must match. force invalidates old evidence.
-        Retention rights and provider budgets cannot be bypassed.
-      responses:
-        '204':
-          description: Successful private operation.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-        '400':
-          description: Invalid body, query or strict object ID.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Bearer credential required (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user or delegated scope is not permitted (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RetryUserAddressResolution'
-      parameters:
-      - in: path
-        name: address_id
-        required: true
-        schema:
-          $ref: '#/components/schemas/UserAddressId'
-  /api/v1/me/addresses/{address_id}/resolution/selection:
-    put:
-      summary: Select a permitted private resolution candidate
-      operationId: selectUserAddressResolutionCandidate
-      tags:
-      - Users
-      security:
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      description: Requires the current unsuspended owner. Delegated credentials require users:write. Success and
-        errors are no-store. Current binding/version/generation and compatible, non-approximate premises evidence
-        required. A selection affects this address only.
-      responses:
-        '204':
-          description: Successful private operation.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-        '400':
-          description: Invalid body, query or strict object ID.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Bearer credential required (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user or delegated scope is not permitted (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SelectUserAddressResolutionCandidate'
       parameters:
       - in: path
         name: address_id
@@ -1062,7 +711,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -1170,7 +819,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
+          description: Stale version or conflicting create ID (CONFLICT).
           headers:
             Cache-Control:
               schema:
@@ -1211,123 +860,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetBrowsingDestination'
-  /api/v1/me/browsing-destination/resolve:
-    post:
-      summary: Resolve an authorized destination snapshot
-      operationId: resolveBrowsingDestination
-      tags:
-      - Users
-      security:
-      - BearerAuth: []
-      - AccessTokenAuth: []
-      description: Requires the current unsuspended owner. Delegated credentials require users:read. Success and errors
-        are no-store. Explicit choice wins over stored preference; explicit NONE suppresses it. Omitted/null destination
-        uses stored preference. Returns submitted assertions separately from eligible derived evidence without geocoding.
-        Does not change listing search results. Saved filters must snapshot authorized coordinates independently of
-        mutable entries.
-      responses:
-        '200':
-          description: Successful private operation.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ResolvedBrowsingDestination'
-        '400':
-          description: Invalid body, query or strict object ID.
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Bearer credential required (INVALID_CREDENTIALS).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Current user or delegated scope is not permitted (FORBIDDEN).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: Address/owner not found (USER_ADDRESS_NOT_FOUND).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '409':
-          description: Stale version/generation or conflicting create ID (CONFLICT).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '500':
-          description: Invalid persisted state or internal failure (ADDRESS_BOOK_INTERNAL_ERROR).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '503':
-          description: Storage or transaction unavailable (ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE).
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-                enum:
-                - no-store
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResolveBrowsingDestination'
   /api/v1/health:
     get:
       summary: Check process liveness
@@ -16564,6 +16096,7 @@ components:
       - inputRevision
       - version
       - preferred
+      - resolution
       properties:
         addressId:
           $ref: '#/components/schemas/UserAddressId'
@@ -16583,6 +16116,8 @@ components:
           maximum: 9223372036854775807
         preferred:
           type: boolean
+        resolution:
+          $ref: '#/components/schemas/UserAddressResolution'
     UserAddressPage:
       type: object
       additionalProperties: false
@@ -16672,15 +16207,6 @@ components:
           maximum: 9223372036854775807
         destination:
           $ref: '#/components/schemas/BrowsingDestination'
-    ResolveBrowsingDestination:
-      type: object
-      additionalProperties: false
-      required: []
-      properties:
-        destination:
-          allOf:
-          - $ref: '#/components/schemas/BrowsingDestination'
-          nullable: true
     UserAddressDerivedGeography:
       type: object
       additionalProperties: false
@@ -16696,96 +16222,17 @@ components:
           allOf:
           - $ref: '#/components/schemas/PartyLocationPosition'
           nullable: true
-    ResolvedBrowsingDestination:
-      type: object
-      additionalProperties: false
-      required:
-      - destination
-      - submitted
-      - derived
-      properties:
-        destination:
-          $ref: '#/components/schemas/BrowsingDestination'
-        submitted:
-          allOf:
-          - $ref: '#/components/schemas/PartyLocationGeography'
-          nullable: true
-        derived:
-          allOf:
-          - $ref: '#/components/schemas/UserAddressDerivedGeography'
-          nullable: true
-    UserAddressResolutionCandidate:
-      type: object
-      additionalProperties: false
-      required:
-      - index
-      - acceptable
-      - derived
-      - provider
-      - product
-      - dataSource
-      - region
-      - profile
-      - externalReference
-      - attributionUrl
-      properties:
-        index:
-          type: integer
-          minimum: 0
-          maximum: 9
-        acceptable:
-          type: boolean
-        derived:
-          $ref: '#/components/schemas/UserAddressDerivedGeography'
-        provider:
-          type: string
-        product:
-          type: string
-        dataSource:
-          type: string
-        region:
-          type: string
-        profile:
-          type: string
-        externalReference:
-          type: string
-        attributionUrl:
-          type: string
     UserAddressResolution:
       type: object
       additionalProperties: false
+      description: Current backend geocoding state, returned with address CRUD/list reads. A unique compatible premises result can supply a point
+        automatically. Coarse results can supply administrative geography only. Expired or revoked evidence is UNAVAILABLE and suppressed. This is
+        browsing enrichment, not address or delivery verification.
       required:
-      - resolutionId
-      - generation
-      - inputRevision
-      - version
       - status
-      - evidenceAvailable
-      - attempts
-      - lastFailure
-      - validUntil
-      - selectedCandidate
-      - accepted
-      - candidates
+      - derived
+      - attribution
       properties:
-        resolutionId:
-          type: string
-          pattern: ^gres_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        generation:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        inputRevision:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        version:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
         status:
           type: string
           enum:
@@ -16796,83 +16243,27 @@ components:
           - FAILED
           - BLOCKED
           - UNAVAILABLE
-        evidenceAvailable:
-          type: boolean
-        attempts:
-          type: integer
-          minimum: 0
-          maximum: 5
-        lastFailure:
-          type: string
-          nullable: true
-        validUntil:
-          type: string
-          format: date-time
-          nullable: true
-        selectedCandidate:
-          type: integer
-          minimum: 0
-          maximum: 9
-          nullable: true
-        accepted:
+        derived:
           allOf:
           - $ref: '#/components/schemas/UserAddressDerivedGeography'
           nullable: true
-        candidates:
-          type: array
-          items:
-            $ref: '#/components/schemas/UserAddressResolutionCandidate'
-          maxItems: 10
-    RetryUserAddressResolution:
+        attribution:
+          allOf:
+          - $ref: '#/components/schemas/UserAddressAttribution'
+          nullable: true
+    UserAddressAttribution:
       type: object
       additionalProperties: false
       required:
-      - expectedVersion
-      - resolutionId
-      - generation
+      - provider
+      - attributionUrl
+      description: Display the attribution when showing accepted provider-derived geography.
       properties:
-        expectedVersion:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        resolutionId:
+        provider:
           type: string
-          pattern: ^gres_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        generation:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        force:
-          type: boolean
-          default: false
-    SelectUserAddressResolutionCandidate:
-      type: object
-      additionalProperties: false
-      required:
-      - expectedVersion
-      - resolutionId
-      - generation
-      - index
-      properties:
-        expectedVersion:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        resolutionId:
+        attributionUrl:
           type: string
-          pattern: ^gres_[0-7][0-9a-hjkmnp-tv-z]{25}$
-        generation:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 9223372036854775807
-        index:
-          type: integer
-          minimum: 0
-          maximum: 9
+          format: uri
     SourceLocationDefaultEvidence:
       type: object
       additionalProperties: false

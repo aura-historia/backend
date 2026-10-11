@@ -85,6 +85,79 @@ pub struct UserAddressView {
     pub input_revision: u64,
     pub version: u64,
     pub preferred: bool,
+    pub resolution: UserAddressResolution,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserAddressResolutionStatus {
+    Pending,
+    Accepted,
+    Ambiguous,
+    NoMatch,
+    Failed,
+    Blocked,
+    Unavailable,
+}
+impl UserAddressResolutionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "PENDING",
+            Self::Accepted => "ACCEPTED",
+            Self::Ambiguous => "AMBIGUOUS",
+            Self::NoMatch => "NO_MATCH",
+            Self::Failed => "FAILED",
+            Self::Blocked => "BLOCKED",
+            Self::Unavailable => "UNAVAILABLE",
+        }
+    }
+}
+#[derive(Clone)]
+pub struct UserAddressAttribution {
+    pub provider: String,
+    pub attribution_url: String,
+}
+#[derive(Clone)]
+pub struct UserAddressResolution {
+    pub status: UserAddressResolutionStatus,
+    pub derived: Option<DerivedGeography>,
+    pub attribution: Option<UserAddressAttribution>,
+}
+impl UserAddressResolution {
+    pub fn unavailable() -> Self {
+        Self {
+            status: UserAddressResolutionStatus::Unavailable,
+            derived: None,
+            attribution: None,
+        }
+    }
+    fn from_view(view: &ResolutionView) -> Self {
+        let status = match view.status {
+            ResolutionStatus::Pending => UserAddressResolutionStatus::Pending,
+            ResolutionStatus::Accepted if view.evidence.is_some() => {
+                UserAddressResolutionStatus::Accepted
+            }
+            ResolutionStatus::Ambiguous if view.evidence.is_some() => {
+                UserAddressResolutionStatus::Ambiguous
+            }
+            ResolutionStatus::NoMatch if view.evidence.is_some() => {
+                UserAddressResolutionStatus::NoMatch
+            }
+            ResolutionStatus::Failed => UserAddressResolutionStatus::Failed,
+            ResolutionStatus::Blocked => UserAddressResolutionStatus::Blocked,
+            _ => UserAddressResolutionStatus::Unavailable,
+        };
+        let accepted = view
+            .evidence
+            .as_ref()
+            .and_then(|e| e.accepted_index.and_then(|index| e.candidates.get(index)));
+        Self {
+            status,
+            derived: accepted.map(|c| c.geography.clone()),
+            attribution: accepted.map(|c| UserAddressAttribution {
+                provider: c.provider.clone(),
+                attribution_url: c.attribution_url.clone(),
+            }),
+        }
+    }
 }
 impl std::fmt::Debug for UserAddressView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -106,6 +179,8 @@ pub struct ResolvedDestination {
     pub destination: BrowsingDestination,
     pub submitted: Option<GeographicDescription>,
     pub derived: Option<DerivedGeography>,
+    pub resolution_status: Option<UserAddressResolutionStatus>,
+    pub attribution: Option<UserAddressAttribution>,
 }
 
 #[async_trait::async_trait]
@@ -174,11 +249,6 @@ pub struct UpdateUserAddress {
     pub label: UserAddressLabel,
     pub geography: GeographicDescription,
 }
-pub struct ReviewUserAddress {
-    pub id: UserAddressId,
-    pub expected_version: u64,
-    pub work: ResolutionWork,
-}
 
 #[async_trait::async_trait]
 pub trait AddressBookCommands: Send + Sync {
@@ -204,18 +274,6 @@ pub trait AddressBookCommands: Send + Sync {
         destination: BrowsingDestination,
         expected: u64,
     ) -> Result<DestinationView, AddressBookError>;
-    async fn retry(
-        &self,
-        ctx: &OperationContext,
-        command: ReviewUserAddress,
-        force: bool,
-    ) -> Result<(), AddressBookError>;
-    async fn select(
-        &self,
-        ctx: &OperationContext,
-        command: ReviewUserAddress,
-        index: usize,
-    ) -> Result<(), AddressBookError>;
 }
 #[async_trait::async_trait]
 pub trait AddressBookQueries: Send + Sync {
@@ -234,12 +292,6 @@ pub trait AddressBookQueries: Send + Sync {
         &self,
         ctx: &OperationContext,
     ) -> Result<DestinationView, AddressBookError>;
-    async fn inspect(
-        &self,
-        ctx: &OperationContext,
-        id: UserAddressId,
-    ) -> Result<Option<ResolutionView>, AddressBookError>;
-    /// An explicit request wins over stored preference; enum variants are exclusive.
     async fn resolve_destination(
         &self,
         ctx: &OperationContext,
@@ -305,11 +357,40 @@ where
         owner: UserId,
         id: UserAddressId,
     ) -> Result<UserAddressView, AddressBookError> {
-        self.addresses
+        let mut view = self
+            .addresses
             .reader(tx)
             .get(owner, id)
             .await?
-            .ok_or(AddressBookError::NotFound)
+            .ok_or(AddressBookError::NotFound)?;
+        let resolution = self
+            .resolutions
+            .resolution_reader(tx)
+            .inspect(subject(id)?)
+            .await?;
+        Self::enrich(&mut view, owner, resolution.as_ref())?;
+        Ok(view)
+    }
+    fn enrich(
+        view: &mut UserAddressView,
+        owner: UserId,
+        resolution: Option<&ResolutionView>,
+    ) -> Result<(), AddressBookError> {
+        if let Some(resolution) = resolution {
+            if resolution.scope.kind() != ScopeKind::User
+                || resolution.scope.owner() != Some(owner.into_uuid())
+            {
+                return Err(AddressBookError::InvalidState(Box::new(
+                    std::io::Error::other("invalid private resolution ownership"),
+                )));
+            }
+            if resolution.input_revision != view.input_revision || resolution.guard != view.version
+            {
+                return Err(AddressBookError::Conflict);
+            }
+            view.resolution = UserAddressResolution::from_view(resolution);
+        }
+        Ok(())
     }
     async fn current(
         &self,
@@ -426,45 +507,6 @@ where
         tx.commit().await?;
         Ok(view)
     }
-    async fn retry(
-        &self,
-        ctx: &OperationContext,
-        c: ReviewUserAddress,
-        force: bool,
-    ) -> Result<(), AddressBookError> {
-        let (owner, mut tx) = self.begin(ctx, true).await?;
-        let stored = self
-            .current(&mut tx, owner, c.id, c.expected_version)
-            .await?;
-        self.resolutions
-            .resolutions(&mut tx)
-            .requeue(binding(&stored.address, stored.version)?, c.work, force)
-            .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-    async fn select(
-        &self,
-        ctx: &OperationContext,
-        c: ReviewUserAddress,
-        index: usize,
-    ) -> Result<(), AddressBookError> {
-        let (owner, mut tx) = self.begin(ctx, true).await?;
-        let stored = self
-            .current(&mut tx, owner, c.id, c.expected_version)
-            .await?;
-        self.resolutions
-            .resolutions(&mut tx)
-            .select(
-                binding(&stored.address, stored.version)?,
-                c.work,
-                index,
-                &ctx.principal.label(),
-            )
-            .await?;
-        tx.commit().await?;
-        Ok(())
-    }
 }
 #[async_trait::async_trait]
 impl<U, A, R> AddressBookQueries for AddressBookHandler<U, A, R>
@@ -493,11 +535,29 @@ where
             return Err(AddressBookError::InvalidInput);
         }
         let (owner, mut tx) = self.begin(ctx, false).await?;
-        let page = self
+        let mut page = self
             .addresses
             .reader(&mut tx)
             .list(owner, after, limit)
             .await?;
+        let subjects = page
+            .items
+            .iter()
+            .map(|item| subject(item.id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let resolutions = self
+            .resolutions
+            .resolution_reader(&mut tx)
+            .inspect_many(&subjects)
+            .await?;
+        if resolutions.len() != page.items.len() {
+            return Err(AddressBookError::InvalidState(Box::new(
+                std::io::Error::other("invalid resolution read cardinality"),
+            )));
+        }
+        for (item, resolution) in page.items.iter_mut().zip(resolutions) {
+            Self::enrich(item, owner, resolution.as_ref())?;
+        }
         tx.commit().await?;
         Ok(page)
     }
@@ -507,26 +567,6 @@ where
     ) -> Result<DestinationView, AddressBookError> {
         let (owner, mut tx) = self.begin(ctx, false).await?;
         let view = self.addresses.reader(&mut tx).destination(owner).await?;
-        tx.commit().await?;
-        Ok(view)
-    }
-    async fn inspect(
-        &self,
-        ctx: &OperationContext,
-        id: UserAddressId,
-    ) -> Result<Option<ResolutionView>, AddressBookError> {
-        let (owner, mut tx) = self.begin(ctx, false).await?;
-        let current = self.view(&mut tx, owner, id).await?;
-        let view = self
-            .resolutions
-            .resolution_reader(&mut tx)
-            .inspect(subject(id)?)
-            .await?;
-        if view.as_ref().is_some_and(|v| {
-            v.input_revision != current.input_revision || v.guard != current.version
-        }) {
-            return Err(AddressBookError::Conflict);
-        }
         tx.commit().await?;
         Ok(view)
     }
@@ -546,8 +586,8 @@ where
                     .destination
             }
         };
-        let (submitted, derived) = match &destination {
-            BrowsingDestination::None => (None, None),
+        let (submitted, derived, resolution_status, attribution) = match &destination {
+            BrowsingDestination::None => (None, None, None, None),
             BrowsingDestination::CountryPostal {
                 country,
                 postal_code,
@@ -555,20 +595,17 @@ where
                 GeographicDescription::new(None, Some(*country), None, postal_code.clone())
                     .map_err(|_| AddressBookError::InvalidInput)?,
                 None,
+                None,
+                None,
             ),
             BrowsingDestination::Address(id) => {
                 let current = self.view(&mut tx, owner, *id).await?;
-                let resolution = self
-                    .resolutions
-                    .resolution_reader(&mut tx)
-                    .inspect(subject(*id)?)
-                    .await?;
-                let derived = resolution
-                    .filter(|r| {
-                        r.input_revision == current.input_revision && r.guard == current.version
-                    })
-                    .and_then(|r| r.accepted_geography().cloned());
-                (Some(current.geography), derived)
+                (
+                    Some(current.geography),
+                    current.resolution.derived,
+                    Some(current.resolution.status),
+                    current.resolution.attribution,
+                )
             }
         };
         tx.commit().await?;
@@ -576,6 +613,8 @@ where
             destination,
             submitted,
             derived,
+            resolution_status,
+            attribution,
         })
     }
 }
