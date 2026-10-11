@@ -82,6 +82,7 @@ impl SourceLocationAccess for Access<'_> {
         &mut self,
         principal: &Principal,
         id: ListingSourceId,
+        policy: SourceLocationAccessPolicy,
     ) -> Result<PartyId, LocationDefaultError> {
         // Same Party-first lock order as Party location/partnership mutations. Never lock a source first.
         let owner: Uuid = sqlx::query_scalar(
@@ -129,6 +130,9 @@ impl SourceLocationAccess for Access<'_> {
         let role = user_core::role::UserRole::from_code(&role).ok_or_else(corrupt)?;
         if role == user_core::role::UserRole::Admin {
             return Ok(party_id);
+        }
+        if policy == SourceLocationAccessPolicy::AdministratorOnly {
+            return Err(LocationDefaultError::Forbidden);
         }
         // Party partnership membership also confers PartyLocation management; source grant is additional.
         let granted = sqlx::query_scalar::<_, Uuid>("SELECT p.partnership_id FROM partnership_members m JOIN partnerships p ON p.partnership_id=m.partnership_id JOIN partnership_listing_source_grants g ON g.partnership_id=p.partnership_id WHERE m.user_id=$1 AND p.party_id=$2 AND p.business_state='ACTIVE' AND g.listing_source_id=$3 FOR SHARE OF p,m,g")

@@ -13,13 +13,21 @@ pub struct StoredLocationDefault {
     pub revision: LocationDefaultRevision,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceLocationAccessPolicy {
+    AdministratorOrOperator,
+    AdministratorOnly,
+}
+
 #[async_trait::async_trait]
 pub trait SourceLocationAccess: Send {
     /// Locks owner Party before source, revalidates ownership and current authority.
+    /// Trusted service/system principals are allowed under either policy.
     async fn authorize_source(
         &mut self,
         principal: &Principal,
         source_id: ListingSourceId,
+        policy: SourceLocationAccessPolicy,
     ) -> Result<PartyId, LocationDefaultError>;
     /// Locks the selected location against concurrent retirement; never selects an alternative.
     async fn check_location(

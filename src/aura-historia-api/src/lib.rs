@@ -923,6 +923,22 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(defaults),
         );
     }
+    if let Some(defaults) = state.admin_source_location_defaults {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+                    get(listing_sources::location_default::get)
+                        .put(listing_sources::location_default::assign)
+                        .patch(listing_sources::location_default::change)
+                        .delete(listing_sources::location_default::clear),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(defaults),
+        );
+    }
     if let Some(locations) = state.party_locations {
         routes = routes.merge(
             Router::new()
@@ -1754,6 +1770,29 @@ async fn app_state_from_config_and_pool(
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let admin_source_location_defaults_state = state::SourceLocationDefaultsState {
+        assign: Arc::new(AssignLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        clear: Arc::new(ClearLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        get: Arc::new(GetLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let parties_state = PartiesState::new(
         Arc::new(create_party),
         Arc::new(get_party),
@@ -1976,6 +2015,7 @@ async fn app_state_from_config_and_pool(
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
         .with_source_location_defaults(source_location_defaults_state)
+        .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)

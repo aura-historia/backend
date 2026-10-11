@@ -127,6 +127,7 @@ pub struct AppState {
     pub(crate) parties: Option<PartiesState>,
     pub(crate) party_locations: Option<PartyLocationsState>,
     pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
+    pub(crate) admin_source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
@@ -160,6 +161,7 @@ impl AppState {
             parties: None,
             party_locations: None,
             source_location_defaults: None,
+            admin_source_location_defaults: None,
             users: None,
             watchlist: None,
             partnership_applications: None,
@@ -219,6 +221,14 @@ impl AppState {
 
     pub fn with_source_location_defaults(mut self, state: SourceLocationDefaultsState) -> Self {
         self.source_location_defaults = Some(state);
+        self
+    }
+
+    pub fn with_admin_source_location_defaults(
+        mut self,
+        state: SourceLocationDefaultsState,
+    ) -> Self {
+        self.admin_source_location_defaults = Some(state);
         self
     }
 

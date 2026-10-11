@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(116);
+    expect(catalog).toHaveLength(120);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -200,6 +200,22 @@ describe("HTTP API route policy matrix", () => {
       expect(route.policy).toEqual({
         bearer: "REQUIRED",
         authorization: RouteAuthorizationClass.SourceLocationManager,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
+  });
+
+  test("exposes four admin source location default methods with administrator authority and no discovery cache", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) =>
+      route.path === "/api/v1/admin/listing-sources/{listing_source_id}/location-default");
+    expect(routes.map((route) => route.method)).toEqual(["GET", "PUT", "PATCH", "DELETE"]);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.Administrator,
         oauthCredentials: OAuthCredentialRequirement.None,
         providerProof: ProviderProofRequirement.None,
       });
@@ -448,7 +464,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(116);
+    expect(routes).toHaveLength(120);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

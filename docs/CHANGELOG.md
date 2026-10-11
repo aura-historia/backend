@@ -2,6 +2,11 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-11 — Administrator ListingSource location defaults (#2000)
+
+- Added GET/PUT/PATCH/DELETE `/api/v1/admin/listing-sources/{listing_source_id}/location-default` with the same request, response, expected-revision and no-store contracts as the protected source-management routes.
+- Admin routes require a current unsuspended administrator; operator-partnership membership or a source grant alone is insufficient. Delegated credentials additionally require `listing-sources:read` for GET and `listing-sources:write` for mutations. Administrator authority is revalidated within the operation transaction.
+
 ## 2026-10-10 — ListingSource location defaults (#2000)
 
 - Added protected GET/PUT/PATCH/DELETE `/api/v1/listing-sources/{listing_source_id}/location-default`. A source selects zero or one operator-owned PartyLocation. PUT replaces the reference and applicability together; PATCH changes applicability on that reference; DELETE clears it with a JSON `expectedRevision` body.

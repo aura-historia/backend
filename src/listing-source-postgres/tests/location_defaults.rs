@@ -55,6 +55,34 @@ fn get(pool: &PgPool) -> impl GetLocationDefaultUseCase {
         SqlxSourceLocationAccessFactory,
     )
 }
+fn admin_assign(pool: &PgPool) -> impl AssignLocationDefaultUseCase {
+    AssignLocationDefaultHandler::new_admin_only(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxLocationDefaultRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+}
+fn admin_clear(pool: &PgPool) -> impl ClearLocationDefaultUseCase {
+    ClearLocationDefaultHandler::new_admin_only(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxLocationDefaultRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+}
+fn admin_change(pool: &PgPool) -> impl ChangeLocationDefaultApplicabilityUseCase {
+    ChangeLocationDefaultApplicabilityHandler::new_admin_only(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxLocationDefaultRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+}
+fn admin_get(pool: &PgPool) -> impl GetLocationDefaultUseCase {
+    GetLocationDefaultHandler::new_admin_only(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxLocationDefaultReaderFactory,
+        SqlxSourceLocationAccessFactory,
+    )
+}
 async fn party(pool: &PgPool) -> PartyId {
     let id = PartyId::new();
     sqlx::query(
@@ -698,14 +726,268 @@ async fn current_operator_membership_source_grant_and_scope_are_required() {
     ));
     assert_eq!(1, signals(&pool, id).await);
 }
+async fn assert_admin_mutations_forbidden(
+    pool: &PgPool,
+    ctx: &OperationContext,
+    source_id: ListingSourceId,
+    location_id: PartyLocationId,
+    expected_revision: LocationDefaultRevision,
+) {
+    let mut assignment = command(source_id, location_id);
+    assignment.expected_revision = expected_revision;
+    for result in [
+        admin_assign(pool).execute(ctx, assignment).await,
+        admin_change(pool)
+            .execute(
+                ctx,
+                ChangeLocationDefaultApplicabilityCommand {
+                    source_id,
+                    expected_revision,
+                    business_association: PatchField::Unchanged,
+                    advertised_inventory: PatchField::Unchanged,
+                },
+            )
+            .await,
+        admin_clear(pool)
+            .execute(
+                ctx,
+                ClearLocationDefaultCommand {
+                    source_id,
+                    expected_revision,
+                },
+            )
+            .await,
+    ] {
+        assert!(matches!(result, Err(LocationDefaultError::Forbidden)));
+    }
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn admin_policy_excludes_operator_members_and_preserves_default_contract() {
+    let pool = get_postgres_client().await;
+    let owner = party(&pool).await;
+    let id = source(&pool, owner).await;
+    let a = location(&pool, owner, "PRIVATE").await;
+    let b = location(&pool, owner, "EXACT_PUBLIC").await;
+    let principal = member(&pool, owner, id).await;
+    let ctx = context(principal.clone());
+    let request = GetLocationDefaultRequest { source_id: id };
+    assert!(matches!(
+        admin_get(&pool).execute(&ctx, request).await,
+        Err(LocationDefaultError::Forbidden)
+    ));
+    assert_admin_mutations_forbidden(&pool, &ctx, id, a, LocationDefaultRevision::INITIAL).await;
+    assert_eq!(0, signals(&pool, id).await);
+    // Operator authority continues to work on the source-management routes.
+    let original = assign(&pool).execute(&ctx, command(id, a)).await.unwrap();
+    let Principal::DelegatedUser { user_id, .. } = principal else {
+        unreachable!()
+    };
+    sqlx::query("UPDATE users SET role='ADMIN' WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        original,
+        admin_get(&pool).execute(&ctx, request).await.unwrap()
+    );
+    let mut replacement = command(id, b);
+    replacement.expected_revision = original.revision;
+    let replaced = admin_assign(&pool)
+        .execute(&ctx, replacement)
+        .await
+        .unwrap();
+    assert_eq!(b, replaced.assignment.as_ref().unwrap().location_id());
+    let changed = admin_change(&pool)
+        .execute(
+            &ctx,
+            ChangeLocationDefaultApplicabilityCommand {
+                source_id: id,
+                expected_revision: replaced.revision,
+                business_association: PatchField::Unchanged,
+                advertised_inventory: PatchField::Set(evidence(
+                    SourceLocationMeaning::AdvertisedInventory,
+                )),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        changed
+            .assignment
+            .as_ref()
+            .unwrap()
+            .advertised_inventory()
+            .is_some()
+    );
+    assert!(matches!(
+        admin_clear(&pool)
+            .execute(
+                &ctx,
+                ClearLocationDefaultCommand {
+                    source_id: id,
+                    expected_revision: original.revision
+                },
+            )
+            .await,
+        Err(LocationDefaultError::ConcurrencyConflict)
+    ));
+    let cleared = admin_clear(&pool)
+        .execute(
+            &ctx,
+            ClearLocationDefaultCommand {
+                source_id: id,
+                expected_revision: changed.revision,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(cleared.assignment.is_none());
+    assert_eq!(4, signals(&pool, id).await);
+    // Cognito authority uses the same current role, without delegated scope requirements.
+    assert_eq!(
+        cleared,
+        admin_get(&pool)
+            .execute(&context(Principal::User(user_id)), request)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        cleared,
+        admin_get(&pool).execute(&trusted(), request).await.unwrap()
+    );
+    for (role, suspended) in [("ADMIN", true), ("USER", false)] {
+        sqlx::query("UPDATE users SET role=$2,suspended=$3 WHERE user_id=$1")
+            .bind(user_id.into_uuid())
+            .bind(role)
+            .bind(suspended)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            admin_get(&pool).execute(&ctx, request).await,
+            Err(LocationDefaultError::Forbidden)
+        ));
+        assert_admin_mutations_forbidden(&pool, &ctx, id, a, cleared.revision).await;
+        assert_eq!(4, signals(&pool, id).await);
+    }
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn delegated_admin_defaults_require_the_exact_read_or_write_capability() {
+    let pool = get_postgres_client().await;
+    let owner = party(&pool).await;
+    let id = source(&pool, owner).await;
+    let a = location(&pool, owner, "PRIVATE").await;
+    let Principal::DelegatedUser { user_id, .. } = member(&pool, owner, id).await else {
+        unreachable!()
+    };
+    sqlx::query("UPDATE users SET role='ADMIN' WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Administrator authority is sufficient without a partnership or source grant.
+    sqlx::query("DELETE FROM partnership_members WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let request = GetLocationDefaultRequest { source_id: id };
+    for capabilities in [
+        BTreeSet::new(),
+        BTreeSet::from([CredentialCapability::ProductListingsWrite]),
+    ] {
+        let ctx = context(Principal::DelegatedUser {
+            user_id,
+            capabilities,
+        });
+        assert!(matches!(
+            admin_get(&pool).execute(&ctx, request).await,
+            Err(LocationDefaultError::Forbidden)
+        ));
+        assert_admin_mutations_forbidden(&pool, &ctx, id, a, LocationDefaultRevision::INITIAL)
+            .await;
+    }
+    let read_only = context(Principal::DelegatedUser {
+        user_id,
+        capabilities: BTreeSet::from([CredentialCapability::ListingSourcesRead]),
+    });
+    assert!(
+        admin_get(&pool)
+            .execute(&read_only, request)
+            .await
+            .unwrap()
+            .assignment
+            .is_none()
+    );
+    assert_admin_mutations_forbidden(&pool, &read_only, id, a, LocationDefaultRevision::INITIAL)
+        .await;
+    let write_only = context(Principal::DelegatedUser {
+        user_id,
+        capabilities: BTreeSet::from([CredentialCapability::ListingSourcesWrite]),
+    });
+    assert!(matches!(
+        admin_get(&pool).execute(&write_only, request).await,
+        Err(LocationDefaultError::Forbidden)
+    ));
+    admin_assign(&pool)
+        .execute(&write_only, command(id, a))
+        .await
+        .unwrap();
+    assert_eq!(1, signals(&pool, id).await);
+}
+
 async fn wait_for_lock(pool: &PgPool) {
     tokio::time::timeout(std::time::Duration::from_secs(5),async {
         loop {
-            let waiting: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE '%FROM parties WHERE party_id=$1 FOR UPDATE%' OR query LIKE '%FOR SHARE OF p,m,g%'))").fetch_one(pool).await.unwrap();
+            let waiting: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE '%FROM parties WHERE party_id=$1 FOR UPDATE%' OR query LIKE '%FOR SHARE OF p,m,g%' OR query LIKE '%SELECT role,suspended FROM users%'))").fetch_one(pool).await.unwrap();
             if waiting { break; }
             tokio::task::yield_now().await;
         }
     }).await.unwrap();
+}
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn admin_execution_revalidates_role_after_a_concurrent_demotion() {
+    let pool = get_postgres_client().await;
+    let owner = party(&pool).await;
+    let id = source(&pool, owner).await;
+    let principal = member(&pool, owner, id).await;
+    let Principal::DelegatedUser { user_id, .. } = &principal else {
+        unreachable!()
+    };
+    sqlx::query("UPDATE users SET role='ADMIN' WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut demotion = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    sqlx::query("UPDATE users SET role='USER' WHERE user_id=$1")
+        .bind(user_id.into_uuid())
+        .execute(demotion.connection())
+        .await
+        .unwrap();
+    let request = GetLocationDefaultRequest { source_id: id };
+    let query = tokio::spawn({
+        let pool = pool.clone();
+        let principal = principal.clone();
+        async move { admin_get(&pool).execute(&context(principal), request).await }
+    });
+    wait_for_lock(&pool).await;
+    demotion.commit().await.unwrap();
+    assert!(matches!(
+        query.await.unwrap(),
+        Err(LocationDefaultError::Forbidden)
+    ));
+    // The retained operator grant must not provide an admin-route fallback.
+    assert!(
+        get(&pool)
+            .execute(&context(principal), request)
+            .await
+            .is_ok()
+    );
+    assert_eq!(0, signals(&pool, id).await);
 }
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
 async fn execution_revalidates_locations_and_grants_after_concurrent_changes() {

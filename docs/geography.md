@@ -234,6 +234,9 @@ The service owns get, assign/replace, clear and change-applicability use cases. 
 administrators and trusted internal callers may manage defaults; other users require
 active membership in the operator Party partnership plus that exact source grant.
 Delegated credentials additionally require `listing-sources:read`/`listing-sources:write`.
+The dedicated admin routes enforce administrator/internal authority even for users
+with operator membership and a source grant; both route families share the same
+assignment, applicability, revision and disclosure rules.
 These operations confer no PartyLocation editing permission. Current user, source,
 membership/grant and location authority is validated within one transaction. Lock order
 is owner Party, source, user/policy rows, default and selected location; policy/location

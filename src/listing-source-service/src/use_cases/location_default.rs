@@ -199,6 +199,7 @@ pub struct AssignLocationDefaultHandler<U, R, A> {
     uow: U,
     locations: R,
     access: A,
+    policy: SourceLocationAccessPolicy,
 }
 impl<U, R, A> AssignLocationDefaultHandler<U, R, A> {
     pub fn new(uow: U, locations: R, access: A) -> Self {
@@ -206,6 +207,16 @@ impl<U, R, A> AssignLocationDefaultHandler<U, R, A> {
             uow,
             locations,
             access,
+            policy: SourceLocationAccessPolicy::AdministratorOrOperator,
+        }
+    }
+
+    pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
+        Self {
+            uow,
+            locations,
+            access,
+            policy: SourceLocationAccessPolicy::AdministratorOnly,
         }
     }
 }
@@ -228,7 +239,7 @@ impl<
         let party_id = self
             .access
             .in_transaction(&mut tx)
-            .authorize_source(&context.principal, command.source_id)
+            .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
         let stored = self
             .locations
@@ -270,6 +281,7 @@ pub struct ClearLocationDefaultHandler<U, R, A> {
     uow: U,
     locations: R,
     access: A,
+    policy: SourceLocationAccessPolicy,
 }
 impl<U, R, A> ClearLocationDefaultHandler<U, R, A> {
     pub fn new(uow: U, locations: R, access: A) -> Self {
@@ -277,6 +289,16 @@ impl<U, R, A> ClearLocationDefaultHandler<U, R, A> {
             uow,
             locations,
             access,
+            policy: SourceLocationAccessPolicy::AdministratorOrOperator,
+        }
+    }
+
+    pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
+        Self {
+            uow,
+            locations,
+            access,
+            policy: SourceLocationAccessPolicy::AdministratorOnly,
         }
     }
 }
@@ -298,7 +320,7 @@ impl<
         let mut tx = self.uow.begin().await?;
         self.access
             .in_transaction(&mut tx)
-            .authorize_source(&context.principal, command.source_id)
+            .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
         let stored = self
             .locations
@@ -325,6 +347,7 @@ pub struct ChangeLocationDefaultApplicabilityHandler<U, R, A> {
     uow: U,
     locations: R,
     access: A,
+    policy: SourceLocationAccessPolicy,
 }
 impl<U, R, A> ChangeLocationDefaultApplicabilityHandler<U, R, A> {
     pub fn new(uow: U, locations: R, access: A) -> Self {
@@ -332,6 +355,16 @@ impl<U, R, A> ChangeLocationDefaultApplicabilityHandler<U, R, A> {
             uow,
             locations,
             access,
+            policy: SourceLocationAccessPolicy::AdministratorOrOperator,
+        }
+    }
+
+    pub fn new_admin_only(uow: U, locations: R, access: A) -> Self {
+        Self {
+            uow,
+            locations,
+            access,
+            policy: SourceLocationAccessPolicy::AdministratorOnly,
         }
     }
 }
@@ -354,7 +387,7 @@ impl<
         let party_id = self
             .access
             .in_transaction(&mut tx)
-            .authorize_source(&context.principal, command.source_id)
+            .authorize_source(&context.principal, command.source_id, self.policy)
             .await?;
         let stored = self
             .locations
@@ -398,6 +431,7 @@ pub struct GetLocationDefaultHandler<U, R, A> {
     uow: U,
     reader: R,
     access: A,
+    policy: SourceLocationAccessPolicy,
 }
 impl<U, R, A> GetLocationDefaultHandler<U, R, A> {
     pub fn new(uow: U, reader: R, access: A) -> Self {
@@ -405,6 +439,16 @@ impl<U, R, A> GetLocationDefaultHandler<U, R, A> {
             uow,
             reader,
             access,
+            policy: SourceLocationAccessPolicy::AdministratorOrOperator,
+        }
+    }
+
+    pub fn new_admin_only(uow: U, reader: R, access: A) -> Self {
+        Self {
+            uow,
+            reader,
+            access,
+            policy: SourceLocationAccessPolicy::AdministratorOnly,
         }
     }
 }
@@ -422,7 +466,7 @@ impl<U: UnitOfWork, R: LocationDefaultReaderFactory<U::Tx>, A: SourceLocationAcc
         let mut tx = self.uow.begin().await?;
         self.access
             .in_transaction(&mut tx)
-            .authorize_source(&context.principal, request.source_id)
+            .authorize_source(&context.principal, request.source_id, self.policy)
             .await?;
         let result = self
             .reader

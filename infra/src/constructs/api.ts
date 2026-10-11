@@ -104,6 +104,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/overview", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/listing-sources", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}", ["GET", "PATCH", "DELETE"]),
