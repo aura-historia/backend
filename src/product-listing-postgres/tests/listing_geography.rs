@@ -361,7 +361,13 @@ async fn insert_product_with_id(
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
-    use geo_service::{geocoding::GeocodingRequest, resolution::*};
+    use geo_service::{
+        geocoding::{
+            CandidateSet, GeocodingCandidate, GeocodingOutcome, GeocodingProvenance,
+            GeocodingRequest, GeocodingResult, ResultRetention,
+        },
+        resolution::*,
+    };
     let result:TestResult=async{
         let pool=get_postgres_client().await;let (id,source,location)=fixture(&pool).await?;
         sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1").bind(location).execute(&pool).await?;
@@ -375,9 +381,38 @@ async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
         let view=SqlxResolutionRepositoryFactory.resolution_reader(&mut tx).inspect(binding.subject).await?.ok_or("missing binding")?;tx.commit().await?;
         let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;
         let ClaimOutcome::Claimed(claim)=SqlxResolutionRepositoryFactory.resolutions(&mut tx).claim(view.work,"TEST_G6",true).await? else {return Err("missing resolution claim".into());};tx.commit().await?;
-        let candidate=ResolutionCandidate {geography:geo::DerivedGeography::new(geo::GeographicDescription::new(None,Some(geo::CountryCode::DEU),None,None)?,None).ok_or("missing geography")?,acceptable:true,provider:"TEST".into(),product:"TEST".into(),data_source:"TEST".into(),region:"TEST".into(),profile:"TEST_G6".into(),external_reference:"test-record".into(),attribution_url:"https://example.test/attribution".into()};
+        let candidate = GeocodingCandidate::new(
+            geo::DerivedGeography::new(
+                geo::GeographicDescription::new(None, Some(geo::CountryCode::DEU), None, None)?,
+                None,
+            ),
+            vec![],
+            None,
+            GeocodingProvenance {
+                provider: "TEST",
+                product: "TEST",
+                data_source: "TEST",
+                region: "TEST".into(),
+                interpretation_profile: "TEST_G6",
+                external_reference: "test-record".into(),
+                attribution_url: "https://example.test/attribution",
+            },
+        );
+        // Use the service policy to retain the source candidate alongside its
+        // accepted administrative projection.
+        let evidence = evaluate(
+            &input,
+            GeocodingResult {
+                outcome: GeocodingOutcome::Candidates(CandidateSet::new(
+                    vec![candidate],
+                    input.request().candidate_limit(),
+                )?),
+                retention: ResultRetention::Storage,
+            },
+            "TEST_G6",
+        )?;
         let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;
-        assert!(SqlxResolutionRepositoryFactory.resolutions(&mut tx).complete(&claim,ResolutionCompletion::Evidence(ResolutionEvidence {status:ResolutionStatus::Accepted,candidates:vec![candidate],accepted_index:Some(0)})).await?);tx.commit().await?;
+        assert!(SqlxResolutionRepositoryFactory.resolutions(&mut tx).complete(&claim,ResolutionCompletion::Evidence(evidence)).await?);tx.commit().await?;
         let mut ids=vec![id];for _ in 0..3 {let (new,_)=insert_product_with_created_event(&pool).await?;sqlx::query("UPDATE product_listings SET listing_source_id=$2 WHERE product_listing_id=$1").bind(new.into_uuid()).bind(source).execute(&pool).await?;ids.push(new);}
         drain(&pool,2).await?;acknowledge(&pool).await?;
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;
