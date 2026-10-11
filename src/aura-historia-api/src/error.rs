@@ -200,6 +200,11 @@ pub(crate) const LOOPS_WEBHOOK_UNAUTHORIZED: ApiErrorCode =
 pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const USER_ADDRESS_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_ADDRESS_NOT_FOUND");
+pub(crate) const ADDRESS_BOOK_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("ADDRESS_BOOK_INTERNAL_ERROR");
+pub(crate) const ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =

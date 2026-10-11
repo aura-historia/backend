@@ -233,12 +233,15 @@ impl TryFrom<EvidenceData> for ResolutionEvidence {
                 ResolutionStatus::Accepted => e.accepted_index.is_none_or(|i| {
                     candidates.get(i).is_none_or(|c| {
                         !c.acceptable
-                            || c.geography.position().is_some()
-                            || c.geography.description().is_none_or(|d| {
-                                d.address_text().is_some()
-                                    || d.postal_code().is_some()
-                                    || (d.country().is_none() && d.subdivision().is_none())
-                            })
+                            || c.geography
+                                .position()
+                                .is_some_and(|p| p.precision() != geo::SpatialPrecision::Premises)
+                            || (c.geography.position().is_none()
+                                && c.geography.description().is_none_or(|d| {
+                                    d.address_text().is_some()
+                                        || d.postal_code().is_some()
+                                        || (d.country().is_none() && d.subdivision().is_none())
+                                }))
                     })
                 }),
                 ResolutionStatus::Ambiguous => e.accepted_index.is_some(),

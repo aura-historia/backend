@@ -907,6 +907,29 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(addresses) = state.user_addresses {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/me/addresses",
+                    get(users::addresses::list).post(users::addresses::create),
+                )
+                .route(
+                    "/api/v1/me/addresses/{address_id}",
+                    get(users::addresses::get)
+                        .put(users::addresses::update)
+                        .delete(users::addresses::delete),
+                )
+                .route(
+                    "/api/v1/me/browsing-destination",
+                    get(users::addresses::get_destination).put(users::addresses::set_destination),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(addresses),
+        );
+    }
     if let Some(defaults) = state.source_location_defaults {
         routes = routes.merge(
             Router::new()
@@ -1994,6 +2017,16 @@ async fn app_state_from_config_and_pool(
         opensearch: opensearch_client.clone(),
     });
 
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let user_addresses_state = state::UserAddressesState {
+        commands: address_book.clone(),
+        queries: address_book,
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     Ok(AppState::new()
         .with_auctions(AuctionsState::new(
             Arc::new(create_auction),
@@ -2017,6 +2050,7 @@ async fn app_state_from_config_and_pool(
         .with_source_location_defaults(source_location_defaults_state)
         .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)
+        .with_user_addresses(user_addresses_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
         .with_partnerships(partnerships_state)

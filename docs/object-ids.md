@@ -21,6 +21,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `ResolutionId` | `gres` |
 | `ListingSourceId` | `ls` |
 | `UserId` | `usr` |
+| `UserAddressId` | `uaddr` |
 | `MarketingConsentSyncIntentId` | `mci` |
 | `NewsletterConfirmationId` | `nsc` |
 | `PartnershipId` | `psh` |

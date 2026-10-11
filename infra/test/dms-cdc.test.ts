@@ -202,6 +202,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "search_filters",
     ]);
     for (const excludedTable of [
+      "user_addresses",
+      "user_browsing_destinations",
       "users",
       "newsletter_subscription_confirmations",
       "loops_webhook_receipts",
