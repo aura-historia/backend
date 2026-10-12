@@ -136,6 +136,9 @@ export class DmsCdc extends Construct {
       postgreSqlSettings: {
         captureDdls: false,
         failTasksOnLobTruncation: true,
+        heartbeatEnable: true,
+        heartbeatFrequency: 1,
+        heartbeatSchema: "dms_heartbeat",
         pluginName: "test-decoding",
         secretsManagerAccessRoleArn: sourceSecretsRole.roleArn,
         secretsManagerSecretId: storage.replicationCredentials.secretArn,

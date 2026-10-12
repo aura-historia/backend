@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ses from "aws-cdk-lib/aws-ses";
+import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 import {
   ARTIFACT_BUCKET_NAME,
@@ -24,7 +25,7 @@ import {
   InitializationLambdas,
   Lambdas,
 } from "./constructs/lambdas";
-import { Observability } from "./constructs/observability";
+import { addCdcAlarms, Observability } from "./constructs/observability";
 import { PeriodicMatcher } from "./constructs/periodic-matcher";
 import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
 import { scheduledEcsClusterName } from "./scheduled-ecs-config";
@@ -108,6 +109,7 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
         stage: props.stage,
         stackName: `${stackNamePrefix}-observability`,
         api: api.api,
+        dmsTaskArn: data.dmsCdc.task.ref,
       })
     : undefined;
   observability?.addDependency(api);
@@ -147,7 +149,7 @@ export class ApplicationDataStack extends cdk.Stack {
   readonly queues: Queues;
   readonly workerQueues: WorkerQueues;
   readonly search: Search;
-  readonly dmsCdc?: DmsCdc;
+  readonly dmsCdc: DmsCdc;
 
   constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
     super(scope, id, stackProps(props));
@@ -176,6 +178,15 @@ export class ApplicationDataStack extends cdk.Stack {
       network: props.network,
       storage: this.storage,
     });
+
+    if (config.stage === "dev") {
+      const alarmTopic = new sns.Topic(this, "CdcAlarmNotificationTopic", {
+        topicName: `cloudwatch-alarms-${stageName}`,
+        displayName: `CloudWatch CDC alarms for Aura Historia ${stageName}`,
+      });
+      addCdcAlarms(this, stageName, this.dmsCdc.task.ref, alarmTopic);
+      new cdk.CfnOutput(this, "CdcAlarmNotificationTopicArn", { value: alarmTopic.topicArn });
+    }
 
     dataOutputs(this, {
       storage: this.storage,
@@ -389,6 +400,7 @@ export class ApplicationApiStack extends cdk.Stack {
 
 export interface ApplicationObservabilityStackProps extends ApplicationStackProps {
   readonly api: BackendHttpApi;
+  readonly dmsTaskArn: string;
 }
 
 export class ApplicationObservabilityStack extends cdk.Stack {
@@ -406,6 +418,7 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       config,
       stageName,
       api: props.api.api,
+      dmsTaskArn: props.dmsTaskArn,
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
       workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
       ingestionQueues: importQueueCatalog(this, "IngestionQueueAlarmImports", stageName),

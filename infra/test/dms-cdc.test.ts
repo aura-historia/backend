@@ -65,6 +65,9 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
     expect(source?.PostgreSqlSettings).toMatchObject({
       SlotName: `aura_historia_dms_cdc_${stage}`,
       PluginName: "test-decoding",
+      HeartbeatEnable: true,
+      HeartbeatFrequency: 1,
+      HeartbeatSchema: "dms_heartbeat",
     });
 
     expect(streams).toHaveLength(1);

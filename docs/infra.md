@@ -15,7 +15,7 @@ staging API; it is not a stage named `stage`. Application stacks are composed in
 | Stack suffix under `application-<stage>` | Ownership |
 | --- | --- |
 | `network` | Private workload/database networking and outbound access |
-| `data` | PostgreSQL, CDC transport, durable queues and scoped worker policies |
+| `data` | PostgreSQL, CDC transport, durable queues, scoped worker policies and dev CDC alarms |
 | `initialize` | Private migrator and FX functions; deployment does not invoke them |
 | `compute` | Application/worker Lambdas, Cognito, eventing and scheduled work |
 | `api` | HTTP API, regional domain, CloudFront and WAF |
@@ -254,6 +254,9 @@ Deploy verifies/bootstraps the shared account-level `dms-vpc-role`, refusing to
 replace unexpected trust. Manual data-stack deployment must verify that role first.
 Selection changes need approval before data deployment and coordination with task
 state/update constraints; deploying configuration does not start/restart the task.
+Before task configuration updates, require a stable `stopped` task, or `ready` for a
+new task. Treat `failed` as a release blocker even when direct modification succeeds:
+CloudFormation can fail both update and rollback while waiting for stabilization.
 Complete the [source/destination-retirement gate](durable-worker-runbook.md#activation-and-legacy-handoff)
 **before data deployment removes worker queues or access policies**; foundation updates precede
 compute updates and do not pause the old router. Exclude `search_filters` from effective capture,
@@ -271,6 +274,17 @@ recovery uses `resume-processing` and the DMS checkpoint, not a new initial LSN.
 A lost/invalid slot requires a fenced replay/rebuild plan. Monitor slot lag, retained
 WAL, free storage and transport retention; a configured WAL cap does not prevent
 storage exhaustion or prove recoverability.
+
+DMS heartbeat advances idle capture in its dedicated `dms_heartbeat` schema. Apply
+the owning migration before starting capture; the replication role needs schema
+usage/create rights, not general database DDL rights. Heartbeat runs only while
+DMS runs. Keep capture pauses within the measured WAL budget; build artifacts before
+stopping capture and avoid leaving a healthy slot unattended through a long rollout.
+
+Dev CDC alarms belong to data; prod CDC alarms use the production observability topic.
+Alarm on slot WAL lag before the retention limit as well as task failure and free
+storage. DMS metric dimensions use the task ARN resource ID, not its friendly name.
+Confirm SNS subscriptions separately; an alarm action does not prove operator delivery.
 
 `CdcRouterEnabled` and `PeriodicMatcherEnabled` independently default off at first
 compute creation; Deploy preserves prior values. Scope is not an activation override.

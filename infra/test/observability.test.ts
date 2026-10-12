@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 
 const ROUTER_FUNCTION_NAME = "cdc-router-lambda-prod";
@@ -139,7 +139,7 @@ test("production alarms DMS source/target lag, DMS and Kinesis capacity, and sou
       "prod-cdc-dms-source-latency",
       "AWS/DMS",
       "CDCLatencySource",
-      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: "aura-historia-cdc-prod" }],
+      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: Match.objectLike({ "Fn::Select": [6, { "Fn::Split": [":", { "Fn::ImportValue": Match.anyValue() }] }] }) }],
       "Maximum",
       300,
       1,
@@ -149,7 +149,7 @@ test("production alarms DMS source/target lag, DMS and Kinesis capacity, and sou
       "prod-cdc-dms-target-latency",
       "AWS/DMS",
       "CDCLatencyTarget",
-      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: "aura-historia-cdc-prod" }],
+      [{ Name: "ReplicationInstanceIdentifier", Value: "aura-historia-dms-cdc-prod" }, { Name: "ReplicationTaskIdentifier", Value: Match.objectLike({ "Fn::Select": [6, { "Fn::Split": [":", { "Fn::ImportValue": Match.anyValue() }] }] }) }],
       "Maximum",
       300,
       1,
@@ -211,12 +211,22 @@ test("production alarms DMS source/target lag, DMS and Kinesis capacity, and sou
   });
 });
 
-test("dev does not create router observability alarms", () => {
+test("dev creates CDC retention alarms while keeping production router alarms disabled", () => {
   const devApp = new cdk.App({ analyticsReporting: false });
   const dev = createApplicationStacks(devApp, { stage: "dev" });
 
   expect(dev.observability).toBeUndefined();
-  for (const stack of [dev.network, dev.data, dev.initialization, dev.compute, dev.api]) {
+  const data = Template.fromStack(dev.data);
+  data.resourceCountIs("AWS::CloudWatch::Alarm", 7);
+  for (const [severity, thresholdGiB] of [["warning", 5], ["critical", 8]] as const) {
+    data.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: `dev-cdc-source-wal-slot-lag-${severity}`,
+      MetricName: "OldestReplicationSlotLag",
+      Threshold: thresholdGiB * 1024 * 1024 * 1024,
+      TreatMissingData: "breaching",
+    });
+  }
+  for (const stack of [dev.network, dev.initialization, dev.compute, dev.api]) {
     if (stack) {
       Template.fromStack(stack).resourceCountIs("AWS::CloudWatch::Alarm", 0);
     }
