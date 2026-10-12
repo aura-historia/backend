@@ -250,11 +250,6 @@ static PRODUCT_LISTINGS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/product_listings.json"
 ));
 
-static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/user_search_filters.json"
-));
-
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     if let Err(err) = response.error_for_status_code_ref()
         && err.status_code() != Some(StatusCode::NOT_FOUND)
@@ -379,12 +374,6 @@ async fn set_up_indices() -> Result<(), Error> {
         PRODUCT_LISTINGS_INDEX_MAPPING_STR,
     )
     .await?;
-    ensure_index_exists(
-        client,
-        "user_search_filters",
-        USER_SEARCH_FILTER_INDEX_MAPPING_STR,
-    )
-    .await?;
 
     Ok(())
 }
@@ -409,7 +398,7 @@ async fn wait_until_indices_are_set_up() -> Result<(), Error> {
 /// test has caused its creation).
 pub(crate) async fn clear_all_indices() {
     let started = std::time::Instant::now();
-    const INDICES: &[&str] = &["product-listings", "user_search_filters", "users"];
+    const INDICES: &[&str] = &["product-listings", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
             Ok(_) => refresh_index(index).await,

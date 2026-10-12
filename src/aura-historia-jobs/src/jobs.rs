@@ -8,17 +8,16 @@ use product_listing_core::product_listing_raw_id::{
     ProductListingRawRevisionId, ProductListingRawStreamId,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use std::fmt::{Display, Formatter};
 use strum::IntoEnumIterator;
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DomainJob<O = SearchFilterOperation> {
+pub struct DomainJob {
     pub target_queue: WorkerQueue,
     pub idempotency_key: IdempotencyKey,
     pub ordering_key: OrderingKey,
-    pub payload: DomainJobPayload<O>,
+    pub payload: DomainJobPayload,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,12 +25,10 @@ pub enum WorkerQueue {
     ProductListingOpenSearch,
     ProductListingRawNormalization,
     WatchlistNotification,
-    SearchFilterPercolator,
     SearchFilterMatchNotification,
     ProductListingContentAssessment,
     ProductListingEmbed,
     ProductListingTranslate,
-    SearchFilterOpenSearch,
     /// Legacy in-memory API only. No production scope or wire representation.
     UserTierEnforcement,
     NotificationDelivery,
@@ -41,16 +38,14 @@ pub enum WorkerQueue {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 11] = [
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::WatchlistNotification,
-        Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
         Self::ProductListingContentAssessment,
         Self::ProductListingEmbed,
         Self::ProductListingTranslate,
-        Self::SearchFilterOpenSearch,
         Self::NotificationDelivery,
         Self::MarketingConsentSync,
         Self::GeoResolution,
@@ -85,10 +80,9 @@ impl OrderingKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DomainJobPayload<O = SearchFilterOperation> {
+pub enum DomainJobPayload {
     ProductListingEvent(ProductListingEventJob),
     ProductListingRawRevision(ProductListingRawRevisionJob),
-    SearchFilterChanged(SearchFilterChangedJob<O>),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
     NotificationDeliveryCreated(NotificationDeliveryCreatedJob),
@@ -124,14 +118,6 @@ pub struct ProductListingRawRevisionJob {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchFilterChangedJob<O = SearchFilterOperation> {
-    pub user_id: UserId,
-    pub user_search_filter_id: UserSearchFilterId,
-    pub version: i64,
-    pub operation: O,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchFilterMatchCreatedJob {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
@@ -155,36 +141,17 @@ pub struct MarketingConsentSyncIntentCreatedJob {
     pub marketing_consent_sync_intent_id: MarketingConsentSyncIntentId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchFilterOperation {
-    Insert,
-    Update,
-    Delete,
-}
-
-impl Display for SearchFilterOperation {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        let value = match self {
-            Self::Insert => "insert",
-            Self::Update => "update",
-            Self::Delete => "delete",
-        };
-        formatter.write_str(value)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("job identifiers, version, scope, or logical keys are invalid")]
 pub struct InvalidJob;
 
-impl<O: Display> DomainJob<O> {
+impl DomainJob {
     pub fn validate(&self) -> Result<WorkerScope, InvalidJob> {
         let scope = self.target_queue.scope().ok_or(InvalidJob)?;
         let permitted = match &self.payload {
             DomainJobPayload::ProductListingEvent(_) => matches!(
                 scope,
                 WorkerScope::ProductListingOpenSearch
-                    | WorkerScope::SearchFilterPercolator
                     | WorkerScope::WatchlistNotification
                     | WorkerScope::ProductListingContentAssessment
                     | WorkerScope::ProductListingEmbedding
@@ -192,9 +159,6 @@ impl<O: Display> DomainJob<O> {
             ),
             DomainJobPayload::ProductListingRawRevision(_) => {
                 scope == WorkerScope::ProductListingRawNormalization
-            }
-            DomainJobPayload::SearchFilterChanged(_) => {
-                scope == WorkerScope::SearchFilterProjection
             }
             DomainJobPayload::SearchFilterMatchCreated(_) => {
                 scope == WorkerScope::SearchFilterMatchNotification
@@ -228,7 +192,7 @@ impl<O: Display> DomainJob<O> {
     }
 }
 
-impl<O: Display> DomainJobPayload<O> {
+impl DomainJobPayload {
     pub fn logical_keys(&self) -> Result<(String, String), InvalidJob> {
         Ok(match self {
             Self::ListingGeography(job) => {
@@ -266,18 +230,6 @@ impl<O: Display> DomainJobPayload<O> {
                         "product-listing-raw-stream:{}",
                         revision.product_listing_raw_stream_id
                     ),
-                )
-            }
-            Self::SearchFilterChanged(change) => {
-                if change.version <= 0 {
-                    return Err(InvalidJob);
-                }
-                (
-                    format!(
-                        "search-filter:{}:{}:{}",
-                        change.user_search_filter_id, change.version, change.operation
-                    ),
-                    format!("search-filter:{}", change.user_search_filter_id),
                 )
             }
             Self::SearchFilterMatchCreated(change) => (

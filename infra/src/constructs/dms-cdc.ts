@@ -234,21 +234,6 @@ function tableMappings(): Record<string, unknown> {
       ],
     },
     {
-      table: "search_filters",
-      removedColumns: [
-        "name",
-        "notifications",
-        "state",
-        "search",
-        "enhanced_search_description",
-        "embedding",
-        "language",
-        "currency",
-        "created",
-        "updated",
-      ],
-    },
-    {
       table: "search_filter_matches",
       removedColumns: [
         "price_valuation_basis",
@@ -341,7 +326,6 @@ function tableMappings(): Record<string, unknown> {
 
   for (const { table, column } of [
     { table: "product_listing_raw_revisions", column: "revision" },
-    { table: "search_filters", column: "version" },
     { table: "geo_resolution_wakeups", column: "generation" },
     { table: "listing_geography_wakeups", column: "generation" },
   ]) {

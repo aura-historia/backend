@@ -413,9 +413,9 @@ fn job_body(delivery: NotificationDeliveryId) -> Result<String, aura_historia_jo
         target_queue: WorkerQueue::NotificationDelivery,
         idempotency_key: IdempotencyKey::new(&key),
         ordering_key: OrderingKey::new(key),
-        payload: DomainJobPayload::<aura_historia_jobs::SearchFilterOperation>::NotificationDeliveryCreated(
-            NotificationDeliveryCreatedJob { notification_delivery_id: delivery }
-        ),
+        payload: DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
+            notification_delivery_id: delivery,
+        }),
     })
 }
 

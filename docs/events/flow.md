@@ -84,9 +84,8 @@ jobs. This transport conversion preserves event identity and retry keys.
 
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
-| `product_listing_events` | INSERT | Product projector and saved-filter percolator; additional routes below |
+| `product_listing_events` | INSERT | Product projector; additional routes below |
 | `product_listing_raw_revisions` | INSERT | Normalization only |
-| `search_filters` | INSERT / UPDATE / DELETE | Saved-filter projector |
 | `search_filter_matches` | INSERT | Match-notification generator |
 | `notification_deliveries` | INSERT | Notification delivery |
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
@@ -99,11 +98,12 @@ Product event fanout:
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
 | `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
-| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond projector/percolator; no enrichment loop |
+| `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Canonical listing
-rows, Users, watchlist entries, Auction events, proofs and operational receipts do not
-implicitly trigger these routes. In particular, a User update is not a subscription job.
+rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
+operational receipts do not implicitly trigger these routes. In particular, a User update
+is not a subscription job.
 
 Consent CDC is deliberately minimized: INSERT/UPDATE carry only `intent_id` and
 `recipient_key`; DELETE carries only the primary key under default replica identity.
@@ -146,27 +146,21 @@ commit/effect do not. SQS transport IDs are not business idempotency keys.
 | Consumer | Authority and completion rule |
 | --- | --- |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
-| Saved-filter projection | Reread complete filter state for upserts; a missing row or delete writes a successor-version tombstone. Delete CDC retains owner/version; acknowledge only confirmed applied/stale completion. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
-| Percolation | Evaluate only an active current source event. Recheck the listing and each filter's evaluated semantic inputs before committing idempotent matches. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit notification and delivery intent together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
 | Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
 | Geographic resolution | Reserve a bounded, database-budgeted claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Negative outcomes have reconsideration deadlines; provider/configuration failures retain failure custody. |
 
-Product and saved-filter projections use externally versioned, content-free
+ProductListing projections use externally versioned, content-free
 `projectionDeleted: true` tombstones. Readers exclude them; older/equal writes cannot
 resurrect deleted state. Tombstones must outlive physical-delete version memory.
 [Rebuild and deletion recovery](../durable-worker-runbook.md#projection-fences-and-rebuild)
 require authoritative facts and fenced writers, not an index reset.
 
-Matching uses persisted FX, not live rates. Historical sold valuations use the pinned
-observation; other event-price evaluations use an eligible snapshot at event time.
-Enhanced-classifier failures are not negative matches: successful candidates can commit
-before retryable failures return. No scores or generated explanations become match facts.
-FX capture alone does not trigger percolation, projection or notification.
+FX capture alone does not trigger matching, projection or notification.
 
 ## Provider and scheduled flows
 
@@ -179,7 +173,7 @@ FX capture alone does not trigger percolation, projection or notification.
 | Cognito post-confirmation | Registration commits the initial User/binding. Profile bootstrap applies only on first creation; replay does not synchronize profile or restore consent. [Signup consent](../marketing-consent.md#grants-and-double-opt-in) is a separate verified decision. |
 | Loops | Exact-byte signed HTTP event → atomic preference application/receipt. See [preference webhooks](../marketing-consent.md#preference-webhooks). |
 | Cleanup / FX | Scheduler invokes bounded use cases. Expiry is enforced on use; cleanup is not an authorization check. FX occurrences keep stable retry identity. |
-| Periodic matching | Scheduler starts a one-shot Fargate task. Per-filter checkpoints advance after completed work; persisted matches feed the ordinary notification route. |
+| Periodic matching | Scheduler starts a one-shot Fargate task; see [saved-filter matching](#periodic-saved-filter-matching). |
 | Log retention | AWS log-group creation invokes the retention handler; narrowly configured evidence groups are exempt. It does not grant business runtimes log-administration rights. |
 
 The Cognito collision policy is provider-specific: Google linking requires verified
@@ -189,6 +183,34 @@ remains the race barrier. [Identity recovery](../infra.md#manual-operations) mus
 the existing bound account. PostConfirmation errors propagate but do not roll back
 Cognito confirmation; there is no durable queue/DLQ for that registration boundary.
 Unsettled PostgreSQL registration therefore needs operator recovery.
+
+### Periodic saved-filter matching
+
+New saved-filter matches are discovered only by scheduled runs, not by ProductListing
+or geography event fanout. The service pages active **enhanced** filter candidates from
+PostgreSQL and queries ProductListing search; evaluation requires a valid enhanced
+search description and embedding. Non-enhanced filters remain available for CRUD and
+historical match reads but do not discover new matches. Saved-filter configuration has
+no OpenSearch projection. Filter CRUD, persisted matches, feedback and notification
+eligibility remain PostgreSQL-owned.
+
+A run excludes overlapping execution and uses a bounded window with projection-lag
+allowance and replay overlap. Product search supplies candidates, not authoritative match
+facts: evaluation rereads current listing sources, then the final transaction rechecks
+filter version/state/progress and listing event identity before inserting idempotent
+matches. Per-filter progress advances only for completed work. Search projection lag can
+delay discovery; a successful task launch is not proof of completed matching.
+
+Matching uses persisted FX, not live rates. The run pins an eligible snapshot at its
+window end; historical sold valuations retain their observation basis. Enhanced-classifier
+failures are not negative matches: successful candidates may commit while retryable
+failures leave progress unchanged. Scores and generated explanations are not match facts.
+Persisted match INSERTs feed the ordinary `search_filter_matches` CDC notification route;
+notification generation and delivery keep their existing completion/eligibility rules.
+
+The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)
+owns executable matching semantics; [periodic recovery](../durable-worker-runbook.md#periodic-matching-recovery)
+owns operator checks.
 
 ### Stripe subscription reconciliation
 
@@ -235,6 +257,6 @@ markers, uncertain commits, FIFO partial failure, notification finalization and 
 fences/rebuilds. Use isolated real dependencies where needed; live probes require approval.
 
 Effective geography appends schema-1 `ENRICHMENT_GEOGRAPHY_UPDATED` with exactly an empty
-object payload only when compact derived values change. It routes to product projection
-and saved-filter percolation, with no watchlist/price noise or enrichment loop. Work
-continuations and crash recovery are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).
+object payload only when compact derived values change. It routes to product projection,
+with no watchlist/price noise or enrichment loop. Work continuations and crash recovery
+are durable; see [listing geography recovery](../durable-worker-runbook.md#listing-geography-recovery).

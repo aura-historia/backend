@@ -3,6 +3,8 @@
 All JSON here is a synthetic parser contract vector, not a live AWS DMS capture. DMS data vectors use `{ data, metadata }`; control vectors use the documented top-level `{ control, metadata }` form.
 
 `synthetic-*` names make that explicit. Existing unprefixed vectors are also synthetic.
+Saved-filter INSERT/UPDATE/DELETE vectors assert rejection of the removed
+`search_filters` source; `search_filter_matches` remains selected for notifications.
 
 `synthetic-product-listing-event-jsonb-string.json` models the serialized JSONB
 payload shape observed during dev ingestion. Its identifiers and content are

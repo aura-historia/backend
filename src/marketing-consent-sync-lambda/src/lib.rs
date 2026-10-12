@@ -1,4 +1,4 @@
-use aura_historia_jobs::{DomainJob, DomainJobPayload, SearchFilterOperation, WorkerScope, decode};
+use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
@@ -128,7 +128,7 @@ pub async fn process_marketing_consent_sync_job(
     body: &str,
     use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
 ) -> MarketingConsentSyncJobDisposition {
-    let job = match decode::<SearchFilterOperation>(body, WorkerScope::MarketingConsentSync) {
+    let job = match decode(body, WorkerScope::MarketingConsentSync) {
         Ok(job) => job,
         Err(_) => return MarketingConsentSyncJobDisposition::Poison,
     };
@@ -180,7 +180,7 @@ pub async fn process_marketing_consent_sync_job(
 }
 
 pub fn intent_id_from_job(
-    job: DomainJob<SearchFilterOperation>,
+    job: DomainJob,
 ) -> Result<
     user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId,
     aura_historia_jobs::InvalidJob,

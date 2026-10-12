@@ -163,15 +163,12 @@ fn job_body(
             "search-filter-match:{user}:{filter}:{product}:{source}"
         )),
         ordering_key: OrderingKey::new(format!("user:{user}")),
-        payload:
-            DomainJobPayload::<aura_historia_jobs::SearchFilterOperation>::SearchFilterMatchCreated(
-                SearchFilterMatchCreatedJob {
-                    user_id: user,
-                    user_search_filter_id: filter,
-                    product_listing_id: product,
-                    origin_event_id: source,
-                },
-            ),
+        payload: DomainJobPayload::SearchFilterMatchCreated(SearchFilterMatchCreatedJob {
+            user_id: user,
+            user_search_filter_id: filter,
+            product_listing_id: product,
+            origin_event_id: source,
+        }),
     })
 }
 

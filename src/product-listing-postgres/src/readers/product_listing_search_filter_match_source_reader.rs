@@ -725,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn should_classify_percolation_event_groups() {
+    fn should_classify_match_source_event_groups() {
         assert_eq!(
             ProductListingSearchFilterMatchSourceEventKind::Domain,
             event_kind("DOMAIN")

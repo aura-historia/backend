@@ -91,7 +91,7 @@ impl ProductListingPriceFilterPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::ProductListingPricesByCurrency;
+
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_interactive_and_percolation_price_membership_identical_for_supported_currency_pairs()
+    fn should_keep_native_range_and_display_price_membership_identical_for_supported_currency_pairs()
     -> Result<(), Box<dyn std::error::Error>> {
         let snapshot = snapshot()?;
         let ranges = [
@@ -232,23 +232,17 @@ mod tests {
                                 amount >= native.lower
                                     && native.upper.is_none_or(|upper| amount <= upper)
                             });
-                        let percolated_amount = ProductListingPricesByCurrency::convert_all(
-                            &snapshot,
-                            money::Price::new(amount.into(), source_currency),
-                        )?
-                        .amount_in(target_currency)
-                        .ok_or(
-                            fxrate_core::FxRateSnapshotError::MissingQuote(target_currency),
-                        )?;
-                        let saved_filter_membership = range
+                        let display_amount =
+                            plan.convert_active_source_amount(source_currency, amount)?;
+                        let display_membership = range
                             .min
-                            .is_none_or(|minimum| percolated_amount >= u64::from(minimum))
+                            .is_none_or(|minimum| display_amount >= u64::from(minimum))
                             && range
                                 .max
-                                .is_none_or(|maximum| percolated_amount <= u64::from(maximum));
+                                .is_none_or(|maximum| display_amount <= u64::from(maximum));
 
                         assert_eq!(
-                            interactive_membership, saved_filter_membership,
+                            interactive_membership, display_membership,
                             "{source_currency:?} -> {target_currency:?}, amount {amount}, range {range:?}",
                         );
                     }

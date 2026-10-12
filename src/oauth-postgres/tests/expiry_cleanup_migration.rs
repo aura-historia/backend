@@ -18,28 +18,6 @@ const EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID: Uuid =
     Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f7a);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_configure_full_replica_identity_for_search_filter_deletes() {
-    let result: Result<(), Box<dyn std::error::Error>> = async {
-        let pool = get_postgres_client().await;
-        let replica_identity_is_full: bool = sqlx::query_scalar(
-            "SELECT relreplident::text = 'f' \
-             FROM pg_class WHERE oid = 'search_filters'::regclass",
-        )
-        .fetch_one(&pool)
-        .await?;
-
-        assert!(replica_identity_is_full);
-        Ok(())
-    }
-    .await;
-
-    assert!(
-        result.is_ok(),
-        "search-filter DELETE capture migration integration test failed: {result:?}"
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_batch() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;

@@ -20,8 +20,6 @@ interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly commitSha: string;
-  readonly searchFilterClassifierModel: string;
-  readonly searchFilterMatchShouldShowThresholdBps: string;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
@@ -171,19 +169,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
     }),
   },
-  searchFilterProjection: {
-    id: "SearchFilterProjectionLambda",
-    binaryName: "search-filter-projection-lambda",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 45,
-    environment: (context) => ({
-      STAGE: context.config.stage,
-      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/filter-projector/username`),
-      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/filter-projector/password`),
-    }),
-  },
   notificationDelivery: {
     id: "NotificationDeliveryLambda",
     binaryName: "notification-delivery-lambda",
@@ -217,24 +202,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     maxPostgresConnections: 1,
     timeoutSeconds: 45,
     environment: (context) => ({ GEO_RESOLUTION_ENABLED: String(context.config.geoResolutionEnabled) }),
-  },
-  searchFilterPercolator: {
-    id: "SearchFilterPercolatorLambda",
-    binaryName: "search-filter-percolator-lambda",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 45,
-    environment: (context) => ({
-      STAGE: context.config.stage,
-      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      CLASSIFIER_MODEL_PROVIDER: context.config.searchFilterClassifier.provider,
-      CLASSIFIER_MODEL: context.searchFilterClassifierModel,
-      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: context.searchFilterMatchShouldShowThresholdBps,
-      CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${context.config.stage}/account-id`),
-      CLOUDFLARE_API_TOKEN_SSM_PARAMETER: `/secrets/${context.config.stage}/cloudflare-workers-ai-api-token`,
-      OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/percolator/username`),
-      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/percolator/password`),
-    }),
   },
   searchFilterMatchNotification: {
     id: "SearchFilterMatchNotificationLambda",
@@ -284,8 +251,6 @@ export class Lambdas extends Construct {
   readonly productContentAssessmentVersion: lambda.Version;
   readonly productEmbeddingVersion: lambda.Version;
   readonly productTranslationVersion: lambda.Version;
-  readonly searchFilterProjectionVersion: lambda.Version;
-  readonly searchFilterPercolatorVersion: lambda.Version;
   readonly searchFilterMatchNotificationVersion: lambda.Version;
   readonly watchlistNotificationVersion: lambda.Version;
   readonly notificationDeliveryVersion: lambda.Version;
@@ -331,9 +296,6 @@ export class Lambdas extends Construct {
       config: props.config,
       emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
-      searchFilterClassifierModel: props.parameters.searchFilterClassifierModel,
-      searchFilterMatchShouldShowThresholdBps:
-        props.parameters.searchFilterMatchShouldShowThresholdBps,
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,
@@ -408,14 +370,6 @@ export class Lambdas extends Construct {
     this.productTranslationVersion = new lambda.Version(this, "ProductTranslationVersion", {
       lambda: this.functions.productTranslation,
       description: `product-translation-${props.parameters.commitSha}`,
-    });
-    this.searchFilterProjectionVersion = new lambda.Version(this, "SearchFilterProjectionVersion", {
-      lambda: this.functions.searchFilterProjection,
-      description: `search-filter-projection-${props.parameters.commitSha}`,
-    });
-    this.searchFilterPercolatorVersion = new lambda.Version(this, "SearchFilterPercolatorVersion", {
-      lambda: this.functions.searchFilterPercolator,
-      description: `search-filter-percolator-${props.parameters.commitSha}`,
     });
     this.searchFilterMatchNotificationVersion = new lambda.Version(this, "SearchFilterMatchNotificationVersion", {
       lambda: this.functions.searchFilterMatchNotification,
@@ -620,17 +574,6 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   }
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
   props.search.grantIndexRefresh(functions.productListingOpenSearch, "product-listings");
-  props.search.grantIndexDocumentWrite(functions.searchFilterProjection);
-  props.search.grantRead(functions.searchFilterPercolator);
-  functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
-    actions: ["ssm:GetParameter"],
-    resources: [cdk.Stack.of(functions.searchFilterPercolator).formatArn({
-      service: "ssm",
-      resource: "parameter",
-      resourceName: `secrets/${props.config.stage}/cloudflare-workers-ai-api-token`,
-      arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME,
-    })],
-  }));
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],

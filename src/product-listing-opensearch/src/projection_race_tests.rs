@@ -1,7 +1,7 @@
 use super::{DEFAULT_INDEX, OpenSearchProductListingSearchProjection, paused_write::PausedWrite};
 use crate::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
-    product_listing_percolation_document::product_listing_document,
+    product_listing_projection_document::product_listing_document,
 };
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};

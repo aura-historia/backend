@@ -167,8 +167,8 @@ Provisioning owners prepare catalog ECR repositories **outside normal releases**
    **hold `all`**, rather than deploy active compute as a speculative test.
 6. Continue with the pinned full dev SHA or same immutable prod tag. Record actual
    function versions/aliases, mapping/rule/schedule states, front-door/readiness and
-   relevant private reader/projector/percolator smoke. Report failed/omitted checks
-   explicitly and hold dependent traffic. Complete CDC activation separately below.
+   relevant private product-reader/projector and periodic-matcher smoke. Report
+   failed/omitted checks explicitly and hold dependent traffic. Complete CDC activation separately below.
 
 Compute creation activates worker mappings, partner integrations and FX/cleanup
 schedules together. It is **not an inactive preview** and has no readiness marker.
@@ -254,6 +254,14 @@ Deploy verifies/bootstraps the shared account-level `dms-vpc-role`, refusing to
 replace unexpected trust. Manual data-stack deployment must verify that role first.
 Selection changes need approval before data deployment and coordination with task
 state/update constraints; deploying configuration does not start/restart the task.
+Complete the [source/destination-retirement gate](durable-worker-runbook.md#activation-and-legacy-handoff)
+**before data deployment removes worker queues or access policies**; foundation updates precede
+compute updates and do not pause the old router. Exclude `search_filters` from effective capture,
+drain its captured records through the old router, pause old publication and settle retiring
+job/archive custody before resource removal. Apply the default-replica-identity migration only
+after capture exclusion, and resume routing with the compatible destination catalog.
+Saved-filter matching reads PostgreSQL on its periodic schedule; only persisted
+`search_filter_matches` continue to drive matching notifications through CDC.
 
 First start needs a separately approved actual source slot/LSN and capture/recovery
 plan. Follow [first CDC start](durable-worker-runbook.md#first-cdc-start-on-a-new-stage)
@@ -271,7 +279,10 @@ and [failure custody/redrive](durable-worker-runbook.md#failure-custody-and-cont
 for routing, archives, native ownership and recovery. Runtime roles do not receive
 operator purge/redrive powers.
 
-The periodic matcher is a one-shot private Fargate task. Enable/pause its parameter
+The periodic matcher is the only saved-filter matching path: a one-shot private Fargate
+task using PostgreSQL enhanced-filter candidates and ProductListing search. Its [matching contract](events/flow.md#periodic-saved-filter-matching)
+and [recovery checks](durable-worker-runbook.md#periodic-matching-recovery) are independent of
+CDC activation; persisted match notifications still require CDC. Enable/pause its parameter
 through the approved CloudFormation path, preserving other parameters; do not
 partially rewrite its Scheduler target or add a restart loop. Pausing does not stop
 accepted tasks. Scheduler delivery DLQ and ECS/application failure evidence are

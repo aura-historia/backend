@@ -1284,6 +1284,142 @@ mod tests {
     }
 
     #[test]
+    fn should_preserve_rendered_price_membership_for_all_currency_pairs_and_boundaries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use domain_primitives::query::range_query::RangeQuery;
+        use fxrate_core::RoundingMode;
+
+        let snapshot = NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    match currency {
+                        Currency::Eur => FX_RATE_SCALE,
+                        Currency::Gbp => 850_000,
+                        Currency::Usd => 1_100_000,
+                        Currency::Jpy => 160_000_000,
+                        _ => 1_250_000,
+                    },
+                )
+            }),
+        )?
+        .into_persisted(1_i64.try_into()?);
+        let ranges = [
+            RangeQuery {
+                min: None,
+                max: Some(5_u64.into()),
+            },
+            RangeQuery {
+                min: Some(3_u64.into()),
+                max: None,
+            },
+            RangeQuery {
+                min: Some(3_u64.into()),
+                max: Some(12_u64.into()),
+            },
+            RangeQuery {
+                min: Some(0_u64.into()),
+                max: Some(1_u64.into()),
+            },
+        ];
+        let mut covered_pairs = 0;
+        for target_currency in Currency::iter() {
+            for range in ranges {
+                let plan = ProductListingPriceFilterPlan::compile(
+                    snapshot.clone(),
+                    target_currency,
+                    Some(range),
+                )?;
+                let clause =
+                    build_product_index_price_clause(&plan).ok_or("missing price clause")?;
+                let branches = clause
+                    .pointer("/bool/should")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or("missing price branches")?;
+                for source_currency in Currency::iter() {
+                    covered_pairs += 1;
+                    let currency = json!(source_currency.as_str());
+                    let bounds = branches.iter().find_map(|branch| {
+                        branch
+                            .pointer("/bool/filter/0/bool/should")?
+                            .as_array()?
+                            .iter()
+                            .find_map(|native| {
+                                (native.pointer("/bool/filter/0/term/sourcePrice.currency")
+                                    == Some(&currency))
+                                .then(|| native.pointer("/bool/filter/1/range/sourcePrice.amount"))
+                                .flatten()
+                            })
+                    });
+                    let native = plan
+                        .active_native_ranges
+                        .iter()
+                        .find(|native| native.source_currency == source_currency);
+                    let amounts = native.map_or_else(
+                        || vec![0, 1, 5, 100],
+                        |native| {
+                            let mut amounts = vec![
+                                0,
+                                1,
+                                native.lower.saturating_sub(1),
+                                native.lower,
+                                native.lower.saturating_add(1),
+                            ];
+                            if let Some(upper) = native.upper {
+                                amounts.extend([
+                                    upper.saturating_sub(1),
+                                    upper,
+                                    upper.saturating_add(1),
+                                ]);
+                            }
+                            amounts.sort_unstable();
+                            amounts.dedup();
+                            amounts
+                        },
+                    );
+                    for amount in amounts {
+                        let rendered_membership = bounds.is_some_and(|bounds| {
+                            bounds
+                                .get("gte")
+                                .and_then(serde_json::Value::as_u64)
+                                .is_none_or(|minimum| amount >= minimum)
+                                && bounds
+                                    .get("lte")
+                                    .and_then(serde_json::Value::as_u64)
+                                    .is_none_or(|maximum| amount <= maximum)
+                        });
+                        let display_amount = u64::from(
+                            snapshot
+                                .convert(
+                                    Price::new(amount.into(), source_currency),
+                                    target_currency,
+                                    RoundingMode::HalfUp,
+                                )?
+                                .monetary_amount,
+                        );
+                        let display_membership =
+                            range.min.is_none_or(|min| display_amount >= u64::from(min))
+                                && range.max.is_none_or(|max| display_amount <= u64::from(max));
+                        assert_eq!(
+                            rendered_membership, display_membership,
+                            "{source_currency:?} -> {target_currency:?}, amount {amount}, range {range:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            Currency::iter().count().pow(2) * ranges.len(),
+            covered_pairs
+        );
+        Ok(())
+    }
+
+    #[test]
     fn should_not_render_price_clause_without_price_filter()
     -> Result<(), Box<dyn std::error::Error>> {
         assert!(build_product_index_price_clause(&price_filter(Currency::Usd, None)?).is_none());
@@ -1328,29 +1464,6 @@ mod tests {
                 .pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte")
                 .is_none()
         );
-        Ok(())
-    }
-
-    #[test]
-    fn should_use_distinct_price_clauses_for_search_and_percolation()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductListingSearch::new(Language::En, Currency::Usd).with_price_query(
-            domain_primitives::query::range_query::RangeQuery {
-                min: Some(MonetaryAmount::from(110_u64)),
-                max: None,
-            },
-        );
-        let compiled_search = CompiledProductListingSearch {
-            search: search.clone(),
-            price_filter_plan: price_filter(Currency::Usd, Some(110))?,
-        };
-
-        let product_index = build_search_query(&compiled_search)?;
-        let percolator = crate::product_listing_percolator_query::build_percolator_query(&search)?;
-
-        assert!(product_index.to_string().contains("sourcePrice"));
-        assert!(percolator.to_string().contains("priceByCurrency.usd"));
-        assert!(!percolator.to_string().contains("sourcePrice"));
         Ok(())
     }
 

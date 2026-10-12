@@ -200,8 +200,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "product_listing_events",
       "product_listing_raw_revisions",
       "search_filter_matches",
-      "search_filters",
     ]);
+    expect(JSON.stringify(mappings)).not.toContain("search_filters");
     for (const excludedTable of [
       "user_addresses",
       "user_browsing_destinations",
@@ -261,7 +261,6 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "product_listing_raw_revisions.raw_values",
       "product_listing_raw_revisions.normalization_context",
       "product_listing_raw_revisions.provenance",
-      "search_filters.search",
       "notification_deliveries.target_key",
     ]));
 
@@ -276,7 +275,6 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "geo_resolution_wakeups.generation",
       "listing_geography_wakeups.generation",
       "product_listing_raw_revisions.revision",
-      "search_filters.version",
     ]);
     expect(settings.TargetMetadata).toMatchObject({
       BatchApplyEnabled: false,

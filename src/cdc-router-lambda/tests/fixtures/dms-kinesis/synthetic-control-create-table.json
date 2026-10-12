@@ -3,18 +3,18 @@
     "record-type": "control",
     "operation": "create-table",
     "schema-name": "public",
-    "table-name": "search_filters"
+    "table-name": "product_listing_events"
   },
   "control": {
     "table-def": {
       "columns": {
-        "user_search_filter_id": {
+        "event_id": {
           "type": "WSTRING",
           "length": 36,
           "nullable": false
         }
       },
-      "primary-key": ["user_search_filter_id"]
+      "primary-key": ["event_id"]
     }
   }
 }

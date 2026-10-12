@@ -3,7 +3,7 @@
     "record-type": "control",
     "operation": "add-column",
     "schema-name": "public",
-    "table-name": "search_filters"
+    "table-name": "product_listing_events"
   },
   "control": {
     "column-name": "new_column"

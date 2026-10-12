@@ -30,6 +30,17 @@ describe("Application stacks", () => {
     expect(stacks.initialization.dependencies).not.toContain(stacks.compute);
   });
 
+  test.each(STAGES)("does not synthesize removed saved-filter matching or projection artifacts in %s", (stage) => {
+    const stacks = createStacks(stage);
+    for (const stack of Object.values(stacks)) {
+      if (stack) {
+        expect(JSON.stringify(Template.fromStack(stack).toJSON())).not.toMatch(
+          /SearchFilter(?:Projection|Percolator)|SEARCH_FILTER_(?:PROJECTION|PERCOLATOR)|search-filter-(?:projection|percolator)|filter-projector|\/percolator\/|user_search_filters/,
+        );
+      }
+    }
+  });
+
   test.each(STAGES)("does not synthesize native worker or Sequin ingress in %s", (stage) => {
     const stacks = createStacks(stage);
     for (const stack of [stacks.data, stacks.compute, stacks.api]) {

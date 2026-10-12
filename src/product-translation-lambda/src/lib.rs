@@ -153,18 +153,15 @@ pub async fn process_product_translation_job(
     body: &str,
     use_case: &(dyn TranslateProductListingEventUseCase + Send + Sync),
 ) -> ProductTranslationJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::ProductListingTranslation,
-    ) {
+    match decode(body, WorkerScope::ProductListingTranslation) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => ProductTranslationJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     use_case: &(dyn TranslateProductListingEventUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> ProductTranslationJobDisposition {
     let Ok(command) = command_from_job(job) else {
         return ProductTranslationJobDisposition::Poison("unexpected_payload");
@@ -205,8 +202,8 @@ pub fn translation_disposition(
     }
 }
 
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<TranslateProductListingCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

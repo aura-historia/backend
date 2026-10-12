@@ -152,10 +152,7 @@ pub async fn process_notification_delivery_job(
     body: &str,
     use_case: &(dyn DeliverNotificationUseCase + Send + Sync),
 ) -> NotificationDeliveryJobDisposition {
-    let job = match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::NotificationDelivery,
-    ) {
+    let job = match decode(body, WorkerScope::NotificationDelivery) {
         Ok(job) => job,
         Err(_) => return NotificationDeliveryJobDisposition::Poison("invalid_wire_job"),
     };
@@ -253,8 +250,8 @@ pub fn delivery_error_disposition(
         }
     }
 }
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<DeliverNotificationCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::NotificationDeliveryCreated(delivery) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

@@ -10,8 +10,6 @@ use std::collections::HashMap;
 #[test]
 fn deployed_names_and_visibility_stay_stable() {
     let expected = [
-        ("search-filter-projection", 300),
-        ("search-filter-percolator", 300),
         ("search-filter-match-notification", 300),
         ("watchlist-notification", 300),
         ("product-content-assessment", 270),
@@ -24,6 +22,7 @@ fn deployed_names_and_visibility_stay_stable() {
         ("geo-resolution", 300),
         ("listing-geography", 300),
     ];
+    assert_eq!(11, expected.len());
     assert_eq!(WorkerScope::ALL.len(), expected.len());
     for (scope, (name, seconds)) in WorkerScope::ALL.into_iter().zip(expected) {
         assert_eq!(scope.as_str(), name);
@@ -49,6 +48,27 @@ fn deployed_names_and_visibility_stay_stable() {
             config.dlq_url().path(),
             format!("/123456789012/aura-worker-{name}-dlq-prod{suffix}")
         );
+    }
+}
+
+#[test]
+fn removed_worker_queue_names_are_not_valid_destinations() {
+    for removed in ["search-filter-projection", "search-filter-percolator"] {
+        for scope in WorkerScope::ALL {
+            assert_eq!(
+                Some(QueueError::InvalidConfig("queue URL")),
+                SqsQueueConfig::new(
+                    scope,
+                    format!("https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{removed}-prod")
+                        .parse()
+                        .unwrap(),
+                    "eu-central-1".into(),
+                    "prod".into(),
+                    None,
+                )
+                .err(),
+            );
+        }
     }
 }
 

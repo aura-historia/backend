@@ -1,13 +1,11 @@
 //! Transport-independent CDC route policy, validation and compact job construction.
 use geo_service::resolution::ResolutionId;
 use std::collections::BTreeMap;
-use std::fmt::Display;
 
 use aura_historia_jobs::jobs::{
     DomainJob, DomainJobPayload, IdempotencyKey, MarketingConsentSyncIntentCreatedJob,
     NotificationDeliveryCreatedJob, OrderingKey, ProductListingEventJob,
-    ProductListingRawRevisionJob, SearchFilterChangedJob, SearchFilterMatchCreatedJob,
-    SearchFilterOperation, WorkerQueue,
+    ProductListingRawRevisionJob, SearchFilterMatchCreatedJob, WorkerQueue,
 };
 use domain_primitives::event_id::EventId;
 use localization::Language;
@@ -40,37 +38,8 @@ pub enum Operation {
     Delete,
 }
 
-/// Source operation syntax and the job's operation type remain owned by each runtime.
-pub trait RouteOperation: Copy + Display {
-    type ParseError: Display;
-    fn parse(value: &str) -> Result<Self, Self::ParseError>;
-    fn kind(self) -> Operation;
-}
-
-impl RouteOperation for SearchFilterOperation {
-    type ParseError = &'static str;
-
-    fn parse(value: &str) -> Result<Self, Self::ParseError> {
-        match value {
-            "insert" => Ok(Self::Insert),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            _ => Err("unsupported CDC operation"),
-        }
-    }
-
-    fn kind(self) -> Operation {
-        match self {
-            Self::Insert => Operation::Insert,
-            Self::Update => Operation::Update,
-            Self::Delete => Operation::Delete,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(bound(deserialize = "O: RouteOperation"))]
-pub struct CdcChange<O: RouteOperation> {
+pub struct CdcChange {
     #[serde(default, alias = "table_schema")]
     pub schema: Option<String>,
     #[serde(alias = "relation")]
@@ -80,7 +49,7 @@ pub struct CdcChange<O: RouteOperation> {
         alias = "action",
         deserialize_with = "deserialize_operation"
     )]
-    pub operation: O,
+    pub operation: Operation,
     #[serde(default, alias = "keys")]
     pub primary_key: BTreeMap<String, Value>,
     #[serde(default, alias = "new", alias = "new_record")]
@@ -95,17 +64,21 @@ pub struct CdcChange<O: RouteOperation> {
     pub commit_timestamp: Option<String>,
 }
 
-fn deserialize_operation<'de, D: Deserializer<'de>, O: RouteOperation>(
+fn deserialize_operation<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<O, D::Error> {
+) -> Result<Operation, D::Error> {
     let value = String::deserialize(deserializer)?;
-    O::parse(&value).map_err(serde::de::Error::custom)
+    match value.as_str() {
+        "insert" => Ok(Operation::Insert),
+        "update" => Ok(Operation::Update),
+        "delete" => Ok(Operation::Delete),
+        _ => Err(serde::de::Error::custom("unsupported CDC operation")),
+    }
 }
-pub fn route_change<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+
+pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let table = CdcTable::from(change.table.as_str());
-    match (table, change.operation.kind()) {
+    match (table, change.operation) {
         (CdcTable::ListingGeographyWakeups, Operation::Insert) => {
             let row = required_row(change)?;
             let object = row
@@ -172,7 +145,6 @@ pub fn route_change<O: RouteOperation>(
             product_listing_raw_revision_job(change)
         }
         (CdcTable::ProductListingRawRevisions, _) => Ok(Vec::new()),
-        (CdcTable::SearchFilters, _) => search_filter_changed_job(change, change.operation),
         (CdcTable::SearchFilterMatches, Operation::Insert) => {
             search_filter_match_created_job(change)
         }
@@ -186,9 +158,9 @@ pub fn route_change<O: RouteOperation>(
             marketing_consent_sync_intent_created_job(change)
         }
         (CdcTable::MarketingEmailConsentSyncIntents, _) => Ok(Vec::new()),
-        (CdcTable::Unknown(_), _) => {
-            warn!(operation = %change.operation, "ignoring unregistered CDC table");
-            Ok(Vec::new())
+        (CdcTable::Unknown(table), _) => {
+            warn!(operation = ?change.operation, "rejecting unregistered CDC table");
+            Err(CdcRouteError::UnsupportedTableForWorker(table))
         }
         (CdcTable::ProductListings | CdcTable::ProductListingWatchlist, _) => Ok(Vec::new()),
     }
@@ -201,7 +173,6 @@ pub enum CdcTable {
     ProductListingEvents,
     ProductListingRawRevisions,
     ProductListings,
-    SearchFilters,
     SearchFilterMatches,
     Users,
     ProductListingWatchlist,
@@ -218,7 +189,6 @@ impl From<&str> for CdcTable {
             "product_listing_events" => Self::ProductListingEvents,
             "product_listing_raw_revisions" => Self::ProductListingRawRevisions,
             "product_listings" => Self::ProductListings,
-            "search_filters" => Self::SearchFilters,
             "search_filter_matches" => Self::SearchFilterMatches,
             "users" => Self::Users,
             "product_listing_watchlist" => Self::ProductListingWatchlist,
@@ -250,8 +220,8 @@ struct ProductListingEventRoutingFacts {
     has_image_change: bool,
 }
 
-fn product_event_routing_facts<O: RouteOperation>(
-    change: &CdcChange<O>,
+fn product_event_routing_facts(
+    change: &CdcChange,
 ) -> Result<ProductListingEventRoutingFacts, CdcRouteError> {
     let row = required_row(change)?;
     let event_id_value = required_product_event_string(row, "event_id")?;
@@ -335,9 +305,7 @@ fn product_event_routing_facts<O: RouteOperation>(
     })
 }
 
-pub fn product_event_jobs<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let facts = product_event_routing_facts(change)?;
     let base_job = ProductListingEventJob {
         event_id: facts.event_id,
@@ -352,12 +320,6 @@ pub fn product_event_jobs<O: RouteOperation>(
         ordering_key.clone(),
         DomainJobPayload::ProductListingEvent(base_job.clone()),
     )];
-    jobs.push(domain_job(
-        WorkerQueue::SearchFilterPercolator,
-        idempotency_key.clone(),
-        ordering_key.clone(),
-        DomainJobPayload::ProductListingEvent(base_job.clone()),
-    ));
 
     match facts.event_kind {
         ProductListingRoutingEventKind::Discovered => {
@@ -1070,44 +1032,9 @@ fn required_product_event_string(
         .ok_or(CdcRouteError::MissingColumn(field))
 }
 
-pub fn search_filter_changed_job<O: RouteOperation>(
-    change: &CdcChange<O>,
-    operation: O,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
-    let row = row_for_operation(change)?;
-    let user_search_filter_id: UserSearchFilterId = parse_canonical_storage_object_id(
-        &required_string(row, "user_search_filter_id")?,
-        || CdcRouteError::InvalidObjectId("user_search_filter_id"),
-        || CdcRouteError::InvalidObjectId("user_search_filter_id"),
-    )?;
-    let user_id: UserId = parse_canonical_storage_object_id(
-        &required_string(row, "user_id")?,
-        || CdcRouteError::InvalidObjectId("user_id"),
-        || CdcRouteError::InvalidObjectId("user_id"),
-    )?;
-    let version = required_integer(row, "version")?;
-    if version <= 0 {
-        return Err(CdcRouteError::InvalidSearchFilterVersion);
-    }
-
-    Ok(vec![domain_job(
-        WorkerQueue::SearchFilterOpenSearch,
-        IdempotencyKey::new(format!(
-            "search-filter:{user_search_filter_id}:{version}:{operation}"
-        )),
-        OrderingKey::new(format!("search-filter:{user_search_filter_id}")),
-        DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
-            user_id,
-            user_search_filter_id,
-            version,
-            operation,
-        }),
-    )])
-}
-
-pub fn search_filter_match_created_job<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+pub fn search_filter_match_created_job(
+    change: &CdcChange,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let user_id: UserId = parse_canonical_storage_object_id(
         &required_string(row, "user_id")?,
@@ -1145,9 +1072,9 @@ pub fn search_filter_match_created_job<O: RouteOperation>(
     )])
 }
 
-pub fn product_listing_raw_revision_job<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+pub fn product_listing_raw_revision_job(
+    change: &CdcChange,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let stream_id_value = required_string(row, "product_listing_raw_stream_id")?;
     let stream_id: ProductListingRawStreamId = parse_canonical_storage_object_id(
@@ -1180,9 +1107,9 @@ pub fn product_listing_raw_revision_job<O: RouteOperation>(
     )])
 }
 
-pub fn notification_delivery_created_job<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+pub fn notification_delivery_created_job(
+    change: &CdcChange,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let notification_delivery_id: NotificationDeliveryId = parse_canonical_storage_object_id(
         &required_string(row, "notification_delivery_id")?,
@@ -1200,9 +1127,9 @@ pub fn notification_delivery_created_job<O: RouteOperation>(
     )])
 }
 
-pub fn marketing_consent_sync_intent_created_job<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<Vec<DomainJob<O>>, CdcRouteError> {
+pub fn marketing_consent_sync_intent_created_job(
+    change: &CdcChange,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let uuid_text = required_string(row, "intent_id")?;
     let uuid = parse_canonical_storage_uuid(
@@ -1234,12 +1161,12 @@ pub fn valid_marketing_consent_recipient_key(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn domain_job<O: RouteOperation>(
+fn domain_job(
     target_queue: WorkerQueue,
     idempotency_key: IdempotencyKey,
     ordering_key: OrderingKey,
-    payload: DomainJobPayload<O>,
-) -> DomainJob<O> {
+    payload: DomainJobPayload,
+) -> DomainJob {
     DomainJob {
         target_queue,
         idempotency_key,
@@ -1248,16 +1175,14 @@ fn domain_job<O: RouteOperation>(
     }
 }
 
-pub fn row_for_operation<O: RouteOperation>(
-    change: &CdcChange<O>,
-) -> Result<&Value, CdcRouteError> {
-    match change.operation.kind() {
+pub fn row_for_operation(change: &CdcChange) -> Result<&Value, CdcRouteError> {
+    match change.operation {
         Operation::Delete => change.old_record.as_ref().ok_or(CdcRouteError::MissingRow),
         Operation::Insert | Operation::Update => required_row(change),
     }
 }
 
-pub fn required_row<O: RouteOperation>(change: &CdcChange<O>) -> Result<&Value, CdcRouteError> {
+pub fn required_row(change: &CdcChange) -> Result<&Value, CdcRouteError> {
     change.record.as_ref().ok_or(CdcRouteError::MissingRow)
 }
 
@@ -1329,8 +1254,7 @@ pub enum CdcRouteError {
     NonCanonicalMarketingConsentSyncIntentId,
     #[error("CDC change has an invalid marketing consent recipient key")]
     InvalidMarketingConsentRecipientKey,
-    #[error("CDC change has an invalid positive search filter version")]
-    InvalidSearchFilterVersion,
+
     #[error("CDC change has a missing ProductListing event field {field}")]
     MissingProductListingEventField { field: String },
     #[error("CDC change has an invalid ProductListing event field {field}")]
@@ -1354,7 +1278,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn change(table: &str, operation: &str, record: Value) -> CdcChange<SearchFilterOperation> {
+    fn change(table: &str, operation: &str, record: Value) -> CdcChange {
         serde_json::from_value(json!({
             "table": table,
             "operation": operation,
@@ -1392,7 +1316,6 @@ mod tests {
             jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>(),
             vec![
                 WorkerQueue::ProductListingOpenSearch,
-                WorkerQueue::SearchFilterPercolator,
                 WorkerQueue::ProductListingContentAssessment,
                 WorkerQueue::ProductListingEmbed,
                 WorkerQueue::ProductListingTranslate,
@@ -1403,6 +1326,110 @@ mod tests {
                 .all(|job| job.idempotency_key == jobs[0].idempotency_key
                     && job.ordering_key == jobs[0].ordering_key)
         );
+    }
+
+    #[test]
+    fn product_change_and_enrichment_routes_preserve_remaining_destinations() {
+        let price = json!({"pricing": {"price": {"previous": null,
+            "current": {"type": "MONETARY", "amount": 100, "currency": "EUR"}}}});
+        let availability = json!({"availability": {"previous": null, "current": "AVAILABLE"}});
+        let images = json!({"images": {"previousCount": 0, "currentCount": 1}});
+        let mut combined = price.clone();
+        combined
+            .as_object_mut()
+            .unwrap()
+            .extend(availability.as_object().unwrap().clone());
+        combined
+            .as_object_mut()
+            .unwrap()
+            .extend(images.as_object().unwrap().clone());
+        for (event_type, event_group, payload, expected) in [
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                price,
+                vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::WatchlistNotification,
+                ],
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                availability,
+                vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::WatchlistNotification,
+                ],
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                images,
+                vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::ProductListingEmbed,
+                ],
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                combined,
+                vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::WatchlistNotification,
+                    WorkerQueue::ProductListingEmbed,
+                ],
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                json!({"pricing": {"priceEstimateMin": {"previous": null, "current": {"amount": 100, "currency": "EUR"}}}}),
+                vec![WorkerQueue::ProductListingOpenSearch],
+            ),
+            (
+                "ENRICHMENT_EMBEDDED",
+                "ENRICHMENT",
+                json!({"sourceEventId": "01900000-0000-7000-8000-000000000003"}),
+                vec![WorkerQueue::ProductListingOpenSearch],
+            ),
+            (
+                "ENRICHMENT_TRANSLATED_TITLES",
+                "ENRICHMENT",
+                json!({"sourceEventId": "01900000-0000-7000-8000-000000000003", "sourceLanguage": "de", "targetLanguages": ["en"]}),
+                vec![WorkerQueue::ProductListingOpenSearch],
+            ),
+            (
+                "ENRICHMENT_GEOGRAPHY_UPDATED",
+                "ENRICHMENT",
+                json!({}),
+                vec![WorkerQueue::ProductListingOpenSearch],
+            ),
+        ] {
+            let jobs = route_change(&change(
+                "product_listing_events",
+                "insert",
+                json!({
+                    "event_id": "01900000-0000-7000-8000-000000000004",
+                    "product_listing_id": "01900000-0000-7000-8000-000000000003",
+                    "event_type": event_type,
+                    "event_group": event_group,
+                    "event_type_schema_version": 1,
+                    "payload": payload,
+                }),
+            ))
+            .unwrap();
+            assert_eq!(
+                expected,
+                jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>(),
+                "{event_type}"
+            );
+            for job in &jobs {
+                assert!(job.validate().is_ok());
+                assert_eq!(job.idempotency_key, jobs[0].idempotency_key);
+                assert_eq!(job.ordering_key, jobs[0].ordering_key);
+            }
+        }
     }
 
     #[test]
@@ -1436,26 +1463,19 @@ mod tests {
     }
 
     #[test]
-    fn search_filter_delete_uses_old_row_and_retains_operation() {
-        let mut change = change("search_filters", "delete", json!({}));
-        change.record = None;
-        change.old_record = Some(json!({
-            "user_id": "01900000-0000-7000-8000-000000000001",
-            "user_search_filter_id": "01900000-0000-7000-8000-000000000002",
-            "version": 2,
-        }));
-        let jobs = route_change(&change).unwrap();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].target_queue, WorkerQueue::SearchFilterOpenSearch);
-        assert!(jobs[0].idempotency_key.as_str().ends_with(":2:delete"));
-        assert!(
-            matches!(&jobs[0].payload, DomainJobPayload::SearchFilterChanged(job) if job.operation == SearchFilterOperation::Delete)
-        );
-        change.old_record = None;
+    fn removed_search_filter_source_fails_closed_for_all_operations() {
         assert_eq!(
-            route_change(&change).unwrap_err(),
-            CdcRouteError::MissingRow
+            CdcTable::Unknown("search_filters".into()),
+            CdcTable::from("search_filters")
         );
+        for operation in ["insert", "update", "delete"] {
+            assert_eq!(
+                Err(CdcRouteError::UnsupportedTableForWorker(
+                    "search_filters".into()
+                )),
+                route_change(&change("search_filters", operation, json!({}))),
+            );
+        }
     }
 
     #[test]
@@ -1597,6 +1617,39 @@ mod tests {
     }
 
     #[test]
+    fn operation_deserialization_accepts_only_canonical_strings() {
+        for field in ["operation", "op", "action"] {
+            for invalid in [
+                json!(null),
+                json!(1),
+                json!(true),
+                json!([]),
+                json!({"insert": null}),
+                json!({"update": null}),
+                json!({"delete": null}),
+            ] {
+                let mut value = json!({"table": "search_filter_matches"});
+                value[field] = invalid;
+                assert!(serde_json::from_value::<CdcChange>(value).is_err());
+            }
+            for (value, expected) in [
+                ("insert", Operation::Insert),
+                ("update", Operation::Update),
+                ("delete", Operation::Delete),
+            ] {
+                let mut change = json!({"table": "search_filter_matches"});
+                change[field] = json!(value);
+                assert_eq!(
+                    expected,
+                    serde_json::from_value::<CdcChange>(change)
+                        .unwrap()
+                        .operation
+                );
+            }
+        }
+    }
+
+    #[test]
     fn policy_rejects_invalid_revision_and_strict_operation_aliases() {
         let invalid = change(
             "product_listing_raw_revisions",
@@ -1611,23 +1664,27 @@ mod tests {
             route_change(&invalid).unwrap_err(),
             CdcRouteError::InvalidProductListingRawRevision
         );
-        assert!(
-            serde_json::from_value::<CdcChange<SearchFilterOperation>>(json!({
-                "table": "search_filters", "operation": "create"
-            }))
-            .is_err()
-        );
+        for operation in [
+            "create", "INSERT", "UPDATE", "DELETE", "Insert", " insert", "insert ", "",
+        ] {
+            assert!(
+                serde_json::from_value::<CdcChange>(json!({
+                    "table": "search_filter_matches", "operation": operation
+                }))
+                .is_err()
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod geography_tests {
     use super::*;
-    fn change(table: &str, row: Value) -> CdcChange<SearchFilterOperation> {
+    fn change(table: &str, row: Value) -> CdcChange {
         CdcChange {
             schema: Some("public".into()),
             table: table.into(),
-            operation: SearchFilterOperation::Insert,
+            operation: Operation::Insert,
             primary_key: Default::default(),
             record: Some(row),
             old_record: None,
@@ -1642,10 +1699,7 @@ mod geography_tests {
         let jobs =
             route_change(&change("product_listing_events", row.clone())).expect("valid enrichment");
         assert_eq!(
-            vec![
-                WorkerQueue::ProductListingOpenSearch,
-                WorkerQueue::SearchFilterPercolator
-            ],
+            vec![WorkerQueue::ProductListingOpenSearch],
             jobs.iter().map(|j| j.target_queue).collect::<Vec<_>>()
         );
         let mut poison = row;

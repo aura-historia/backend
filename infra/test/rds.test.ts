@@ -126,8 +126,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
     );
 
-    expect(functions).toHaveLength(22);
-    expect(runtimeFunctions).toHaveLength(21);
+    expect(functions).toHaveLength(20);
+    expect(runtimeFunctions).toHaveLength(19);
     expect(migration).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-listing-normalization-lambda-${stage}`,
@@ -143,12 +143,6 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     )).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `product-translation-lambda-${stage}`,
-    )).toBeDefined();
-    expect(functions.find((resource) =>
-      resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`,
-    )).toBeDefined();
-    expect(functions.find((resource) =>
-      resource.Properties.FunctionName === `search-filter-percolator-lambda-${stage}`,
     )).toBeDefined();
     expect(functions.find((resource) =>
       resource.Properties.FunctionName === `search-filter-match-notification-lambda-${stage}`,

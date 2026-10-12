@@ -9,8 +9,6 @@ import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerSc
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibility: 300 },
-  "search-filter-projection": { id: "SearchFilterProjection", visibility: 300 },
-  "search-filter-percolator": { id: "SearchFilterPercolator", visibility: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibility: 300 },
   "watchlist-notification": { id: "WatchlistNotification", visibility: 300 },
   "product-content-assessment": { id: "ProductContentAssessment", visibility: 270 },
@@ -169,7 +167,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     compute = Template.fromStack(stacks.compute);
   });
 
-  test("enables exactly thirteen scopes, separate from the Shopify catalog", () => {
+  test("enables exactly eleven scopes, separate from the Shopify catalog", () => {
     expect(WORKER_SCOPES).toEqual(EXPECTED_SCOPES);
     expect(Object.keys(WORKER_QUEUE_DEFINITIONS)).toEqual(EXPECTED_SCOPES);
     expect(stageConfig(stage).workerQueues.enabledScopes).toEqual(EXPECTED_SCOPES);
@@ -195,7 +193,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       `shopify-lambda-queue-${stage}`, `shopify-lambda-dlq-${stage}`,
       `product-listing-ingestion-queue-${stage}.fifo`, `product-listing-ingestion-dlq-${stage}.fifo`,
     ].sort());
-    expect(new Set(names).size).toBe(30);
+    expect(new Set(names).size).toBe(26);
     expect(workerPolicyNames(data)).toEqual(expectedWorkerPolicyNames(stage, EXPECTED_SCOPES));
     data.resourceCountIs("AWS::IAM::User", 0);
     data.resourceCountIs("AWS::IAM::AccessKey", 0);
@@ -402,7 +400,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
         Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(14);
     const shopifyMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
     );
@@ -417,7 +415,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(14);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -444,8 +442,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
     // The API's stable HTTP integration, CDC router and cleanup target,
-    // and all thirteen queue workers plus command ingress use immutable versions. FX lives in initialization.
-    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(17);
+    // and all eleven queue workers plus command ingress use immutable versions. FX lives in initialization.
+    expect(Object.values(compute.findResources("AWS::Lambda::Version"))).toHaveLength(15);
     const aliases = Object.values(compute.findResources("AWS::Lambda::Alias"));
     expect(aliases).toHaveLength(1);
     expect(aliases[0].Properties).toMatchObject({
@@ -455,44 +453,16 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => statement.Action.includes("es:ESHttpPut"));
-    expect(projectionSearchStatements).toHaveLength(2);
+    expect(projectionSearchStatements).toHaveLength(1);
     expect(projectionSearchStatements[0]).toMatchObject({
       Action: "es:ESHttpPut",
       Effect: "Allow",
     });
   });
 
-  test("starts saved-filter projection with only PostgreSQL, OpenSearch, and its source queue", () => {
-    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    const mapping = mappings.find((candidate) =>
-      JSON.stringify(candidate.Properties.FunctionName).includes("SearchFilterProjectionVersion"),
-    );
-    expect(mapping?.Properties).toMatchObject({
-      BatchSize: 1,
-      Enabled: true,
-      FunctionResponseTypes: ["ReportBatchItemFailures"],
-    });
-    expect(JSON.stringify(mapping?.Properties.EventSourceArn))
-      .toContain(`aura-worker-search-filter-projection-${stage}`);
-
-    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
-      .filter((resource) => resource.Properties.FunctionName === `search-filter-projection-lambda-${stage}`);
-    expect(functions).toHaveLength(1);
-    expect(functions[0].Properties).toMatchObject({
-      MemorySize: 512,
-      Timeout: 45,
-      Runtime: "provided.al2023",
-      Handler: "lib.handler",
-    });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
-    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
-    );
-  });
-
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(14);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );
@@ -704,78 +674,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(JSON.stringify(statements)).not.toContain("StartMessageMoveTask");
   });
 
-  test("deploys the dedicated saved-filter percolator Lambda with scoped dependencies and an active mapping", () => {
-    const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    const percolatorMapping = mappings.find((mapping) =>
-      JSON.stringify(mapping.Properties.FunctionName).includes("SearchFilterPercolatorVersion"),
-    );
-    expect(percolatorMapping?.Properties).toMatchObject({
-      BatchSize: 1,
-      Enabled: true,
-      FunctionResponseTypes: ["ReportBatchItemFailures"],
-    });
-    expect(JSON.stringify(percolatorMapping?.Properties.EventSourceArn))
-      .toContain(`aura-worker-search-filter-percolator-${stage}`);
-
-    const functions = Object.values(compute.findResources("AWS::Lambda::Function"))
-      .filter((resource) => resource.Properties.FunctionName === `search-filter-percolator-lambda-${stage}`);
-    expect(functions).toHaveLength(1);
-    expect(functions[0].Properties).toMatchObject({
-      MemorySize: 512,
-      Timeout: 45,
-      Runtime: "provided.al2023",
-      Handler: "lib.handler",
-    });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
-    const classifierConfig = stageConfig(stage).searchFilterClassifier;
-    expect(compute.toJSON().Parameters.SearchFilterClassifierModel).toMatchObject({
-      Default: classifierConfig.model,
-      AllowedValues: ["clef-flash", "clef"],
-    });
-    expect(compute.toJSON().Parameters.SearchFilterMatchShouldShowThresholdBps).toMatchObject({
-      Default: classifierConfig.shouldShowThresholdBps,
-      MinValue: 0,
-      MaxValue: 10_000,
-    });
-    expect(functions[0].Properties.Environment.Variables).toMatchObject({
-      CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
-      CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
-      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: {
-        Ref: "SearchFilterMatchShouldShowThresholdBps",
-      },
-    });
-    expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["CLASSIFIER_MODEL", "CLASSIFIER_MODEL_PROVIDER", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN_SSM_PARAMETER", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS", "STAGE"],
-    );
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("S3_BUCKET_NAME_TEMPLATES");
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain("NOTIFICATION_EMAIL");
-
-    const policies = Object.values(compute.findResources("AWS::IAM::Policy"));
-    const percolatorSearchStatements = policies
-      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement) => Array.isArray(statement.Action) && statement.Action.includes("es:ESHttpPost"));
-    expect(percolatorSearchStatements).toHaveLength(1);
-    expect(percolatorSearchStatements[0].Action).toEqual([
-      "es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
-    ]);
-    const percolatorSsmStatements = policies
-      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement) => {
-        const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
-        return actions.includes("ssm:GetParameter");
-      });
-    expect(percolatorSsmStatements).toHaveLength(1);
-    expect(JSON.stringify(percolatorSsmStatements[0])).toContain(
-      `parameter/secrets/${stage}/cloudflare-workers-ai-api-token`,
-    );
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).toContain(
-      `/secrets/${stage}/cloudflare-workers-ai-api-token`,
-    );
-    expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toContain(
-      "resolve:ssm-secure",
-    );
-  });
-
   test("deploys separate PostgreSQL-only notification generators with active mappings", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     for (const [version, queue, binary] of [
@@ -922,7 +820,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => resource.Properties.Namespace === "AWS/SQS")
       .filter((resource) => String(resource.Properties.AlarmName).startsWith("prod-worker-"));
-    expect(alarms).toHaveLength(26);
+    expect(alarms).toHaveLength(22);
     const topicIds = Object.keys(template.findResources("AWS::SNS::Topic"));
     expect(topicIds).toHaveLength(1);
     for (const scope of EXPECTED_SCOPES) {

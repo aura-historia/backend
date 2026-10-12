@@ -26,12 +26,6 @@ pub enum ProductListingSearchFilterMatchSourceEventKind {
     Ignored,
 }
 
-impl ProductListingSearchFilterMatchSourceEventKind {
-    pub fn is_percolation_trigger(self) -> bool {
-        matches!(self, Self::Domain | Self::Enrichment | Self::Geography)
-    }
-}
-
 /// Exact immutable ProductListing event reference for batched source reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProductListingSearchFilterMatchSourceRef {
@@ -43,7 +37,7 @@ pub struct ProductListingSearchFilterMatchSourceRef {
 pub struct ProductListingSearchFilterMatchSource {
     /// Stable identifier of the source ProductListing event.
     pub event_id: EventId,
-    /// Whether this event type is routed to search-filter percolation.
+    /// Event category used by projection and periodic matching consumers.
     pub event_kind: ProductListingSearchFilterMatchSourceEventKind,
     /// Immutable occurrence time from `product_listing_events.event_time`.
     pub origin_event_time: OffsetDateTime,

@@ -822,31 +822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-ssm"
-version = "1.128.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1bc206dc421520fb6284710537bd2b021f6f6d3dda17a5b478de9cbafd7bed8"
-dependencies = [
- "arc-swap",
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-observability",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-schema",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 1.5.0",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
 name = "aws-sdk-sso"
 version = "1.109.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7345,82 +7320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "search-filter-opensearch"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "auction-core",
- "domain-primitives",
- "fxrate-core",
- "geo",
- "indexmap 2.14.2",
- "listing-source-core",
- "localization",
- "money",
- "opensearch",
- "party-core",
- "platform-opensearch",
- "product-listing-core",
- "product-listing-opensearch",
- "product-listing-service",
- "search-filter-core",
- "search-filter-service",
- "serde",
- "serde_json",
- "serial_test",
- "strum 0.28.0",
- "test-api",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "url",
- "user-core",
- "uuid",
-]
-
-[[package]]
-name = "search-filter-percolator-lambda"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "aura-historia-jobs",
- "aws-config",
- "aws-sdk-ssm",
- "aws_lambda_events",
- "classifier-model",
- "domain-primitives",
- "fxrate-postgres",
- "lambda_runtime",
- "listing-source-core",
- "localization",
- "money",
- "opensearch",
- "platform-lambda-bootstrap",
- "platform-lambda-sqs",
- "platform-observability",
- "platform-postgres",
- "platform-postgres-secretsmanager",
- "product-listing-core",
- "product-listing-postgres",
- "search-filter-core",
- "search-filter-opensearch",
- "search-filter-postgres",
- "search-filter-service",
- "serde",
- "serde_json",
- "serial_test",
- "sqlx",
- "test-api",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "uuid",
-]
-
-[[package]]
 name = "search-filter-periodic-match"
 version = "0.1.0"
 dependencies = [
@@ -7472,39 +7371,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "search-filter-projection-lambda"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "aura-historia-jobs",
- "aws_lambda_events",
- "lambda_runtime",
- "localization",
- "money",
- "opensearch",
- "platform-lambda-bootstrap",
- "platform-lambda-sqs",
- "platform-observability",
- "platform-postgres",
- "platform-postgres-secretsmanager",
- "product-listing-core",
- "search-filter-core",
- "search-filter-opensearch",
- "search-filter-postgres",
- "search-filter-service",
- "serde_json",
- "serial_test",
- "sqlx",
- "test-api",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "uuid",
-]
-
-[[package]]
 name = "search-filter-service"
 version = "0.1.0"
 dependencies = [
@@ -7526,7 +7392,6 @@ dependencies = [
  "product-listing-core",
  "product-listing-service",
  "search-filter-core",
- "serde",
  "serde_json",
  "strum 0.28.0",
  "thiserror 2.0.21",

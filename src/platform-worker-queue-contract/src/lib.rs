@@ -224,8 +224,6 @@ impl SqsQueueConfig {
 pub fn visibility(scope: WorkerScope) -> Duration {
     Duration::from_secs(match scope {
         WorkerScope::ProductListingOpenSearch
-        | WorkerScope::SearchFilterProjection
-        | WorkerScope::SearchFilterPercolator
         | WorkerScope::SearchFilterMatchNotification
         | WorkerScope::WatchlistNotification
         | WorkerScope::GeoResolution

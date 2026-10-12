@@ -161,8 +161,8 @@ async fn assert_read_paths(
         .in_transaction(&mut transaction)
         .find_source(event_id, product.id())
         .await
-        .expect("read percolation source")
-        .expect("percolation source exists");
+        .expect("read match source")
+        .expect("match source exists");
     assert_eq!(current_localized, match_source.product_title);
     assert_eq!(Some(current_title), match_source.titles.get(&Language::En));
     transaction.commit().await.expect("commit reads");
