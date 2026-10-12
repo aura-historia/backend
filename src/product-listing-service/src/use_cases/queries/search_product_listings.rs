@@ -944,6 +944,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl FxRateSnapshotReader for FakeFxRateSnapshotReader {
+        async fn find_latest_at_or_before_many(
+            &self,
+            _timestamps: &[OffsetDateTime],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+            panic!("search does not batch historical selections")
+        }
+
         async fn find_latest_at_or_before(
             &self,
             _timestamp: OffsetDateTime,
@@ -1024,6 +1031,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl FxRateSnapshotReader for RecordingFxRateSnapshotReader {
+        async fn find_latest_at_or_before_many(
+            &self,
+            _timestamps: &[OffsetDateTime],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotReadError> {
+            panic!("search does not batch historical selections")
+        }
+
         async fn find_latest_at_or_before(
             &self,
             _timestamp: OffsetDateTime,

@@ -1580,6 +1580,7 @@ async fn test_state(
     .with_product_listing_history(Arc::new(GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
         SqlxProductListingHistoryReaderFactory::new(),
+        SqlxFxRateSnapshotReader::new(pool.clone()),
     )));
 
     let partner_product_listings_state = PartnerProductListingsState::new(

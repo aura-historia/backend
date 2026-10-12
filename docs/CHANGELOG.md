@@ -38,6 +38,12 @@ Only document REST API contract changes here. No internal changes.
 - Protected access requires administrator/internal authority, membership in the Party's active partnership, or an explicit Party-location management grant. Unsuspended partnership members gain access automatically on approval or membership addition; membership removal/dissolution removes that authority. Delegated callers also need `parties:read`/`parties:write`. Administrator grant/revoke uses `PUT /api/v1/admin/parties/{party_id}/location-managers/{user_id}` and controls only independent explicit grants. Listing-write scope provides no access.
 - Corrections require `correction: SAME_SITE` and `expectedRevision`; lifecycle changes explicitly choose `ACTIVE` or `RETIRED` with `expectedRevision`. Nullable geography/position/evidence clear on null; label/roles/disclosure reject null. Stale revisions and conflicting idempotency-key reuse return `409 CONFLICT`. Lists use `after` TypeIDs and `limit` (1–100, default 25), returning `items` and nullable `next`.
 - All location endpoints require authentication and use `Cache-Control: no-store`. There are no public Party-location get/list endpoints.
+- 
+## 2026-10-10 — Historical ProductListing price display (#2018)
+
+- `GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`. Omission preserves the existing response. Monetary discovery prices/estimates and both sides of price/estimate changes can include additive `display` values with the requested currency, minor-unit amount, `fxRateId` and `capturedAt`.
+- Each entry uses the latest persisted FX snapshot at or before its timestamp, with HalfUp rounding (JPY/KRW: 0 decimals; others: 2). Source values remain unchanged. Missing snapshots or required historical quotes omit that value's `display` while still returning `200`; consumers fall back to labelled source values. `ON_REQUEST` and null values have no projection. Current/later rates are never substituted.
+- Unsupported currency returns `400 BAD_QUERY_PARAMETER_VALUE`. Anonymous success keeps its 300-second shared cache, with currency variants in the edge cache key; credential-bearing responses and errors stay `private, no-store`.
 
 ## 2026-10-09 — Additional supported currencies (#1578)
 

@@ -181,6 +181,24 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingHistory(Mutex<Vec<GetProductListingHistoryRequest>>);
+
+    #[async_trait::async_trait]
+    impl GetProductListingHistoryUseCase for RecordingHistory {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            request: GetProductListingHistoryRequest,
+        ) -> Result<
+            Vec<product_listing_service::use_cases::ProductListingHistoryEntry>,
+            GetProductListingHistoryError,
+        > {
+            lock(&self.0).push(request);
+            Ok(Vec::new())
+        }
+    }
+
     struct FakeAuthenticator {
         reject: bool,
         user_id: Option<UserId>,
@@ -315,6 +333,82 @@ mod tests {
             "private, no-store",
             response.headers()[header::CACHE_CONTROL]
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_pass_optional_history_currency_and_preserve_cache_policy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (query, currency) in [
+            ("", None),
+            ("?currency=RON", Some(Currency::Ron)),
+            ("?currency=JPY", Some(Currency::Jpy)),
+            ("?currency=KRW", Some(Currency::Krw)),
+        ] {
+            for authenticated in [false, true] {
+                let history = Arc::new(RecordingHistory::default());
+                let product_listing_id = ProductListingId::new();
+                let (app, _) = app_with_history(
+                    product_details_view()?,
+                    false,
+                    authenticated.then(UserId::new),
+                    history.clone(),
+                );
+                let mut request = Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/history{query}"
+                ));
+                if authenticated {
+                    request = request.header(header::AUTHORIZATION, "Bearer valid");
+                }
+                let response = app.oneshot(request.body(Body::empty())?).await?;
+                assert_eq!(StatusCode::OK, response.status());
+                assert_eq!(
+                    if authenticated {
+                        "private, no-store"
+                    } else {
+                        "public, max-age=0, s-maxage=300, stale-if-error=0"
+                    },
+                    response.headers()[header::CACHE_CONTROL]
+                );
+                assert_eq!(
+                    vec![GetProductListingHistoryRequest {
+                        lookup:
+                            product_listing_service::use_cases::ProductListingHistoryLookup::ById(
+                                product_listing_id
+                            ),
+                        currency
+                    }],
+                    *lock(&history.0)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_history_currency_without_calling_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let history = Arc::new(RecordingHistory::default());
+        let (app, _) = app_with_history(product_details_view()?, false, None, history.clone());
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings/{}/history?currency=XXX",
+                    ProductListingId::new()
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(
+            "private, no-store",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        assert_eq!(
+            "BAD_QUERY_PARAMETER_VALUE",
+            body_json(response).await?["error"]
+        );
+        assert!(lock(&history.0).is_empty());
         Ok(())
     }
 
@@ -508,6 +602,20 @@ mod tests {
         reject_token: bool,
         user_id: Option<UserId>,
     ) -> (Router, GetProductListingCalls) {
+        app_with_history(
+            view,
+            reject_token,
+            user_id,
+            Arc::new(EmptyProductListingHistory),
+        )
+    }
+
+    fn app_with_history(
+        view: PersonalizedProductListingDetailsView,
+        reject_token: bool,
+        user_id: Option<UserId>,
+        history: Arc<dyn GetProductListingHistoryUseCase>,
+    ) -> (Router, GetProductListingCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductListingsState::new(
             Arc::new(FakeGetProductListingUseCase {
@@ -521,7 +629,7 @@ mod tests {
                 user_id,
             }),
         )
-        .with_product_listing_history(Arc::new(EmptyProductListingHistory));
+        .with_product_listing_history(history);
         (
             Router::new()
                 .route(
