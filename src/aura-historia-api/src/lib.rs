@@ -3,6 +3,7 @@ pub mod auctions;
 pub mod auth;
 pub mod billing;
 pub mod error;
+mod geographic_search;
 pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
@@ -963,6 +964,16 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
     if let Some(locations) = state.party_locations {
+        if let Some(discovery) = locations.discovery.clone() {
+            routes = routes.merge(
+                Router::new()
+                    .route(
+                        "/api/v1/party-locations",
+                        get(parties::discover_locations::discover),
+                    )
+                    .with_state(discovery),
+            );
+        }
         routes = routes.merge(
             Router::new()
                 .route(
@@ -1728,6 +1739,12 @@ async fn app_state_from_config_and_pool(
     let location_admin =
         || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
     let party_locations_state = state::PartyLocationsState {
+        discovery: Some(Arc::new(
+            party_service::discovery::DiscoverPartyLocationsHandler::new(
+                unit_of_work.clone(),
+                party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory,
+            ),
+        )),
         create: Arc::new(CreatePartyLocationHandler::new(
             unit_of_work.clone(),
             SqlxPartyLocationRepositoryFactory,

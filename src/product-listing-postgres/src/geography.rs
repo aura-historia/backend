@@ -365,16 +365,11 @@ impl GeographyProjectionStore for Store<'_> {
             let dependency = json!({"policy":POLICY,"listingVersion":i.listing_version,"listingActive":i.active,"sourceId":i.source_id,"assignmentRevision":i.assignment_revision,"locationId":i.location_id,"locationRevision":i.location_revision,"inputRevision":i.input_revision,"locationActive":i.location_active,"business":i.business,"inventory":i.inventory,"resolution":w.resolution.as_ref().map(|r|json!({"id":r.work.id,"generation":r.work.generation,"guard":r.guard,"inputRevision":r.input_revision,"selection":r.selected_candidate,"validUntil":r.valid_until.map(|v|v.unix_timestamp_nanos().to_string()),"policy":geo_service::resolution::POLICY_VERSION}))});
             let geography =
                 serde_json::to_value(GeographyData::from(&w.geography)).map_err(storage)?;
-            let old:Option<(serde_json::Value,i64,i64,serde_json::Value,bool)>=sqlx::query_as("SELECT geography,geography_version,indexed_version,dependency,blocks_queries FROM product_listing_geographies WHERE product_listing_id=$1").bind(i.listing_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
+            let old:Option<(serde_json::Value,i64,i64,serde_json::Value)>=sqlx::query_as("SELECT geography,geography_version,indexed_version,dependency FROM product_listing_geographies WHERE product_listing_id=$1").bind(i.listing_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
             let empty =
                 serde_json::to_value(GeographyData::from(&EffectiveListingGeography::default()))
                     .map_err(storage)?;
             let differs = old.as_ref().map(|o| &o.0).unwrap_or(&empty) != &geography;
-            // Adding previously absent geography cannot expose a forbidden stale
-            // point. Replacing/removing old geography retains query custody until
-            // the new document or tombstone is refresh-visible.
-            let replaces_existing = differs && old.as_ref().is_some_and(|old| old.0 != empty);
-            let blocks_queries = replaces_existing || old.as_ref().is_some_and(|old| old.4);
             // Dependency equality is a replay guard, never an ordered target version.
             // Compare the safe result too: time-dependent eligibility can change
             // without a new dependency generation.
@@ -383,15 +378,6 @@ impl GeographyProjectionStore for Store<'_> {
                 .is_some_and(|old| old.3 == dependency && old.0 == geography)
             {
                 continue;
-            }
-            if replaces_existing {
-                // Ordinary catch-up can discover retention expiry before the
-                // maintenance journal exists. Fence requests that span this
-                // removal even if indexing clears custody before their recheck.
-                sqlx::query("UPDATE listing_geography_gate SET epoch=epoch+1")
-                    .execute(&mut *self.connection)
-                    .await
-                    .map_err(storage)?;
             }
             let mut version:i64=sqlx::query_scalar("SELECT projection_version FROM product_listings WHERE product_listing_id=$1 AND version=$2").bind(i.listing_id.into_uuid()).bind(i.listing_version).fetch_optional(&mut *self.connection).await.map_err(storage)?.ok_or(GeographyError::Superseded)?;
             if differs {
@@ -403,8 +389,8 @@ impl GeographyProjectionStore for Store<'_> {
             } else if let Some(old) = &old {
                 version = old.1;
             }
-            sqlx::query("INSERT INTO product_listing_geographies(product_listing_id,dependency,geography,valid_until,geography_version,indexed_version,blocks_queries) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,geography=EXCLUDED.geography,valid_until=EXCLUDED.valid_until,geography_version=EXCLUDED.geography_version,blocks_queries=EXCLUDED.blocks_queries")
-                .bind(i.listing_id.into_uuid()).bind(dependency).bind(geography).bind(valid_until).bind(version).bind(old.map(|o|o.2).unwrap_or(if differs {0} else {version})).bind(blocks_queries).execute(&mut *self.connection).await.map_err(storage)?;
+            sqlx::query("INSERT INTO product_listing_geographies(product_listing_id,dependency,geography,valid_until,geography_version,indexed_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,geography=EXCLUDED.geography,valid_until=EXCLUDED.valid_until,geography_version=EXCLUDED.geography_version")
+                .bind(i.listing_id.into_uuid()).bind(dependency).bind(geography).bind(valid_until).bind(version).bind(old.map(|o|o.2).unwrap_or(if differs {0} else {version})).execute(&mut *self.connection).await.map_err(storage)?;
         }
         Ok(changed)
     }
@@ -430,27 +416,6 @@ impl GeographyProjectionStore for Store<'_> {
     }
 }
 #[derive(Clone)]
-pub struct SqlxGeographicQueryGate {
-    pool: PgPool,
-}
-impl SqlxGeographicQueryGate {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-#[async_trait::async_trait]
-impl GeographicQueryGate for SqlxGeographicQueryGate {
-    async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError> {
-        let epoch=sqlx::query_scalar::<_,i64>(r#"
-            SELECT epoch FROM listing_geography_gate WHERE NOT EXISTS(SELECT 1 FROM listing_geography_work WHERE pending AND blocks_queries)
-            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE blocks_queries AND indexed_version<geography_version)
-            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE valid_until<=clock_timestamp())
-        "#).fetch_optional(&self.pool).await.map_err(storage)?;
-        Ok(epoch.map(|epoch| GeographicQueryPermit { epoch }))
-    }
-}
-
-#[derive(Clone)]
 pub struct SqlxEffectiveListingGeographyBatchReader {
     pool: PgPool,
 }
@@ -475,11 +440,10 @@ impl EffectiveListingGeographyBatchReader for SqlxEffectiveListingGeographyBatch
             return Err(GeographyError::InvalidInput);
         }
         let ids = ids.iter().map(|id| id.into_uuid()).collect::<Vec<_>>();
-        let gate = SqlxGeographicQueryGate::new(self.pool.clone());
-        Ok(with_geographic_eligibility(&gate,|| async {
-            let rows:Vec<(Uuid,serde_json::Value)>=sqlx::query_as("SELECT g.product_listing_id,g.geography FROM product_listing_geographies g JOIN product_listings p USING(product_listing_id) WHERE g.product_listing_id=ANY($1) AND p.lifecycle='ACTIVE'")
+        let rows:Vec<(Uuid,serde_json::Value)>=sqlx::query_as("SELECT g.product_listing_id,g.geography FROM product_listing_geographies g JOIN product_listings p USING(product_listing_id) WHERE g.product_listing_id=ANY($1) AND p.lifecycle='ACTIVE'")
                 .bind(ids).fetch_all(&self.pool).await.map_err(storage)?;
-            rows.into_iter().map(|(id,value)|Ok((id.try_into().map_err(storage)?,decode(value)?))).collect()
-        }).await?.unwrap_or_default())
+        rows.into_iter()
+            .map(|(id, value)| Ok((id.try_into().map_err(storage)?, decode(value)?)))
+            .collect()
     }
 }

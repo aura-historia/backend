@@ -9,3 +9,4 @@ pub use locations::{
     SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
     SqlxPartyLocationRepositoryFactory,
 };
+pub mod discovery;

@@ -106,6 +106,9 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
         request: &ProductListingSearchReadRequest,
         embedding: &[f32],
     ) -> Result<ProductListingSearchReadResult, ProductListingSearchReadError> {
+        if request.compiled_search.search.distance_query().is_some() {
+            return self.search(request).await;
+        }
         let body = build_hybrid_search_request(request, embedding)
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
         let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
@@ -173,7 +176,25 @@ fn map_summary(
     let document = hit.source;
     let display_price = resolve_price(&document, price_filter)?;
     let price_valuation = price_valuation(&document, price_filter)?;
-    map_summary_fields(document, search.language, display_price, price_valuation)
+    let geography = if search.has_geography() {
+        product_listing_service::geographic_search::ListingDiscoveryGeography {
+            business: document
+                .business_geography
+                .clone()
+                .map(discovery_dimension)
+                .transpose()?,
+            inventory: document
+                .inventory_geography
+                .clone()
+                .map(discovery_dimension)
+                .transpose()?,
+        }
+    } else {
+        Default::default()
+    };
+    let mut item = map_summary_fields(document, search.language, display_price, price_valuation)?;
+    item.geography = geography;
+    Ok(item)
 }
 
 fn map_summary_fields(
@@ -185,6 +206,7 @@ fn map_summary_fields(
     let title = resolve_title(&document, preferred_language);
 
     Ok(ProductListingSearchItem {
+        geography: Default::default(),
         product_listing_id: document.product_listing_id,
         product_listing_title_slug_id: document.product_listing_title_slug_id,
         event_id: document.event_id,
@@ -326,6 +348,11 @@ pub(crate) fn build_search_request(
     request: &ProductListingSearchReadRequest,
     sort: &Sort<SortProductListingField>,
 ) -> Result<serde_json::Value, serde_json::Error> {
+    if request.sort.is_some() && request.compiled_search.search.distance_query().is_some() {
+        return Err(serde_json::Error::custom(
+            "distance order conflicts with listing sort",
+        ));
+    }
     let mut body = json!({
         "_source": { "excludes": [ProductListingDocumentSerdeField::Embedding] },
         "query": build_search_query(&request.compiled_search)?
@@ -353,6 +380,14 @@ pub(crate) fn build_search_request(
     } else {
         json!({ sort_field: { "order": order, "missing": "_last" } })
     };
+    let search = &request.compiled_search.search;
+    let primary_sort = [
+        ("businessGeography", search.business_geography.as_ref()),
+        ("inventoryGeography", search.inventory_geography.as_ref()),
+    ]
+    .into_iter()
+    .find_map(|(field, q)| q.and_then(|q| crate::geographic_query::distance_sort(field, q)))
+    .unwrap_or(primary_sort);
     body["sort"] = json!([
         primary_sort,
         { ProductListingDocumentSerdeField::ProductListingId.as_str(): { "order": "asc" } }
@@ -575,6 +610,17 @@ pub(crate) fn build_common_filter_clauses(
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
+    search
+        .validate_geography()
+        .map_err(serde_json::Error::custom)?;
+    for (field, query) in [
+        ("businessGeography", search.business_geography.as_ref()),
+        ("inventoryGeography", search.inventory_geography.as_ref()),
+    ] {
+        if let Some(query) = query {
+            filter.extend(crate::geographic_query::clauses(field, query));
+        }
+    }
 
     if !search.exclude_product_listing_id_query.is_empty() {
         must_not.push(json!({
@@ -787,6 +833,61 @@ fn availability_matches_query(
         (false, true) => matches_orderability,
         (false, false) => false,
     }
+}
+
+fn discovery_dimension(
+    d: crate::product_listing_document::GeographicDimensionDocument,
+) -> Result<
+    product_listing_service::geographic_search::DiscoveryDimension,
+    ProductListingSearchReadError,
+> {
+    let invalid = || ProductListingSearchReadError::ProductListingSearchReadModelInvalid;
+    let release =
+        geo::reference::ReferenceRelease::from_code(&d.reference_release).map_err(|_| invalid())?;
+    let country = d
+        .country
+        .as_deref()
+        .map(|c| geo::country_from_code(c, release))
+        .transpose()
+        .map_err(|_| invalid())?;
+    let subdivision = d
+        .subdivision
+        .as_deref()
+        .map(|s| geo::SubdivisionCode::from_code(s, release))
+        .transpose()
+        .map_err(|_| invalid())?;
+    if d.basis != product_listing_service::geography::GeographicDimension::BASIS {
+        return Err(invalid());
+    }
+    geo::GeographicDescription::new_in_release(release, None, country, subdivision, None)
+        .map_err(|_| invalid())?;
+    if country.is_none() && subdivision.is_none() && d.point.is_none() {
+        return Err(invalid());
+    }
+    let position = match (d.point, d.precision) {
+        (None, None) => None,
+        (Some(p), Some(precision)) => Some(
+            geo::SpatialPosition::new(
+                geo::GeoPoint::new(p.lat, p.lon).map_err(|_| invalid())?,
+                geo::SpatialPrecision::from_code(&precision).ok_or_else(invalid)?,
+                None,
+            )
+            .map_err(|_| invalid())?,
+        ),
+        _ => return Err(invalid()),
+    };
+    Ok(
+        product_listing_service::geographic_search::DiscoveryDimension {
+            geography: product_listing_service::geography::GeographicDimension {
+                location_id: d.location_id,
+                reference_release: release,
+                country,
+                subdivision,
+                position,
+            },
+            distance_km: None,
+        },
+    )
 }
 
 #[cfg(test)]

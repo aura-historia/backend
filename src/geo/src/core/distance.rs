@@ -22,6 +22,20 @@ impl Distance {
     pub fn unit(self) -> DistanceUnit {
         self.unit
     }
+
+    pub fn to_kilometers(self) -> f64 {
+        match self.unit {
+            DistanceUnit::Kilometers => self.amount,
+            DistanceUnit::Meters => self.amount / 1_000.0,
+            DistanceUnit::Centimeters => self.amount / 100_000.0,
+            DistanceUnit::Millimeters => self.amount / 1_000_000.0,
+            DistanceUnit::Miles => self.amount * 1.609_344,
+            DistanceUnit::Yards => self.amount * 0.000_914_4,
+            DistanceUnit::Feet => self.amount * 0.000_304_8,
+            DistanceUnit::Inches => self.amount * 0.000_025_4,
+            DistanceUnit::NauticalMiles => self.amount * 1.852,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]

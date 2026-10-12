@@ -160,7 +160,7 @@ impl ProductListingSearchFilterMatchSourceReader
         id: ProductListingId,
         version: i64,
     ) -> Result<(), ProductListingSearchFilterMatchSourceReadError> {
-        sqlx::query("UPDATE product_listing_geographies SET indexed_version=GREATEST(indexed_version,$2),blocks_queries=false WHERE product_listing_id=$1 AND geography_version<=$2")
+        sqlx::query("UPDATE product_listing_geographies SET indexed_version=GREATEST(indexed_version,$2) WHERE product_listing_id=$1 AND geography_version<=$2")
             .bind(id.into_uuid()).bind(version).execute(&mut *self.connection).await.map_err(SourceQuerySqlxError)?;
         Ok(())
     }
@@ -673,9 +673,11 @@ fn event_kind_from_row(
             ProductListingSearchFilterMatchSourceEventKind::Domain
         }
         product_listing_event_codec::ProductListingPersistedEvent::Embedded
-        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles
-        | product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
             ProductListingSearchFilterMatchSourceEventKind::Enrichment
+        }
+        product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
+            ProductListingSearchFilterMatchSourceEventKind::Geography
         }
     })
 }

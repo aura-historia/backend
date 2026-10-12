@@ -1497,10 +1497,54 @@ mod tests {
         }
     }
 
+    fn geographic_filter() -> PeriodicSearchFilterCandidate {
+        let mut filter = filter();
+        filter.search.business_geography = Some(
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                HashSet::from([geo::CountryCode::DEU]),
+                Default::default(),
+                None,
+                None,
+                Default::default(),
+                None,
+            )
+            .unwrap(),
+        );
+        filter
+    }
+
+    #[tokio::test]
+    async fn geographic_periodic_matching_advances_progress_after_projection_search()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let handler = handler(state.clone())?;
+        let mut filter = geographic_filter();
+        filter.embedding = Some(vec![0.1]);
+        filter.search.enhanced_search_description = Some("Munich antiques".try_into()?);
+        let mut report = FilterAttemptReport::default();
+        let outcome = handler
+            .process_filter(
+                &filter,
+                &test_snapshot(),
+                filter.matched_through + Duration::seconds(1),
+                &mut report,
+            )
+            .await?;
+        assert_eq!(FilterOutcome::Completed, outcome);
+        let state = state.lock().unwrap();
+        assert_eq!(1, state.commits);
+        assert_eq!(1, state.checkpoints);
+        Ok(())
+    }
+
     fn withdrawn_search_result()
     -> Result<ProductListingSearchReadResult, Box<dyn std::error::Error>> {
         let mut result = ProductListingSearchReadResult::default();
         result.items.push(ProductListingSearchItem {
+            geography: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("withdrawn-a1b2c3")?,
             event_id: EventId::new(),
@@ -1698,7 +1742,7 @@ mod tests {
             matched_through: OffsetDateTime::UNIX_EPOCH,
         });
         let handler = handler(Arc::clone(&state))?;
-        let filter = filter();
+        let filter = geographic_filter();
         let snapshot = test_snapshot();
         let mut attempt_report = FilterAttemptReport::default();
 

@@ -465,6 +465,7 @@ mod tests {
     fn product_summary() -> Result<PersonalizedProductListingSummary, url::ParseError> {
         Ok(Personalized {
             item: ProductListingSummary {
+                geography: Default::default(),
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: Some(
                     ProductListingSlugId::raw("cabinet-abcdef").unwrap_or_else(|error| {

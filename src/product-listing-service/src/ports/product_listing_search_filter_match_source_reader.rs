@@ -22,12 +22,13 @@ use url::Url;
 pub enum ProductListingSearchFilterMatchSourceEventKind {
     Domain,
     Enrichment,
+    Geography,
     Ignored,
 }
 
 impl ProductListingSearchFilterMatchSourceEventKind {
     pub fn is_percolation_trigger(self) -> bool {
-        matches!(self, Self::Domain | Self::Enrichment)
+        matches!(self, Self::Domain | Self::Enrichment | Self::Geography)
     }
 }
 

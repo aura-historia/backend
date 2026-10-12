@@ -70,6 +70,7 @@ pub struct ProductListingSearchCursor {
 /// Raw image URLs stay here until the service hydrates user state and applies content policy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSearchItem {
+    pub geography: crate::geographic_search::ListingDiscoveryGeography,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
@@ -88,6 +89,7 @@ pub struct ProductListingSearchItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
+    pub geography: crate::geographic_search::ListingDiscoveryGeography,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
@@ -147,6 +149,8 @@ pub enum ProductListingSearchReadExecutionPolicy {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchProductListingsError {
+    #[error("contradictory geographic query or distance ordering")]
+    InvalidGeographicQuery,
     #[error("product search query failed")]
     ProductListingSearchQueryFailed,
     #[error("product search read model is invalid")]
@@ -280,6 +284,13 @@ where
         context: &OperationContext,
         request: SearchProductListingsRequest,
     ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
+        request
+            .search
+            .validate_geography()
+            .map_err(|_| SearchProductListingsError::InvalidGeographicQuery)?;
+        if request.search.distance_query().is_some() && request.sort.is_some() {
+            return Err(SearchProductListingsError::InvalidGeographicQuery);
+        }
         let total_started = Instant::now();
         let valuation_at = OffsetDateTime::now_utc();
         let pinned_fx_rate_id = request.cursor.as_ref().and_then(|cursor| {
@@ -354,7 +365,7 @@ where
         };
         let result_count = result.items.len();
         let distinct_source_count = listing_source_ids(&result.items).len();
-        let items = if result.items.is_empty() {
+        let mut items = if result.items.is_empty() {
             Vec::new()
         } else {
             let source_ids = listing_source_ids(&result.items);
@@ -444,6 +455,11 @@ where
             record_search_stage("enrichment_and_presentation", enrichment_started, "success");
             summaries
         };
+        for item in &mut items {
+            item.item
+                .geography
+                .set_distances(&read_request.compiled_search.search);
+        }
         tracing::info!(
             metric = "product_listing_search_result",
             result_count,
@@ -495,6 +511,7 @@ pub(crate) fn present_product_summaries_from_assessments(
             let visible = may_show_product_listing_images(decision, show_all);
             Personalized {
                 item: ProductListingSummary {
+                    geography: product.item.item.geography,
                     product_listing_id: product.item.item.product_listing_id,
                     product_listing_title_slug_id: (!product
                         .user_state
@@ -600,6 +617,9 @@ fn fx_rate_snapshot_read_error(error: FxRateSnapshotReadError) -> SearchProductL
 }
 
 fn hybrid_embedding_query(request: &SearchProductListingsRequest) -> Option<EmbeddingText> {
+    if request.search.distance_query().is_some() {
+        return None;
+    }
     if !matches!(
         request.sort.as_ref().map(|sort| sort.sort),
         None | Some(SortProductListingField::Score)
@@ -1381,6 +1401,7 @@ mod tests {
     fn search_result() -> Result<ProductListingSearchReadResult, url::ParseError> {
         Ok(ProductListingSearchReadResult {
             items: vec![ProductListingSearchItem {
+                geography: Default::default(),
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
                     .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
@@ -1448,6 +1469,66 @@ mod tests {
             sort: None,
             cursor: None,
         }
+    }
+
+    #[tokio::test]
+    async fn geographic_search_preserves_projection_results_counts_continuation_and_distance_display()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::geographic_search::DiscoveryDimension;
+        use crate::geography::GeographicDimension;
+        use geo::core::discovery::GeographicQuery;
+        for proximity in [false, true] {
+            let state = state();
+            let mut projected = search_result()?;
+            projected.items[0].geography.business = Some(DiscoveryDimension {
+                geography: GeographicDimension {
+                    location_id: party_core::party_location_id::PartyLocationId::new(),
+                    reference_release: geo::reference::ReferenceRelease::CURRENT,
+                    country: Some(geo::CountryCode::DEU),
+                    subdivision: None,
+                    position: Some(geo::SpatialPosition::new(
+                        geo::GeoPoint::new(48.237, 11.575)?,
+                        geo::SpatialPrecision::Premises,
+                        None,
+                    )?),
+                },
+                distance_km: None,
+            });
+            lock_state(&state).search_result = Some(Ok(projected));
+            let mut request = request();
+            request.search.business_geography = Some(GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                std::collections::HashSet::from([geo::CountryCode::DEU]),
+                Default::default(),
+                if proximity {
+                    Some(geo::GeoPoint::new(48.137, 11.575)?)
+                } else {
+                    None
+                },
+                proximity.then_some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers)?),
+                Default::default(),
+                None,
+            )?);
+            let result = handler(&state).execute(&context(), request).await?;
+            assert_eq!(1, result.items.len());
+            assert_eq!(Some(1), result.total);
+            assert_eq!(
+                Some(Value::String("next".to_owned())),
+                result.cursor.search_after.map(|c| c.search_after)
+            );
+            assert_eq!(
+                proximity.then_some(11.1),
+                result.items[0]
+                    .item
+                    .geography
+                    .business
+                    .as_ref()
+                    .unwrap()
+                    .distance_km
+            );
+            assert!(result.items[0].item.geography.inventory.is_none());
+        }
+        Ok(())
     }
 
     fn request_with_text_query() -> Result<SearchProductListingsRequest, Box<dyn std::error::Error>>

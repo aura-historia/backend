@@ -5,6 +5,7 @@
     },
     "mappings": {
         "properties": {
+            "hasGeography": {"type": "boolean"},
             "businessGeography": {
                 "type": "object",
                 "dynamic": "strict",

@@ -272,38 +272,9 @@ pub fn derive(
     }
 }
 
-/// A query-wide barrier: guard BEFORE query/filter/ranking/facets and AFTER execution.
-/// G7 must wrap every public geographic query in this service capability. No cache.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeographicQueryPermit {
-    pub epoch: i64,
-}
-#[async_trait::async_trait]
-pub trait GeographicQueryGate: Send + Sync {
-    async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError>;
-}
-pub async fn with_geographic_eligibility<G, F, Fut, T>(
-    gate: &G,
-    query: F,
-) -> Result<Option<T>, GeographyError>
-where
-    G: GeographicQueryGate + ?Sized,
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<T, GeographyError>>,
-{
-    let Some(before) = gate.permit().await? else {
-        return Ok(None);
-    };
-    let result = query().await?;
-    if gate.permit().await? != Some(before) {
-        return Ok(None);
-    }
-    Ok(Some(result))
-}
-
 #[async_trait::async_trait]
 pub trait EffectiveListingGeographyBatchReader: Send + Sync {
-    /// Public-safe dimensions; absence includes temporary eligibility suppression.
+    /// Public-safe dimensions from the current derived read projection.
     async fn read_many(
         &self,
         ids: &[ProductListingId],
@@ -376,45 +347,5 @@ mod tests {
         assert_eq!(EffectiveListingGeography::default(), derive(&i, None));
         i.active = false;
         assert_eq!(EffectiveListingGeography::default(), derive(&i, None));
-    }
-    #[tokio::test]
-    async fn query_barrier_suppresses_all_results_and_facets_before_or_after_revocation() {
-        struct Gate(std::sync::Mutex<Vec<Option<GeographicQueryPermit>>>);
-        #[async_trait::async_trait]
-        impl GeographicQueryGate for Gate {
-            async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError> {
-                Ok(self.0.lock().expect("lock").remove(0))
-            }
-        }
-        let p = Some(GeographicQueryPermit { epoch: 1 });
-        let closed = Gate(std::sync::Mutex::new(vec![None]));
-        assert!(
-            with_geographic_eligibility(&closed, || async {
-                panic!("forbidden filtering/ranking/facets must not run");
-                #[allow(unreachable_code)]
-                Ok(())
-            })
-            .await
-            .expect("gate")
-            .is_none()
-        );
-        for end in [None, Some(GeographicQueryPermit { epoch: 2 })] {
-            let revoked = Gate(std::sync::Mutex::new(vec![p, end]));
-            assert!(
-                with_geographic_eligibility(&revoked, || async {
-                    Ok(("matches", "distance", "facets"))
-                })
-                .await
-                .expect("gate")
-                .is_none()
-            );
-        }
-        let open = Gate(std::sync::Mutex::new(vec![p, p]));
-        assert_eq!(
-            Some("safe"),
-            with_geographic_eligibility(&open, || async { Ok("safe") })
-                .await
-                .expect("gate")
-        );
     }
 }

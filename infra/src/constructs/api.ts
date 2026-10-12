@@ -81,6 +81,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/ready", ["GET"]),
 
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/party-locations", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}/product-listings", ["GET"]),

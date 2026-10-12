@@ -285,7 +285,7 @@ reestablishes continuation custody even if wake-up delivery was missed or exhaus
 
 Deploy the compatible enrichment decoder/router/projector/percolator and compact geo
 mappings before enabling the migration's producers and CDC selection for
-`listing_geography_wakeups`. Keep private inputs, bindings, work checkpoints and gate state
+`listing_geography_wakeups`. Keep private inputs, bindings and work checkpoints
 outside CDC. Migration establishes initial source-level rebuild work; it never rewrites
 all listings in a management transaction. Use the existing DLQ/archive replay procedure,
 then reread current authority; never replay coordinates or resurrect a captured default.
@@ -312,11 +312,15 @@ Do not clear checkpoints or reset projection versions. Backfill sources repeated
 source creation overlaps the traversal; new listing journals independently cover listings.
 
 Monitor `listing_geography_backlog` oldest pending seconds, pending work/expired claims,
-`product_listing_geographies` rows awaiting index custody and earliest retention deadline,
-plus queue age/DLQ alarms. A completed invalidation with pending replacement/removal index
-custody keeps geographic queries suppressed. Ordinary canonical catch-up and first safe
-additions do not block queries or change permits. Monitor blocking work/custody separately
-from that ordinary backlog. Repair/replay the product projector; never manually acknowledge
-index custody to open the gate. Retention expiry closes the gate immediately, even before
-hourly provider derivative cleanup emits invalidation. Runbook checks establish local
-contracts, not production activation or provider rights.
+`product_listing_geographies` rows awaiting index acknowledgment and earliest retention
+deadline, plus queue age/DLQ alarms. Projection lag affects freshness of geographic results;
+queries and saved matching continue during catch-up. Repair/replay stalled geography and
+product projectors to propagate retirement, applicability changes and evidence removal.
+Runbook checks establish local contracts, not production activation or provider rights.
+
+Apply `20261012090000_remove_geographic_query_gate.sql` with compatible runtimes in a
+coordinated schema-dependent release. Quiesce the affected API, projection/matching workers
+and cleanup schedule and drain older invocations before migration: older binaries require
+the removed query-gate state. The migration preserves pending work, generations, leases,
+checkpoints and projection versions. Resume compatible consumers after migration; rollback
+must retain compatible binaries.

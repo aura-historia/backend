@@ -705,6 +705,7 @@ impl From<GetOwnedSearchFilterError> for ApiError {
 impl From<CreateSearchFilterError> for ApiError {
     fn from(error: CreateSearchFilterError) -> Self {
         match error {
+            CreateSearchFilterError::InvalidGeographicQuery => Self::bad_request(BAD_BODY_VALUE),
             CreateSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
@@ -1585,6 +1586,9 @@ impl From<GetSimilarProductListingsError> for ApiError {
 impl From<SearchProductListingsError> for ApiError {
     fn from(error: SearchProductListingsError) -> Self {
         match error {
+            SearchProductListingsError::InvalidGeographicQuery => {
+                Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            }
             SearchProductListingsError::ProductListingSearchQueryFailed
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
