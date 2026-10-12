@@ -34,12 +34,14 @@ pub trait PartnershipRepository: Send {
         partnership_id: PartnershipId,
     ) -> Result<Option<VersionedPartnership>, PartnershipRepositoryError>;
 
+    /// Serialize creation/reactivation on the owner Party before changing partnership state.
     async fn find_or_create_for_party(
         &mut self,
         party_id: PartyId,
         new_partnership_id: PartnershipId,
     ) -> Result<VersionedPartnership, PartnershipRepositoryError>;
 
+    /// Serialize dissolution on the owner Party with location management and membership changes.
     async fn dissolve(
         &mut self,
         partnership: &Partnership,

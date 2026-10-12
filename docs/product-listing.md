@@ -70,7 +70,9 @@ Creation emits `PRODUCT_LISTING_DISCOVERED`. A later committed semantic revision
 - Ordinary changes coalesce first `previous` and final `current`; net-zero changes disappear. Image identity/order changes remain meaningful even with equal counts; durable counts use `u64`.
 - Withdrawal records the lifecycle transition and previous availability. Sale observations transition only absent → present or present → absent, never directly between different observations.
 
-Enrichment is separate from aggregate changes and public domain history. Persisted event decoding is strict; delivery and projection rules belong to [event flow](events/flow.md).
+Enrichment is separate from aggregate changes and public domain history.
+[Effective geography](geography.md#effective-listing-geography-2003) is a bounded derived
+read model; it never copies authoritative source addresses into the aggregate. Persisted event decoding is strict; delivery and projection rules belong to [event flow](events/flow.md).
 
 ## Application, API, and search contracts
 

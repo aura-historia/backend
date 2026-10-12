@@ -1,3 +1,4 @@
+mod geographic_query;
 mod product_listing_document;
 mod product_listing_image_document;
 mod product_listing_percolation_document;

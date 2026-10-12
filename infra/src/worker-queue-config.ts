@@ -12,6 +12,8 @@ export const WORKER_SCOPES = [
   "product-listing-normalization",
   "notification-delivery",
   "marketing-consent-sync",
+  "geo-resolution",
+  "listing-geography",
 ] as const;
 
 export type WorkerScope = (typeof WORKER_SCOPES)[number];
@@ -40,6 +42,8 @@ export const WORKER_QUEUE_DEFINITIONS = {
   // The 45s Lambda leaves a five-minute delivery lease plus 30s recovery margin before retry.
   "notification-delivery": { id: "NotificationDelivery", visibilityTimeoutSeconds: 330 },
   "marketing-consent-sync": { id: "MarketingConsentSync", visibilityTimeoutSeconds: 330, fifo: true },
+  "geo-resolution": { id: "GeoResolution", visibilityTimeoutSeconds: 300 },
+  "listing-geography": { id: "ListingGeography", visibilityTimeoutSeconds: 300 },
 } as const satisfies Record<WorkerScope, WorkerQueueDefinition>;
 
 export interface WorkerQueueSettings {

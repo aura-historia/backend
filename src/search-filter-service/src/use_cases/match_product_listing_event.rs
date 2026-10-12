@@ -298,11 +298,21 @@ where
                     basis: valuation.basis,
                     fx_rate_id: valuation.fx_rate_id,
                 });
-        let percolated = self
-            .index
-            .percolate(&product)
-            .await
-            .map_err(percolation_error)?;
+        let geographic_event = product.source.event_kind == product_listing_service::ports::ProductListingSearchFilterMatchSourceEventKind::Geography;
+        let mut percolated = if geographic_event {
+            Vec::new()
+        } else {
+            self.index
+                .percolate(&product)
+                .await
+                .map_err(percolation_error)?
+        };
+        percolated.extend(
+            self.index
+                .percolate_geographic(&product)
+                .await
+                .map_err(percolation_error)?,
+        );
         let percolated_count = percolated.len();
         let evaluated = evaluate_candidates(
             &self.evaluator,
@@ -757,6 +767,7 @@ mod tests {
         event_snapshot: Option<FxRateSnapshot>,
         current_event_id: Option<EventId>,
         percolations: usize,
+        geographic_percolations: usize,
     }
 
     #[derive(Clone, Default)]
@@ -887,9 +898,26 @@ mod tests {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 })?
                 .percolations += 1;
-            Ok(self.filters.clone())
+            Ok(self
+                .filters
+                .iter()
+                .filter(|f| !f.search.has_geography())
+                .cloned()
+                .collect())
         }
 
+        async fn percolate_geographic(
+            &self,
+            _input: &ProductListingPercolationInput,
+        ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            self.state.lock().unwrap().geographic_percolations += 1;
+            Ok(self
+                .filters
+                .iter()
+                .filter(|f| f.search.has_geography())
+                .cloned()
+                .collect())
+        }
         async fn query(
             &self,
             _query: &SearchFilterIndexQuery,
@@ -931,6 +959,18 @@ mod tests {
             self.percolation_started.notify_one();
             self.resume_percolation.notified().await;
             Ok(self.filters.clone())
+        }
+
+        async fn percolate_geographic(
+            &self,
+            _input: &ProductListingPercolationInput,
+        ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            Ok(self
+                .filters
+                .iter()
+                .filter(|f| f.search.has_geography())
+                .cloned()
+                .collect())
         }
 
         async fn query(
@@ -1162,6 +1202,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
+            geography: Default::default(),
             product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
@@ -1266,6 +1307,48 @@ mod tests {
         )
     }
 
+    fn geographic_filter() -> SearchFilterView {
+        let mut f = filter(UserId::new(), UserSearchFilterId::new());
+        f.search.geography = Some(
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                std::collections::HashSet::from([geo::CountryCode::DEU]),
+                Default::default(),
+                None,
+                None,
+                geo::core::discovery::ProximityMode::Strict,
+                None,
+            )
+            .unwrap(),
+        );
+        f
+    }
+    #[tokio::test]
+    async fn geography_events_match_only_geographic_filters_without_global_suppression() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut source = product().unwrap();
+        source.event_kind = ProductListingSearchFilterMatchSourceEventKind::Geography;
+        let f = geographic_filter();
+        let mut handler = matching_handler(state.clone(), vec![source.clone()], f.clone());
+        handler
+            .index
+            .filters
+            .push(filter(UserId::new(), UserSearchFilterId::new()));
+        let result = handler
+            .execute(MatchProductListingEventCommand {
+                origin_event_id: source.event_id,
+                product_listing_id: source.product_listing_id,
+            })
+            .await
+            .unwrap();
+        assert_eq!(1, result.percolated_count);
+        assert_eq!(1, result.persisted_match_count);
+        let state = state.lock().unwrap();
+        assert_eq!(0, state.percolations);
+        assert_eq!(1, state.geographic_percolations);
+        assert_eq!(f.search_filter_id, state.persisted[0].user_search_filter_id);
+        assert_eq!(2, state.committed);
+    }
     #[tokio::test]
     async fn should_revalidate_evaluated_inputs_when_filter_changes_during_paused_enhanced_work()
     -> Result<(), Box<dyn std::error::Error>> {

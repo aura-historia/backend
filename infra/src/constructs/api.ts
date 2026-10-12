@@ -26,6 +26,8 @@ export enum RouteAuthorizationClass {
   AuthenticatedUser = "AUTHENTICATED_USER",
   Administrator = "ADMINISTRATOR",
   Partner = "PARTNER",
+  PartyLocationManager = "PARTY_LOCATION_MANAGER",
+  SourceLocationManager = "SOURCE_LOCATION_MANAGER",
 }
 
 export enum OAuthCredentialRequirement {
@@ -79,6 +81,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/ready", ["GET"]),
 
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/party-locations", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/auctions/{auction_id}/product-listings", ["GET"]),
@@ -92,6 +95,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/api/v1/newsletter-subscriptions", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
 
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings", ["POST", "PATCH", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
@@ -101,11 +105,19 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/overview", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/listing-sources", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}/location-managers/{user_id}", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/account", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/addresses", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/browsing-destination", ["GET", "PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/access-tokens", ["GET", "POST", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/access-tokens/{access_token_id}", ["GET", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/watchlist", ["GET", "POST"]),
@@ -497,6 +509,22 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.Administrator,
+      oauthCredentials: OAuthCredentialRequirement.None,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path.startsWith("/api/v1/parties/{party_id}/locations")) {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.PartyLocationManager,
+      oauthCredentials: OAuthCredentialRequirement.None,
+      providerProof: ProviderProofRequirement.None,
+    };
+  }
+  if (path === "/api/v1/listing-sources/{listing_source_id}/location-default") {
+    return {
+      bearer: "REQUIRED",
+      authorization: RouteAuthorizationClass.SourceLocationManager,
       oauthCredentials: OAuthCredentialRequirement.None,
       providerProof: ProviderProofRequirement.None,
     };

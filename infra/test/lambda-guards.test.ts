@@ -29,7 +29,9 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
     for (const template of templatesFor(stage)) {
       for (const resource of resources(template, "AWS::Lambda::Function")) {
         expect(resource.Properties?.ReservedConcurrentExecutions).toBe(
-          resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2 : undefined,
+          resource.Properties?.FunctionName === `product-listing-ingestion-lambda-${stage}` ? 2
+            : resource.Properties?.FunctionName === `geo-resolution-lambda-${stage}` ? 2
+            : resource.Properties?.FunctionName === `listing-geography-lambda-${stage}` ? 2 : undefined,
         );
       }
 
@@ -39,7 +41,7 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
 
       for (const resource of resources(template, "AWS::Lambda::EventSourceMapping")) {
         expect(resource.Properties?.ProvisionedPollerConfig).toBeUndefined();
-        if (JSON.stringify(resource.Properties?.FunctionName).includes("ProductListingIngestionVersion")) {
+        if (JSON.stringify(resource.Properties?.FunctionName).includes("ProductListingIngestionVersion") || JSON.stringify(resource.Properties?.FunctionName).includes("GeoResolutionVersion") || JSON.stringify(resource.Properties?.FunctionName).includes("ListingGeographyVersion")) {
           expect(resource.Properties?.ScalingConfig).toEqual({ MaximumConcurrency: 2 });
         } else {
           expect(resource.Properties?.ScalingConfig).toBeUndefined();

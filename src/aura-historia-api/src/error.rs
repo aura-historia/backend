@@ -200,6 +200,11 @@ pub(crate) const LOOPS_WEBHOOK_UNAUTHORIZED: ApiErrorCode =
 pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const USER_ADDRESS_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_ADDRESS_NOT_FOUND");
+pub(crate) const ADDRESS_BOOK_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("ADDRESS_BOOK_INTERNAL_ERROR");
+pub(crate) const ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("ADDRESS_BOOK_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -1582,6 +1587,9 @@ impl From<GetSimilarProductListingsError> for ApiError {
 impl From<SearchProductListingsError> for ApiError {
     fn from(error: SearchProductListingsError) -> Self {
         match error {
+            SearchProductListingsError::InvalidGeographicQuery => {
+                Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            }
             SearchProductListingsError::ProductListingSearchQueryFailed
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
@@ -1731,6 +1739,9 @@ impl From<DeletePartyError> for ApiError {
             }
             DeletePartyError::DependencyConflict { blocker } => ApiError::conflict(CONFLICT)
                 .with_detail(match blocker {
+                    party_service::ports::PartyDeletionBlocker::Locations => {
+                        "Party has retained locations or location management grants."
+                    }
                     party_service::ports::PartyDeletionBlocker::ListingSources => {
                         "Party operates one or more ListingSources."
                     }
@@ -3063,6 +3074,28 @@ impl IntoResponse for ApiError {
             Json(self),
         )
             .into_response()
+    }
+}
+
+impl From<party_service::use_cases::party_locations::PartyLocationError> for ApiError {
+    fn from(error: party_service::use_cases::party_locations::PartyLocationError) -> Self {
+        use party_service::use_cases::party_locations::PartyLocationError as E;
+        match error {
+            E::AuthenticationRequired => Self::unauthorized(INVALID_CREDENTIALS),
+            E::Forbidden => Self::forbidden(FORBIDDEN),
+            E::NotFound => Self::not_found(PARTY_NOT_FOUND),
+            E::ConcurrencyConflict
+            | E::IdempotencyConflict
+            | E::RevisionExhausted
+            | E::Domain(_) => Self::conflict(CONFLICT),
+            E::InvalidInput => Self::bad_request(BAD_BODY_VALUE),
+            E::TemporarilyUnavailable { .. } | E::Transaction(_) => {
+                Self::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+            }
+            E::InvalidPersistedState { .. } | E::Internal { .. } => {
+                Self::internal_server_error(PARTY_INTERNAL_ERROR)
+            }
+        }
     }
 }
 

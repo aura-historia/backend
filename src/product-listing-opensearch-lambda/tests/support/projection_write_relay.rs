@@ -1,5 +1,6 @@
 //! Test-only relay. It forwards one real projection request to OpenSearch unchanged, then either
 //! holds its response for a newer target write or drops it after target acceptance.
+//! A paused write that conflicts also forwards the follow-up index refresh.
 use opensearch::{
     OpenSearch,
     http::{Method, StatusCode, Url, headers::HeaderMap, request::JsonBody, transport::Transport},
@@ -74,14 +75,31 @@ impl ProjectionWriteRelay {
                 let status = response.status_code();
                 let body = response.text().await?;
                 if pause {
-                    let reply = format!(
-                        "HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        status.as_u16(),
-                        body.len(),
-                        body
-                    );
-                    socket.write_all(reply.as_bytes()).await?;
-                    socket.shutdown().await?;
+                    write_response(&mut socket, status, &body).await?;
+                    if status == StatusCode::CONFLICT {
+                        // The real projector confirms refresh visibility before acknowledging
+                        // a stale write, so relay that request to the same target too.
+                        let (mut visibility, _) = listener.accept().await?;
+                        let refresh = read_request(&mut visibility).await?;
+                        if refresh.method != Method::Post
+                            || !refresh.url.path().ends_with("/_refresh")
+                        {
+                            return Err(io::Error::other("expected index refresh").into());
+                        }
+                        let response = target
+                            .send(
+                                refresh.method,
+                                refresh.url.path(),
+                                HeaderMap::new(),
+                                Some(&refresh.query),
+                                refresh.body,
+                                None,
+                            )
+                            .await?;
+                        let status = response.status_code();
+                        let body = response.text().await?;
+                        write_response(&mut visibility, status, &body).await?;
+                    }
                 }
                 Ok(status)
             })
@@ -121,6 +139,22 @@ impl ProjectionWriteRelay {
             .await???
             .as_u16())
     }
+}
+
+async fn write_response(
+    socket: &mut tokio::net::TcpStream,
+    status: StatusCode,
+    body: &str,
+) -> TestResult {
+    let reply = format!(
+        "HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status.as_u16(),
+        body.len(),
+        body
+    );
+    socket.write_all(reply.as_bytes()).await?;
+    socket.shutdown().await?;
+    Ok(())
 }
 
 struct ProjectionRequest {

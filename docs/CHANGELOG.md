@@ -2,6 +2,15 @@
 
 Only document REST API contract changes here. No internal changes.
 
+## 2026-10-12 — Geographic discovery and private addresses
+
+- Listing search and saved filters accept one `geography` predicate: ISO countries/subdivisions, an explicit numeric origin, a radius with units, strict/approximate precision and optional distance order. Listing summaries expose one source-derived geography; backend inventory applicability determines eligibility. Strict proximity requires premises evidence. Geographic responses are `private, no-store` and accept projection lag. Saved origins are private snapshots independent of address edits/preferences.
+- Added anonymous `GET /api/v1/party-locations` with bounded keyset discovery. Active locations permit exact eligible geography; public views exclude raw addresses, management evidence and revision tokens.
+- Added protected PartyLocation management under `/api/v1/parties/{party_id}/locations`, supporting multiple sites, idempotent creation, same-site correction, relocation and retirement/restoration. Mutations require current revision. Administrators, active partnership members or explicit location managers may operate; delegated callers also require the relevant Party scope. Admin grant/revoke routes manage independent location grants.
+- Added protected and admin ListingSource `location-default` GET/PUT/PATCH/DELETE routes. Each source selects at most one operator-owned location with explicit business/inventory applicability evidence. Current revision, active-site eligibility and source authority are required; clear remains possible after retirement. Responses are `no-store`.
+- Added private `/api/v1/me/addresses` create/list/get/replace/delete routes with server-generated `uaddr_` IDs, owner-scoped `Idempotency-Key` creation and CAS replacement/deletion. Ordinary reads expose resolution status, permitted derived geography and attribution. Unique compatible premises results may resolve automatically; uncertain inputs remain saved and editable.
+- Added GET/PUT `/api/v1/me/browsing-destination` with CAS choices `NONE`, `ADDRESS` or `COUNTRY_POSTAL`. Deleting the selected address clears the preference. Address/preference routes require a current unsuspended owner and corresponding delegated user scope; all responses are `no-store`. They do not implicitly supply listing-search origins.
+
 ## 2026-10-10 — Historical ProductListing price display (#2018)
 
 - `GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`. Omission preserves the existing response. Monetary discovery prices/estimates and both sides of price/estimate changes can include additive `display` values with the requested currency, minor-unit amount, `fxRateId` and `capturedAt`.

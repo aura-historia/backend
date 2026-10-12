@@ -208,3 +208,67 @@ leases are not completion. A send/finalize crash can duplicate mail after lease 
 Inspect safe delivery IDs, database completion and restricted provider evidence before
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
 historic customer mail.
+
+## Geographic resolution recovery
+
+[Geography](geography.md#durable-resolution-and-party-integration-2002) owns acceptance,
+privacy and retention. Paid work defaults off in stage configuration and provider controls;
+storage permission is separate. Before enabling it, confirm applicable provider/private-input
+rights, attribution, database capacity and call/concurrency budgets. Turning off paid calls
+preserves permitted cache entries; rights withdrawal requires revocation and physical purging.
+
+Apply the consolidated geography migration with compatible API, router, workers and cleanup
+binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
+Coordinate DMS capture of compact resolution and listing-geography wake-ups with the existing
+checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. Protected
+Request establishes work for preexisting eligible PartyLocations; CDC-only capture does not
+backfill them. Deploy geographic mappings and rebuild saved-filter projections before enabling
+new geographic filters, so `hasGeography` and percolator predicates are refresh-visible.
+
+The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work,
+even with paid calls disabled. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
+attempts, pending age, backoff and spent budgets; live leases retain their reservations.
+Additional bounded cleanup invocations follow ordinary operational approval when backlog or
+rights withdrawal requires faster erasure. Readers suppress ineligible evidence immediately;
+listing search accepts projection lag while removal propagates.
+
+Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
+deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
+counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
+provisioned metric filters; BLOCKED/FAILED work also needs inspection. Never include private
+input or provider payloads in logs, operator evidence or replay messages.
+
+An active claim is incomplete. A paid-call/commit crash may repeat charging after lease
+expiry; reservations are not refunded. Business Retry/selection requires current location
+CAS and resolution generation. Unchanged completed retries reuse evidence; forced resolution
+invalidates derivatives/selections and cannot bypass budgets. Private addresses expose
+ordinary replacement/read APIs; corrected configuration gates allow bounded background
+recovery, while exhausted or invalid inputs require cause correction and changed input or
+approved operational recovery.
+
+Redrive a small approved DLQ sample with original identities/generations: superseded work
+completes as stale, completed work reuses evidence, active leases defer and malformed jobs
+retain custody. Confirm completion and eligibility before expanding redrive. Never invent a
+new generation in a transport payload. Runbook checks do not establish deployed readiness.
+
+## Listing geography recovery
+
+The worker consumes compact work ID/generation wake-ups and commits bounded pages plus
+checkpoints. Continuations retain durable custody; newer invalidation fences claims and
+restarts traversal. The hourly cleanup also drains a page to recover missed wake-ups. Neither
+path calls a geocoder or writes OpenSearch directly. Initial migration enqueues source-level
+rebuild work without rewriting every listing synchronously.
+
+For rebuilding, fence old projection writers and follow the existing isolated OpenSearch
+generation procedure. Enqueue source UUIDs in bounded keyset pages with
+`SELECT enqueue_listing_geography('SOURCE', $1)` in the operational transaction. Workers reread
+current permitted authority. After draining derived state, replay the product projection
+journal and validate the replacement index before activation: source enqueue alone cannot
+repopulate a missing index when derived values are unchanged. Preserve checkpoints,
+projection versions and deletion tombstones. Repeat source traversal if source creation
+overlaps it; listing journals independently cover concurrent listings.
+
+Monitor oldest pending work, expired claims, unacknowledged geography versions, retention
+deadlines and queue/DLQ failures. Index acknowledgment means refresh visibility, including
+conflict/replay recovery. Queries continue during catch-up; repair/replay stalled geography
+and product projectors to propagate retirement, applicability and evidence removal.

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+product-listing-service = { workspace = true }
+geo-service = { workspace = true }
 aura-historia-jobs = { path = "../aura-historia-jobs" }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }

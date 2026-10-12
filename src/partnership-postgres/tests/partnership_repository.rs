@@ -13,6 +13,8 @@ use partnership_service::ports::{
     PartnershipRepositoryFactory,
 };
 use party_core::party_id::PartyId;
+use party_postgres::SqlxPartyLocationAccessFactory;
+use party_service::ports::party_location::{PartyLocationAccess, PartyLocationAccessFactory};
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use sqlx::PgPool;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -31,6 +33,20 @@ async fn commit(transaction: SqlxTransaction) {
     if let Err(error) = transaction.commit().await {
         panic!("commit partnership repository transaction: {error}");
     }
+}
+
+async fn can_manage_locations(pool: &PgPool, party_id: PartyId, user_id: UserId) -> bool {
+    let mut transaction = begin(pool).await;
+    let factory = SqlxPartyLocationAccessFactory;
+    let mut access = factory.in_transaction(&mut transaction);
+    assert!(access.lock_party(party_id).await.unwrap());
+    let allowed = access
+        .can_manage_locations(party_id, user_id)
+        .await
+        .unwrap();
+    drop(access);
+    commit(transaction).await;
+    allowed
 }
 
 async fn seed_party(pool: &PgPool) -> PartyId {
@@ -230,6 +246,8 @@ async fn should_dissolve_active_partnership_remove_associations_and_replay_witho
         .unwrap_or_else(|error| panic!("grant source before dissolution: {error}"));
     commit(grant_transaction).await;
 
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+
     let mut dissolve_transaction = begin(&pool).await;
     let loaded = PartnershipRepositoryFactory::in_transaction(
         &partnership_factory,
@@ -254,6 +272,7 @@ async fn should_dissolve_active_partnership_remove_associations_and_replay_witho
 
     assert_eq!(0, count_members(&pool).await);
     assert_eq!(0, count_source_grants(&pool).await);
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
     let persisted = sqlx::query_as::<_, (String, i64)>(
         "SELECT business_state, version FROM partnerships WHERE partnership_id = $1",
     )
@@ -306,6 +325,7 @@ async fn should_add_and_remove_members_idempotently() {
     let party_id = seed_party(&pool).await;
     let user_id = seed_user(&pool).await;
     let partnership_id = create_committed_partnership(&pool, party_id).await;
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
 
     let mut add_transaction = begin(&pool).await;
     let factory = SqlxPartnershipRepositoryFactory::new();
@@ -325,6 +345,34 @@ async fn should_add_and_remove_members_idempotently() {
     );
     commit(add_transaction).await;
     assert_eq!(1, count_members(&pool).await);
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+    let other_party = seed_party(&pool).await;
+    assert!(!can_manage_locations(&pool, other_party, user_id).await);
+
+    sqlx::query("UPDATE users SET suspended = true WHERE user_id = $1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
+    sqlx::query("UPDATE users SET suspended = false WHERE user_id = $1")
+        .bind(user_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+
+    sqlx::query("UPDATE partnerships SET business_state = 'DISSOLVED' WHERE partnership_id = $1")
+        .bind(partnership_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
+    sqlx::query("UPDATE partnerships SET business_state = 'ACTIVE' WHERE partnership_id = $1")
+        .bind(partnership_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let mut remove_transaction = begin(&pool).await;
     assert_eq!(
@@ -343,6 +391,170 @@ async fn should_add_and_remove_members_idempotently() {
     );
     commit(remove_transaction).await;
     assert_eq!(0, count_members(&pool).await);
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn explicit_location_grants_survive_membership_removal_and_dissolution() {
+    let pool = get_postgres_client().await;
+    let party_id = seed_party(&pool).await;
+    let user_id = seed_user(&pool).await;
+    let partnership_id = create_committed_partnership(&pool, party_id).await;
+    let factory = SqlxPartnershipRepositoryFactory;
+    let mut transaction = begin(&pool).await;
+    PartnershipMembershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+        .add_member(user_id, partnership_id)
+        .await
+        .unwrap();
+    SqlxPartyLocationAccessFactory
+        .in_transaction(&mut transaction)
+        .set_management_grant(party_id, user_id, true, "test")
+        .await
+        .unwrap();
+    SqlxPartyLocationAccessFactory
+        .in_transaction(&mut transaction)
+        .set_management_grant(party_id, user_id, false, "test")
+        .await
+        .unwrap();
+    commit(transaction).await;
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+
+    let mut transaction = begin(&pool).await;
+    assert!(
+        SqlxPartyLocationAccessFactory
+            .in_transaction(&mut transaction)
+            .lock_party(party_id)
+            .await
+            .unwrap()
+    );
+    SqlxPartyLocationAccessFactory
+        .in_transaction(&mut transaction)
+        .set_management_grant(party_id, user_id, true, "test")
+        .await
+        .unwrap();
+    PartnershipMembershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+        .remove_member(user_id, partnership_id)
+        .await
+        .unwrap();
+    commit(transaction).await;
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+
+    let mut transaction = begin(&pool).await;
+    let mut partnership = PartnershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+        .find_by_id(partnership_id)
+        .await
+        .unwrap()
+        .unwrap();
+    partnership.value.dissolve();
+    PartnershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+        .dissolve(&partnership.value, partnership.version)
+        .await
+        .unwrap();
+    commit(transaction).await;
+    assert!(can_manage_locations(&pool, party_id, user_id).await);
+
+    let mut transaction = begin(&pool).await;
+    assert!(
+        SqlxPartyLocationAccessFactory
+            .in_transaction(&mut transaction)
+            .lock_party(party_id)
+            .await
+            .unwrap()
+    );
+    SqlxPartyLocationAccessFactory
+        .in_transaction(&mut transaction)
+        .set_management_grant(party_id, user_id, false, "test")
+        .await
+        .unwrap();
+    commit(transaction).await;
+    assert!(!can_manage_locations(&pool, party_id, user_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn membership_revocation_and_dissolution_serialize_with_location_management() {
+    let pool = get_postgres_client().await;
+    let party_id = seed_party(&pool).await;
+    let user_id = seed_user(&pool).await;
+    let partnership_id = create_committed_partnership(&pool, party_id).await;
+    let factory = SqlxPartnershipRepositoryFactory;
+    for dissolve in [false, true] {
+        let mut transaction = begin(&pool).await;
+        PartnershipMembershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+            .add_member(user_id, partnership_id)
+            .await
+            .unwrap();
+        commit(transaction).await;
+
+        let mut location_transaction = begin(&pool).await;
+        assert!(
+            SqlxPartyLocationAccessFactory
+                .in_transaction(&mut location_transaction)
+                .lock_party(party_id)
+                .await
+                .unwrap()
+        );
+        assert!(
+            SqlxPartyLocationAccessFactory
+                .in_transaction(&mut location_transaction)
+                .can_manage_locations(party_id, user_id)
+                .await
+                .unwrap()
+        );
+
+        let mut blocked = begin(&pool).await;
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(blocked.connection())
+            .await
+            .unwrap();
+        if dissolve {
+            let mut partnership =
+                PartnershipRepositoryFactory::in_transaction(&factory, &mut blocked)
+                    .find_by_id(partnership_id)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            partnership.value.dissolve();
+            assert!(matches!(
+                PartnershipRepositoryFactory::in_transaction(&factory, &mut blocked)
+                    .dissolve(&partnership.value, partnership.version)
+                    .await,
+                Err(partnership_service::ports::PartnershipRepositoryError::TemporarilyUnavailable { .. })
+            ));
+        } else {
+            assert!(matches!(
+                PartnershipMembershipRepositoryFactory::in_transaction(&factory, &mut blocked)
+                    .remove_member(user_id, partnership_id)
+                    .await,
+                Err(
+                    partnership_service::ports::PartnershipGrantError::TemporarilyUnavailable { .. }
+                )
+            ));
+        }
+        drop(blocked);
+        commit(location_transaction).await;
+
+        let mut transaction = begin(&pool).await;
+        if dissolve {
+            let mut partnership =
+                PartnershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+                    .find_by_id(partnership_id)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            partnership.value.dissolve();
+            PartnershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+                .dissolve(&partnership.value, partnership.version)
+                .await
+                .unwrap();
+        } else {
+            PartnershipMembershipRepositoryFactory::in_transaction(&factory, &mut transaction)
+                .remove_member(user_id, partnership_id)
+                .await
+                .unwrap();
+        }
+        commit(transaction).await;
+        assert!(!can_manage_locations(&pool, party_id, user_id).await);
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

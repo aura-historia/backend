@@ -3,6 +3,7 @@ pub mod auctions;
 pub mod auth;
 pub mod billing;
 pub mod error;
+mod geographic_search;
 pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
@@ -907,6 +908,96 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(addresses) = state.user_addresses {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/me/addresses",
+                    get(users::addresses::list).post(users::addresses::create),
+                )
+                .route(
+                    "/api/v1/me/addresses/{address_id}",
+                    get(users::addresses::get)
+                        .put(users::addresses::update)
+                        .delete(users::addresses::delete),
+                )
+                .route(
+                    "/api/v1/me/browsing-destination",
+                    get(users::addresses::get_destination).put(users::addresses::set_destination),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(addresses),
+        );
+    }
+    if let Some(defaults) = state.source_location_defaults {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/location-default",
+                    get(listing_sources::location_default::get)
+                        .put(listing_sources::location_default::assign)
+                        .patch(listing_sources::location_default::change)
+                        .delete(listing_sources::location_default::clear),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(defaults),
+        );
+    }
+    if let Some(defaults) = state.admin_source_location_defaults {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/listing-sources/{listing_source_id}/location-default",
+                    get(listing_sources::location_default::get)
+                        .put(listing_sources::location_default::assign)
+                        .patch(listing_sources::location_default::change)
+                        .delete(listing_sources::location_default::clear),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(defaults),
+        );
+    }
+    if let Some(locations) = state.party_locations {
+        if let Some(discovery) = locations.discovery.clone() {
+            routes = routes.merge(
+                Router::new()
+                    .route(
+                        "/api/v1/party-locations",
+                        get(parties::discover_locations::discover),
+                    )
+                    .with_state(discovery),
+            );
+        }
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/parties/{party_id}/locations",
+                    get(parties::locations::list).post(parties::locations::create),
+                )
+                .route(
+                    "/api/v1/parties/{party_id}/locations/{location_id}",
+                    get(parties::locations::get).patch(parties::locations::update),
+                )
+                .route(
+                    "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle",
+                    axum::routing::put(parties::locations::lifecycle),
+                )
+                .route(
+                    "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
+                    axum::routing::put(parties::locations::grant),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(locations),
+        );
+    }
     if let Some(parties) = state.parties {
         routes = routes.merge(
             Router::new()
@@ -1641,6 +1732,108 @@ async fn app_state_from_config_and_pool(
         config.public_listing_source_read_budget(),
     )
     .with_delete(Arc::new(delete_listing_source));
+    use party_postgres::{
+        SqlxPartyLocationAccessFactory, SqlxPartyLocationReaderFactory,
+        SqlxPartyLocationRepositoryFactory,
+    };
+    use party_service::use_cases::party_locations::*;
+    let location_admin =
+        || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
+    let party_locations_state = state::PartyLocationsState {
+        discovery: Some(Arc::new(
+            party_service::discovery::DiscoverPartyLocationsHandler::new(
+                unit_of_work.clone(),
+                party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory,
+            ),
+        )),
+        create: Arc::new(CreatePartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        update: Arc::new(UpdatePartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        lifecycle: Arc::new(SetPartyLocationLifecycleHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        grant: Arc::new(GrantPartyLocationManagementHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        get: Arc::new(GetPartyLocationHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        list: Arc::new(ListPartyLocationsHandler::new(
+            unit_of_work.clone(),
+            SqlxPartyLocationReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
+    use listing_source_postgres::{
+        SqlxLocationDefaultReaderFactory, SqlxLocationDefaultRepositoryFactory,
+        SqlxSourceLocationAccessFactory,
+    };
+    use listing_source_service::use_cases::location_default::*;
+    let source_location_defaults_state = state::SourceLocationDefaultsState {
+        assign: Arc::new(AssignLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        clear: Arc::new(ClearLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        get: Arc::new(GetLocationDefaultHandler::new(
+            unit_of_work.clone(),
+            SqlxLocationDefaultReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
+    let admin_source_location_defaults_state = state::SourceLocationDefaultsState {
+        assign: Arc::new(AssignLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        clear: Arc::new(ClearLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        change: Arc::new(ChangeLocationDefaultApplicabilityHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultRepositoryFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        get: Arc::new(GetLocationDefaultHandler::new_admin_only(
+            unit_of_work.clone(),
+            SqlxLocationDefaultReaderFactory,
+            SqlxSourceLocationAccessFactory,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let parties_state = PartiesState::new(
         Arc::new(create_party),
         Arc::new(get_party),
@@ -1842,6 +2035,16 @@ async fn app_state_from_config_and_pool(
         opensearch: opensearch_client.clone(),
     });
 
+    let address_book = Arc::new(user_service::address_book::AddressBookHandler::new(
+        unit_of_work.clone(),
+        user_postgres::SqlxAddressBookFactory,
+        geo_postgres::SqlxResolutionRepositoryFactory,
+    ));
+    let user_addresses_state = state::UserAddressesState {
+        commands: address_book.clone(),
+        queries: address_book,
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     Ok(AppState::new()
         .with_auctions(AuctionsState::new(
             Arc::new(create_auction),
@@ -1861,7 +2064,11 @@ async fn app_state_from_config_and_pool(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_parties(parties_state)
+        .with_party_locations(party_locations_state)
+        .with_source_location_defaults(source_location_defaults_state)
+        .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)
+        .with_user_addresses(user_addresses_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
         .with_partnerships(partnerships_state)

@@ -1,4 +1,6 @@
 use backend_cleanup_lambda::{cleanup_batch_size_from_env, run_cleanup};
+use geo_postgres::SqlxResolutionRepositoryFactory;
+use geo_service::resolution::MaintainResolutionsHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
@@ -9,6 +11,10 @@ use platform_lambda_bootstrap::{
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
+use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
+use product_listing_service::geography::{
+    ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
+};
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
 use user_postgres::{SqlxConsentWorkflowCleanup, SqlxNewsletterConfirmationChallengesRepository};
@@ -51,16 +57,38 @@ async fn main() -> Result<(), Error> {
                             SqlxExpiredCredentialCleanup::new(pool.clone()),
                         ),
                         CleanupConsentWorkflowHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxNewsletterConfirmationChallengesRepository::new(),
                             SqlxConsentWorkflowCleanup::new(),
                             SystemNewsletterConfirmationClock,
+                        ),
+                        MaintainResolutionsHandler::new(
+                            SqlxUnitOfWork::new(pool.clone()),
+                            SqlxResolutionRepositoryFactory,
+                        ),
+                        ProjectListingGeographyHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxGeographyProjectionStoreFactory,
+                            SqlxResolutionRepositoryFactory,
                         ),
                     ))
                 })
                 .await?;
 
-            run_cleanup(&cleanup.value().0, &cleanup.value().1, batch_size).await
+            let cleanup_result = run_cleanup(
+                &cleanup.value().0,
+                &cleanup.value().1,
+                &cleanup.value().2,
+                batch_size,
+            )
+            .await;
+            let recovery_result = cleanup.value().3.execute(None, 100).await;
+            if recovery_result.is_err() {
+                tracing::warn!(event = "backend_cleanup.listing_geography.failed");
+            }
+            cleanup_result?;
+            recovery_result?;
+            Ok::<(), Error>(())
         }
     }))
     .await

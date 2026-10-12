@@ -1,9 +1,10 @@
 # HTTP API front door
 
 This document owns edge routing, authentication, forwarding and cache/security rules.
-[OpenAPI](swagger.yaml) owns request/response contracts; [ProductListing](product-listing.md)
-and [marketing consent](marketing-consent.md) own use-case semantics. Source/synth do not
-verify live DNS, certificates, aliases, WAF or forwarding; operators must inspect them.
+[OpenAPI](swagger.yaml) owns request/response contracts. [ProductListing](product-listing.md),
+[geography](geography.md) and [marketing consent](marketing-consent.md) own use-case semantics.
+Source/synth do not verify live DNS, certificates, aliases, WAF or forwarding; operators
+must inspect them.
 
 ## Route and authentication boundary
 

@@ -125,7 +125,11 @@ pub struct AppState {
     pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) admin_overview: Option<AdminOverviewState>,
     pub(crate) parties: Option<PartiesState>,
+    pub(crate) party_locations: Option<PartyLocationsState>,
+    pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
+    pub(crate) admin_source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
+    pub(crate) user_addresses: Option<UserAddressesState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
     pub(crate) partnerships: Option<PartnershipsState>,
@@ -156,7 +160,11 @@ impl AppState {
             listing_sources: None,
             admin_overview: None,
             parties: None,
+            party_locations: None,
+            source_location_defaults: None,
+            admin_source_location_defaults: None,
             users: None,
+            user_addresses: None,
             watchlist: None,
             partnership_applications: None,
             partnerships: None,
@@ -208,8 +216,31 @@ impl AppState {
         self
     }
 
+    pub fn with_user_addresses(mut self, addresses: UserAddressesState) -> Self {
+        self.user_addresses = Some(addresses);
+        self
+    }
+
     pub fn with_users(mut self, users: UsersState) -> Self {
         self.users = Some(users);
+        self
+    }
+
+    pub fn with_source_location_defaults(mut self, state: SourceLocationDefaultsState) -> Self {
+        self.source_location_defaults = Some(state);
+        self
+    }
+
+    pub fn with_admin_source_location_defaults(
+        mut self,
+        state: SourceLocationDefaultsState,
+    ) -> Self {
+        self.admin_source_location_defaults = Some(state);
+        self
+    }
+
+    pub fn with_party_locations(mut self, state: PartyLocationsState) -> Self {
+        self.party_locations = Some(state);
         self
     }
 
@@ -974,4 +1005,63 @@ impl PartnershipsState {
         self.dissolve = Some(dissolve);
         self
     }
+}
+
+#[derive(Clone)]
+pub struct PartyLocationsState {
+    pub(crate) discovery: Option<Arc<dyn party_service::discovery::DiscoverPartyLocationsUseCase>>,
+    pub(crate) create:
+        Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
+    pub(crate) update:
+        Arc<dyn party_service::use_cases::party_locations::UpdatePartyLocationUseCase>,
+    pub(crate) lifecycle:
+        Arc<dyn party_service::use_cases::party_locations::SetPartyLocationLifecycleUseCase>,
+    pub(crate) grant:
+        Arc<dyn party_service::use_cases::party_locations::GrantPartyLocationManagementUseCase>,
+    pub(crate) get: Arc<dyn party_service::use_cases::party_locations::GetPartyLocationUseCase>,
+    pub(crate) list: Arc<dyn party_service::use_cases::party_locations::ListPartyLocationsUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartyLocationsState {
+    pub fn new(
+        create: Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
+        update: Arc<dyn party_service::use_cases::party_locations::UpdatePartyLocationUseCase>,
+        lifecycle: Arc<
+            dyn party_service::use_cases::party_locations::SetPartyLocationLifecycleUseCase,
+        >,
+        grant: Arc<
+            dyn party_service::use_cases::party_locations::GrantPartyLocationManagementUseCase,
+        >,
+        get: Arc<dyn party_service::use_cases::party_locations::GetPartyLocationUseCase>,
+        list: Arc<dyn party_service::use_cases::party_locations::ListPartyLocationsUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            discovery: None,
+            create,
+            update,
+            lifecycle,
+            grant,
+            get,
+            list,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SourceLocationDefaultsState {
+    pub assign: Arc<dyn listing_source_service::use_cases::location_default::AssignLocationDefaultUseCase>,
+    pub clear: Arc<dyn listing_source_service::use_cases::location_default::ClearLocationDefaultUseCase>,
+    pub change: Arc<dyn listing_source_service::use_cases::location_default::ChangeLocationDefaultApplicabilityUseCase>,
+    pub get: Arc<dyn listing_source_service::use_cases::location_default::GetLocationDefaultUseCase>,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+#[derive(Clone)]
+pub struct UserAddressesState {
+    pub commands: Arc<dyn user_service::address_book::AddressBookCommands>,
+    pub queries: Arc<dyn user_service::address_book::AddressBookQueries>,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
 }

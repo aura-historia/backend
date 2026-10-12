@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo-service = { workspace = true }
+geo-postgres = { workspace = true }
+geo = { workspace = true, features = ["data"] }
 admin-overview-postgres = { workspace = true }
 admin-overview-service = { workspace = true }
 async-trait = { workspace = true }

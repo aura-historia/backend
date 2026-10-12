@@ -69,7 +69,7 @@ fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
 }
 
 #[test]
-fn exact_eleven_scope_configuration_keeps_router_environment_identity() {
+fn complete_scope_configuration_keeps_router_environment_identity() {
     let mut values = HashMap::from([
         ("AWS_REGION", "eu-central-1".to_owned()),
         ("STAGE", "prod".to_owned()),
@@ -83,18 +83,23 @@ fn exact_eleven_scope_configuration_keeps_router_environment_identity() {
     let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(11, queues.len());
+    assert_eq!(WorkerScope::ALL.len(), queues.len());
     assert_eq!(
         WorkerScope::ALL.to_vec(),
         queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>()
     );
-    values.remove(WorkerScope::NotificationDelivery.router_queue_url_env());
-    assert_eq!(
-        Err(QueueError::MissingConfig(
-            "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY"
-        )),
-        CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned()).map(|_| ())
-    );
+    for scope in WorkerScope::ALL
+        .into_iter()
+        .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
+    {
+        let name = scope.router_queue_url_env();
+        let value = values.remove(name).unwrap();
+        assert_eq!(
+            Err(QueueError::MissingConfig(name)),
+            CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned()).map(|_| ())
+        );
+        values.insert(name, value);
+    }
 }
 
 #[test]
@@ -115,7 +120,7 @@ fn consent_queue_url_remains_optional_until_c06_activation() {
     let queues = CdcRouterQueueConfig::from_getter(|key| values.get(key).cloned())
         .unwrap()
         .into_queues();
-    assert_eq!(10, queues.len());
+    assert_eq!(WorkerScope::ALL.len() - 1, queues.len());
     assert!(
         queues
             .iter()

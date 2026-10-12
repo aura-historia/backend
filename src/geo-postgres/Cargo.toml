@@ -1,0 +1,27 @@
+[package]
+name = "geo-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+geo-service = { workspace = true }
+localization = { workspace = true }
+platform-postgres = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+user-service = { workspace = true }
+party-core = { workspace = true }
+party-service = { workspace = true }
+party-postgres = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

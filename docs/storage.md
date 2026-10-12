@@ -18,6 +18,10 @@ This guide owns durable persistence rules, not a table or port inventory. [Archi
 
 ## Retention, deletion and expiry
 
+Geographic provider evidence has purpose-specific retention and cache-isolation rights;
+single-use or private evidence MUST NOT silently become reusable dealer data. The
+[geography contract](geography.md#provider-terms-and-retention-gate) owns these rules.
+
 - Enforce logical expiry when credentials, proofs or receipts are used, independently of physical cleanup. Cleanup is bounded and recoverable; unfinished work is not successful housekeeping.
 - Retention windows must cover the documented replay/recovery horizon. Cleanup or owner deletion MUST NOT erase an independently required ordering, withdrawal, deletion or successful-command fence.
 - Domain withdrawal, physical deletion and personal-data erasure have different contracts. Define reference, history and external-effect consequences before deletion; retained facts must not depend on accidental cascades.

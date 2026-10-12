@@ -11,5 +11,6 @@ pub mod sort_user_field;
 pub mod stripe_customer_id;
 pub mod tier;
 pub mod user;
+pub mod user_address;
 pub mod user_id;
 pub mod user_search;

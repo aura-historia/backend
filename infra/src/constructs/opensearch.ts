@@ -33,6 +33,17 @@ export class Search extends Construct {
     this.addPolicy(grantee, ["es:ESHttpPut"]);
   }
 
+  grantIndexRefresh(grantee: iam.IGrantable, index: string): void {
+    grantee.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ["es:ESHttpPost"],
+      resources: [cdk.Stack.of(this).formatArn({
+        service: "es",
+        resource: "domain",
+        resourceName: `${this.domainName}/${index}/_refresh`,
+      })],
+    }));
+  }
+
   private addPolicy(grantee: iam.IGrantable, actions: string[]): void {
     grantee.grantPrincipal.addToPrincipalPolicy(
       new iam.PolicyStatement({

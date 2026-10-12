@@ -193,6 +193,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       .map((rule) => (rule["object-locator"] as Record<string, string>)["table-name"])
       .sort();
     expect(includedTables).toEqual([
+      "geo_resolution_wakeups",
+      "listing_geography_wakeups",
       "marketing_email_consent_sync_intents",
       "notification_deliveries",
       "product_listing_events",
@@ -201,6 +203,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "search_filters",
     ]);
     for (const excludedTable of [
+      "user_addresses",
+      "user_browsing_destinations",
       "users",
       "newsletter_subscription_confirmations",
       "loops_webhook_receipts",
@@ -269,6 +273,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       })
       .sort();
     expect(decimalStrings).toEqual([
+      "geo_resolution_wakeups.generation",
+      "listing_geography_wakeups.generation",
       "product_listing_raw_revisions.revision",
       "search_filters.version",
     ]);

@@ -5,6 +5,7 @@ pub mod listing_source_id;
 pub mod listing_source_name;
 pub mod listing_source_search;
 pub mod listing_source_slug_id;
+pub mod location_default;
 pub mod referral_configuration;
 pub mod sort_listing_source_field;
 pub mod woocommerce_webhook_secret;

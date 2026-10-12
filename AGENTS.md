@@ -38,6 +38,7 @@
 - **`docs/arch.md` and `docs/storage.md` are design harnesses, not implementation inventories.** Keep them to durable principles, ownership boundaries, invariants, failure behavior and third-party API guardrails. Concrete implementations are allowed only as explicitly illustrative examples, never as a running catalogue of current types, tables, columns, methods, limits, routes or deployment steps.
 - Put exact schema and code details in migrations, code and tests; put specific event, API and operational contracts in their owning specialized docs and runbooks. Link from the guides instead of duplicating those contracts.
 - Amend the existing canonical document when one covers the contract instead of creating overlapping documentation. Keep documentation concise and identify stable operator requirements.
+- Describe the final contract once. Avoid task-by-task histories, repeated guarantees, exhaustive test/example catalogues and rollout instructions for intermediate states that never deployed. Keep examples only when they explain a non-obvious rule; prefer links to executable tests and the owning runbook.
 
 ## Validation
 

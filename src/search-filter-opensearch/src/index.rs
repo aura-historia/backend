@@ -117,6 +117,7 @@ impl OpenSearchSearchFilterIndex {
         &self,
         product_document: &serde_json::Value,
         pit_id: &str,
+        geographic: bool,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
         let mut matched_filter_ids = HashSet::new();
         let mut matches = Vec::new();
@@ -127,11 +128,19 @@ impl OpenSearchSearchFilterIndex {
             let response = self
                 .client
                 .search(SearchParts::None)
-                .body(build_percolate_body(
-                    product_document,
-                    pit_id,
-                    search_after.as_ref(),
-                ))
+                .body({
+                    let mut body =
+                        build_percolate_body(product_document, pit_id, search_after.as_ref());
+                    if geographic {
+                        body["query"]["bool"]["filter"] = json!([{"term": {"hasGeography": true}}]);
+                    } else {
+                        body["query"]["bool"]["must_not"]
+                            .as_array_mut()
+                            .expect("query array")
+                            .push(json!({"term": {"hasGeography": true}}));
+                    }
+                    body
+                })
                 .send()
                 .await
                 .map_err(percolation_error)?;
@@ -343,6 +352,30 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
         &self,
         input: &product_listing_service::ports::ProductListingPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+        let mut product_document =
+            product_listing_opensearch::product_listing_percolation_document(input).map_err(
+                |source| SearchFilterIndexError::PercolateFailed {
+                    source: box_error(source),
+                },
+            )?;
+        // Ordinary filters use their own predicates independently of geographic updates.
+        product_document["businessGeography"] = serde_json::Value::Null;
+        product_document["inventoryGeography"] = serde_json::Value::Null;
+        let pit_id = self.open_point_in_time().await?;
+        let percolation_result = self.percolate_all(&product_document, &pit_id, false).await;
+        let close_result = self.close_point_in_time(&pit_id).await;
+
+        match (percolation_result, close_result) {
+            (Ok(matches), Ok(())) => Ok(matches),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    async fn percolate_geographic(
+        &self,
+        input: &product_listing_service::ports::ProductListingPercolationInput,
+    ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
         let product_document = product_listing_opensearch::product_listing_percolation_document(
             input,
         )
@@ -350,7 +383,7 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
             source: box_error(source),
         })?;
         let pit_id = self.open_point_in_time().await?;
-        let percolation_result = self.percolate_all(&product_document, &pit_id).await;
+        let percolation_result = self.percolate_all(&product_document, &pit_id, true).await;
         let close_result = self.close_point_in_time(&pit_id).await;
 
         match (percolation_result, close_result) {

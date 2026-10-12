@@ -293,6 +293,9 @@ dependencies = [
  "fxrate-core",
  "fxrate-postgres",
  "fxrate-service",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "google-cloud-auth",
  "http 1.5.0",
  "httpdate",
@@ -371,10 +374,12 @@ dependencies = [
  "aura-historia-jobs",
  "domain-primitives",
  "fxrate-core",
+ "geo-service",
  "localization",
  "money",
  "notification-core",
  "product-listing-core",
+ "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
@@ -391,8 +396,10 @@ name = "aura-historia-jobs"
 version = "0.1.0"
 dependencies = [
  "domain-primitives",
+ "geo-service",
  "notification-core",
  "product-listing-core",
+ "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
@@ -607,6 +614,31 @@ name = "aws-sdk-eventbridge"
 version = "1.122.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b665bae2c80672a198b5abb9ab34d62eebb933f95281e878369a20b1d1f73f0"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-geoplaces"
+version = "1.69.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc9ac166a4016652049134a5fc78c3a10cfc20ecc4081f4aee2a99b8937f5436"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1238,7 +1270,10 @@ dependencies = [
 name = "backend-cleanup-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
+ "geo-postgres",
+ "geo-service",
  "lambda_runtime",
  "oauth-postgres",
  "oauth-service",
@@ -1246,6 +1281,8 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -3121,18 +3158,102 @@ dependencies = [
 name = "geo"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "fake",
- "geo",
  "isocountry",
- "mockall",
- "reqwest 0.12.28",
  "serde",
+ "serde_json",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "geo-amazon-location"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-sdk-geoplaces",
+ "geo",
+ "geo-service",
+ "localization",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "wiremock",
+]
+
+[[package]]
+name = "geo-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "geo",
+ "geo-service",
+ "localization",
+ "party-core",
+ "party-postgres",
+ "party-service",
+ "platform-postgres",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "geo-resolution-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws-config",
+ "aws-sdk-geoplaces",
+ "aws_lambda_events",
+ "geo",
+ "geo-amazon-location",
+ "geo-postgres",
+ "geo-service",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "geo-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "geo",
+ "localization",
+ "serde",
+ "sha2 0.11.0",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4487,6 +4608,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "listing-geography-lambda"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-jobs",
+ "aws_lambda_events",
+ "geo-postgres",
+ "geo-service",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-lambda-sqs",
+ "platform-observability",
+ "platform-postgres",
+ "platform-postgres-secretsmanager",
+ "product-listing-postgres",
+ "product-listing-service",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "listing-source-core"
 version = "0.1.0"
 dependencies = [
@@ -4510,6 +4653,7 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "geo",
  "listing-source-core",
  "listing-source-service",
  "localization",
@@ -4517,6 +4661,7 @@ dependencies = [
  "openssl",
  "party-core",
  "platform-postgres",
+ "serde",
  "serde_json",
  "serial_test",
  "sqlx",
@@ -4526,6 +4671,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -4537,6 +4683,7 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
+ "geo",
  "listing-source-core",
  "localization",
  "money",
@@ -5347,6 +5494,7 @@ dependencies = [
  "partnership-service",
  "party-core",
  "party-postgres",
+ "party-service",
  "platform-postgres",
  "serde",
  "serde-email",
@@ -5361,6 +5509,7 @@ dependencies = [
  "url",
  "user-core",
  "user-postgres",
+ "user-service",
  "uuid",
 ]
 
@@ -5394,6 +5543,8 @@ name = "party-core"
 version = "0.1.0"
 dependencies = [
  "domain-primitives",
+ "fake",
+ "geo",
  "serde-email",
  "slug",
  "thiserror 2.0.21",
@@ -5408,16 +5559,23 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "party-core",
  "party-service",
  "platform-postgres",
+ "serde",
  "serde-email",
+ "serde_json",
  "serial_test",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "user-core",
+ "user-service",
  "uuid",
 ]
 
@@ -5429,6 +5587,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
+ "geo",
+ "geo-service",
  "party-core",
  "serde",
  "serde-email",
@@ -6033,6 +6193,7 @@ dependencies = [
  "domain-primitives",
  "fake",
  "fxrate-core",
+ "geo",
  "html-escape",
  "indexmap 2.14.2",
  "listing-source-core",
@@ -6166,11 +6327,13 @@ dependencies = [
  "auction-core",
  "domain-primitives",
  "fxrate-core",
+ "geo",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
  "money",
  "opensearch",
+ "party-core",
  "platform-opensearch",
  "product-listing-core",
  "product-listing-service",
@@ -6232,11 +6395,15 @@ dependencies = [
  "auction-service",
  "domain-primitives",
  "fxrate-core",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
  "money",
  "notification-core",
+ "party-core",
  "platform-postgres",
  "product-listing-core",
  "product-listing-ingestion-sqs",
@@ -6255,6 +6422,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tracing",
  "url",
  "user-core",
  "uuid",
@@ -6273,6 +6441,8 @@ dependencies = [
  "fake",
  "fxrate-core",
  "fxrate-service",
+ "geo",
+ "geo-service",
  "indexmap 2.14.2",
  "listing-source-core",
  "listing-source-service",
@@ -7183,11 +7353,13 @@ dependencies = [
  "auction-core",
  "domain-primitives",
  "fxrate-core",
+ "geo",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
  "money",
  "opensearch",
+ "party-core",
  "platform-opensearch",
  "product-listing-core",
  "product-listing-opensearch",
@@ -7278,6 +7450,7 @@ dependencies = [
  "auction-core",
  "domain-primitives",
  "fxrate-core",
+ "geo",
  "listing-source-core",
  "localization",
  "money",
@@ -7343,6 +7516,7 @@ dependencies = [
  "embedding",
  "fxrate-core",
  "fxrate-service",
+ "geo",
  "indexmap 2.14.2",
  "listing-source-core",
  "localization",
@@ -9134,6 +9308,7 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
+ "geo",
  "http 1.5.0",
  "localization",
  "money",
@@ -9202,6 +9377,9 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "geo",
+ "geo-postgres",
+ "geo-service",
  "localization",
  "money",
  "platform-postgres",
@@ -9232,6 +9410,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fake",
+ "geo",
+ "geo-service",
  "getrandom 0.4.3",
  "localization",
  "money",

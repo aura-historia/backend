@@ -249,7 +249,7 @@ describe.each(REAL_STAGES)("%s private workload network", (stage) => {
     expect(migrationEgress).toHaveLength(2);
     expect(migrationEgress.map((rule) => rule.Properties.FromPort).sort()).toEqual([443, 5432]);
     expect(migrationEgress.every((rule) => rule.Properties.CidrIp === undefined)).toBe(true);
-    expect(vpcAttachedFunctions).toHaveLength(20);
+    expect(vpcAttachedFunctions).toHaveLength(22);
     expect(logRetention?.Properties.VpcConfig).toBeUndefined();
   });
 });

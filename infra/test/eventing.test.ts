@@ -41,7 +41,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(14);
+    expect(mappings).toHaveLength(16);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
     expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
     for (const mapping of mappings.filter((candidate) => candidate !== router)) {

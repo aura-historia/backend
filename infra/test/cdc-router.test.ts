@@ -16,6 +16,8 @@ const ROUTER_QUEUES = {
   PRODUCT_LISTING_RAW_NORMALIZATION: "product-listing-normalization",
   NOTIFICATION_DELIVERY: "notification-delivery",
   MARKETING_CONSENT_SYNC: "marketing-consent-sync",
+  GEO_RESOLUTION: "geo-resolution",
+  LISTING_GEOGRAPHY: "listing-geography",
 } as const;
 
 const KINESIS_READ_ACTIONS = [
@@ -246,8 +248,8 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     });
     const sourceQueueArns = sourceQueues?.Resource as unknown[];
     const deadLetterQueueArns = deadLetterQueues?.Resource as unknown[];
-    expect(sourceQueueArns).toHaveLength(11);
-    expect(deadLetterQueueArns).toHaveLength(11);
+    expect(sourceQueueArns).toHaveLength(13);
+    expect(deadLetterQueueArns).toHaveLength(13);
     for (const workerScope of Object.values(ROUTER_QUEUES)) {
       expect(JSON.stringify(sourceQueueArns)).toContain(`aura-worker-${workerScope}-${stage}`);
       expect(JSON.stringify(deadLetterQueueArns)).toContain(`aura-worker-${workerScope}-dlq-${stage}`);

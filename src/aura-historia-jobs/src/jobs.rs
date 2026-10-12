@@ -1,6 +1,7 @@
 //! Compact jobs. PostgreSQL and target-side guards, not transport memory, own idempotency.
 use crate::WorkerScope;
 use domain_primitives::event_id::EventId;
+use geo_service::resolution::ResolutionId;
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_raw_id::{
@@ -35,10 +36,12 @@ pub enum WorkerQueue {
     UserTierEnforcement,
     NotificationDelivery,
     MarketingConsentSync,
+    GeoResolution,
+    ListingGeography,
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::ProductListingOpenSearch,
         Self::ProductListingRawNormalization,
         Self::WatchlistNotification,
@@ -50,6 +53,8 @@ impl WorkerQueue {
         Self::SearchFilterOpenSearch,
         Self::NotificationDelivery,
         Self::MarketingConsentSync,
+        Self::GeoResolution,
+        Self::ListingGeography,
     ];
 
     pub fn scope(self) -> Option<WorkerScope> {
@@ -88,6 +93,20 @@ pub enum DomainJobPayload<O = SearchFilterOperation> {
     UserTierChanged(UserTierChangedJob),
     NotificationDeliveryCreated(NotificationDeliveryCreatedJob),
     MarketingConsentSyncIntentCreated(MarketingConsentSyncIntentCreatedJob),
+    GeoResolution(GeoResolutionJob),
+    ListingGeography(ListingGeographyJob),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListingGeographyJob {
+    pub work_id: product_listing_service::geography::GeographyWorkId,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeoResolutionJob {
+    pub resolution_id: ResolutionId,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +206,8 @@ impl<O: Display> DomainJob<O> {
                 scope == WorkerScope::MarketingConsentSync
             }
             DomainJobPayload::UserTierChanged(_) => false,
+            DomainJobPayload::ListingGeography(_) => scope == WorkerScope::ListingGeography,
+            DomainJobPayload::GeoResolution(_) => scope == WorkerScope::GeoResolution,
         };
         let keys_match = match &self.payload {
             DomainJobPayload::MarketingConsentSyncIntentCreated(job) => {
@@ -210,6 +231,24 @@ impl<O: Display> DomainJob<O> {
 impl<O: Display> DomainJobPayload<O> {
     pub fn logical_keys(&self) -> Result<(String, String), InvalidJob> {
         Ok(match self {
+            Self::ListingGeography(job) => {
+                if job.generation == 0 || job.generation > i64::MAX as u64 {
+                    return Err(InvalidJob);
+                }
+                (
+                    format!("listing-geography:{}:{}", job.work_id, job.generation),
+                    format!("listing-geography:{}", job.work_id),
+                )
+            }
+            Self::GeoResolution(job) => {
+                if job.generation == 0 || job.generation > i64::MAX as u64 {
+                    return Err(InvalidJob);
+                }
+                (
+                    format!("geo-resolution:{}:{}", job.resolution_id, job.generation),
+                    format!("geo-resolution:{}", job.resolution_id),
+                )
+            }
             Self::ProductListingEvent(event) => (
                 format!("product-event:{}", event.event_id),
                 format!("product:{}", event.product_listing_id),

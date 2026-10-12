@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(106);
+    expect(catalog).toHaveLength(128);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -170,6 +170,61 @@ describe("HTTP API route policy matrix", () => {
           },
         },
       ]);
+  });
+
+  test("preserves Party-location management authority and exposes independent public discovery", () => {
+    const protectedRoutes = API_ROUTE_CATALOG.filter((route) =>
+      route.path.startsWith("/api/v1/parties/{party_id}/locations"));
+    expect(protectedRoutes).toHaveLength(5);
+    for (const route of protectedRoutes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.PartyLocationManager,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
+    const discovery = API_ROUTE_CATALOG.find((route) => route.path === "/api/v1/party-locations");
+    expect(discovery?.auth).toBe(RouteAuthPolicy.Anonymous);
+    expect(discovery?.policy.authorization).toBe(RouteAuthorizationClass.Public);
+    expect(matchesSelectiveCacheBehavior("/api/v1/party-locations")).toBe(false);
+    const publicRoutes = API_ROUTE_CATALOG.filter((route) =>
+      route.path.startsWith("/api/v1/public/parties/{party_id}/locations"));
+    expect(publicRoutes).toHaveLength(0);
+  });
+
+  test("exposes four source location default methods with source management authority and no discovery cache", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) =>
+      route.path === "/api/v1/listing-sources/{listing_source_id}/location-default");
+    expect(routes.map((route) => route.method)).toEqual(["GET", "PUT", "PATCH", "DELETE"]);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.SourceLocationManager,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
+  });
+
+  test("exposes four admin source location default methods with administrator authority and no discovery cache", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) =>
+      route.path === "/api/v1/admin/listing-sources/{listing_source_id}/location-default");
+    expect(routes.map((route) => route.method)).toEqual(["GET", "PUT", "PATCH", "DELETE"]);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.Administrator,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
   });
 
   test("documents anonymous versioned probes with their body contracts", () => {
@@ -413,7 +468,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(106);
+    expect(routes).toHaveLength(128);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

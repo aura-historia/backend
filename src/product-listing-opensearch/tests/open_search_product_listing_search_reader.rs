@@ -29,6 +29,294 @@ use time::format_description::well_known::Rfc3339;
 
 const PRODUCTS_INDEX: &str = "product-listings";
 
+fn geographic_query(
+    origin: Option<(f64, f64)>,
+    radius: Option<f64>,
+    approximate: bool,
+    ordered: bool,
+) -> geo::core::discovery::GeographicQuery {
+    use geo::core::discovery::*;
+    GeographicQuery::new(
+        geo::reference::ReferenceRelease::CURRENT,
+        std::collections::HashSet::from([geo::CountryCode::DEU]),
+        std::collections::HashSet::from([geo::SubdivisionCode::new("DE-BY").unwrap()]),
+        origin.map(|(lat, lon)| geo::GeoPoint::new(lat, lon).unwrap()),
+        radius.map(|amount| geo::Distance::new(amount, geo::DistanceUnit::Kilometers).unwrap()),
+        if approximate {
+            ProximityMode::Approximate
+        } else {
+            ProximityMode::Strict
+        },
+        ordered.then_some(DistanceOrder::Asc),
+    )
+    .unwrap()
+}
+fn geographic_document(lat: f64, lon: f64, precision: &str) -> Value {
+    json!({"locationId": party_core::party_location_id::PartyLocationId::new(), "basis":"SOURCE_DEFAULT_DERIVED", "referenceRelease":geo::reference::ReferenceRelease::CURRENT.as_str(), "country":"DE", "subdivision":"DE-BY", "point":{"lat":lat,"lon":lon},"precision":precision})
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn should_search_only_inventory_eligible_geography_with_precision_aware_proximity() {
+    async fn run() -> TestResult {
+        let mut business_only =
+            product_listing_document(ProductListingSeed::active("business-only", 100))?.document;
+        business_only["businessGeography"] = geographic_document(48.137, 11.575, "PREMISES");
+        let business_id = business_only["productListingId"]
+            .as_str()
+            .unwrap()
+            .parse::<ProductListingId>()?;
+        let mut inventory =
+            product_listing_document(ProductListingSeed::active("inventory", 100))?.document;
+        inventory["businessGeography"] = geographic_document(48.237, 11.575, "PREMISES");
+        inventory["inventoryGeography"] = inventory["businessGeography"].clone();
+        let inventory_id = inventory["productListingId"]
+            .as_str()
+            .unwrap()
+            .parse::<ProductListingId>()?;
+        let mut coarse =
+            product_listing_document(ProductListingSeed::active("coarse", 100))?.document;
+        coarse["inventoryGeography"] = geographic_document(48.138, 11.575, "LOCALITY");
+        let mut far = product_listing_document(ProductListingSeed::active("far", 100))?.document;
+        far["inventoryGeography"] = geographic_document(49.137, 11.575, "PREMISES");
+        let missing =
+            product_listing_document(ProductListingSeed::active("missing", 100))?.document;
+        let mut country_only =
+            product_listing_document(ProductListingSeed::active("advertised-country", 100))?
+                .document;
+        country_only["inventoryGeography"] = geographic_document(48.137, 11.575, "PREMISES");
+        country_only["inventoryGeography"]["point"] = Value::Null;
+        country_only["inventoryGeography"]["precision"] = Value::Null;
+        let country_id = country_only["productListingId"]
+            .as_str()
+            .unwrap()
+            .parse::<ProductListingId>()?;
+        index_products([business_only, inventory, coarse, far, missing, country_only]).await?;
+        let query = ProductListingSearch {
+            geography: Some(geographic_query(None, None, false, false)),
+            ..Default::default()
+        };
+        let result = search(query, price_filter(None)?).await?;
+        assert_eq!(Some(4), result.total);
+        assert!(
+            result
+                .items
+                .iter()
+                .any(|i| i.product_listing_id == inventory_id)
+        );
+        assert!(
+            result
+                .items
+                .iter()
+                .find(|i| i.product_listing_id == country_id)
+                .unwrap()
+                .geography
+                .as_ref()
+                .unwrap()
+                .geography
+                .position
+                .is_none()
+        );
+        let mut query = ProductListingSearch {
+            geography: Some(geographic_query(
+                Some((48.137, 11.575)),
+                Some(25.0),
+                false,
+                true,
+            )),
+            ..Default::default()
+        };
+        let result = search(query.clone(), price_filter(None)?).await?;
+        assert_eq!(Some(1), result.total);
+        assert_eq!(inventory_id, result.items[0].product_listing_id);
+        assert!(
+            result
+                .items
+                .iter()
+                .all(|p| p.product_listing_id != business_id)
+        );
+        assert_eq!(
+            geo::SpatialPrecision::Premises,
+            result.items[0]
+                .geography
+                .as_ref()
+                .unwrap()
+                .geography
+                .position
+                .unwrap()
+                .precision()
+        );
+        // Filtering and ordering use the same inventory-eligible point.
+        assert!(
+            result.cursor.search_after.as_ref().unwrap()[0]
+                .as_f64()
+                .unwrap()
+                < 25.0
+        );
+        query.geography = Some(geographic_query(
+            Some((48.137, 11.575)),
+            Some(25.0),
+            true,
+            true,
+        ));
+        assert_eq!(
+            Some(2),
+            search(query.clone(), price_filter(None)?).await?.total
+        );
+        query.geography = Some(geographic_query(
+            Some((11.575, 48.137)),
+            Some(25.0),
+            true,
+            true,
+        ));
+        assert_eq!(Some(0), search(query, price_filter(None)?).await?.total);
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn should_handle_antimeridian_zero_distance_and_maximum_radius_without_missing_point_sentinels()
+ {
+    async fn run() -> TestResult {
+        let mut across =
+            product_listing_document(ProductListingSeed::active("across", 100))?.document;
+        across["inventoryGeography"] = geographic_document(0.0, -179.9, "PREMISES");
+        let mut zero = product_listing_document(ProductListingSeed::active("zero", 100))?.document;
+        zero["inventoryGeography"] = geographic_document(0.0, 0.0, "PREMISES");
+        let missing =
+            product_listing_document(ProductListingSeed::active("missing", 100))?.document;
+        index_products([across, zero, missing]).await?;
+        let mut query = ProductListingSearch {
+            geography: Some(geographic_query(
+                Some((0.0, 179.9)),
+                Some(25.0),
+                false,
+                true,
+            )),
+            ..Default::default()
+        };
+        assert_eq!(
+            Some(1),
+            search(query.clone(), price_filter(None)?).await?.total
+        );
+        query.geography = Some(geographic_query(Some((0.0, 0.0)), Some(1.0), false, true));
+        assert_eq!(
+            Some(1),
+            search(query.clone(), price_filter(None)?).await?.total
+        );
+        query.geography = Some(geographic_query(
+            Some((0.0, 0.0)),
+            Some(20_000.0),
+            false,
+            true,
+        ));
+        // The antipodal point lies beyond the documented maximum, not worldwide coverage.
+        assert_eq!(Some(1), search(query, price_filter(None)?).await?.total);
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn should_preserve_inclusive_radius_boundaries_and_polar_coordinates() {
+    async fn run() -> TestResult {
+        let mut boundary =
+            product_listing_document(ProductListingSeed::active("boundary", 100))?.document;
+        boundary["inventoryGeography"] = geographic_document(0.1, 0.0, "PREMISES");
+        let mut pole = product_listing_document(ProductListingSeed::active("pole", 100))?.document;
+        pole["inventoryGeography"] = geographic_document(90.0, 180.0, "PREMISES");
+        index_products([boundary, pole]).await?;
+        let mut q = ProductListingSearch {
+            geography: Some(geographic_query(Some((0.0, 0.0)), Some(25.0), false, true)),
+            ..Default::default()
+        };
+        let result = search(q.clone(), price_filter(None)?).await?;
+        assert_eq!(Some(1), result.total);
+        let distance = result.cursor.search_after.as_ref().unwrap()[0]
+            .as_f64()
+            .unwrap();
+        q.geography = Some(geographic_query(
+            Some((0.0, 0.0)),
+            Some(distance),
+            false,
+            true,
+        ));
+        assert_eq!(Some(1), search(q.clone(), price_filter(None)?).await?.total);
+        q.geography = Some(geographic_query(
+            Some((0.0, 0.0)),
+            Some(distance - 0.001),
+            false,
+            true,
+        ));
+        assert_eq!(Some(0), search(q.clone(), price_filter(None)?).await?.total);
+        q.geography = Some(geographic_query(
+            Some((90.0, -180.0)),
+            Some(1.0),
+            false,
+            true,
+        ));
+        assert_eq!(Some(1), search(q, price_filter(None)?).await?.total);
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn should_apply_native_radius_units_and_match_equivalent_physical_distances() {
+    async fn run() -> TestResult {
+        use geo::core::discovery::{DistanceOrder, GeographicQuery};
+        use geo::{Distance, DistanceUnit};
+        use strum::IntoEnumIterator;
+        let mut near = product_listing_document(ProductListingSeed::active("near", 100))?.document;
+        near["inventoryGeography"] = geographic_document(0.1, 0.0, "PREMISES");
+        let near_id = near["productListingId"]
+            .as_str()
+            .unwrap()
+            .parse::<ProductListingId>()?;
+        let mut farther =
+            product_listing_document(ProductListingSeed::active("farther", 100))?.document;
+        farther["inventoryGeography"] = geographic_document(0.3, 0.0, "PREMISES");
+        index_products([near, farther]).await?;
+        for unit in DistanceUnit::iter() {
+            let factor = Distance::new(1.0, unit)?.to_kilometers();
+            let query = ProductListingSearch {
+                geography: Some(GeographicQuery::new(
+                    geo::reference::ReferenceRelease::CURRENT,
+                    Default::default(),
+                    Default::default(),
+                    Some(geo::GeoPoint::new(0.0, 0.0)?),
+                    Some(Distance::new(25.0 / factor, unit)?),
+                    Default::default(),
+                    Some(DistanceOrder::Asc),
+                )?),
+                ..Default::default()
+            };
+            let result = search(query, price_filter(None)?).await?;
+            assert_eq!(Some(1), result.total, "radius unit {unit:?}");
+            assert_eq!(near_id, result.items[0].product_listing_id);
+        }
+        let query = ProductListingSearch {
+            geography: Some(GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(geo::GeoPoint::new(0.0, 0.0)?),
+                Some(Distance::new(25.0, DistanceUnit::Miles)?),
+                Default::default(),
+                Some(DistanceOrder::Asc),
+            )?),
+            ..Default::default()
+        };
+        assert_eq!(Some(2), search(query, price_filter(None)?).await?.total);
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [OpenSearch()])]

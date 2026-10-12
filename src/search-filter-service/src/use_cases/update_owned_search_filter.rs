@@ -35,6 +35,7 @@ use user_service::ports::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingSearchPatch {
+    pub geography: PatchField<geo::core::discovery::GeographicQuery>,
     pub language: PatchField<Language>,
     pub currency: PatchField<Currency>,
     pub product_listing_query: PatchField<Vec<TextQuery<1>>>,
@@ -334,6 +335,8 @@ fn apply_product_search_patch(
     patch: &ProductListingSearchPatch,
 ) -> Result<bool, UpdateOwnedSearchFilterError> {
     let mut changed = false;
+    changed |= apply_optional_patch(&patch.geography, &mut search.geography);
+
     changed |= apply_required_patch(&patch.language, &mut search.language)?;
     changed |= apply_required_patch(&patch.currency, &mut search.currency)?;
     changed |= apply_default_patch(
@@ -494,6 +497,58 @@ impl From<OperationAuthorizationError> for UpdateOwnedSearchFilterError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn unrelated_patches_keep_the_private_origin_and_only_explicit_replacement_moves_it() {
+        let query = |lat| {
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(geo::GeoPoint::new(lat, 11.575).unwrap()),
+                Some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers).unwrap()),
+                geo::core::discovery::ProximityMode::Strict,
+                None,
+            )
+            .unwrap()
+        };
+        let original = query(48.137);
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.geography = Some(original.clone());
+        assert!(
+            apply_product_search_patch(
+                &mut search,
+                &ProductListingSearchPatch {
+                    language: PatchField::Set(Language::De),
+                    ..Default::default()
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(Some(original), search.geography);
+        let replacement = query(49.137);
+        assert!(
+            apply_product_search_patch(
+                &mut search,
+                &ProductListingSearchPatch {
+                    geography: PatchField::Set(replacement.clone()),
+                    ..Default::default()
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(Some(replacement), search.geography);
+        assert!(
+            apply_product_search_patch(
+                &mut search,
+                &ProductListingSearchPatch {
+                    geography: PatchField::Clear,
+                    ..Default::default()
+                }
+            )
+            .unwrap()
+        );
+        assert!(search.geography.is_none());
+    }
     #[test]
     fn should_merge_only_patched_search_fields() -> Result<(), Box<dyn std::error::Error>> {
         let mut search = ProductListingSearch::new(Language::En, Currency::Eur);

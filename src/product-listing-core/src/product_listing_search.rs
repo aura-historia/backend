@@ -92,6 +92,7 @@ pub struct ListingAvailabilityQuery {
 
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductListingSearch {
+    pub geography: Option<geo::core::discovery::GeographicQuery>,
     pub language: Language,
     pub currency: Currency,
     pub product_listing_query: Vec<TextQuery<1>>,
@@ -109,8 +110,19 @@ pub struct ProductListingSearch {
 }
 
 impl ProductListingSearch {
+    pub fn has_geography(&self) -> bool {
+        self.geography.is_some()
+    }
+
+    pub fn distance_query(&self) -> Option<&geo::core::discovery::GeographicQuery> {
+        self.geography
+            .as_ref()
+            .filter(|q| q.distance_order().is_some())
+    }
+
     pub fn new(language: Language, currency: Currency) -> Self {
         Self {
+            geography: None,
             language,
             currency,
             product_listing_query: Vec::new(),
@@ -300,6 +312,7 @@ pub mod faker {
     impl Dummy<Faker> for ProductListingSearch {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductListingSearch {
+                geography: None,
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_listing_query: config.fake_with_rng(rng),

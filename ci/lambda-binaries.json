@@ -20,5 +20,7 @@
   "watchlist-notification-lambda",
   "notification-delivery-lambda",
   "marketing-consent-sync-lambda",
+  "geo-resolution-lambda",
+  "listing-geography-lambda",
   "cdc-router-lambda"
 ]

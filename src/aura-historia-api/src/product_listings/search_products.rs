@@ -43,6 +43,8 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 struct ProductListingSearchData {
     #[serde(default)]
+    geography: Option<crate::geographic_search::GeographicSearchData>,
+    #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
@@ -130,6 +132,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
 
     fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
+            geography: crate::geographic_search::parse_query(data.geography, "geography")?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -288,6 +291,7 @@ async fn handle_search(
         Ok(search) => search,
         Err(error) => return error.into_response(),
     };
+    let geographic = search.has_geography();
     let context = principal.operation_context(metadata);
     match state
         .search_products
@@ -317,7 +321,7 @@ async fn handle_search(
             crate::transport::cache::anonymous_shared_success(
                 response,
                 &headers,
-                matches!(&context.principal, Principal::Anonymous),
+                !geographic && matches!(&context.principal, Principal::Anonymous),
                 60,
             )
         }
@@ -551,6 +555,35 @@ mod tests {
             }),
             request.cursor
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn anonymous_geographic_searches_keep_origins_and_eligibility_results_out_of_shared_cache()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for query in [
+            "geography[countries][0]=DE&geography[subdivisions][0]=DE-BY",
+            "geography[origin][latitude]=48.137&geography[origin][longitude]=11.575&geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
+        ] {
+            let (app, calls) = app();
+            let response = app
+                .oneshot(
+                    Request::get(format!("/api/v1/product-listings?{query}")).body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(StatusCode::OK, response.status());
+            assert_eq!(
+                "private, no-store",
+                response.headers()[header::CACHE_CONTROL]
+            );
+            let calls = lock(&calls);
+            assert_eq!(1, calls.len());
+            assert!(calls[0].1.search.has_geography());
+            assert!(matches!(
+                calls[0].0.principal,
+                application::operation_context::Principal::Anonymous
+            ));
+        }
         Ok(())
     }
 

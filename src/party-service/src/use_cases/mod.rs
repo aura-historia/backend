@@ -14,3 +14,4 @@ pub use queries::search_parties::{
     PartySummary, SearchPartiesError, SearchPartiesHandler, SearchPartiesRequest,
     SearchPartiesResult, SearchPartiesUseCase,
 };
+pub mod party_locations;

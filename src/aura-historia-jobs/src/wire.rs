@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use domain_primitives::event_id::EventId;
+use geo_service::resolution::ResolutionId;
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_raw_id::{
@@ -43,6 +44,16 @@ struct EnvelopeV2 {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "job_type", content = "payload")]
 enum PayloadV2 {
+    #[serde(rename = "LISTING_GEOGRAPHY")]
+    ListingGeography {
+        work_id: product_listing_service::geography::GeographyWorkId,
+        generation: u64,
+    },
+    #[serde(rename = "GEO_RESOLUTION")]
+    GeoResolution {
+        resolution_id: ResolutionId,
+        generation: u64,
+    },
     #[serde(rename = "PRODUCT_LISTING_EVENT")]
     ProductListingEvent {
         event_id: EventId,
@@ -152,6 +163,14 @@ where
 {
     let scope = job.validate()?;
     let payload = match &job.payload {
+        DomainJobPayload::ListingGeography(job) => PayloadV2::ListingGeography {
+            work_id: job.work_id,
+            generation: job.generation,
+        },
+        DomainJobPayload::GeoResolution(job) => PayloadV2::GeoResolution {
+            resolution_id: job.resolution_id,
+            generation: job.generation,
+        },
         DomainJobPayload::ProductListingEvent(event) => PayloadV2::ProductListingEvent {
             event_id: event.event_id,
             product_listing_id: event.product_listing_id,
@@ -257,6 +276,20 @@ where
         return Err(WireError::Scope);
     }
     let payload = match envelope.job {
+        PayloadV2::ListingGeography {
+            work_id,
+            generation,
+        } => DomainJobPayload::ListingGeography(crate::jobs::ListingGeographyJob {
+            work_id,
+            generation,
+        }),
+        PayloadV2::GeoResolution {
+            resolution_id,
+            generation,
+        } => DomainJobPayload::GeoResolution(crate::jobs::GeoResolutionJob {
+            resolution_id,
+            generation,
+        }),
         PayloadV2::ProductListingEvent {
             event_id,
             product_listing_id,
@@ -346,6 +379,18 @@ mod tests {
         let mut snapshots = vec![];
         for scope in WorkerScope::iter() {
             let (kind, payload, key, ordering) = match scope {
+                WorkerScope::ListingGeography => (
+                    "LISTING_GEOGRAPHY",
+                    json!({"work_id":format!("gwork_{SUFFIX}"),"generation":3}),
+                    format!("listing-geography:gwork_{SUFFIX}:3"),
+                    format!("listing-geography:gwork_{SUFFIX}"),
+                ),
+                WorkerScope::GeoResolution => (
+                    "GEO_RESOLUTION",
+                    json!({"resolution_id":format!("gres_{SUFFIX}"),"generation":3}),
+                    format!("geo-resolution:gres_{SUFFIX}:3"),
+                    format!("geo-resolution:gres_{SUFFIX}"),
+                ),
                 WorkerScope::ProductListingRawNormalization => (
                     "PRODUCT_LISTING_RAW_REVISION",
                     json!({"product_listing_raw_stream_id": RAW_STREAM_ID, "product_listing_raw_revision_id": RAW_REVISION_ID, "revision": 3}),
@@ -427,6 +472,14 @@ mod tests {
     {
         for (scope, snapshot) in snapshots() {
             let (job_type, payload) = match scope {
+                WorkerScope::ListingGeography => (
+                    "LISTING_GEOGRAPHY",
+                    format!("{{\"work_id\":\"gwork_{SUFFIX}\",\"generation\":3}}"),
+                ),
+                WorkerScope::GeoResolution => (
+                    "GEO_RESOLUTION",
+                    format!("{{\"resolution_id\":\"gres_{SUFFIX}\",\"generation\":3}}"),
+                ),
                 WorkerScope::ProductListingRawNormalization => (
                     "PRODUCT_LISTING_RAW_REVISION",
                     format!(

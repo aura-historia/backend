@@ -1,0 +1,89 @@
+[
+  {
+    "name": "german_dealer_premises",
+    "query": "  Friedrichstraße 1\r\nBerlin, Deutschland  ",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-de", "PlaceType": "PointAddress", "Title": "Berlin", "Position": [13.405, 52.52], "Address": {"Country": {"Code2": "DE", "Code3": "DEU"}, "Region": {"Code": "BE", "Name": "Berlin"}}, "MatchScores": {"Overall": 0.97}}]},
+    "countries": ["DE"], "precisions": ["PREMISES"], "subdivisions": [null], "issues": ["UnsupportedSubdivision"]
+  },
+  {
+    "name": "british_dealer_street",
+    "query": "King's Road, London, United Kingdom",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-gb", "PlaceType": "Street", "Title": "London", "Position": [-0.16, 51.49], "Address": {"Country": {"Code2": "GB", "Code3": "GBR"}, "Region": {"Code": "ENG"}}}]},
+    "countries": ["GB"], "precisions": ["STREET"], "subdivisions": [null], "issues": ["UnsupportedSubdivision"]
+  },
+  {
+    "name": "french_dealer_locality",
+    "query": "Paris, France",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-fr", "PlaceType": "Locality", "Title": "Paris", "Position": [2.35, 48.86], "Address": {"Country": {"Code2": "FR", "Code3": "FRA"}}}]},
+    "countries": ["FR"], "precisions": ["LOCALITY"], "subdivisions": [null], "issues": []
+  },
+  {
+    "name": "italian_dealer_interpolated",
+    "query": "Via Roma 12, Roma, Italia",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-it", "PlaceType": "InterpolatedAddress", "Title": "Roma", "Position": [12.5, 41.9], "Address": {"Country": {"Code2": "IT", "Code3": "ITA"}}, "MatchScores": {"Overall": 0.62}}]},
+    "countries": ["IT"], "precisions": ["STREET"], "subdivisions": [null], "issues": ["ApproximatePosition"]
+  },
+  {
+    "name": "us_ambiguous_name",
+    "query": "Springfield",
+    "response": {"ResultItems": [
+      {"PlaceId": "synthetic-us-1", "PlaceType": "Locality", "Title": "Springfield", "Position": [-89.65, 39.78], "Address": {"Country": {"Code2": "US", "Code3": "USA"}, "Region": {"Code": "IL"}}},
+      {"PlaceId": "synthetic-us-2", "PlaceType": "Locality", "Title": "Springfield", "Position": [-72.59, 42.10], "Address": {"Country": {"Code2": "US", "Code3": "USA"}, "Region": {"Code": "MA"}}}
+    ]},
+    "countries": ["US", "US"], "precisions": ["LOCALITY", "LOCALITY"], "subdivisions": [null, null], "issues": ["UnsupportedSubdivision"]
+  },
+  {
+    "name": "canadian_documented_region",
+    "query": "Vancouver, British Columbia, Canada",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-ca", "PlaceType": "Locality", "Title": "Vancouver", "Position": [-123.12, 49.28], "Address": {"Country": {"Code2": "CA", "Code3": "CAN"}, "Region": {"Code": "BC", "Name": "British Columbia"}}}]},
+    "countries": ["CA"], "precisions": ["LOCALITY"], "subdivisions": ["CA-BC"], "issues": []
+  },
+  {
+    "name": "japanese_non_latin_multiline",
+    "query": "東京都千代田区\n丸の内１丁目９−１",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-jp", "PlaceType": "PointAddress", "Title": "東京", "Position": [139.767, 35.681], "Address": {"Country": {"Code2": "JP", "Code3": "JPN"}, "Region": {"Code": "13"}}}]},
+    "countries": ["JP"], "precisions": ["PREMISES"], "subdivisions": [null], "issues": ["UnsupportedSubdivision"]
+  },
+  {
+    "name": "arabic_missing_country",
+    "query": "شارع المتنبي\nبغداد",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-ar", "PlaceType": "Street", "Title": "شارع المتنبي", "Position": [44.38, 33.34]}]},
+    "countries": [null], "precisions": ["STREET"], "subdivisions": [null], "issues": ["UnsupportedCountry"]
+  },
+  {
+    "name": "country_only",
+    "query": "Deutschland",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-country", "PlaceType": "Country", "Title": "Deutschland", "Position": [10.45, 51.16], "Address": {"Country": {"Code2": "DE", "Code3": "DEU"}}}]},
+    "countries": ["DE"], "precisions": ["REPRESENTATIVE"], "subdivisions": [null], "issues": []
+  },
+  {
+    "name": "territory_is_not_administering_state",
+    "query": "San Juan, Puerto Rico",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-pr", "PlaceType": "Locality", "Title": "San Juan", "Position": [-66.1, 18.46], "Address": {"Country": {"Code2": "PR", "Code3": "PRI"}}}]},
+    "countries": ["PR"], "precisions": ["LOCALITY"], "subdivisions": [null], "issues": []
+  },
+  {
+    "name": "country_without_position",
+    "query": "Canada",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-country-no-point", "PlaceType": "Country", "Title": "Canada", "Address": {"Country": {"Code3": "CAN"}}}]},
+    "countries": ["CA"], "precisions": [null], "subdivisions": [null], "issues": ["MissingPosition"]
+  },
+  {
+    "name": "unknown_provider_precision",
+    "query": "Berlin",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-future", "PlaceType": "FutureRooftopType", "Title": "Berlin", "Position": [13.405, 52.52], "Address": {"Country": {"Code2": "DE", "Code3": "DEU"}}}]},
+    "countries": ["DE"], "precisions": [null], "subdivisions": [null], "issues": ["UnsupportedPrecision"]
+  },
+  {
+    "name": "estimated_address_not_premises",
+    "query": "Sydney, Australia",
+    "response": {"ResultItems": [{"PlaceId": "synthetic-au-estimated", "PlaceType": "PointAddress", "EstimatedPointAddress": true, "Title": "Sydney", "Position": [151.21, -33.87], "Address": {"Country": {"Code2": "AU", "Code3": "AUS"}}}]},
+    "countries": ["AU"], "precisions": ["REPRESENTATIVE"], "subdivisions": [null], "issues": ["ApproximatePosition"]
+  },
+  {
+    "name": "no_match",
+    "query": "synthetic address with no match",
+    "response": {"ResultItems": []},
+    "countries": [], "precisions": [], "subdivisions": [], "issues": []
+  }
+]

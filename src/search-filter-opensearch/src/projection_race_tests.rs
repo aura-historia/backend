@@ -180,6 +180,7 @@ fn input() -> TestResult<ProductListingPercolationInput> {
             event_id,
             current_event_id: event_id,
             projection_version: 1,
+            geography: Default::default(),
             event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             product_listing_id: ProductListingId::new(),

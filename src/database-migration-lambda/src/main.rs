@@ -218,6 +218,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn should_embed_unique_root_migration_versions() {
+        let mut versions = std::collections::BTreeSet::new();
+        for migration in ROOT_MIGRATIONS.iter() {
+            assert!(
+                versions.insert(migration.version),
+                "duplicate root migration version: {}",
+                migration.version
+            );
+        }
+    }
+
+    #[test]
     fn should_embed_plain_sql_role_bootstrap_without_psql_commands() {
         assert!(ROLE_BOOTSTRAP_SQL.contains("aura.bootstrap.runtime_password"));
         assert!(ROLE_BOOTSTRAP_SQL.contains("CREATE EXTENSION IF NOT EXISTS pg_trgm"));
