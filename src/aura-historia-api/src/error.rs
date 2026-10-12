@@ -1589,9 +1589,6 @@ impl From<SearchProductListingsError> for ApiError {
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
-            SearchProductListingsError::Geography(_) => {
-                Self::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
-            }
             SearchProductListingsError::ProductListingSearchQueryFailed
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }

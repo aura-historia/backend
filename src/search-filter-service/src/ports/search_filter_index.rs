@@ -69,7 +69,7 @@ pub trait SearchFilterIndex: Send + Sync {
         &self,
         input: &ProductListingPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError>;
-    /// Separate query so a closed geographic gate never executes geographic matching.
+    /// Match filters with geographic predicates against the current read projection.
     async fn percolate_geographic(
         &self,
         _input: &ProductListingPercolationInput,

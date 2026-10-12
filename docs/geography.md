@@ -535,14 +535,14 @@ An invalidated in-flight call keeps its concurrency reservation until its fenced
 or lease expiry, so manual requeue cannot create another concurrent paid reservation.
 
 Current evidence requires the same current source binding and unexpired provider rights
-and retention. Readers suppress stale/expired/revoked evidence immediately, including
+and retention. Resolution readers suppress stale/expired/revoked evidence immediately, including
 reviewed points, and recheck bindings after waiting for resolution coordination;
 original country assertions remain useful. Bounded geography maintenance in the existing
 hourly backend cleanup Lambda physically purges expired, revoked and orphaned provider
 derivatives, clears selections,
 commits invalidation and establishes a new generation where retention is permitted.
 The journal and wake-ups contain no address, scope owner or provider evidence, so erasure
-does not leave copies of prohibited derivatives in event history. Dependent projections
+does not leave copies of prohibited derivatives in event history. Dependent projection writers
 must re-read these eligibility rules and consume invalidation/rebuild work, as required
 by the [effective listing geography contract](#effective-listing-geography-2003).
 
@@ -595,7 +595,7 @@ identity/generation/review selection/retention deadline and policy versions. The
 internal equality guards, never ordered external versions. Current authorities are locked
 and rechecked in the short page transaction. Applicability evidence and geographic values
 rehydrate through their domain constructors; invalid stored state fails the page without
-committing a projection or opening the public gate. Batched resolution reads follow the
+committing a projection. Batched resolution reads follow the
 resolver's provider-control, resolution, binding lock order. G11 must replace inheritance **as a whole**
 for an explicit listing assertion, and must block inheritance for suppression; partial
 assertions must never be merged with source address fields.
@@ -611,37 +611,23 @@ monotonic projection version/current event. Aggregate version, source facts, upd
 and public domain history stay unchanged. Projector and saved-filter percolator receive
 the enrichment; price-watchlist, embedding and translation do not.
 
-### Public eligibility barrier and G7 integration
+### Eventual projection consistency
 
-`GeographicQueryGate` reads PostgreSQL on every request, without caching. Pending shared
-dependency/lifecycle invalidation, unacknowledged replacement/removal of existing geography,
-missing gate authority or expired projected derived retention closes the gate. Provider storage-right
-changes enqueue profile work atomically. Ordinary canonical listing catch-up and creation
-remain durable but do not close the gate or advance its epoch. First geographic additions
-cannot expose forbidden stale data and do not require a barrier; lifecycle changes and any
-replacement of existing geography retain custody until indexing is visible. Coalescing
-never downgrades a pending blocking invalidation. G11 must extend the trigger classification
-when explicit listing geography changes become canonical inputs.
-Replacing/removing a derived value also advances the epoch within the page transaction;
-this fences requests when ordinary catch-up discovers expiry before maintenance signals it.
-Completion of a fanout page alone never establishes index freshness: projector custody
-is recorded only after the externally versioned document/tombstone write is refresh-visible.
-Conflict/replay completion explicitly refreshes the product index before confirming custody,
-including an uncertain earlier write or a concurrent equal/higher write.
+OpenSearch and compact listing geography are rebuildable read projections. Public
+geographic discovery and saved-filter matching use the available projection while durable
+invalidation and indexing catch up. Location retirement, restrictive applicability changes,
+provider-rights revocation and evidence expiry can briefly leave earlier geography in
+results, distance ordering, counts and pagination. There is no global query gate, epoch
+check or matching-commit barrier, and unrelated geographic queries keep working.
 
-`with_geographic_eligibility` checks before executing a geographic query and again after
-execution against the same invalidation epoch. A closed or changed gate suppresses the
-**entire** geographic result, including distance ordering, counts and facets. This is a
-conservative global barrier: unrelated geographic matches can temporarily be suppressed
-while shared or restrictive changes propagate. Sustained invalidation backlog reduces geographic availability; backlog age
-and index custody must be monitored. Ordinary non-geographic queries remain independent.
-This prevents retired or retention-expired geography from remaining eligible during reindexing.
-
-The shared eligibility capability is owned by `geo-service::discovery` and reexported
-by `product-listing-service::geography`; the PostgreSQL gate remains G6's authoritative
-implementation. Public geographic discovery, batch reads and saved matching use the same
-uncached epoch. Rebuild/replay and activation are described in the
-[worker runbook](durable-worker-runbook.md#listing-geography-recovery).
+Projection writers still derive from current authoritative lifecycle, applicability and
+permitted, unexpired resolution evidence. Dependency changes enqueue durable recomputation;
+maintenance removes expired/revoked evidence and signals affected projections. External
+projection versions and tombstones fence stale writes. Refresh-visible index acknowledgment
+tracks catch-up for recovery and monitoring, without controlling query availability.
+Public Party-location discovery reads current PostgreSQL locations and resolution eligibility
+independently of listing projection work. Rebuild/replay and the coordinated gate-removal
+migration are described in the [worker runbook](durable-worker-runbook.md#listing-geography-recovery).
 
 ## Geographic discovery (#2004)
 
@@ -689,26 +675,19 @@ matching sites and one batched resolution read validates eligible evidence; no f
 collection is hydrated. Submitted values retain precedence over current accepted,
 permitted, unexpired resolution with matching input/location revisions.
 
-All public geographic results, including total and continuation, are suppressed when
-G6's gate closes or its epoch changes during execution. Geographic HTTP responses are
-`private, no-store`, including anonymous country-only discovery. Non-geographic listing
-searches preserve their existing cache and matching behavior. This conservative global
-suppression continues until invalidation and refresh-visible index custody complete.
-There is no per-listing geocoder call. Public Party discovery uses the same global gate
-although it reads current PostgreSQL locations directly. The permit also records the next
-current public Party-evidence expiry; a change in this deadline fences the complete result
-when expiry occurs before maintenance or listing projection invalidation.
+Geographic HTTP responses are `private, no-store`, including anonymous country-only
+discovery. Listing searches accept the eventual projection consistency described above,
+including changes during query execution. There is no per-listing geocoder call.
 
 Saved geographic predicates persist a private release-pinned snapshot of the explicit
 numeric origin and query parameters. Only replacing that dimension replaces its origin;
 unrelated patches and all address/preference mutations leave it unchanged. Existing
 owner authorization and erasure govern reads/writes. Projection adds `hasGeography` to
 separate geographic from ordinary percolation. Geography enrichment triggers only
-geographic filters; ordinary triggers evaluate both independently. A closed/changed gate
-prevents geographic queries and match commits and leaves geographic work retryable;
-non-geographic matches can still commit. Periodic geographic matching keeps progress
-unchanged on suppression. Commit checks reuse the authoritative transaction connection
-and the original epoch, without caching or an additional pool connection.
+geographic filters; ordinary triggers evaluate both independently. Geographic percolation
+and periodic matching proceed against available read projections during catch-up. Existing
+current-event, filter-version, owner authorization and idempotent match-write checks still
+apply, and periodic progress advances after successful matching.
 
 Before enabling new filters, add the `hasGeography` boolean mapping to the saved-filter
 index (both existing geography point mappings already exist), deploy query/projection/

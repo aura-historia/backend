@@ -32,10 +32,6 @@ pub struct ProductListingSearchReadRequest {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingSearchReadError {
-    #[error("geographic eligibility is pending")]
-    GeographicEligibilityPending,
-    #[error("geographic eligibility read failed")]
-    Geography(#[source] crate::geography::GeographyError),
     #[error("product search query failed")]
     ProductListingSearchQueryFailed,
     #[error("product search read model is invalid")]

@@ -5,10 +5,7 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::{
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
-    geography::{
-        SqlxEffectiveListingGeographyBatchReader, SqlxGeographicQueryGate,
-        SqlxGeographyProjectionStoreFactory,
-    },
+    geography::{SqlxEffectiveListingGeographyBatchReader, SqlxGeographyProjectionStoreFactory},
 };
 use product_listing_service::{
     geography::*,
@@ -45,9 +42,6 @@ async fn drain(pool: &sqlx::PgPool, limit: u16) -> TestResult {
 async fn fixture(
     pool: &sqlx::PgPool,
 ) -> Result<(ProductListingId, Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
-    sqlx::query("INSERT INTO listing_geography_gate DEFAULT VALUES ON CONFLICT DO NOTHING")
-        .execute(pool)
-        .await?;
     let (id, _) = insert_product_with_created_event(pool).await?;
     let (source,party):(Uuid,Uuid)=sqlx::query_as("SELECT p.listing_source_id,s.operator_party_id FROM product_listings p JOIN listing_sources s USING(listing_source_id) WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(pool).await?;
     let location = Uuid::now_v7();
@@ -78,6 +72,45 @@ async fn acknowledge(pool: &sqlx::PgPool) -> TestResult {
     Ok(())
 }
 #[aura_integration_test(services=[SCHEMA])]
+async fn geographic_projection_reads_continue_during_unrelated_work_and_expiry_catch_up() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let (id, _, location) = fixture(&pool).await?;
+        drain(&pool, 100).await?;
+        let (_, unrelated_source, _) = fixture(&pool).await?;
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_geography_work WHERE pending AND dependency_id=$1)")
+            .bind(unrelated_source.to_string()).fetch_one(&pool).await?;
+        assert!(pending);
+        let awaiting_index: bool = sqlx::query_scalar("SELECT indexed_version<geography_version FROM product_listing_geographies WHERE product_listing_id=$1")
+            .bind(id.into_uuid()).fetch_one(&pool).await?;
+        assert!(awaiting_index);
+        let reader = SqlxEffectiveListingGeographyBatchReader::new(pool.clone());
+        assert!(reader.read_many(&[id]).await?[&id].business.is_some());
+        sqlx::query("UPDATE product_listing_geographies SET valid_until=clock_timestamp()-interval '1 second' WHERE product_listing_id=$1")
+            .bind(id.into_uuid()).execute(&pool).await?;
+        assert!(reader.read_many(&[id]).await?[&id].business.is_some());
+        sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1")
+            .bind(location).execute(&pool).await?;
+        sqlx::query("INSERT INTO party_location_changes(party_location_id,party_id,revision,input_revision,lifecycle,actor) SELECT party_location_id,party_id,revision,input_revision,lifecycle,'SERVICE:test' FROM party_locations WHERE party_location_id=$1")
+            .bind(location).execute(&pool).await?;
+        assert!(reader.read_many(&[id]).await?[&id].business.is_some());
+        drain(&pool, 100).await?;
+        assert!(reader.read_many(&[id]).await?[&id].business.is_none());
+
+        let gate: Option<String> = sqlx::query_scalar("SELECT to_regclass('listing_geography_gate')::text")
+            .fetch_one(&pool).await?;
+        assert!(gate.is_none());
+        let blocking_columns: i64 = sqlx::query_scalar("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name IN ('product_listing_geographies','listing_geography_work') AND column_name='blocks_queries'")
+            .fetch_one(&pool).await?;
+        assert_eq!(0, blocking_columns);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "available geographic projection reads: {result:?}"
+    );
+}
+#[aura_integration_test(services=[SCHEMA])]
 async fn malformed_applicability_and_geography_fail_closed_without_committing_projection() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -99,7 +132,7 @@ async fn malformed_applicability_and_geography_fail_closed_without_committing_pr
         let projected: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_listing_geographies WHERE product_listing_id=$1)")
             .bind(id.into_uuid()).fetch_one(&pool).await?;
         assert!(!projected);
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
+
         }
         Ok(())
     }.await;
@@ -120,36 +153,33 @@ async fn shared_location_is_bounded_coalesced_and_does_not_rewrite_canonical_fac
         assert_eq!("DE",value["business"]["country"]);assert!(value["inventory"].is_null());
         assert!(!value.to_string().contains("Private supplied"));assert!(!value.to_string().contains("evidence"));
         let after:(i64,time::OffsetDateTime)=sqlx::query_as("SELECT version,updated FROM product_listings WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(before,after);
-        // A first safe addition does not require suppressing other geographic queries.
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_some());
-        acknowledge(&pool).await?;assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_some());
+        // First additions can be read before index acknowledgment.
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[id]).await?;assert!(views[&id].business.is_some());
+        acknowledge(&pool).await?;
         // Repeated dependency signals update markers without downstream enrichment.
         sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)").bind(source.to_string()).execute(&pool).await?;drain(&pool,1).await?;
         let unchanged:i64=sqlx::query_scalar("SELECT geography_version FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;assert_eq!(version,unchanged);
-        // Retirement is visible before any fanout page/index acknowledgment.
+        // Reads accept the old projection until retirement fanout catches up.
         sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&pool).await?;
         sqlx::query("INSERT INTO party_location_changes(party_location_id,party_id,revision,input_revision,lifecycle,actor) SELECT party_location_id,party_id,revision,input_revision,lifecycle,'SERVICE:test' FROM party_locations WHERE party_location_id=$1").bind(location).execute(&pool).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
-        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[id]).await?.is_empty());
+
+        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[id]).await?[&id].business.is_some());
         drain(&pool,1).await?;
         let retired:serde_json::Value=sqlx::query_scalar("SELECT geography FROM product_listing_geographies WHERE product_listing_id=$1").bind(id.into_uuid()).fetch_one(&pool).await?;
         assert!(retired["business"].is_null());assert!(retired["inventory"].is_null());
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());acknowledge(&pool).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_some());
+        acknowledge(&pool).await?;
+
         Ok(())
     }.await;
     assert!(result.is_ok(), "shared projection: {result:?}");
 }
 #[aura_integration_test(services=[SCHEMA])]
-async fn ordinary_ingestion_preserves_query_permits_while_withdrawal_keeps_visibility_custody() {
+async fn ordinary_ingestion_and_withdrawal_keep_durable_projection_work() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let (id, source, _) = fixture(&pool).await?;
         drain(&pool, 100).await?;
         acknowledge(&pool).await?;
-        let gate = SqlxGeographicQueryGate::new(pool.clone());
-        let permit = gate.permit().await?.ok_or("missing initial permit")?;
         let old_version: i64 = sqlx::query_scalar("SELECT projection_version FROM product_listings WHERE product_listing_id=$1")
             .bind(id.into_uuid()).fetch_one(&pool).await?;
         for price in 1..=5_i64 {
@@ -163,16 +193,15 @@ async fn ordinary_ingestion_preserves_query_permits_while_withdrawal_keeps_visib
                 .bind(json!({"pricing":{"price":{"previous":previous,"current":{"type":"MONETARY","amount":price,"currency":"EUR"}}}}))
                 .execute(&mut *tx).await?;
             tx.commit().await?;
-            assert_eq!(Some(permit), gate.permit().await?);
+
         }
-        // Creation after the shared cursor has passed also keeps query permits;
-        // its durable LISTING work later adds only currently permitted geography.
+        // Creation after the shared cursor has passed gets independent durable LISTING work.
         let (created, _) = insert_product_with_created_event(&pool).await?;
         sqlx::query("UPDATE product_listings SET listing_source_id=$2 WHERE product_listing_id=$1")
             .bind(created.into_uuid()).bind(source).execute(&pool).await?;
-        assert_eq!(Some(permit), gate.permit().await?);
+
         drain(&pool, 100).await?;
-        assert_eq!(Some(permit), gate.permit().await?);
+
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&[created]).await?[&created].business.is_some());
 
         let event = EventId::new();
@@ -184,25 +213,19 @@ async fn ordinary_ingestion_preserves_query_permits_while_withdrawal_keeps_visib
             .bind(json!({"availability":{"previous":"AVAILABLE","current":null},"lifecycle":{"transition":"WITHDRAWN","previousAvailability":"AVAILABLE"}}))
             .execute(&mut *tx).await?;
         tx.commit().await?;
-        assert!(gate.permit().await?.is_none());
-        // A later nonblocking wake-up cannot downgrade a pending withdrawal.
-        sqlx::query("SELECT enqueue_listing_geography('LISTING',$1,false)")
+        // Repeated listing wake-ups retain the latest durable withdrawal work.
+        sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)")
             .bind(id.into_uuid().to_string()).execute(&pool).await?;
-        assert!(gate.permit().await?.is_none());
         drain(&pool, 100).await?;
-        assert!(gate.permit().await?.is_none());
         let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
         SqlxProductListingSearchFilterMatchSourceReaderFactory::new().in_transaction(&mut tx).mark_projected(id, old_version).await?;
         tx.commit().await?;
-        assert!(gate.permit().await?.is_none());
         acknowledge(&pool).await?;
-        let restored_permit = gate.permit().await?.ok_or("missing post-withdrawal permit")?;
-        assert!(restored_permit.epoch > permit.epoch);
         Ok(())
     }.await;
     assert!(
         result.is_ok(),
-        "canonical catch-up and withdrawal custody: {result:?}"
+        "canonical catch-up and withdrawal projection: {result:?}"
     );
 }
 
@@ -260,7 +283,7 @@ async fn assignment_replacement_waits_for_projection_and_old_wakeups_read_curren
         sqlx::query("UPDATE listing_source_location_defaults SET party_location_id=$2,revision=revision+1 WHERE listing_source_id=$1").bind(source).bind(new_location).execute(&mut *replacement).await?;
         sqlx::query("INSERT INTO listing_source_location_default_changes(listing_source_id,revision,party_id,party_location_id,location_revision,business_association,advertised_inventory,actor) SELECT listing_source_id,revision,party_id,party_location_id,1,true,false,'SERVICE:test' FROM listing_source_location_defaults WHERE listing_source_id=$1").bind(source).execute(&mut *replacement).await?;
         replacement.commit().await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
+
         // Even an old queued work identity recomputes the latest coalesced generation.
         handler(pool.clone()).execute(Some(work.try_into()?), 100).await?;
         drain(&pool, 100).await?;
@@ -270,9 +293,9 @@ async fn assignment_replacement_waits_for_projection_and_old_wakeups_read_curren
         let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
         SqlxProductListingSearchFilterMatchSourceReaderFactory::new().in_transaction(&mut tx).mark_projected(id, old_version).await?;
         tx.commit().await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
+
         acknowledge(&pool).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_some());
+
         Ok(())
     }.await;
     assert!(result.is_ok(), "assignment replacement fencing: {result:?}");
@@ -372,94 +395,29 @@ async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;
         assert_eq!(ids.len(),views.len());for g in views.values(){let business=g.business.as_ref().ok_or("missing association")?;assert_eq!(Some(geo::CountryCode::DEU),business.country);assert!(business.position.is_none());}
         let attempts:i32=sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1").bind(resolution_id.into_uuid()).fetch_one(&pool).await?;assert_eq!(1,attempts);
-        // Rights revocation atomically closes the gate even while old documents
-        // and accepted evidence still exist. No provider call is needed to clear them.
+        // Rights revocation schedules projection catch-up without blocking other reads.
         sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G6'").execute(&pool).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
+
         drain(&pool,2).await?;acknowledge(&pool).await?;
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.is_none()));
         sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await?;
         drain(&pool,2).await?;acknowledge(&pool).await?;
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
-        let before_expiry=SqlxGeographicQueryGate::new(pool.clone()).permit().await?.ok_or("missing pre-expiry permit")?;
-        // Expiry closes public queries before maintenance emits the invalidation signal.
+        // Expiry is reflected by asynchronous projection catch-up.
         sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution_id.into_uuid()).execute(&pool).await?;
         sqlx::query("UPDATE product_listing_geographies SET valid_until=clock_timestamp()-interval '1 second'").execute(&pool).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
-        // Ordinary catch-up may clear the expired derivative before maintenance.
-        // A request spanning expiry must still reject its old permit after the
-        // replacement index documents become visible and reopen the gate.
-        for id in &ids {sqlx::query("SELECT enqueue_listing_geography('LISTING',$1,false)").bind(id.into_uuid().to_string()).execute(&pool).await?;}
+
+        // Ordinary catch-up clears expired derivatives before maintenance.
+        for id in &ids {sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)").bind(id.into_uuid().to_string()).execute(&pool).await?;}
         drain(&pool,2).await?;
-        assert!(SqlxGeographicQueryGate::new(pool.clone()).permit().await?.is_none());
+
         acknowledge(&pool).await?;
-        let after_expiry=SqlxGeographicQueryGate::new(pool.clone()).permit().await?.ok_or("missing post-expiry permit")?;
-        assert!(after_expiry.epoch>before_expiry.epoch);
         let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;SqlxResolutionRepositoryFactory.resolutions(&mut tx).expire(100).await?;tx.commit().await?;
         drain(&pool,2).await?;acknowledge(&pool).await?;
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;assert!(views.values().all(|g|g.business.is_none()));
         Ok(())
     }.await;
     assert!(result.is_ok(), "shared accepted resolution: {result:?}");
-}
-
-#[aura_integration_test(services=[SCHEMA])]
-async fn discovery_gate_fences_complete_results_and_epoch_changes_with_refresh_visible_custody() {
-    let result: TestResult = async {
-        let pool = get_postgres_client().await;
-        let (id, source, _) = fixture(&pool).await?;
-        drain(&pool, 100).await?;
-        acknowledge(&pool).await?;
-        let gate = SqlxGeographicQueryGate::new(pool.clone());
-        let page = || application::pagination::CursoredResult {
-            items: vec![id],
-            total: Some(1),
-            cursor: application::pagination::Cursor {
-                size: 1,
-                search_after: Some(json!([11.1, id.to_string()])),
-            },
-        };
-        assert_eq!(
-            Some(page()),
-            with_geographic_eligibility(&gate, || async { Ok(page()) }).await?
-        );
-        sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)")
-            .bind(source.to_string())
-            .execute(&pool)
-            .await?;
-        let called = std::cell::Cell::new(false);
-        assert!(
-            with_geographic_eligibility(&gate, || async {
-                called.set(true);
-                Ok(page())
-            })
-            .await?
-            .is_none()
-        );
-        assert!(!called.get(), "closed authority must not execute discovery");
-        drain(&pool, 100).await?;
-        acknowledge(&pool).await?;
-        // Even reopening after the query's index read cannot validate the old epoch.
-        let fenced = with_geographic_eligibility(&gate, || async {
-            sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)")
-                .bind(source.to_string())
-                .execute(&pool)
-                .await
-                .map_err(|e| GeographyError::Storage(application::error::box_error(e)))?;
-            drain(&pool, 100).await.map_err(GeographyError::Storage)?;
-            acknowledge(&pool).await.map_err(GeographyError::Storage)?;
-            Ok(page())
-        })
-        .await?;
-        assert!(
-            fenced.is_none(),
-            "items, count and continuation must all be suppressed"
-        );
-        assert!(gate.permit().await?.is_some());
-        Ok(())
-    }
-    .await;
-    assert!(result.is_ok(), "query-wide discovery gate: {result:?}");
 }
 
 async fn accepted_country_resolution(
@@ -541,33 +499,4 @@ async fn accepted_country_resolution(
     );
     tx.commit().await?;
     Ok(resolution_id)
-}
-
-#[aura_integration_test(services=[SCHEMA])]
-async fn public_party_evidence_expiry_fences_query_without_a_listing_projection_dependency() {
-    let result: TestResult = async {
-        let pool=get_postgres_client().await;
-        let (id,source,location)=fixture(&pool).await?;
-        let owner:Uuid=sqlx::query_scalar("SELECT operator_party_id FROM listing_sources WHERE listing_source_id=$1").bind(source).fetch_one(&pool).await?;
-        sqlx::query("DELETE FROM listing_source_location_defaults WHERE listing_source_id=$1").bind(source).execute(&pool).await?;
-        sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1").bind(location).execute(&pool).await?;
-        let resolution=accepted_country_resolution(&pool,owner,location).await?;
-        drain(&pool,100).await?;
-        acknowledge(&pool).await?;
-        let gate=SqlxGeographicQueryGate::new(pool.clone());
-        let before=gate.permit().await?.ok_or("missing public query permit")?;
-        assert!(before.eligibility_deadline.is_some());
-        let page=with_geographic_eligibility(&gate,|| async {
-            // Simulate clock expiry before maintenance can enqueue invalidation.
-            sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
-                .bind(resolution.into_uuid()).execute(&pool).await.map_err(|e| GeographyError::Storage(application::error::box_error(e)))?;
-            Ok(application::pagination::CursoredResult {items:vec![id],total:Some(1),cursor:application::pagination::Cursor {size:1,search_after:Some(json!([id.to_string()]))}})
-        }).await?;
-        assert!(page.is_none());
-        let after=gate.permit().await?.ok_or("missing fresh query permit")?;
-        assert_eq!(before.epoch,after.epoch);
-        assert!(after.eligibility_deadline.is_none());
-        Ok(())
-    }.await;
-    assert!(result.is_ok(), "unassigned public Party expiry: {result:?}");
 }

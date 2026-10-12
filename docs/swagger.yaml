@@ -3712,7 +3712,7 @@ paths:
         need no coordinates. Radius or distance ordering requires an explicit numeric origin.
         Strict proximity requires PREMISES precision; approximate mode retains coarse labels.
         Ordered by distance when requested, then native location UUID ascending; otherwise
-        UUID ascending. A closed or changed G6 eligibility epoch suppresses the complete result.
+        UUID ascending. Reads current PostgreSQL locations independently of listing projection catch-up.
         All responses are private, no-store. Management evidence, addresses and revisions stay private.
       parameters:
         - name: geography
@@ -3733,7 +3733,7 @@ paths:
             $ref: '#/components/schemas/PartyLocationDiscoveryCursorData'
       responses:
         '200':
-          description: Matching public locations; empty without continuation during eligibility suppression.
+          description: Matching public locations.
           content:
             application/json:
               schema:
@@ -3751,7 +3751,7 @@ paths:
             application/problem+json:
               schema: {$ref: '#/components/schemas/ApiError'}
         '503':
-          description: Location or eligibility authority unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          description: Location read unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
           content:
             application/problem+json:
               schema: {$ref: '#/components/schemas/ApiError'}
@@ -3767,8 +3767,9 @@ paths:
         Missing geography never matches. Radius is inclusive kilometres to the same recorded
         point used by distance ordering. Numeric origins never resolve from addresses/preferences.
         Distance ordering conflicts with sort and with a second distance order, and uses lexical
-        text matching. Geographic responses are private, no-store; a closed or changed G6 gate
-        suppresses items, total and continuation. `language` defaults to `en` and `currency` defaults to `EUR`."
+        text matching. Geographic responses are private, no-store and use eventually consistent
+        OpenSearch projections; location updates can briefly lag in items, ordering, total and
+        continuation. `language` defaults to `en` and `currency` defaults to `EUR`."
       operationId: simpleSearchProductListings
       tags:
         - ProductListings

@@ -123,8 +123,6 @@ impl PeriodicSearchFilterMatchingReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunPeriodicSearchFilterMatchingError {
-    #[error("geographic eligibility authority read failed")]
-    Geography(#[source] product_listing_service::geography::GeographyError),
     #[error("periodic matching policy is invalid")]
     InvalidPolicy,
     #[error("failed to acquire periodic search-filter matching run lock")]
@@ -253,21 +251,11 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     matches: W,
     progress: Q,
     policy: PeriodicSearchFilterMatchingPolicy,
-    geographic_gate:
-        Option<std::sync::Arc<dyn product_listing_service::geography::GeographicQueryGate>>,
 }
 
 impl<U, L, C, F, P, X, S, E, G, W, Q>
     RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
 {
-    pub fn with_geographic_gate(
-        mut self,
-        gate: std::sync::Arc<dyn product_listing_service::geography::GeographicQueryGate>,
-    ) -> Self {
-        self.geographic_gate = Some(gate);
-        self
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
@@ -290,7 +278,6 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             return Err(RunPeriodicSearchFilterMatchingError::InvalidPolicy);
         }
         Ok(Self {
-            geographic_gate: None,
             unit_of_work,
             run_lock,
             candidates,
@@ -533,19 +520,6 @@ where
         if window_end <= filter.matched_through {
             return Ok(FilterOutcome::AlreadyCovered);
         }
-        let geographic_permit = if filter.search.has_geography() {
-            let Some(gate) = &self.geographic_gate else {
-                return Err(RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed);
-            };
-            Some(
-                gate.permit()
-                    .await
-                    .map_err(|e| RunPeriodicSearchFilterMatchingError::Geography(e.into()))?
-                    .ok_or(RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed)?,
-            )
-        } else {
-            None
-        };
         let description = match periodic_search_description(filter) {
             Ok(description) => description,
             Err(outcome) => return Ok(outcome),
@@ -556,14 +530,7 @@ where
         };
         let Some(search) = periodic_search(filter, window_end, self.policy.replay_overlap) else {
             return self
-                .commit_filter(
-                    filter,
-                    window_end,
-                    Vec::new(),
-                    true,
-                    report,
-                    geographic_permit,
-                )
+                .commit_filter(filter, window_end, Vec::new(), true, report)
                 .await;
         };
         let price_filter_plan = ProductListingPriceFilterPlan::compile(
@@ -708,14 +675,7 @@ where
             }
         }
         let outcome = self
-            .commit_filter(
-                filter,
-                window_end,
-                accepted,
-                !retryable,
-                report,
-                geographic_permit,
-            )
+            .commit_filter(filter, window_end, accepted, !retryable, report)
             .await?;
         Ok(
             if matches!(outcome, FilterOutcome::Completed) && retryable {
@@ -762,7 +722,6 @@ where
         matches: Vec<SearchFilterProductListingMatch>,
         advance_progress: bool,
         report: &mut FilterAttemptReport,
-        geographic_permit: Option<product_listing_service::geography::GeographicQueryPermit>,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
@@ -847,21 +806,6 @@ where
                 }
             }
         }
-        if geographic_permit.is_some() {
-            let current = self
-                .current_event_guard
-                .in_transaction(&mut tx)
-                .geographic_permit()
-                .await
-                .map_err(|source| {
-                    RunPeriodicSearchFilterMatchingError::ProductListingCurrentEventCheckFailed {
-                        source: box_error(source),
-                    }
-                })?;
-            if current != geographic_permit {
-                return Err(RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed);
-            }
-        }
         tx.commit().await.map_err(|source| {
             RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
                 source: box_error(source),
@@ -892,8 +836,7 @@ enum FilterRetryClass {
 impl RunPeriodicSearchFilterMatchingError {
     const fn retry_class(&self) -> FilterRetryClass {
         match self {
-            Self::Geography(_)
-            | Self::ProductListingSearchFailed
+            Self::ProductListingSearchFailed
             | Self::ExistingMatchReadFailed { .. }
             | Self::BeginProductListingSourceTransactionFailed { .. }
             | Self::ProductListingSourceReadFailed { .. }
@@ -1064,11 +1007,7 @@ fn product_search_error(
     error: ProductListingSearchReadError,
 ) -> RunPeriodicSearchFilterMatchingError {
     match error {
-        ProductListingSearchReadError::Geography(source) => {
-            RunPeriodicSearchFilterMatchingError::Geography(source)
-        }
-        ProductListingSearchReadError::GeographicEligibilityPending
-        | ProductListingSearchReadError::ProductListingSearchQueryFailed => {
+        ProductListingSearchReadError::ProductListingSearchQueryFailed => {
             RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed
         }
         ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
@@ -1167,7 +1106,6 @@ mod tests {
     struct State {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
         current_event_check: ProductListingCurrentEventCheck,
-        geographic_commit_permit: Option<product_listing_service::geography::GeographicQueryPermit>,
         product_listing_search_result: Option<ProductListingSearchReadResult>,
         evaluator_calls: usize,
         match_writer_calls: usize,
@@ -1383,14 +1321,6 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingCurrentEventGuard for CheckingCurrentEvents<'_> {
-        async fn geographic_permit(
-            &mut self,
-        ) -> Result<
-            Option<product_listing_service::geography::GeographicQueryPermit>,
-            product_listing_service::ports::ProductListingCurrentEventCheckError,
-        > {
-            Ok(self.0.lock().unwrap().geographic_commit_permit)
-        }
         async fn lock_and_check(
             &mut self,
             _product_listing_id: ProductListingId,
@@ -1516,7 +1446,6 @@ mod tests {
         Arc::new(Mutex::new(State {
             lock_outcome,
             current_event_check: ProductListingCurrentEventCheck::Current,
-            geographic_commit_permit: None,
             product_listing_search_result: None,
             evaluator_calls: 0,
             match_writer_calls: 0,
@@ -1568,20 +1497,6 @@ mod tests {
         }
     }
 
-    struct GeographicGate(Option<product_listing_service::geography::GeographicQueryPermit>);
-
-    #[async_trait::async_trait]
-    impl product_listing_service::geography::GeographicQueryGate for GeographicGate {
-        async fn permit(
-            &self,
-        ) -> Result<
-            Option<product_listing_service::geography::GeographicQueryPermit>,
-            product_listing_service::geography::GeographicEligibilityError,
-        > {
-            Ok(self.0)
-        }
-    }
-
     fn geographic_filter() -> PeriodicSearchFilterCandidate {
         let mut filter = filter();
         filter.search.business_geography = Some(
@@ -1600,79 +1515,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn geographic_suppression_keeps_periodic_work_retryable_without_advancing_progress() {
+    async fn geographic_periodic_matching_advances_progress_after_projection_search()
+    -> Result<(), Box<dyn std::error::Error>> {
         let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
             matched_through: OffsetDateTime::UNIX_EPOCH,
         });
-        let handler = handler(state.clone())
-            .unwrap()
-            .with_geographic_gate(Arc::new(GeographicGate(None)));
-        let filter = geographic_filter();
+        let handler = handler(state.clone())?;
+        let mut filter = geographic_filter();
+        filter.embedding = Some(vec![0.1]);
+        filter.search.enhanced_search_description = Some("Munich antiques".try_into()?);
         let mut report = FilterAttemptReport::default();
-        let error = handler
+        let outcome = handler
             .process_filter(
                 &filter,
                 &test_snapshot(),
                 filter.matched_through + Duration::seconds(1),
                 &mut report,
             )
-            .await
-            .unwrap_err();
-        assert_eq!(FilterRetryClass::Retryable, error.retry_class());
+            .await?;
+        assert_eq!(FilterOutcome::Completed, outcome);
         let state = state.lock().unwrap();
-        assert_eq!(0, state.commits);
-        assert_eq!(0, state.checkpoints);
-        assert_eq!(0, state.match_writer_calls);
-        assert_eq!(0, report.candidates_scanned);
-    }
-
-    #[tokio::test]
-    async fn geographic_periodic_matches_and_progress_require_the_original_commit_permit() {
-        use product_listing_service::geography::GeographicQueryPermit;
-        let original = GeographicQueryPermit {
-            epoch: 7,
-            eligibility_deadline: Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(1)),
-        };
-        for current in [
-            Some(original),
-            None,
-            Some(GeographicQueryPermit {
-                epoch: 8,
-                ..original
-            }),
-            Some(GeographicQueryPermit {
-                eligibility_deadline: None,
-                ..original
-            }),
-        ] {
-            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
-                matched_through: OffsetDateTime::UNIX_EPOCH,
-            });
-            state.lock().unwrap().geographic_commit_permit = current;
-            let handler = handler(state.clone()).unwrap();
-            let filter = geographic_filter();
-            let mut report = FilterAttemptReport::default();
-            let result = handler
-                .commit_filter(
-                    &filter,
-                    filter.matched_through + Duration::seconds(1),
-                    vec![accepted_match(&filter)],
-                    true,
-                    &mut report,
-                    Some(original),
-                )
-                .await;
-            if current == Some(original) {
-                assert_eq!(FilterOutcome::Completed, result.unwrap());
-                assert_eq!(1, state.lock().unwrap().commits);
-            } else {
-                assert_eq!(
-                    FilterRetryClass::Retryable,
-                    result.unwrap_err().retry_class()
-                );
-                assert_eq!(0, state.lock().unwrap().commits);
-            }
-        }
+        assert_eq!(1, state.commits);
+        assert_eq!(1, state.checkpoints);
+        Ok(())
     }
 
     fn withdrawn_search_result()
@@ -1927,7 +1792,6 @@ mod tests {
                 vec![accepted_match(&filter)],
                 true,
                 &mut attempt_report,
-                None,
             )
             .await?;
 
@@ -1957,7 +1821,6 @@ mod tests {
                 vec![accepted_match(&filter)],
                 true,
                 &mut attempt_report,
-                None,
             )
             .await?;
 
@@ -1991,7 +1854,6 @@ mod tests {
                 vec![accepted.clone()],
                 false,
                 &mut attempt_report,
-                None,
             )
             .await?;
 
@@ -2028,7 +1890,6 @@ mod tests {
                 vec![accepted_match(&filter)],
                 true,
                 &mut attempt_report,
-                None,
             )
             .await?;
 
@@ -2064,7 +1925,6 @@ mod tests {
                 vec![accepted.clone()],
                 true,
                 &mut attempt_report,
-                None,
             )
             .await?;
 

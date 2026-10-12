@@ -6,7 +6,7 @@ Only document REST API contract changes here. No internal changes.
 
 - Listing search and private saved filters accept separate `businessGeography` and `inventoryGeography` predicates with ISO country/subdivision sets, explicit numeric origins, radius in kilometres (greater than 0, at most 20000), strict/approximate evidence modes and distance ordering. Strict proximity requires premises precision. Search summaries expose public basis and precision; distance display follows evidence quality.
 - Anonymous `GET /api/v1/party-locations` discovers eligible active locations with bounded keyset pagination. Results identify each matching location and its Party; management evidence and revisions remain private.
-- All geographic queries and saved matching use the uncached G6 eligibility epoch. Closed or changed eligibility suppresses complete public results and retries geographic matching. Geographic responses are `private, no-store`. Saved origins remain private coordinate snapshots; user addresses and preferences never supply or move them.
+- Geographic listing search and saved matching accept ordinary read-projection lag: results can briefly reflect an earlier location state while updates catch up. Geographic responses are `private, no-store`. Saved origins remain private coordinate snapshots; user addresses and preferences never supply or move them.
 
 ## 2026-10-11 — Exact PartyLocation geography (#2003)
 

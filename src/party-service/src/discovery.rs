@@ -5,9 +5,6 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use geo::{CountryCode, SpatialPosition, SubdivisionCode, core::discovery::GeographicQuery};
-use geo_service::discovery::{
-    GeographicEligibilityError, GeographicQueryGate, with_geographic_eligibility,
-};
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,8 +45,6 @@ pub enum DiscoverPartyLocationsError {
         #[source]
         application::transaction::TransactionError,
     ),
-    #[error("location discovery eligibility failed")]
-    Eligibility(#[source] GeographicEligibilityError),
 }
 #[async_trait::async_trait]
 pub trait PartyLocationDiscoveryReader: Send {
@@ -68,22 +63,20 @@ pub trait DiscoverPartyLocationsUseCase: Send + Sync {
         request: DiscoverPartyLocationsRequest,
     ) -> Result<DiscoverPartyLocationsResult, DiscoverPartyLocationsError>;
 }
-pub struct DiscoverPartyLocationsHandler<U, R, G> {
+pub struct DiscoverPartyLocationsHandler<U, R> {
     uow: U,
     reader: R,
-    gate: G,
 }
-impl<U, R, G> DiscoverPartyLocationsHandler<U, R, G> {
-    pub fn new(uow: U, reader: R, gate: G) -> Self {
-        Self { uow, reader, gate }
+impl<U, R> DiscoverPartyLocationsHandler<U, R> {
+    pub fn new(uow: U, reader: R) -> Self {
+        Self { uow, reader }
     }
 }
 #[async_trait::async_trait]
-impl<U, R, G> DiscoverPartyLocationsUseCase for DiscoverPartyLocationsHandler<U, R, G>
+impl<U, R> DiscoverPartyLocationsUseCase for DiscoverPartyLocationsHandler<U, R>
 where
     U: UnitOfWork,
     R: PartyLocationDiscoveryReaderFactory<U::Tx>,
-    G: GeographicQueryGate,
 {
     async fn execute(
         &self,
@@ -98,22 +91,13 @@ where
         {
             return Err(DiscoverPartyLocationsError::InvalidInput);
         }
-        with_geographic_eligibility(&self.gate, || async {
-            let result = async {
-                let mut tx = self.uow.begin().await?;
-                let result = self
-                    .reader
-                    .in_transaction(&mut tx)
-                    .discover(&request)
-                    .await?;
-                tx.commit().await?;
-                Ok(result)
-            }
-            .await;
-            Ok(result)
-        })
-        .await
-        .map_err(DiscoverPartyLocationsError::Eligibility)?
-        .unwrap_or_else(|| Ok(Default::default()))
+        let mut tx = self.uow.begin().await?;
+        let result = self
+            .reader
+            .in_transaction(&mut tx)
+            .discover(&request)
+            .await?;
+        tx.commit().await?;
+        Ok(result)
     }
 }

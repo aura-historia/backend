@@ -7434,7 +7434,6 @@ dependencies = [
  "platform-postgres",
  "product-listing-opensearch",
  "product-listing-postgres",
- "product-listing-service",
  "search-filter-postgres",
  "search-filter-service",
  "thiserror 2.0.21",

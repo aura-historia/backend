@@ -1579,8 +1579,6 @@ async fn app_state_from_config_and_pool(
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
     )
     .with_read_execution_policy(config.product_listing_search_read_execution_policy());
-    let search_products = product_listing_service::geographic_search::GeographicallyEligibleSearchProductListings::new(
-        search_products, product_listing_postgres::geography::SqlxGeographicQueryGate::new(pool.clone()));
     let get_product = GetProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingDetailsReaderFactory::new(),
@@ -1745,7 +1743,6 @@ async fn app_state_from_config_and_pool(
             party_service::discovery::DiscoverPartyLocationsHandler::new(
                 unit_of_work.clone(),
                 party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory,
-                product_listing_postgres::geography::SqlxGeographicQueryGate::new(pool.clone()),
             ),
         )),
         create: Arc::new(CreatePartyLocationHandler::new(

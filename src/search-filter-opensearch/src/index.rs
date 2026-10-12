@@ -358,8 +358,7 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
                     source: box_error(source),
                 },
             )?;
-        // Ordinary filters stay independent of retention/eligibility invalidation.
-        // Do not send potentially stale provider-derived geography in their payload.
+        // Ordinary filters use their own predicates independently of geographic updates.
         product_document["businessGeography"] = serde_json::Value::Null;
         product_document["inventoryGeography"] = serde_json::Value::Null;
         let pit_id = self.open_point_in_time().await?;

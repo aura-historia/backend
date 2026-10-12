@@ -50,7 +50,7 @@ describe.each(STAGES)("%s effective listing geography", stage => {
     expect(tables).toContain("listing_geography_wakeups");
     for (const table of [
       "party_locations", "listing_source_location_defaults", "geo_resolutions",
-      "product_listing_geographies", "listing_geography_work", "listing_geography_gate",
+      "product_listing_geographies", "listing_geography_work",
     ]) {
       expect(tables).not.toContain(table);
     }

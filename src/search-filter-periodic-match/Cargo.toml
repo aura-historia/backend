@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product-listing-service = { workspace = true }
 async-trait = { workspace = true }
 
 fxrate-postgres = { workspace = true }

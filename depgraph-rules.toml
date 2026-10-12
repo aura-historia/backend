@@ -33,7 +33,7 @@ search-filter-match-notification-lambda = ["aura-historia-jobs", "notification-p
 watchlist-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "watchlist-postgres"]
 notification-delivery-lambda = ["aura-historia-jobs", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 marketing-consent-sync-lambda = ["aura-historia-jobs", "aws_lambda_events", "lambda_runtime", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "sqlx", "tokio", "tracing", "user-core", "user-loops", "user-postgres", "user-service"]
-search-filter-periodic-match = ["product-listing-service", "classifier-model", "fxrate-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
+search-filter-periodic-match = ["classifier-model", "fxrate-postgres", "platform-observability", "platform-postgres", "product-listing-opensearch", "product-listing-postgres", "search-filter-postgres", "search-filter-service"]
 cloudwatch-log-retention-lambda = ["platform-lambda-bootstrap", "platform-observability"]
 database-migration-lambda = ["platform-lambda-bootstrap", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 
