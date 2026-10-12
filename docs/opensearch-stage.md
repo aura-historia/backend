@@ -152,6 +152,7 @@ Validate representative populated-data load and rebuild time before broad activa
 Reconstruct under the projection fence rules; use off-host snapshots only with tested
 restore. Preserve failure custody under [controlled recovery](durable-worker-runbook.md#failure-custody-and-controlled-redrive).
 
-The product-projector role additionally permits `indices:admin/refresh` on product-listings
-only. Its IAM POST grant is scoped to that index refresh path. Geographic index acknowledgment
+The product-projector role additionally permits `indices:admin/refresh` and its shard action
+`indices:admin/refresh[s]` on product-listings only. The gateway exposes that exact refresh route,
+and the projector's IAM POST grant is scoped to the same path. Geographic index acknowledgment
 records refresh visibility, including conflict/replay recovery.
