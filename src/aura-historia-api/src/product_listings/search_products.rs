@@ -572,7 +572,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for query in [
             "inventoryGeography[countries][0]=DE&inventoryGeography[subdivisions][0]=DE-BY",
-            "businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radiusKm]=25",
+            "businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radius][amount]=25&businessGeography[radius][unit]=KILOMETERS",
         ] {
             let (app, calls) = app();
             let response = app

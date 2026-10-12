@@ -41,7 +41,7 @@ fn geographic_query(
         std::collections::HashSet::from([geo::CountryCode::DEU]),
         std::collections::HashSet::from([geo::SubdivisionCode::new("DE-BY").unwrap()]),
         origin.map(|(lat, lon)| geo::GeoPoint::new(lat, lon).unwrap()),
-        radius,
+        radius.map(|amount| geo::Distance::new(amount, geo::DistanceUnit::Kilometers).unwrap()),
         if approximate {
             ProximityMode::Approximate
         } else {
@@ -275,6 +275,59 @@ async fn should_preserve_inclusive_radius_boundaries_and_polar_coordinates() {
             true,
         ));
         assert_eq!(Some(1), search(q, price_filter(None)?).await?.total);
+        Ok(())
+    }
+    assert_ok(run().await);
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+#[serial]
+async fn should_apply_native_radius_units_and_match_equivalent_physical_distances() {
+    async fn run() -> TestResult {
+        use geo::core::discovery::{DistanceOrder, GeographicQuery};
+        use geo::{Distance, DistanceUnit};
+        use strum::IntoEnumIterator;
+        let mut near = product_listing_document(ProductListingSeed::active("near", 100))?.document;
+        near["businessGeography"] = geographic_document(0.1, 0.0, "PREMISES");
+        let near_id = near["productListingId"]
+            .as_str()
+            .unwrap()
+            .parse::<ProductListingId>()?;
+        let mut farther =
+            product_listing_document(ProductListingSeed::active("farther", 100))?.document;
+        farther["businessGeography"] = geographic_document(0.3, 0.0, "PREMISES");
+        index_products([near, farther]).await?;
+        for unit in DistanceUnit::iter() {
+            let factor = Distance::new(1.0, unit)?.to_kilometers();
+            let query = ProductListingSearch {
+                business_geography: Some(GeographicQuery::new(
+                    geo::reference::ReferenceRelease::CURRENT,
+                    Default::default(),
+                    Default::default(),
+                    Some(geo::GeoPoint::new(0.0, 0.0)?),
+                    Some(Distance::new(25.0 / factor, unit)?),
+                    Default::default(),
+                    Some(DistanceOrder::Asc),
+                )?),
+                ..Default::default()
+            };
+            let result = search(query, price_filter(None)?).await?;
+            assert_eq!(Some(1), result.total, "radius unit {unit:?}");
+            assert_eq!(near_id, result.items[0].product_listing_id);
+        }
+        let query = ProductListingSearch {
+            business_geography: Some(GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(geo::GeoPoint::new(0.0, 0.0)?),
+                Some(Distance::new(25.0, DistanceUnit::Miles)?),
+                Default::default(),
+                Some(DistanceOrder::Asc),
+            )?),
+            ..Default::default()
+        };
+        assert_eq!(Some(2), search(query, price_filter(None)?).await?.total);
         Ok(())
     }
     assert_ok(run().await);

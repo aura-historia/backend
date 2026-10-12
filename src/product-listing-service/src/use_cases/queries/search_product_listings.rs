@@ -1505,7 +1505,7 @@ mod tests {
                 } else {
                     None
                 },
-                proximity.then_some(25.0),
+                proximity.then_some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers)?),
                 Default::default(),
                 None,
             )?);

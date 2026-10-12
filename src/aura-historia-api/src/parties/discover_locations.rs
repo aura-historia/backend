@@ -236,10 +236,10 @@ mod tests {
         let uc: Arc<dyn DiscoverPartyLocationsUseCase> = Arc::new(Discovery(calls.clone()));
         for query in [
             "",
-            "geography[radiusKm]=25",
-            "geography[origin][latitude]=91&geography[origin][longitude]=0&geography[radiusKm]=25",
-            "geography[origin][address]=Munich&geography[radiusKm]=25",
-            "geography[origin][userAddressId]=primary&geography[radiusKm]=25",
+            "geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
+            "geography[origin][latitude]=91&geography[origin][longitude]=0&geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
+            "geography[origin][address]=Munich&geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
+            "geography[origin][userAddressId]=primary&geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
             "geography[countries][0]=DE&geography[subdivisions][0]=FR-IDF",
             "geography[countries][0]=DE&disclosure=public",
         ] {

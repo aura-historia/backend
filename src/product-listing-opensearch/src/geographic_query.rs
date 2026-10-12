@@ -19,8 +19,8 @@ pub(crate) fn clauses(field: &str, q: &GeographicQuery) -> Vec<Value> {
             ProximityMode::Approximate => vec!["PREMISES", "STREET", "LOCALITY", "REPRESENTATIVE"],
         };
         filters.push(json!({"terms": {format!("{field}.precision"): precisions}}));
-        if let Some(radius) = q.radius_km() {
-            filters.push(json!({"geo_distance": {"distance": format!("{radius}km"), "distance_type": "arc", format!("{field}.point"): {"lat": origin.latitude_degrees(), "lon": origin.longitude_degrees()}}}));
+        if let Some(radius) = q.radius() {
+            filters.push(json!({"geo_distance": {"distance": geo::opensearch::distance_to_opensearch_value(radius), "distance_type": "arc", format!("{field}.point"): {"lat": origin.latitude_degrees(), "lon": origin.longitude_degrees()}}}));
         }
     }
     filters

@@ -1,6 +1,6 @@
 //! Geographic predicates shared by listing and public location discovery.
 use crate::reference::ReferenceRelease;
-use crate::{CountryCode, GeoPoint, SpatialPosition, SpatialPrecision, SubdivisionCode};
+use crate::{CountryCode, Distance, GeoPoint, SpatialPosition, SpatialPrecision, SubdivisionCode};
 use std::collections::HashSet;
 
 pub const MAX_RADIUS_KM: f64 = 20_000.0;
@@ -59,7 +59,7 @@ pub enum InvalidGeographicQuery {
         "geographic code sets are limited to 100 entries and subdivisions must match the country set and reference release"
     )]
     Codes,
-    #[error("radius must be finite, greater than 0 and at most 20000 kilometres")]
+    #[error("radius must be finite, greater than 0 and equivalent to at most 20000 kilometres")]
     Radius,
     #[error(
         "proximity requires an explicit numeric coordinate origin; an origin or approximate mode requires radius or distance ordering"
@@ -75,7 +75,7 @@ pub struct GeographicQuery {
     countries: HashSet<CountryCode>,
     subdivisions: HashSet<SubdivisionCode>,
     origin: Option<GeoPoint>,
-    radius_km: Option<f64>,
+    radius: Option<Distance>,
     mode: ProximityMode,
     distance_order: Option<DistanceOrder>,
 }
@@ -90,7 +90,7 @@ impl GeographicQuery {
         countries: HashSet<CountryCode>,
         subdivisions: HashSet<SubdivisionCode>,
         origin: Option<GeoPoint>,
-        radius_km: Option<f64>,
+        radius: Option<Distance>,
         mode: ProximityMode,
         distance_order: Option<DistanceOrder>,
     ) -> Result<Self, InvalidGeographicQuery> {
@@ -103,10 +103,13 @@ impl GeographicQuery {
         {
             return Err(InvalidGeographicQuery::Codes);
         }
-        if radius_km.is_some_and(|r| !r.is_finite() || r <= 0.0 || r > MAX_RADIUS_KM) {
+        if radius.is_some_and(|r| {
+            let km = r.to_kilometers();
+            !km.is_finite() || km <= 0.0 || km > MAX_RADIUS_KM
+        }) {
             return Err(InvalidGeographicQuery::Radius);
         }
-        let proximity = radius_km.is_some() || distance_order.is_some();
+        let proximity = radius.is_some() || distance_order.is_some();
         if proximity != origin.is_some() || (!proximity && mode != ProximityMode::Strict) {
             return Err(InvalidGeographicQuery::Origin);
         }
@@ -118,7 +121,7 @@ impl GeographicQuery {
             countries,
             subdivisions,
             origin,
-            radius_km,
+            radius,
             mode,
             distance_order,
         })
@@ -135,8 +138,8 @@ impl GeographicQuery {
     pub fn origin(&self) -> Option<GeoPoint> {
         self.origin
     }
-    pub fn radius_km(&self) -> Option<f64> {
-        self.radius_km
+    pub fn radius(&self) -> Option<Distance> {
+        self.radius
     }
     pub fn mode(&self) -> ProximityMode {
         self.mode
@@ -157,8 +160,8 @@ impl GeographicQuery {
                 position.is_some_and(|p| {
                     self.mode.eligible(p.precision())
                         && self
-                            .radius_km
-                            .is_none_or(|r| distance_km(origin, p.point()) <= r)
+                            .radius
+                            .is_none_or(|r| distance_km(origin, p.point()) <= r.to_kilometers())
                 })
             })
     }
@@ -197,7 +200,12 @@ mod tests {
             HashSet::new(),
             HashSet::new(),
             origin,
-            radius,
+            radius
+                .map(|amount| {
+                    Distance::new(amount, crate::DistanceUnit::Kilometers)
+                        .map_err(|_| InvalidGeographicQuery::Radius)
+                })
+                .transpose()?,
             mode,
             None,
         )
@@ -257,6 +265,43 @@ mod tests {
         ] {
             assert!(GeoPoint::new(lat, lon).is_err());
         }
+    }
+    #[test]
+    fn radius_bounds_apply_to_equivalent_distances_in_every_supported_unit() {
+        use strum::IntoEnumIterator;
+        let query = |radius| {
+            GeographicQuery::new(
+                ReferenceRelease::CURRENT,
+                Default::default(),
+                Default::default(),
+                Some(point(0.0, 0.0)),
+                Some(radius),
+                ProximityMode::Strict,
+                None,
+            )
+        };
+        for unit in crate::DistanceUnit::iter() {
+            let factor = Distance::new(1.0, unit).unwrap().to_kilometers();
+            let maximum = Distance::new(MAX_RADIUS_KM / factor, unit).unwrap();
+            assert!(query(maximum).is_ok(), "maximum in {unit:?}");
+            assert!(query(Distance::new((MAX_RADIUS_KM + 1.0) / factor, unit).unwrap()).is_err());
+            assert!(query(Distance::new(0.0, unit).unwrap()).is_err());
+            let radius = Distance::new(25.0 / factor, unit).unwrap();
+            assert!((radius.to_kilometers() - 25.0).abs() < 1e-12);
+        }
+        assert!(query(Distance::new(f64::MAX, crate::DistanceUnit::Miles).unwrap()).is_err());
+        let target =
+            SpatialPosition::new(point(0.3, 0.0), SpatialPrecision::Premises, None).unwrap();
+        assert!(
+            !query(Distance::new(25.0, crate::DistanceUnit::Kilometers).unwrap())
+                .unwrap()
+                .matches(None, None, Some(target))
+        );
+        assert!(
+            query(Distance::new(25.0, crate::DistanceUnit::Miles).unwrap())
+                .unwrap()
+                .matches(None, None, Some(target))
+        );
     }
     #[test]
     fn strict_proximity_excludes_coarse_points_and_radius_is_inclusive() {

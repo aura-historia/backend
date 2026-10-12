@@ -3764,7 +3764,7 @@ paths:
         use BM25. Any request with an Authorization header is private and not stored, including valid credentials that add
         user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60, stale-if-error=0`; errors use `private, no-store`.
         Geographic dimensions are AND; values in each country or subdivision set are OR.
-        Missing geography never matches. Radius is inclusive kilometres to the same recorded
+        Missing geography never matches. Radius is inclusive in its supplied unit to the same recorded
         point used by distance ordering. Numeric origins never resolve from addresses/preferences.
         Distance ordering conflicts with sort and with a second distance order, and uses lexical
         text matching. Geographic responses are private, no-store and use eventually consistent
@@ -18025,6 +18025,20 @@ components:
       properties:
         latitude: {type: number, minimum: -90, maximum: 90}
         longitude: {type: number, minimum: -180, maximum: 180}
+    GeographicRadiusData:
+      type: object
+      additionalProperties: false
+      required: [amount, unit]
+      description: >-
+        Finite positive radius in the supplied unit, equivalent to at most 20000 kilometres.
+        The supplied amount and unit are preserved in private saved-filter snapshots.
+      properties:
+        amount: {type: number, minimum: 0, exclusiveMinimum: true, example: 25}
+        unit:
+          type: string
+          enum: [KILOMETERS, MILES, METERS, YARDS, FEET, INCHES, CENTIMETERS, MILLIMETERS, NAUTICAL_MILES]
+          example: KILOMETERS
+      example: {amount: 25, unit: KILOMETERS}
     GeographicSearchData:
       type: object
       additionalProperties: false
@@ -18050,7 +18064,7 @@ components:
           items: {type: string}
           example: [DE-BY]
         origin: {$ref: '#/components/schemas/GeographicOriginData'}
-        radiusKm: {type: number, minimum: 0, exclusiveMinimum: true, maximum: 20000, example: 25}
+        radius: {$ref: '#/components/schemas/GeographicRadiusData'}
         mode: {type: string, enum: [STRICT, APPROXIMATE], default: STRICT}
         distanceOrder: {type: string, enum: [ASC, DESC]}
     ListingDiscoveryDimensionData:

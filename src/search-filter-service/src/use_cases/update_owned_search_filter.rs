@@ -509,7 +509,7 @@ mod tests {
                 Default::default(),
                 Default::default(),
                 Some(geo::GeoPoint::new(lat, 11.575).unwrap()),
-                Some(25.0),
+                Some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers).unwrap()),
                 geo::core::discovery::ProximityMode::Strict,
                 None,
             )

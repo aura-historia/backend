@@ -1,6 +1,6 @@
 //! Public geographic query DTOs. No text/address/default origin resolution.
 use geo::core::discovery::{DistanceOrder, GeographicQuery, ProximityMode};
-use geo::{GeoPoint, SubdivisionCode, country_from_code, reference::ReferenceRelease};
+use geo::{Distance, GeoPoint, SubdivisionCode, country_from_code, reference::ReferenceRelease};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub(crate) struct GeographicSearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<OriginData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    radius_km: Option<f64>,
+    radius: Option<geo::data::geography_data::DistanceData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,6 +54,11 @@ impl TryFrom<GeographicSearchData> for GeographicQuery {
             .map(|p| GeoPoint::new(p.latitude, p.longitude))
             .transpose()
             .map_err(|_| "invalid coordinate origin")?;
+        let radius = d
+            .radius
+            .map(Distance::try_from)
+            .transpose()
+            .map_err(|_| "invalid radius amount or distance unit")?;
         let mode = d
             .mode
             .as_deref()
@@ -70,7 +75,7 @@ impl TryFrom<GeographicSearchData> for GeographicQuery {
             countries,
             subdivisions,
             origin,
-            d.radius_km,
+            radius,
             mode,
             order,
         )
@@ -98,7 +103,7 @@ impl From<GeographicQuery> for GeographicSearchData {
                 latitude: p.latitude_degrees(),
                 longitude: p.longitude_degrees(),
             }),
-            radius_km: q.radius_km(),
+            radius: q.radius().map(Into::into),
             mode: q.origin().map(|_| q.mode().as_str().into()),
             distance_order: q.distance_order().map(|o| o.as_str().into()),
         }
@@ -189,9 +194,61 @@ impl From<product_listing_service::geographic_search::ListingDiscoveryGeography>
 mod tests {
     use super::*;
     #[test]
+    fn radius_object_preserves_units_in_query_and_saved_filter_views() {
+        let data: GeographicSearchData = serde_qs::from_str(
+            "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=25&radius[unit]=MILES",
+        )
+        .unwrap();
+        let query = GeographicQuery::try_from(data).unwrap();
+        assert_eq!(
+            Some(Distance::new(25.0, geo::DistanceUnit::Miles).unwrap()),
+            query.radius()
+        );
+        let value = serde_json::to_value(GeographicSearchData::from(query)).unwrap();
+        assert_eq!(
+            serde_json::json!({"amount":25.0,"unit":"MILES"}),
+            value["radius"]
+        );
+        assert!(value.get("radiusKm").is_none());
+    }
+    #[test]
+    fn radius_requires_a_valid_amount_unit_pair_and_physical_bound() {
+        for radius in [
+            serde_json::json!(25),
+            serde_json::json!({"amount":25}),
+            serde_json::json!({"unit":"MILES"}),
+            serde_json::json!({"amount":"25","unit":"MILES"}),
+            serde_json::json!({"amount":25,"unit":"km"}),
+            serde_json::json!({"amount":25,"unit":"kilometers"}),
+            serde_json::json!({"amount":25,"unit":"UNKNOWN"}),
+            serde_json::json!({"amount":25,"unit":"MILES","extra":true}),
+            serde_json::json!({"amount":-1,"unit":"MILES"}),
+            serde_json::json!({"amount":0,"unit":"MILES"}),
+            serde_json::json!({"amount":20_000,"unit":"MILES"}),
+        ] {
+            let value = serde_json::json!({"origin":{"latitude":48.137,"longitude":11.575},"radius":radius});
+            assert!(
+                serde_json::from_value::<GeographicSearchData>(value)
+                    .ok()
+                    .and_then(|d| GeographicQuery::try_from(d).ok())
+                    .is_none()
+            );
+        }
+        assert!(
+            serde_json::from_value::<GeographicSearchData>(serde_json::json!({
+                "origin":{"latitude":48.137,"longitude":11.575}, "radiusKm":25,
+            }))
+            .is_err()
+        );
+        let data: GeographicSearchData = serde_qs::from_str(
+            "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=NaN&radius[unit]=MILES",
+        ).unwrap();
+        assert!(GeographicQuery::try_from(data).is_err());
+    }
+    #[test]
     fn diagnostics_hide_private_coordinate_snapshots_at_every_boundary() {
         let data: GeographicSearchData = serde_json::from_value(serde_json::json!({
-            "origin": {"latitude":48.137,"longitude":11.575}, "radiusKm":25
+            "origin": {"latitude":48.137,"longitude":11.575}, "radius":{"amount":25,"unit":"KILOMETERS"}
         }))
         .unwrap();
         assert_eq!(
@@ -212,14 +269,14 @@ mod tests {
     #[test]
     fn numeric_origin_is_required_and_unknown_origin_sources_fail() {
         for value in [
-            serde_json::json!({"radiusKm":25}),
-            serde_json::json!({"origin":{"latitude":48.1},"radiusKm":25}),
-            serde_json::json!({"origin":{"latitude":"48.1","longitude":11.5},"radiusKm":25}),
-            serde_json::json!({"origin":{"latitude":91,"longitude":11.5},"radiusKm":25}),
-            serde_json::json!({"origin":{"text":"Munich"},"radiusKm":25}),
-            serde_json::json!({"userAddressId":"uaddr_example","radiusKm":25}),
-            serde_json::json!({"primaryAddress":true,"radiusKm":25}),
-            serde_json::json!({"preference":true,"radiusKm":25}),
+            serde_json::json!({"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"origin":{"latitude":48.1},"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"origin":{"latitude":"48.1","longitude":11.5},"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"origin":{"latitude":91,"longitude":11.5},"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"origin":{"text":"Munich"},"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"userAddressId":"uaddr_example","radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"primaryAddress":true,"radius":{"amount":25,"unit":"KILOMETERS"}}),
+            serde_json::json!({"preference":true,"radius":{"amount":25,"unit":"KILOMETERS"}}),
             serde_json::json!({"countries":["DE"],"subdivisions":["FR-IDF"]}),
         ] {
             let valid = serde_json::from_value::<GeographicSearchData>(value)
@@ -227,16 +284,21 @@ mod tests {
                 .and_then(|d| GeographicQuery::try_from(d).ok());
             assert!(valid.is_none());
         }
-        let d: GeographicSearchData =
-            serde_qs::from_str("origin[latitude]=NaN&origin[longitude]=11.5&radiusKm=25").unwrap();
+        let d: GeographicSearchData = serde_qs::from_str(
+            "origin[latitude]=NaN&origin[longitude]=11.5&radius[amount]=25&radius[unit]=KILOMETERS",
+        )
+        .unwrap();
         assert!(GeographicQuery::try_from(d).is_err());
         let d: GeographicSearchData = serde_qs::from_str(
-            "origin[latitude]=48.137&origin[longitude]=11.575&radiusKm=25&distanceOrder=ASC",
+            "origin[latitude]=48.137&origin[longitude]=11.575&radius[amount]=25&radius[unit]=KILOMETERS&distanceOrder=ASC",
         )
         .unwrap();
         assert_eq!(
             Some(25.0),
-            GeographicQuery::try_from(d).unwrap().radius_km()
+            GeographicQuery::try_from(d)
+                .unwrap()
+                .radius()
+                .map(geo::Distance::amount)
         );
     }
 }

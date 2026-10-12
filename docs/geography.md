@@ -642,8 +642,8 @@ territory or worldwide coverage. Business association identifies an associated o
 not necessarily a seller; inventory basis `SOURCE_DEFAULT_DERIVED` conveys the source's
 advertised inventory assertion, not individually confirmed custody, pickup or dispatch.
 
-Query objects have optional `origin: {latitude, longitude}`, `radiusKm` (finite, greater
-than 0 and at most 20000 kilometres), `mode` (`STRICT` default or `APPROXIMATE`) and
+Query objects have optional `origin: {latitude, longitude}`, `radius: {amount, unit}`,
+`mode` (`STRICT` default or `APPROXIMATE`) and
 `distanceOrder`
 (`ASC`/`DESC`). Radius or distance ordering requires both explicit finite numeric WGS 84
 coordinates in their usual degree ranges. An origin without radius/ordering, approximate
@@ -651,6 +651,14 @@ mode without proximity, two distance orders, or distance ordering combined with 
 existing `sort` is rejected. No text, IP, UserAddress, browsing destination, profile or
 stored preference resolves or supplies an origin. Browser/device coordinates must be
 submitted as the same numeric pair. G9 owns any later coordinate-origin validation.
+
+Radius amount is finite and greater than zero; its physical distance must be at most
+20000 kilometres after unit conversion. Units are `KILOMETERS`, `MILES`, `METERS`, `YARDS`,
+`FEET`, `INCHES`, `CENTIMETERS`, `MILLIMETERS` and `NAUTICAL_MILES`. For example,
+`radius: {amount: 25, unit: "MILES"}` searches about 40.23 km. OpenSearch receives the
+corresponding native unit; PostgreSQL location discovery converts to kilometres for its
+arc calculation. Saved snapshots retain the supplied amount and unit; older kilometre-only
+snapshots decode as `KILOMETERS`. Public input uses `radius`, and rejects `radiusKm`.
 
 Strict proximity admits only `PREMISES` points. Approximate proximity explicitly admits
 `STREET`, `LOCALITY` and `REPRESENTATIVE` points too; response precision labels retain that
@@ -698,7 +706,7 @@ provider permission increase is needed. [OpenAPI](swagger.yaml) owns exact publi
 For example, Germany/Bavaria needs only
 `inventoryGeography[countries][0]=DE&inventoryGeography[subdivisions][0]=DE-BY`.
 A 25 km business query uses
-`businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radiusKm]=25&businessGeography[distanceOrder]=ASC`.
+`businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radius][amount]=25&businessGeography[radius][unit]=KILOMETERS&businessGeography[distanceOrder]=ASC`.
 
 
 ## Private user address books and browsing destinations (#2005)

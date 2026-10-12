@@ -723,12 +723,16 @@ mod tests {
             HashSet::from([geo::CountryCode::DEU]),
             HashSet::from([geo::SubdivisionCode::new("DE-BY")?]),
             Some(geo::GeoPoint::new(48.137, 11.575)?),
-            Some(25.0),
+            Some(geo::Distance::new(25.0, geo::DistanceUnit::Miles).unwrap()),
             ProximityMode::Strict,
             Some(DistanceOrder::Asc),
         )?);
         let snapshot = product_search_to_json(&search)?;
         assert_eq!(search, product_search_from_json(snapshot.clone())?);
+        assert_eq!(
+            serde_json::json!({"amount":25.0,"unit":"MILES"}),
+            snapshot["business_geography"]["radius"]
+        );
         assert_eq!(
             serde_json::json!(48.137),
             snapshot["business_geography"]["origin"]["latitude_degrees"]

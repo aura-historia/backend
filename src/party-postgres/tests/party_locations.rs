@@ -48,6 +48,7 @@ async fn should_discover_public_locations_without_cross_location_matches_or_mana
         ("within", 48.237, SpatialPrecision::Premises),
         ("far", 49.137, SpatialPrecision::Premises),
         ("coarse", 48.138, SpatialPrecision::Locality),
+        ("miles-only", 48.437, SpatialPrecision::Premises),
     ] {
         let mut c = command(party_id, key);
         c.content.geography = GeographicDescription::new(
@@ -88,7 +89,7 @@ async fn should_discover_public_locations_without_cross_location_matches_or_mana
         })
         .await
         .unwrap();
-    assert_eq!(4, result.items.len());
+    assert_eq!(5, result.items.len());
     assert!(
         result
             .items
@@ -99,7 +100,7 @@ async fn should_discover_public_locations_without_cross_location_matches_or_mana
     let request = DiscoverPartyLocationsRequest {
         geography: query(
             Some(GeoPoint::new(48.137, 11.575).unwrap()),
-            Some(25.0),
+            Some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers).unwrap()),
             ProximityMode::Strict,
             Some(DistanceOrder::Asc),
         ),
@@ -130,10 +131,34 @@ async fn should_discover_public_locations_without_cross_location_matches_or_mana
         .unwrap();
     assert_eq!(ids[1], second.items[0].location_id);
     assert!(second.cursor.search_after.is_none());
+    let miles = factory
+        .in_transaction(&mut tx)
+        .discover(&DiscoverPartyLocationsRequest {
+            geography: query(
+                Some(GeoPoint::new(48.137, 11.575).unwrap()),
+                Some(geo::Distance::new(25.0, geo::DistanceUnit::Miles).unwrap()),
+                ProximityMode::Strict,
+                Some(DistanceOrder::Asc),
+            ),
+            cursor: Cursor {
+                size: 100,
+                search_after: None,
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![ids[0], ids[1], ids[4]],
+        miles
+            .items
+            .iter()
+            .map(|i| i.location_id)
+            .collect::<Vec<_>>()
+    );
     let approximate = DiscoverPartyLocationsRequest {
         geography: query(
             Some(GeoPoint::new(48.137, 11.575).unwrap()),
-            Some(25.0),
+            Some(geo::Distance::new(25.0, geo::DistanceUnit::Kilometers).unwrap()),
             ProximityMode::Approximate,
             Some(DistanceOrder::Asc),
         ),

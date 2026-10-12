@@ -739,13 +739,13 @@ mod tests {
             omitted.into_fields()?.3.business_geography
         );
         let set: UpdateSearchFilterData = serde_json::from_value(
-            serde_json::json!({"search":{"businessGeography":{"origin":{"latitude":48.137,"longitude":11.575},"radiusKm":25}}}),
+            serde_json::json!({"search":{"businessGeography":{"origin":{"latitude":48.137,"longitude":11.575},"radius":{"amount":25,"unit":"KILOMETERS"}}}}),
         )?;
         let patch = set.into_fields()?.3;
         let PatchField::Set(query) = patch.business_geography else {
             panic!("expected coordinate snapshot");
         };
-        assert_eq!(Some(25.0), query.radius_km());
+        assert_eq!(Some(25.0), query.radius().map(geo::Distance::amount));
         assert_eq!(48.137, query.origin().unwrap().latitude_degrees());
         let cleared: UpdateSearchFilterData =
             serde_json::from_value(serde_json::json!({"search":{"businessGeography":null}}))?;

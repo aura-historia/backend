@@ -59,7 +59,7 @@ async fn should_percolate_private_geographic_snapshots_separately_and_preserve_u
             std::collections::HashSet::from([geo::CountryCode::DEU]),
             std::collections::HashSet::from([geo::SubdivisionCode::new("DE-BY").unwrap()]),
             Some(geo::GeoPoint::new(48.137, 11.575).unwrap()),
-            Some(25.0),
+            Some(geo::Distance::new(25.0, geo::DistanceUnit::Miles).unwrap()),
             ProximityMode::Strict,
             None,
         )
@@ -76,7 +76,7 @@ async fn should_percolate_private_geographic_snapshots_separately_and_preserve_u
         subdivision: Some(geo::SubdivisionCode::new("DE-BY").unwrap()),
         position: Some(
             geo::SpatialPosition::new(
-                geo::GeoPoint::new(48.137, 11.575).unwrap(),
+                geo::GeoPoint::new(48.437, 11.575).unwrap(),
                 geo::SpatialPrecision::Premises,
                 None,
             )

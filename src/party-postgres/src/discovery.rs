@@ -135,8 +135,10 @@ impl PartyLocationDiscoveryReader for Reader<'_> {
         if q.origin().is_some() {
             builder.push(" AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180 AND precision=ANY(")
                 .push_bind(if q.mode()==geo::core::discovery::ProximityMode::Strict { vec!["PREMISES"] } else { vec!["PREMISES","STREET","LOCALITY","REPRESENTATIVE"] }).push(")");
-            if let Some(radius) = q.radius_km() {
-                builder.push(" AND distance_km<=").push_bind(radius);
+            if let Some(radius) = q.radius() {
+                builder
+                    .push(" AND distance_km<=")
+                    .push_bind(radius.to_kilometers());
             }
         }
         if let Some(cursor) = request.cursor.search_after {
