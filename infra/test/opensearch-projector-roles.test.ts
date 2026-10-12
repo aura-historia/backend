@@ -12,7 +12,7 @@ describe("stage product-projector permissions", () => {
       cluster_permissions: [],
       index_permissions: [{
         index_patterns: ["product-listings"],
-        allowed_actions: ["indices:data/write/index", "indices:data/write/bulk*", "indices:admin/refresh"],
+        allowed_actions: ["indices:data/write/index", "indices:data/write/bulk*", "indices:admin/refresh", "indices:admin/refresh[s]"],
       }],
       tenant_permissions: [],
     });
