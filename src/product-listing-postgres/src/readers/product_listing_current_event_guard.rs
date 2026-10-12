@@ -43,6 +43,22 @@ impl ProductListingCurrentEventGuardFactory<SqlxTransaction>
 
 #[async_trait::async_trait]
 impl ProductListingCurrentEventGuard for SqlxProductListingCurrentEventGuard<'_> {
+    async fn geographic_permit(
+        &mut self,
+    ) -> Result<
+        Option<product_listing_service::geography::GeographicQueryPermit>,
+        ProductListingCurrentEventCheckError,
+    > {
+        sqlx::query_as::<_, crate::geography::GeographicPermitRow>(
+            crate::geography::GEOGRAPHIC_PERMIT_SQL,
+        )
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map(|permit| permit.map(Into::into))
+        .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
+            source: box_error(source),
+        })
+    }
     async fn lock_and_check(
         &mut self,
         product_listing_id: ProductListingId,

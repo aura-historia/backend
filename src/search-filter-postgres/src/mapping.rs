@@ -73,6 +73,8 @@ impl From<domain_primitives::object_id::ObjectIdError> for SearchFilterRowMappin
 
 #[derive(Debug)]
 pub(crate) enum ProductListingSearchJsonMappingError {
+    Geography(geo::data::discovery_data::InvalidGeographicQueryData),
+    GeographicCombination(geo::core::discovery::InvalidGeographicQuery),
     Serialize(serde_json::Error),
     Deserialize(serde_json::Error),
     FormatTimestamp(time::error::Format),
@@ -84,6 +86,10 @@ pub(crate) enum ProductListingSearchJsonMappingError {
 impl fmt::Display for ProductListingSearchJsonMappingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::GeographicCombination(_) => {
+                formatter.write_str("invalid geographic predicate combination")
+            }
+            Self::Geography(_) => formatter.write_str("invalid geographic predicate"),
             Self::Serialize(_) => {
                 formatter.write_str("search filter product search JSON serialization failed")
             }
@@ -109,6 +115,8 @@ impl fmt::Display for ProductListingSearchJsonMappingError {
 impl Error for ProductListingSearchJsonMappingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Geography(source) => Some(source),
+            Self::GeographicCombination(source) => Some(source),
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
             Self::FormatTimestamp(source) => Some(source),
             Self::ParseTimestamp(source) => Some(source),
@@ -482,6 +490,10 @@ mod listing_orderability {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchJson {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    business_geography: Option<geo::data::discovery_data::GeographicQueryData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    inventory_geography: Option<geo::data::discovery_data::GeographicQueryData>,
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
@@ -559,6 +571,8 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
 
     fn try_from(v: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
+            business_geography: v.business_geography.as_ref().map(Into::into),
+            inventory_geography: v.inventory_geography.as_ref().map(Into::into),
             language: v.language,
             currency: v.currency,
             product_listing_query: v.product_listing_query.clone(),
@@ -616,7 +630,17 @@ pub(crate) fn product_search_from_json(
 ) -> Result<ProductListingSearch, ProductListingSearchJsonMappingError> {
     let j: ProductListingSearchJson =
         serde_json::from_value(v).map_err(ProductListingSearchJsonMappingError::Deserialize)?;
-    Ok(ProductListingSearch {
+    let search = ProductListingSearch {
+        business_geography: j
+            .business_geography
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(ProductListingSearchJsonMappingError::Geography)?,
+        inventory_geography: j
+            .inventory_geography
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(ProductListingSearchJsonMappingError::Geography)?,
         language: j.language,
         currency: j.currency,
         product_listing_query: j.product_listing_query,
@@ -669,7 +693,11 @@ pub(crate) fn product_search_from_json(
             .lot_scheduled_closes_query
             .map(TryInto::try_into)
             .transpose()?,
-    })
+    };
+    search
+        .validate_geography()
+        .map_err(ProductListingSearchJsonMappingError::GeographicCombination)?;
+    Ok(search)
 }
 pub(crate) fn product_search_to_json(
     v: &ProductListingSearch,
@@ -685,6 +713,36 @@ mod tests {
     use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
+
+    #[test]
+    fn geographic_snapshot_round_trips_without_address_linkage() -> Result<(), Box<dyn Error>> {
+        use geo::core::discovery::{DistanceOrder, GeographicQuery, ProximityMode};
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.business_geography = Some(GeographicQuery::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            HashSet::from([geo::CountryCode::DEU]),
+            HashSet::from([geo::SubdivisionCode::new("DE-BY")?]),
+            Some(geo::GeoPoint::new(48.137, 11.575)?),
+            Some(25.0),
+            ProximityMode::Strict,
+            Some(DistanceOrder::Asc),
+        )?);
+        let snapshot = product_search_to_json(&search)?;
+        assert_eq!(search, product_search_from_json(snapshot.clone())?);
+        assert_eq!(
+            serde_json::json!(48.137),
+            snapshot["business_geography"]["origin"]["latitude_degrees"]
+        );
+        for field in ["user_address_id", "primary_address", "preference", "text"] {
+            let mut invalid = snapshot.clone();
+            invalid["business_geography"][field] = serde_json::json!("forbidden");
+            assert!(product_search_from_json(invalid).is_err());
+        }
+        let mut invalid = snapshot;
+        invalid["business_geography"]["origin"] = serde_json::Value::Null;
+        assert!(product_search_from_json(invalid).is_err());
+        Ok(())
+    }
 
     fn filter_row(
         search_filter_id: uuid::Uuid,

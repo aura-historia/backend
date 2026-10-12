@@ -673,9 +673,11 @@ fn event_kind_from_row(
             ProductListingSearchFilterMatchSourceEventKind::Domain
         }
         product_listing_event_codec::ProductListingPersistedEvent::Embedded
-        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles
-        | product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
             ProductListingSearchFilterMatchSourceEventKind::Enrichment
+        }
+        product_listing_event_codec::ProductListingPersistedEvent::GeographyUpdated => {
+            ProductListingSearchFilterMatchSourceEventKind::Geography
         }
     })
 }

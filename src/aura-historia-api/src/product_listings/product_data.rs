@@ -144,6 +144,8 @@ impl From<ListingSourceSummary> for ListingSourceSummaryData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingSummaryData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geography: Option<crate::geographic_search::ListingGeographyData>,
     product_listing_id: ProductListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     product_listing_title_slug_id: Option<ProductListingSlugId>,
@@ -529,6 +531,7 @@ impl ProductListingSummaryData {
             view_url: summary.view_url,
             images: summary.images.into_iter().map(Into::into).collect(),
             content_policy: summary.content_policy.map(Into::into),
+            geography: (!summary.geography.is_empty()).then(|| summary.geography.into()),
             updated: summary.updated,
         }
     }

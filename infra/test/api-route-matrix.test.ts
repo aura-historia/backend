@@ -135,7 +135,7 @@ describe("HTTP API route policy matrix", () => {
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(127);
+    expect(catalog).toHaveLength(128);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -172,7 +172,7 @@ describe("HTTP API route policy matrix", () => {
       ]);
   });
 
-  test("requires Party-location management authority and exposes no public location routes", () => {
+  test("preserves Party-location management authority and exposes independent public discovery", () => {
     const protectedRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/parties/{party_id}/locations"));
     expect(protectedRoutes).toHaveLength(5);
@@ -186,6 +186,10 @@ describe("HTTP API route policy matrix", () => {
       });
       expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
     }
+    const discovery = API_ROUTE_CATALOG.find((route) => route.path === "/api/v1/party-locations");
+    expect(discovery?.auth).toBe(RouteAuthPolicy.Anonymous);
+    expect(discovery?.policy.authorization).toBe(RouteAuthorizationClass.Public);
+    expect(matchesSelectiveCacheBehavior("/api/v1/party-locations")).toBe(false);
     const publicRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/api/v1/public/parties/{party_id}/locations"));
     expect(publicRoutes).toHaveLength(0);
@@ -464,7 +468,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(127);
+    expect(routes).toHaveLength(128);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

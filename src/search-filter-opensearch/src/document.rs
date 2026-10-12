@@ -197,6 +197,8 @@ pub(crate) struct SearchFilterDocument {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
+    #[serde(default)]
+    pub has_geography: bool,
     #[serde(with = "search_filter_state")]
     pub state: SearchFilterState,
     pub source_version: i64,
@@ -213,6 +215,12 @@ pub(crate) struct SearchFilterDocument {
 /// Decode failure for the complete product-search payload stored in a search document.
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingSearchDocumentMappingError {
+    #[error("invalid geographic predicate")]
+    Geography(#[source] geo::data::discovery_data::InvalidGeographicQueryData),
+    #[error("invalid geographic predicate combination")]
+    GeographicCombination(#[source] geo::core::discovery::InvalidGeographicQuery),
+    #[error("inconsistent geographic percolation marker")]
+    GeographicMarker,
     #[error("OpenSearch document has malformed product search JSON")]
     Deserialize {
         #[source]
@@ -237,6 +245,7 @@ impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
             user_id: view.user_id,
             name: view.name.clone(),
             notifications: view.notifications,
+            has_geography: view.search.has_geography(),
             state: view.state,
             source_version: projection.source_version,
             search: product_search_to_value(&view.search)?,
@@ -252,13 +261,17 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
     type Error = ProductListingSearchDocumentMappingError;
 
     fn try_from(document: SearchFilterDocument) -> Result<Self, Self::Error> {
+        let search = product_search_from_value(document.search)?;
+        if document.has_geography != search.has_geography() {
+            return Err(ProductListingSearchDocumentMappingError::GeographicMarker);
+        }
         Ok(SearchFilterView {
             search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
             notifications: document.notifications,
             state: document.state,
-            search: product_search_from_value(document.search)?,
+            search,
             embedding: document.embedding,
             created: document.created,
             updated: document.updated,
@@ -269,6 +282,18 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchDocument {
+    #[serde(
+        default,
+        rename = "businessGeography",
+        skip_serializing_if = "Option::is_none"
+    )]
+    business_geography: Option<geo::data::discovery_data::GeographicQueryData>,
+    #[serde(
+        default,
+        rename = "inventoryGeography",
+        skip_serializing_if = "Option::is_none"
+    )]
+    inventory_geography: Option<geo::data::discovery_data::GeographicQueryData>,
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
@@ -359,6 +384,8 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
 
     fn try_from(search: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
+            business_geography: search.business_geography.as_ref().map(Into::into),
+            inventory_geography: search.inventory_geography.as_ref().map(Into::into),
             language: search.language,
             currency: search.currency,
             product_listing_query: search.product_listing_query.clone(),
@@ -404,7 +431,17 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
     type Error = ProductListingSearchDocumentMappingError;
 
     fn try_from(document: ProductListingSearchDocument) -> Result<Self, Self::Error> {
-        Ok(Self {
+        let search = Self {
+            business_geography: document
+                .business_geography
+                .map(TryInto::try_into)
+                .transpose()
+                .map_err(ProductListingSearchDocumentMappingError::Geography)?,
+            inventory_geography: document
+                .inventory_geography
+                .map(TryInto::try_into)
+                .transpose()
+                .map_err(ProductListingSearchDocumentMappingError::Geography)?,
             language: document.language,
             currency: document.currency,
             product_listing_query: document.product_listing_query,
@@ -441,7 +478,11 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
                 .lot_scheduled_closes_query
                 .map(parse_time_range)
                 .transpose()?,
-        })
+        };
+        search
+            .validate_geography()
+            .map_err(ProductListingSearchDocumentMappingError::GeographicCombination)?;
+        Ok(search)
     }
 }
 
@@ -508,6 +549,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn geographic_marker_must_agree_with_private_predicates() {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.business_geography = Some(
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                std::collections::HashSet::from([geo::CountryCode::DEU]),
+                Default::default(),
+                None,
+                None,
+                geo::core::discovery::ProximityMode::Strict,
+                None,
+            )
+            .unwrap(),
+        );
+        let projection = projection(search.clone());
+        let mut document = SearchFilterDocument::try_from(&projection).unwrap();
+        assert!(document.has_geography);
+        assert_eq!(
+            search,
+            SearchFilterView::try_from(document.clone()).unwrap().search
+        );
+        document.has_geography = false;
+        assert!(matches!(
+            SearchFilterView::try_from(document),
+            Err(ProductListingSearchDocumentMappingError::GeographicMarker)
+        ));
+    }
     #[test]
     fn should_store_authoritative_search_version_and_original_price_range()
     -> Result<(), Box<dyn std::error::Error>> {

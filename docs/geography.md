@@ -166,10 +166,9 @@ operations, explicit grant changes, partnership membership changes and partnersh
 creation/reactivation/dissolution serialize on the owner Party row before changing
 partnership, membership or location state.
 
-REST and application use cases expose only protected location management and
-administrator grant/revoke operations. Get/list always enforce management authority.
-Membership must belong to the requested Party's active partnership. There are no public
-Party-location get/list endpoints or application use cases. Management reads include
+REST and application management use cases expose protected location management and
+administrator grant/revoke operations. Management get/list always enforce management authority.
+Membership must belong to the requested Party's active partnership. Public location discovery is separately specified [below](#geographic-discovery-2004). Management reads include
 active and retired sites, with their evidence and revision tokens.
 
 Active PartyLocations always permit exact public geography; there is no disclosure
@@ -616,7 +615,7 @@ the enrichment; price-watchlist, embedding and translation do not.
 
 `GeographicQueryGate` reads PostgreSQL on every request, without caching. Pending shared
 dependency/lifecycle invalidation, unacknowledged replacement/removal of existing geography,
-missing gate authority or expired derived retention closes the gate. Provider storage-right
+missing gate authority or expired projected derived retention closes the gate. Provider storage-right
 changes enqueue profile work atomically. Ordinary canonical listing catch-up and creation
 remain durable but do not close the gate or advance its epoch. First geographic additions
 cannot expose forbidden stale data and do not require a barrier; lifecycle changes and any
@@ -638,12 +637,90 @@ while shared or restrictive changes propagate. Sustained invalidation backlog re
 and index custody must be monitored. Ordinary non-geographic queries remain independent.
 This prevents retired or retention-expired geography from remaining eligible during reindexing.
 
-G7's country/subdivision/radius/facet/saved-filter entry points must wrap their complete
-query in this capability; a hit-level serialization check cannot satisfy the contract.
-The supplied public batch reader uses it already and reads at most 100 listing IDs in one
-query. G7 owns public filter/response/API shapes and the real geographic-query tests;
-this feature introduces no public API parameters or override writes. Rebuild/replay and
-activation are described in the [worker runbook](durable-worker-runbook.md#listing-geography-recovery).
+The shared eligibility capability is owned by `geo-service::discovery` and reexported
+by `product-listing-service::geography`; the PostgreSQL gate remains G6's authoritative
+implementation. Public geographic discovery, batch reads and saved matching use the same
+uncached epoch. Rebuild/replay and activation are described in the
+[worker runbook](durable-worker-runbook.md#listing-geography-recovery).
+
+## Geographic discovery (#2004)
+
+`GET /api/v1/product-listings` accepts independent `businessGeography` and
+`inventoryGeography` objects. Saved-filter search bodies and patches use those same
+objects under `search`. Country and subdivision sets accept canonical ISO codes without
+coordinates or PlaceId. Each set is OR; country/subdivision/proximity predicates and
+business/inventory dimensions are AND. A subdivision must belong to a supplied country
+when the country set is nonempty. Missing dimensions/fields never satisfy a supplied
+predicate; `(0,0)` is a valid explicitly recorded point. Unresolved sites do not establish
+territory or worldwide coverage. Business association identifies an associated operator,
+not necessarily a seller; inventory basis `SOURCE_DEFAULT_DERIVED` conveys the source's
+advertised inventory assertion, not individually confirmed custody, pickup or dispatch.
+
+Query objects have optional `origin: {latitude, longitude}`, `radiusKm` (finite, greater
+than 0 and at most 20000 kilometres), `mode` (`STRICT` default or `APPROXIMATE`) and
+`distanceOrder`
+(`ASC`/`DESC`). Radius or distance ordering requires both explicit finite numeric WGS 84
+coordinates in their usual degree ranges. An origin without radius/ordering, approximate
+mode without proximity, two distance orders, or distance ordering combined with the
+existing `sort` is rejected. No text, IP, UserAddress, browsing destination, profile or
+stored preference resolves or supplies an origin. Browser/device coordinates must be
+submitted as the same numeric pair. G9 owns any later coordinate-origin validation.
+
+Strict proximity admits only `PREMISES` points. Approximate proximity explicitly admits
+`STREET`, `LOCALITY` and `REPRESENTATIVE` points too; response precision labels retain that
+evidence quality. Distances use spherical arc kilometres to the selected recorded point,
+never journey distance or verified item position. Radius membership is inclusive. Ordering
+uses that same role's same point with native listing-ID ascending tie-breaking; distance
+ordering uses lexical matching for any text predicate. Public display rounds premises
+distances to 0.1 km, street distances to kilometres, and locality/representative distances
+to 10 km. Search continuation retains the existing FX snapshot and sort values; callers
+must repeat the same query. Geographic search summaries expose only selected location,
+basis, ISO release/codes, eligible point/precision and optional display distance.
+
+`GET /api/v1/party-locations` is anonymous, location-oriented discovery with required
+`geography`, `size` (1–100, default 21) and optional `searchAfter`. Every result identifies
+its Party and location; several matching locations of one Party intentionally produce
+several location results. Results use exact eligible active geography and caller-asserted,
+accepted-derived or mixed basis, without management evidence, address text, revisions or
+provider payloads. Without distance ordering the native location UUID is ascending;
+distance ordering breaks ties by that same UUID. Keyset continuation carries location ID
+and, only for distance ordering, the unrounded sort distance. One bounded SQL page selects
+matching sites and one batched resolution read validates eligible evidence; no full Party
+collection is hydrated. Submitted values retain precedence over current accepted,
+permitted, unexpired resolution with matching input/location revisions.
+
+All public geographic results, including total and continuation, are suppressed when
+G6's gate closes or its epoch changes during execution. Geographic HTTP responses are
+`private, no-store`, including anonymous country-only discovery. Non-geographic listing
+searches preserve their existing cache and matching behavior. This conservative global
+suppression continues until invalidation and refresh-visible index custody complete.
+There is no per-listing geocoder call. Public Party discovery uses the same global gate
+although it reads current PostgreSQL locations directly. The permit also records the next
+current public Party-evidence expiry; a change in this deadline fences the complete result
+when expiry occurs before maintenance or listing projection invalidation.
+
+Saved geographic predicates persist a private release-pinned snapshot of the explicit
+numeric origin and query parameters. Only replacing that dimension replaces its origin;
+unrelated patches and all address/preference mutations leave it unchanged. Existing
+owner authorization and erasure govern reads/writes. Projection adds `hasGeography` to
+separate geographic from ordinary percolation. Geography enrichment triggers only
+geographic filters; ordinary triggers evaluate both independently. A closed/changed gate
+prevents geographic queries and match commits and leaves geographic work retryable;
+non-geographic matches can still commit. Periodic geographic matching keeps progress
+unchanged on suppression. Commit checks reuse the authoritative transaction connection
+and the original epoch, without caching or an additional pool connection.
+
+Before enabling new filters, add the `hasGeography` boolean mapping to the saved-filter
+index (both existing geography point mappings already exist), deploy query/projection/
+percolation consumers, and rebuild saved-filter projections from PostgreSQL so the marker
+and percolator predicates are refresh-visible. No saved-filter database schema change or
+provider permission increase is needed. [OpenAPI](swagger.yaml) owns exact public shapes.
+
+For example, Germany/Bavaria needs only
+`inventoryGeography[countries][0]=DE&inventoryGeography[subdivisions][0]=DE-BY`.
+A 25 km business query uses
+`businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radiusKm]=25&businessGeography[distanceOrder]=ASC`.
+
 
 ## Private user address books and browsing destinations (#2005)
 
@@ -683,10 +760,9 @@ choice takes precedence over the stored preference; explicit `NONE` suppresses i
 Omission/null uses the stored preference. Each variant is exclusive: an address ID
 cannot accompany an explicit country/postal choice. The use case returns an authorized
 snapshot of submitted assertions and separately eligible derived evidence; a foreign
-ID cannot become an origin. Geographic search/filter consumers (G7/G9) must call this
-capability and copy the authorized values. Existing listing searches do not yet accept
-geographic destination selectors. G9 integrates the use case into search; the frontend
-needs no separate destination-resolution HTTP call.
+ID cannot become another user's destination. This capability serves explicit destination
+use cases; G7/G9 listing search and saved-filter origins require caller-supplied numeric
+coordinates and never consult this resolver or stored browsing preferences.
 
 Private resolution uses `USER` scope, the immutable owner ID and `USER_LOCATION`
 purpose. Equality across users cannot reuse input/results;
@@ -738,8 +814,9 @@ address books or Google-derived coordinates. Establish applicable rights before 
 that provider. Backend enrichment follows the independently configured provider's
 storage purpose, provenance, expiry and erasure contract described above.
 
-G7/G9 consume authorized, eligible point snapshots and preserve origin precision,
-privacy and pagination stability; unresolved addresses do not silently become centroids.
+G7/G9 consume explicit caller numeric coordinate snapshots independently of address-book
+resolution. Origin privacy and pagination stability do not depend on mutable bookmarks;
+unresolved addresses do not silently become search centroids.
 G10's release matrix must cover automatic acceptance, unsupported alternatives,
 approximate points, correction, bounded retry, expiry/revocation and policy upgrades.
 G14's optional structured-address extension preserves submitted/derived separation and
@@ -802,8 +879,8 @@ Any saved geographic search filter must own a user-authorized coordinate snapsho
 independent of these mutable bookmarks. Address edit/deletion must not move or delete
 that filter silently. Users manage retained filters through the existing private
 search-filter get/list/update/delete endpoints; account erasure deletes them. G7/G9 own
-the coordinate-filter contract when introduced; the current filter schema has no
-address reference or coordinate destination. Orders, when introduced, must likewise
+the [coordinate-filter contract](#geographic-discovery-2004); filters have no
+address reference or destination-resolution linkage. Orders, when introduced, must likewise
 snapshot destination and agreed delivery terms.
 
 Physical erasure applies to the active database. Existing encrypted RDS automated

@@ -21,7 +21,7 @@ use serde_json::json;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use uuid::Uuid;
 const SCHEMA: Postgres = Postgres::new("migrations");
-type TestResult = Result<(), Box<dyn std::error::Error>>;
+type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 fn handler(pool: sqlx::PgPool) -> impl ProjectListingGeographyUseCase {
     ProjectListingGeographyHandler::new(
         SqlxUnitOfWork::new(pool),
@@ -44,7 +44,7 @@ async fn drain(pool: &sqlx::PgPool, limit: u16) -> TestResult {
 }
 async fn fixture(
     pool: &sqlx::PgPool,
-) -> Result<(ProductListingId, Uuid, Uuid), Box<dyn std::error::Error>> {
+) -> Result<(ProductListingId, Uuid, Uuid), Box<dyn std::error::Error + Send + Sync>> {
     sqlx::query("INSERT INTO listing_geography_gate DEFAULT VALUES ON CONFLICT DO NOTHING")
         .execute(pool)
         .await?;
@@ -361,58 +361,12 @@ async fn insert_product_with_id(
 
 #[aura_integration_test(services=[SCHEMA])]
 async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
-    use geo_service::{
-        geocoding::{
-            CandidateSet, GeocodingCandidate, GeocodingOutcome, GeocodingProvenance,
-            GeocodingRequest, GeocodingResult, ResultRetention,
-        },
-        resolution::*,
-    };
+    use geo_service::resolution::*;
     let result:TestResult=async{
         let pool=get_postgres_client().await;let (id,source,location)=fixture(&pool).await?;
         sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1").bind(location).execute(&pool).await?;
         let owner:Uuid=sqlx::query_scalar("SELECT operator_party_id FROM listing_sources WHERE listing_source_id=$1").bind(source).fetch_one(&pool).await?;
-        sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false").execute(&pool).await?;
-        sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G6',true,true,true)").execute(&pool).await?;
-        let input=ResolutionInput::new(GeocodingRequest::new(geo::AddressText::new("Shared eligible address")?),ResolutionScope::new(ScopeKind::Party,Some(owner))?,RetentionPurpose::PartyLocation)?;
-        let binding=ResolutionBinding {subject:ResolutionSubject::new(RetentionPurpose::PartyLocation,location)?,input_revision:1,guard:1};
-        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;
-        let resolution_id=SqlxResolutionRepositoryFactory.resolutions(&mut tx).bind(&input,binding).await?;
-        let view=SqlxResolutionRepositoryFactory.resolution_reader(&mut tx).inspect(binding.subject).await?.ok_or("missing binding")?;tx.commit().await?;
-        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;
-        let ClaimOutcome::Claimed(claim)=SqlxResolutionRepositoryFactory.resolutions(&mut tx).claim(view.work,"TEST_G6",true).await? else {return Err("missing resolution claim".into());};tx.commit().await?;
-        let candidate = GeocodingCandidate::new(
-            geo::DerivedGeography::new(
-                geo::GeographicDescription::new(None, Some(geo::CountryCode::DEU), None, None)?,
-                None,
-            ),
-            vec![],
-            None,
-            GeocodingProvenance {
-                provider: "TEST",
-                product: "TEST",
-                data_source: "TEST",
-                region: "TEST".into(),
-                interpretation_profile: "TEST_G6",
-                external_reference: "test-record".into(),
-                attribution_url: "https://example.test/attribution",
-            },
-        );
-        // Use the service policy to retain the source candidate alongside its
-        // accepted administrative projection.
-        let evidence = evaluate(
-            &input,
-            GeocodingResult {
-                outcome: GeocodingOutcome::Candidates(CandidateSet::new(
-                    vec![candidate],
-                    input.request().candidate_limit(),
-                )?),
-                retention: ResultRetention::Storage,
-            },
-            "TEST_G6",
-        )?;
-        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;
-        assert!(SqlxResolutionRepositoryFactory.resolutions(&mut tx).complete(&claim,ResolutionCompletion::Evidence(evidence)).await?);tx.commit().await?;
+        let resolution_id=accepted_country_resolution(&pool,owner,location).await?;
         let mut ids=vec![id];for _ in 0..3 {let (new,_)=insert_product_with_created_event(&pool).await?;sqlx::query("UPDATE product_listings SET listing_source_id=$2 WHERE product_listing_id=$1").bind(new.into_uuid()).bind(source).execute(&pool).await?;ids.push(new);}
         drain(&pool,2).await?;acknowledge(&pool).await?;
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;
@@ -447,4 +401,173 @@ async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
         Ok(())
     }.await;
     assert!(result.is_ok(), "shared accepted resolution: {result:?}");
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn discovery_gate_fences_complete_results_and_epoch_changes_with_refresh_visible_custody() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let (id, source, _) = fixture(&pool).await?;
+        drain(&pool, 100).await?;
+        acknowledge(&pool).await?;
+        let gate = SqlxGeographicQueryGate::new(pool.clone());
+        let page = || application::pagination::CursoredResult {
+            items: vec![id],
+            total: Some(1),
+            cursor: application::pagination::Cursor {
+                size: 1,
+                search_after: Some(json!([11.1, id.to_string()])),
+            },
+        };
+        assert_eq!(
+            Some(page()),
+            with_geographic_eligibility(&gate, || async { Ok(page()) }).await?
+        );
+        sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)")
+            .bind(source.to_string())
+            .execute(&pool)
+            .await?;
+        let called = std::cell::Cell::new(false);
+        assert!(
+            with_geographic_eligibility(&gate, || async {
+                called.set(true);
+                Ok(page())
+            })
+            .await?
+            .is_none()
+        );
+        assert!(!called.get(), "closed authority must not execute discovery");
+        drain(&pool, 100).await?;
+        acknowledge(&pool).await?;
+        // Even reopening after the query's index read cannot validate the old epoch.
+        let fenced = with_geographic_eligibility(&gate, || async {
+            sqlx::query("SELECT enqueue_listing_geography('SOURCE',$1)")
+                .bind(source.to_string())
+                .execute(&pool)
+                .await
+                .map_err(|e| GeographyError::Storage(application::error::box_error(e)))?;
+            drain(&pool, 100).await.map_err(GeographyError::Storage)?;
+            acknowledge(&pool).await.map_err(GeographyError::Storage)?;
+            Ok(page())
+        })
+        .await?;
+        assert!(
+            fenced.is_none(),
+            "items, count and continuation must all be suppressed"
+        );
+        assert!(gate.permit().await?.is_some());
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "query-wide discovery gate: {result:?}");
+}
+
+async fn accepted_country_resolution(
+    pool: &sqlx::PgPool,
+    owner: Uuid,
+    location: Uuid,
+) -> Result<geo_service::resolution::ResolutionId, Box<dyn std::error::Error + Send + Sync>> {
+    use geo_service::{geocoding::*, resolution::*};
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G6',true,true,true)").execute(pool).await?;
+    let input = ResolutionInput::new(
+        GeocodingRequest::new(geo::AddressText::new("Shared eligible address")?),
+        ResolutionScope::new(ScopeKind::Party, Some(owner))?,
+        RetentionPurpose::PartyLocation,
+    )?;
+    let binding = ResolutionBinding {
+        subject: ResolutionSubject::new(RetentionPurpose::PartyLocation, location)?,
+        input_revision: 1,
+        guard: 1,
+    };
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+    let resolution_id = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .bind(&input, binding)
+        .await?;
+    let view = SqlxResolutionRepositoryFactory
+        .resolution_reader(&mut tx)
+        .inspect(binding.subject)
+        .await?
+        .ok_or("missing binding")?;
+    tx.commit().await?;
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+    let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .claim(view.work, "TEST_G6", true)
+        .await?
+    else {
+        return Err("missing resolution claim".into());
+    };
+    tx.commit().await?;
+    let candidate = GeocodingCandidate::new(
+        geo::DerivedGeography::new(
+            geo::GeographicDescription::new(None, Some(geo::CountryCode::DEU), None, None)?,
+            None,
+        ),
+        vec![],
+        None,
+        GeocodingProvenance {
+            provider: "TEST",
+            product: "TEST",
+            data_source: "TEST",
+            region: "TEST".into(),
+            interpretation_profile: "TEST_G6",
+            external_reference: "test-record".into(),
+            attribution_url: "https://example.test/attribution",
+        },
+    );
+    // Use the service policy to retain the source candidate alongside its
+    // accepted administrative projection.
+    let evidence = evaluate(
+        &input,
+        GeocodingResult {
+            outcome: GeocodingOutcome::Candidates(CandidateSet::new(
+                vec![candidate],
+                input.request().candidate_limit(),
+            )?),
+            retention: ResultRetention::Storage,
+        },
+        "TEST_G6",
+    )?;
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+    assert!(
+        SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .complete(&claim, ResolutionCompletion::Evidence(evidence))
+            .await?
+    );
+    tx.commit().await?;
+    Ok(resolution_id)
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn public_party_evidence_expiry_fences_query_without_a_listing_projection_dependency() {
+    let result: TestResult = async {
+        let pool=get_postgres_client().await;
+        let (id,source,location)=fixture(&pool).await?;
+        let owner:Uuid=sqlx::query_scalar("SELECT operator_party_id FROM listing_sources WHERE listing_source_id=$1").bind(source).fetch_one(&pool).await?;
+        sqlx::query("DELETE FROM listing_source_location_defaults WHERE listing_source_id=$1").bind(source).execute(&pool).await?;
+        sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1").bind(location).execute(&pool).await?;
+        let resolution=accepted_country_resolution(&pool,owner,location).await?;
+        drain(&pool,100).await?;
+        acknowledge(&pool).await?;
+        let gate=SqlxGeographicQueryGate::new(pool.clone());
+        let before=gate.permit().await?.ok_or("missing public query permit")?;
+        assert!(before.eligibility_deadline.is_some());
+        let page=with_geographic_eligibility(&gate,|| async {
+            // Simulate clock expiry before maintenance can enqueue invalidation.
+            sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
+                .bind(resolution.into_uuid()).execute(&pool).await.map_err(|e| GeographyError::Storage(application::error::box_error(e)))?;
+            Ok(application::pagination::CursoredResult {items:vec![id],total:Some(1),cursor:application::pagination::Cursor {size:1,search_after:Some(json!([id.to_string()]))}})
+        }).await?;
+        assert!(page.is_none());
+        let after=gate.permit().await?.ok_or("missing fresh query permit")?;
+        assert_eq!(before.epoch,after.epoch);
+        assert!(after.eligibility_deadline.is_none());
+        Ok(())
+    }.await;
+    assert!(result.is_ok(), "unassigned public Party expiry: {result:?}");
 }

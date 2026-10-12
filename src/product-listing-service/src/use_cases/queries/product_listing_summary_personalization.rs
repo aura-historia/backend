@@ -322,6 +322,7 @@ mod tests {
 
     fn search_item(listing_source_id: ListingSourceId) -> ProductListingSearchItem {
         ProductListingSearchItem {
+            geography: Default::default(),
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

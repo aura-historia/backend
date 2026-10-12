@@ -72,6 +72,10 @@ pub struct MatchProductListingEventResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MatchProductListingEventError {
+    #[error("geographic matching eligibility is pending")]
+    GeographicEligibilityPending,
+    #[error("geographic matching eligibility read failed")]
+    Geography(#[source] product_listing_service::geography::GeographyError),
     #[error("failed to begin product source read transaction")]
     BeginSourceReadTransactionFailed {
         #[source]
@@ -192,6 +196,8 @@ pub struct MatchProductListingEventHandler<U, S, G, F, I, E, R, W> {
     candidates: R,
     matches: W,
     should_show_threshold: Probability,
+    geographic_gate:
+        Option<std::sync::Arc<dyn product_listing_service::geography::GeographicQueryGate>>,
 }
 
 impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R, W> {
@@ -207,6 +213,7 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R
         matches: W,
     ) -> Self {
         Self {
+            geographic_gate: None,
             unit_of_work,
             sources,
             current_event_guard,
@@ -218,6 +225,14 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R
             should_show_threshold: Probability::new(DEFAULT_SHOULD_SHOW_THRESHOLD)
                 .unwrap_or_else(|_| unreachable!("default threshold is valid")),
         }
+    }
+
+    pub fn with_geographic_gate(
+        mut self,
+        gate: std::sync::Arc<dyn product_listing_service::geography::GeographicQueryGate>,
+    ) -> Self {
+        self.geographic_gate = Some(gate);
+        self
     }
 
     pub fn with_should_show_threshold(mut self, threshold: Probability) -> Self {
@@ -298,11 +313,39 @@ where
                     basis: valuation.basis,
                     fx_rate_id: valuation.fx_rate_id,
                 });
-        let percolated = self
-            .index
-            .percolate(&product)
+        let geographic_event = product.source.event_kind == product_listing_service::ports::ProductListingSearchFilterMatchSourceEventKind::Geography;
+        let mut percolated = if geographic_event {
+            Vec::new()
+        } else {
+            self.index
+                .percolate(&product)
+                .await
+                .map_err(percolation_error)?
+        };
+        let mut geographic_permit = None;
+        let mut geographic_pending = geographic_event && self.geographic_gate.is_none();
+        let mut geographic_ids = std::collections::HashSet::new();
+        if let Some(gate) = &self.geographic_gate {
+            let matches = product_listing_service::geography::with_geographic_eligibility(
+                gate.as_ref(),
+                || async {
+                    let filters = self.index.percolate_geographic(&product).await;
+                    let permit = gate.permit().await?;
+                    Ok((filters, permit))
+                },
+            )
             .await
-            .map_err(percolation_error)?;
+            .map_err(MatchProductListingEventError::Geography)?;
+            match matches {
+                Some((filters, permit)) => {
+                    let filters = filters.map_err(percolation_error)?;
+                    geographic_ids.extend(filters.iter().map(|f| f.search_filter_id));
+                    geographic_permit = permit;
+                    percolated.extend(filters);
+                }
+                None => geographic_pending = true,
+            }
+        }
         let percolated_count = percolated.len();
         let evaluated = evaluate_candidates(
             &self.evaluator,
@@ -312,7 +355,17 @@ where
             self.should_show_threshold,
         )
         .await;
-        let candidates = evaluated.candidates;
+        let mut candidates = evaluated.candidates;
+        if let (Some(gate), Some(permit)) = (&self.geographic_gate, geographic_permit)
+            && gate
+                .permit()
+                .await
+                .map_err(|e| MatchProductListingEventError::Geography(e.into()))?
+                != Some(permit)
+        {
+            candidates.retain(|c| !geographic_ids.contains(&c.search_filter_id));
+            geographic_pending = true;
+        }
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             MatchProductListingEventError::BeginTransactionFailed {
                 source: box_error(source),
@@ -368,12 +421,26 @@ where
             }
         }
 
+        if !geographic_pending && !geographic_ids.is_empty() {
+            let current = self
+                .current_event_guard
+                .in_transaction(&mut tx)
+                .geographic_permit()
+                .await
+                .map_err(product_current_event_check_error)?;
+            if current != geographic_permit {
+                return Err(MatchProductListingEventError::GeographicEligibilityPending);
+            }
+        }
         tx.commit().await.map_err(|source| {
             MatchProductListingEventError::CommitTransactionFailed {
                 source: box_error(source),
             }
         })?;
 
+        if geographic_pending {
+            return Err(MatchProductListingEventError::GeographicEligibilityPending);
+        }
         if let Some(error) = evaluated.retryable_error {
             return Err(product_match_evaluation_error(error));
         }
@@ -757,6 +824,8 @@ mod tests {
         event_snapshot: Option<FxRateSnapshot>,
         current_event_id: Option<EventId>,
         percolations: usize,
+        geographic_percolations: usize,
+        geographic_commit_permit: Option<product_listing_service::geography::GeographicQueryPermit>,
     }
 
     #[derive(Clone, Default)]
@@ -844,6 +913,14 @@ mod tests {
                 Some(_) | None => ProductListingCurrentEventCheck::Current,
             })
         }
+        async fn geographic_permit(
+            &mut self,
+        ) -> Result<
+            Option<product_listing_service::geography::GeographicQueryPermit>,
+            ProductListingCurrentEventCheckError,
+        > {
+            Ok(self.0.lock().unwrap().geographic_commit_permit)
+        }
     }
 
     impl ProductListingCurrentEventGuardFactory<FakeTransaction> for CurrentEventGuards {
@@ -887,9 +964,26 @@ mod tests {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 })?
                 .percolations += 1;
-            Ok(self.filters.clone())
+            Ok(self
+                .filters
+                .iter()
+                .filter(|f| !f.search.has_geography())
+                .cloned()
+                .collect())
         }
 
+        async fn percolate_geographic(
+            &self,
+            _input: &ProductListingPercolationInput,
+        ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            self.state.lock().unwrap().geographic_percolations += 1;
+            Ok(self
+                .filters
+                .iter()
+                .filter(|f| f.search.has_geography())
+                .cloned()
+                .collect())
+        }
         async fn query(
             &self,
             _query: &SearchFilterIndexQuery,
@@ -1267,6 +1361,139 @@ mod tests {
         )
     }
 
+    struct GeographicGate(
+        Mutex<
+            std::collections::VecDeque<
+                Option<product_listing_service::geography::GeographicQueryPermit>,
+            >,
+        >,
+    );
+    #[async_trait::async_trait]
+    impl product_listing_service::geography::GeographicQueryGate for GeographicGate {
+        async fn permit(
+            &self,
+        ) -> Result<
+            Option<product_listing_service::geography::GeographicQueryPermit>,
+            product_listing_service::geography::GeographicEligibilityError,
+        > {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected eligibility read"))
+        }
+    }
+    fn geographic_filter() -> SearchFilterView {
+        let mut f = filter(UserId::new(), UserSearchFilterId::new());
+        f.search.inventory_geography = Some(
+            geo::core::discovery::GeographicQuery::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                std::collections::HashSet::from([geo::CountryCode::DEU]),
+                Default::default(),
+                None,
+                None,
+                geo::core::discovery::ProximityMode::Strict,
+                None,
+            )
+            .unwrap(),
+        );
+        f
+    }
+    #[tokio::test]
+    async fn geography_events_match_only_geographic_filters_and_use_commit_eligibility() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut source = product().unwrap();
+        source.event_kind = ProductListingSearchFilterMatchSourceEventKind::Geography;
+        let f = geographic_filter();
+        let permit = product_listing_service::geography::GeographicQueryPermit {
+            epoch: 7,
+            ..Default::default()
+        };
+        state.lock().unwrap().geographic_commit_permit = Some(permit);
+        let mut handler = matching_handler(state.clone(), vec![source.clone()], f.clone());
+        handler
+            .index
+            .filters
+            .push(filter(UserId::new(), UserSearchFilterId::new()));
+        let handler = handler.with_geographic_gate(Arc::new(GeographicGate(Mutex::new(
+            [Some(permit); 4].into(),
+        ))));
+        let result = handler
+            .execute(MatchProductListingEventCommand {
+                origin_event_id: source.event_id,
+                product_listing_id: source.product_listing_id,
+            })
+            .await
+            .unwrap();
+        assert_eq!(1, result.percolated_count);
+        assert_eq!(1, result.persisted_match_count);
+        let state = state.lock().unwrap();
+        assert_eq!(0, state.percolations);
+        assert_eq!(1, state.geographic_percolations);
+        assert_eq!(f.search_filter_id, state.persisted[0].user_search_filter_id);
+        assert_eq!(2, state.committed);
+    }
+    #[tokio::test]
+    async fn geographic_suppression_preserves_ordinary_notifications_and_retries_geography() {
+        let before = product_listing_service::geography::GeographicQueryPermit {
+            epoch: 1,
+            ..Default::default()
+        };
+        let after = product_listing_service::geography::GeographicQueryPermit {
+            epoch: 2,
+            ..Default::default()
+        };
+        for permits in [vec![None], vec![Some(before), Some(before), Some(after)]] {
+            let state = Arc::new(Mutex::new(State::default()));
+            let source = product().unwrap();
+            let ordinary = filter(UserId::new(), UserSearchFilterId::new());
+            let mut handler =
+                matching_handler(state.clone(), vec![source.clone()], ordinary.clone());
+            handler.index.filters.push(geographic_filter());
+            let handler =
+                handler.with_geographic_gate(Arc::new(GeographicGate(Mutex::new(permits.into()))));
+            assert!(matches!(
+                handler
+                    .execute(MatchProductListingEventCommand {
+                        origin_event_id: source.event_id,
+                        product_listing_id: source.product_listing_id
+                    })
+                    .await,
+                Err(MatchProductListingEventError::GeographicEligibilityPending)
+            ));
+            let state = state.lock().unwrap();
+            assert_eq!(1, state.persisted.len());
+            assert_eq!(
+                ordinary.search_filter_id,
+                state.persisted[0].user_search_filter_id
+            );
+            assert_eq!(2, state.committed);
+        }
+    }
+    #[tokio::test]
+    async fn geographic_matching_does_not_commit_when_final_authority_has_changed() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let source = product().unwrap();
+        let permit = product_listing_service::geography::GeographicQueryPermit {
+            epoch: 1,
+            ..Default::default()
+        };
+        let handler = matching_handler(state.clone(), vec![source.clone()], geographic_filter())
+            .with_geographic_gate(Arc::new(GeographicGate(Mutex::new(
+                [Some(permit); 4].into(),
+            ))));
+        assert!(matches!(
+            handler
+                .execute(MatchProductListingEventCommand {
+                    origin_event_id: source.event_id,
+                    product_listing_id: source.product_listing_id
+                })
+                .await,
+            Err(MatchProductListingEventError::GeographicEligibilityPending)
+        ));
+        assert_eq!(1, state.lock().unwrap().committed);
+    }
     #[tokio::test]
     async fn should_revalidate_evaluated_inputs_when_filter_changes_during_paused_enhanced_work()
     -> Result<(), Box<dyn std::error::Error>> {

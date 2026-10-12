@@ -32,6 +32,14 @@ pub enum ProductListingCurrentEventCheckError {
 /// transaction commits or rolls back.
 #[async_trait::async_trait]
 pub trait ProductListingCurrentEventGuard: Send {
+    /// Uncached query-wide eligibility on the surrounding transaction's connection.
+    /// Unsupported implementations fail closed for geographic match commits.
+    async fn geographic_permit(
+        &mut self,
+    ) -> Result<Option<crate::geography::GeographicQueryPermit>, ProductListingCurrentEventCheckError>
+    {
+        Ok(None)
+    }
     async fn lock_and_check(
         &mut self,
         product_listing_id: ProductListingId,

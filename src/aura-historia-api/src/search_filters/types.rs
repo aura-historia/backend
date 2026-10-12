@@ -205,6 +205,10 @@ impl UpdateSearchFilterData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProductListingSearchPatchData {
     #[serde(default)]
+    business_geography: PatchValue<crate::geographic_search::GeographicSearchData>,
+    #[serde(default)]
+    inventory_geography: PatchValue<crate::geographic_search::GeographicSearchData>,
+    #[serde(default)]
     #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
     language: PatchValue<Language>,
     #[serde(default)]
@@ -259,6 +263,14 @@ pub(super) struct ProductListingSearchPatchData {
 impl ProductListingSearchPatchData {
     fn try_into_patch(self) -> Result<ProductListingSearchPatch, crate::error::ApiError> {
         Ok(ProductListingSearchPatch {
+            business_geography: geographic_patch(
+                self.business_geography,
+                "search.businessGeography",
+            )?,
+            inventory_geography: geographic_patch(
+                self.inventory_geography,
+                "search.inventoryGeography",
+            )?,
             language: non_nullable_patch(self.language, "search.language")?,
             currency: non_nullable_patch(self.currency, "search.currency")?,
             product_listing_query: non_nullable_patch(
@@ -414,8 +426,11 @@ pub(super) struct ProductListingSearchData<
     SourceId = String,
     AuctionIdValue = String,
 > {
-    #[serde(default)]
-    #[serde(with = "crate::wire::language")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    business_geography: Option<crate::geographic_search::GeographicSearchData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    inventory_geography: Option<crate::geographic_search::GeographicSearchData>,
+    #[serde(default, with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
     currency: Currency,
@@ -514,6 +529,14 @@ impl TryFrom<ProductListingSearchData<String, String, String>> for ProductListin
         data: ProductListingSearchData<String, String, String>,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
+            business_geography: crate::geographic_search::parse_body(
+                data.business_geography,
+                "search.businessGeography",
+            )?,
+            inventory_geography: crate::geographic_search::parse_body(
+                data.inventory_geography,
+                "search.inventoryGeography",
+            )?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -571,6 +594,8 @@ impl From<ProductListingSearch>
 {
     fn from(search: ProductListingSearch) -> Self {
         Self {
+            business_geography: search.business_geography.map(Into::into),
+            inventory_geography: search.inventory_geography.map(Into::into),
             language: search.language,
             currency: search.currency,
             product_listing_query: search.product_listing_query,
@@ -685,11 +710,51 @@ pub(super) struct PaginatedData<T> {
     pub(super) total: Option<u64>,
 }
 
+fn geographic_patch(
+    value: PatchValue<crate::geographic_search::GeographicSearchData>,
+    field: &'static str,
+) -> Result<PatchField<geo::core::discovery::GeographicQuery>, crate::error::ApiError> {
+    match value {
+        PatchValue::Omitted => Ok(PatchField::Unchanged),
+        PatchValue::Null => Ok(PatchField::Clear),
+        PatchValue::Value(d) => crate::geographic_search::parse_body(Some(d), field)?
+            .map(PatchField::Set)
+            .ok_or_else(|| crate::error::ApiError::bad_request(crate::error::BAD_BODY_VALUE)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use auction_core::AuctionId;
     use localization::Language;
+
+    #[test]
+    fn geographic_patches_replace_clear_or_preserve_private_snapshots()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let omitted: UpdateSearchFilterData =
+            serde_json::from_value(serde_json::json!({"name":"renamed"}))?;
+        assert_eq!(
+            PatchField::Unchanged,
+            omitted.into_fields()?.3.business_geography
+        );
+        let set: UpdateSearchFilterData = serde_json::from_value(
+            serde_json::json!({"search":{"businessGeography":{"origin":{"latitude":48.137,"longitude":11.575},"radiusKm":25}}}),
+        )?;
+        let patch = set.into_fields()?.3;
+        let PatchField::Set(query) = patch.business_geography else {
+            panic!("expected coordinate snapshot");
+        };
+        assert_eq!(Some(25.0), query.radius_km());
+        assert_eq!(48.137, query.origin().unwrap().latitude_degrees());
+        let cleared: UpdateSearchFilterData =
+            serde_json::from_value(serde_json::json!({"search":{"businessGeography":null}}))?;
+        assert_eq!(
+            PatchField::Clear,
+            cleared.into_fields()?.3.business_geography
+        );
+        Ok(())
+    }
 
     #[test]
     fn should_map_only_supplied_nested_search_fields_to_product_search_patch()

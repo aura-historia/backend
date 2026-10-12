@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true, features = ["data"] }
 auction-core = { workspace = true }
 user-core = { workspace = true }
 domain-primitives = { workspace = true }
@@ -27,6 +28,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+party-core = { workspace = true }
 fxrate-core = { workspace = true }
 indexmap = { workspace = true }
 serial_test = { workspace = true }

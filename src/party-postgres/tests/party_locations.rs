@@ -34,6 +34,139 @@ use user_service::use_cases::queries::check_user_admin::{
 };
 
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_discover_public_locations_without_cross_location_matches_or_management_evidence() {
+    use application::pagination::Cursor;
+    use geo::core::discovery::*;
+    use party_service::discovery::*;
+    let pool = get_postgres_client().await;
+    let party_id = party(&pool).await;
+    let mut ids = Vec::new();
+    for (key, lat, precision) in [
+        ("near", 48.137, SpatialPrecision::Premises),
+        ("within", 48.237, SpatialPrecision::Premises),
+        ("far", 49.137, SpatialPrecision::Premises),
+        ("coarse", 48.138, SpatialPrecision::Locality),
+    ] {
+        let mut c = command(party_id, key);
+        c.content.geography = GeographicDescription::new(
+            None,
+            Some(CountryCode::DEU),
+            Some(geo::SubdivisionCode::new("DE-BY").unwrap()),
+            None,
+        )
+        .unwrap();
+        c.content.position = Some(
+            SpatialPosition::new(GeoPoint::new(lat, 11.575).unwrap(), precision, None).unwrap(),
+        );
+        ids.push(create(&pool).execute(&trusted(), c).await.unwrap().id);
+    }
+    let query = |origin, radius, mode, order| {
+        GeographicQuery::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            std::collections::HashSet::from([CountryCode::DEU]),
+            std::collections::HashSet::from([geo::SubdivisionCode::new("DE-BY").unwrap()]),
+            origin,
+            radius,
+            mode,
+            order,
+        )
+        .unwrap()
+    };
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let factory = party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory;
+    let mut tx = uow.begin().await.unwrap();
+    let result = factory
+        .in_transaction(&mut tx)
+        .discover(&DiscoverPartyLocationsRequest {
+            geography: query(None, None, ProximityMode::Strict, None),
+            cursor: Cursor {
+                size: 100,
+                search_after: None,
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(4, result.items.len());
+    assert!(
+        result
+            .items
+            .iter()
+            .all(|i| i.party_id == party_id && i.basis == "CALLER_ASSERTED")
+    );
+    tx.commit().await.unwrap();
+    let request = DiscoverPartyLocationsRequest {
+        geography: query(
+            Some(GeoPoint::new(48.137, 11.575).unwrap()),
+            Some(25.0),
+            ProximityMode::Strict,
+            Some(DistanceOrder::Asc),
+        ),
+        cursor: Cursor {
+            size: 1,
+            search_after: None,
+        },
+    };
+    let mut tx = uow.begin().await.unwrap();
+    let first = factory
+        .in_transaction(&mut tx)
+        .discover(&request)
+        .await
+        .unwrap();
+    assert_eq!(ids[0], first.items[0].location_id);
+    assert_eq!(Some(0.0), first.items[0].distance_km);
+    let next = DiscoverPartyLocationsRequest {
+        cursor: Cursor {
+            size: 1,
+            search_after: first.cursor.search_after,
+        },
+        ..request.clone()
+    };
+    let second = factory
+        .in_transaction(&mut tx)
+        .discover(&next)
+        .await
+        .unwrap();
+    assert_eq!(ids[1], second.items[0].location_id);
+    assert!(second.cursor.search_after.is_none());
+    let approximate = DiscoverPartyLocationsRequest {
+        geography: query(
+            Some(GeoPoint::new(48.137, 11.575).unwrap()),
+            Some(25.0),
+            ProximityMode::Approximate,
+            Some(DistanceOrder::Asc),
+        ),
+        cursor: Cursor {
+            size: 100,
+            search_after: None,
+        },
+    };
+    let all = factory
+        .in_transaction(&mut tx)
+        .discover(&approximate)
+        .await
+        .unwrap();
+    assert_eq!(3, all.items.len());
+    assert_eq!(
+        SpatialPrecision::Locality,
+        all.items[1].position.unwrap().precision()
+    );
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE party_locations SET lifecycle='RETIRED' WHERE party_location_id=$1")
+        .bind(ids[0].into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let result = factory
+        .in_transaction(&mut tx)
+        .discover(&request)
+        .await
+        .unwrap();
+    assert_eq!(ids[1], result.items[0].location_id);
+    tx.commit().await.unwrap();
+}
 struct NoAdmin;
 #[async_trait::async_trait]
 impl CheckUserAdminUseCase for NoAdmin {
@@ -975,5 +1108,154 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
             .unwrap();
         assert_eq!(description, read.geography);
         assert!(read.position.is_none());
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn public_discovery_admits_current_derived_country_and_rejects_revoked_expired_or_stale_evidence()
+ {
+    use geo_postgres::SqlxResolutionRepositoryFactory;
+    use geo_service::{geocoding::*, resolution::*};
+    use party_service::discovery::*;
+    let pool = get_postgres_client().await;
+    let owner = party(&pool).await;
+    let mut c = command(owner, "derived-public-geography");
+    c.content.geography = None;
+    c.content.position = None;
+    c.evidence = None;
+    let location = create(&pool).execute(&trusted(), c).await.unwrap();
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G7',true,true,true)").execute(&pool).await.unwrap();
+    let input = ResolutionInput::new(
+        GeocodingRequest::new(AddressText::new("Private submitted provider address").unwrap()),
+        ResolutionScope::new(ScopeKind::Party, Some(owner.into_uuid())).unwrap(),
+        RetentionPurpose::PartyLocation,
+    )
+    .unwrap();
+    let binding = ResolutionBinding {
+        subject: ResolutionSubject::new(RetentionPurpose::PartyLocation, location.id.into_uuid())
+            .unwrap(),
+        input_revision: 1,
+        guard: 1,
+    };
+    let uow = SqlxUnitOfWork::new(pool.clone());
+    let mut tx = uow.begin().await.unwrap();
+    let id = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .bind(&input, binding)
+        .await
+        .unwrap();
+    let view = SqlxResolutionRepositoryFactory
+        .resolution_reader(&mut tx)
+        .inspect(binding.subject)
+        .await
+        .unwrap()
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .claim(view.work, "TEST_G7", true)
+        .await
+        .unwrap()
+    else {
+        panic!("expected claim")
+    };
+    tx.commit().await.unwrap();
+    let candidate = GeocodingCandidate::new(
+        geo::DerivedGeography::new(
+            GeographicDescription::new(None, Some(CountryCode::DEU), None, None).unwrap(),
+            None,
+        ),
+        vec![],
+        None,
+        GeocodingProvenance {
+            provider: "TEST",
+            product: "TEST",
+            data_source: "TEST",
+            region: "TEST".into(),
+            interpretation_profile: "TEST_G7",
+            external_reference: "private provider record".into(),
+            attribution_url: "https://example.test/attribution",
+        },
+    );
+    let evidence = evaluate(
+        &input,
+        GeocodingResult {
+            outcome: GeocodingOutcome::Candidates(
+                CandidateSet::new(vec![candidate], input.request().candidate_limit()).unwrap(),
+            ),
+            retention: ResultRetention::Storage,
+        },
+        "TEST_G7",
+    )
+    .unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    assert!(
+        SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .complete(&claim, ResolutionCompletion::Evidence(evidence))
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    let request = DiscoverPartyLocationsRequest {
+        geography: geo::core::discovery::GeographicQuery::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            std::collections::HashSet::from([CountryCode::DEU]),
+            Default::default(),
+            None,
+            None,
+            geo::core::discovery::ProximityMode::Strict,
+            None,
+        )
+        .unwrap(),
+        cursor: application::pagination::Cursor {
+            size: 10,
+            search_after: None,
+        },
+    };
+    let factory = party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory;
+    for phase in 0..4 {
+        match phase {
+            1 => {
+                sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
+            }
+            2 => {
+                sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
+                sqlx::query(
+                    "UPDATE party_locations SET revision=revision+1 WHERE party_location_id=$1",
+                )
+                .bind(location.id.into_uuid())
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+            3 => {
+                sqlx::query("UPDATE party_locations SET revision=1 WHERE party_location_id=$1")
+                    .bind(location.id.into_uuid())
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
+            }
+            _ => {}
+        }
+        let mut tx = uow.begin().await.unwrap();
+        let result = factory
+            .in_transaction(&mut tx)
+            .discover(&request)
+            .await
+            .unwrap();
+        assert_eq!(usize::from(phase == 0), result.items.len());
+        if let Some(item) = result.items.first() {
+            assert_eq!("ACCEPTED_DERIVED", item.basis);
+            assert_eq!(Some(CountryCode::DEU), item.country);
+            assert!(item.position.is_none());
+        }
+        tx.commit().await.unwrap();
     }
 }

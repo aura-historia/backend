@@ -760,6 +760,7 @@ mod route_tests {
     async fn routes_map_commands_authentication_and_cache_headers() {
         let capture = Arc::new(Capture::default());
         let state = PartyLocationsState {
+            discovery: None,
             create: capture.clone(),
             update: capture.clone(),
             lifecycle: capture.clone(),

@@ -37,6 +37,8 @@ pub struct CreateSearchFilterResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateSearchFilterError {
+    #[error("invalid geographic query")]
+    InvalidGeographicQuery,
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
@@ -141,6 +143,10 @@ where
         context: &OperationContext,
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
+        command
+            .search
+            .validate_geography()
+            .map_err(|_| CreateSearchFilterError::InvalidGeographicQuery)?;
         authorize_owner(context, command.user_id)?;
         let embedding = match embedding_query(&command.search).map_err(embedding_error)? {
             Some(query) => Some(

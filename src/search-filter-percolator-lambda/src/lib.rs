@@ -36,7 +36,7 @@ pub fn compose_percolator_use_case(
 ) -> Arc<dyn MatchProductListingEventUseCase> {
     Arc::new(
         MatchProductListingEventHandler::new(
-            SqlxUnitOfWork::new(pool),
+            SqlxUnitOfWork::new(pool.clone()),
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
@@ -45,7 +45,10 @@ pub fn compose_percolator_use_case(
             SqlxActiveSearchFilterMatchCandidateReaderFactory,
             SqlxSearchFilterMatchWriterFactory,
         )
-        .with_should_show_threshold(should_show_threshold),
+        .with_should_show_threshold(should_show_threshold)
+        .with_geographic_gate(Arc::new(
+            product_listing_postgres::geography::SqlxGeographicQueryGate::new(pool),
+        )),
     )
 }
 

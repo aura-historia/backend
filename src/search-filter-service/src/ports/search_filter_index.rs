@@ -64,10 +64,20 @@ pub trait SearchFilterIndex: Send + Sync {
         id: UserSearchFilterId,
         source_version: i64,
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
+    /// Match filters without geographic predicates.
     async fn percolate(
         &self,
         input: &ProductListingPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError>;
+    /// Separate query so a closed geographic gate never executes geographic matching.
+    async fn percolate_geographic(
+        &self,
+        _input: &ProductListingPercolationInput,
+    ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+        Err(SearchFilterIndexError::PercolateFailed {
+            source: application::error::static_error("geographic percolation is not supported"),
+        })
+    }
     async fn query(
         &self,
         query: &SearchFilterIndexQuery,

@@ -47,6 +47,65 @@ use time::{OffsetDateTime, macros::datetime};
 use url::Url;
 
 #[aura_integration_test(services = [OpenSearch()])]
+async fn should_percolate_private_geographic_snapshots_separately_and_preserve_unrelated_filters() {
+    use geo::core::discovery::*;
+    use product_listing_service::geography::GeographicDimension;
+    let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
+    let ordinary = sample_view("geographic inventory cabinet");
+    let mut geographic = sample_view("geographic inventory cabinet");
+    geographic.search.inventory_geography = Some(
+        GeographicQuery::new(
+            geo::reference::ReferenceRelease::CURRENT,
+            std::collections::HashSet::from([geo::CountryCode::DEU]),
+            std::collections::HashSet::from([geo::SubdivisionCode::new("DE-BY").unwrap()]),
+            Some(geo::GeoPoint::new(48.137, 11.575).unwrap()),
+            Some(25.0),
+            ProximityMode::Strict,
+            None,
+        )
+        .unwrap(),
+    );
+    index.upsert(&projection(&ordinary, 1)).await.unwrap();
+    index.upsert(&projection(&geographic, 1)).await.unwrap();
+    refresh_index("user_search_filters").await;
+    let mut input = percolation_input("geographic inventory cabinet");
+    let dimension = GeographicDimension {
+        location_id: party_core::party_location_id::PartyLocationId::new(),
+        reference_release: geo::reference::ReferenceRelease::CURRENT,
+        country: Some(geo::CountryCode::DEU),
+        subdivision: Some(geo::SubdivisionCode::new("DE-BY").unwrap()),
+        position: Some(
+            geo::SpatialPosition::new(
+                geo::GeoPoint::new(48.137, 11.575).unwrap(),
+                geo::SpatialPrecision::Premises,
+                None,
+            )
+            .unwrap(),
+        ),
+    };
+    input.source.geography.business = Some(dimension.clone());
+    assert!(index.percolate_geographic(&input).await.unwrap().is_empty());
+    input.source.geography.inventory = Some(dimension);
+    let matches = index.percolate_geographic(&input).await.unwrap();
+    assert_eq!(1, matches.len());
+    assert_eq!(geographic.search_filter_id, matches[0].search_filter_id);
+    assert_eq!(geographic.search, matches[0].search);
+    assert_eq!(
+        vec![ordinary.search_filter_id],
+        index
+            .percolate(&input)
+            .await
+            .unwrap()
+            .iter()
+            .map(|f| f.search_filter_id)
+            .collect::<Vec<_>>()
+    );
+    input.source.geography = Default::default();
+    assert!(index.percolate_geographic(&input).await.unwrap().is_empty());
+    assert_eq!(1, index.percolate(&input).await.unwrap().len());
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_query_percolate_and_delete_search_filter_document() {
     let client = get_opensearch_client().await.clone();
     let index = OpenSearchSearchFilterIndex::new(client);

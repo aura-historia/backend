@@ -3700,6 +3700,61 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
+  /api/v1/party-locations:
+    get:
+      summary: Discover public Party locations
+      operationId: discoverPartyLocations
+      tags: [Parties]
+      security: []
+      description: >-
+        Location-oriented discovery of eligible active Party sites. Multiple matching sites of
+        one Party intentionally appear as separate locations. Country/subdivision predicates
+        need no coordinates. Radius or distance ordering requires an explicit numeric origin.
+        Strict proximity requires PREMISES precision; approximate mode retains coarse labels.
+        Ordered by distance when requested, then native location UUID ascending; otherwise
+        UUID ascending. A closed or changed G6 eligibility epoch suppresses the complete result.
+        All responses are private, no-store. Management evidence, addresses and revisions stay private.
+      parameters:
+        - name: geography
+          in: query
+          required: true
+          style: deepObject
+          explode: true
+          schema:
+            $ref: '#/components/schemas/GeographicSearchData'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 21}
+        - name: searchAfter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            $ref: '#/components/schemas/PartyLocationDiscoveryCursorData'
+      responses:
+        '200':
+          description: Matching public locations; empty without continuation during eligibility suppression.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, size]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/PublicPartyLocationData'}
+                  size: {type: integer}
+                  searchAfter: {$ref: '#/components/schemas/PartyLocationDiscoveryCursorData'}
+        '400':
+          description: Invalid geographic predicates, origin or continuation (BAD_QUERY_PARAMETER_VALUE).
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/ApiError'}
+        '503':
+          description: Location or eligibility authority unavailable (PARTY_TEMPORARILY_UNAVAILABLE).
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/ApiError'}
   /api/v1/product-listings:
     get:
       summary: Simple product search via query parameters
@@ -3708,11 +3763,28 @@ paths:
         KNN retrieval when embedding generation succeeds; otherwise the backend falls back to BM25. Explicit non-score sorts
         use BM25. Any request with an Authorization header is private and not stored, including valid credentials that add
         user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60, stale-if-error=0`; errors use `private, no-store`.
-        `language` defaults to `en` and `currency` defaults to `EUR`."
+        Geographic dimensions are AND; values in each country or subdivision set are OR.
+        Missing geography never matches. Radius is inclusive kilometres to the same recorded
+        point used by distance ordering. Numeric origins never resolve from addresses/preferences.
+        Distance ordering conflicts with sort and with a second distance order, and uses lexical
+        text matching. Geographic responses are private, no-store; a closed or changed G6 gate
+        suppresses items, total and continuation. `language` defaults to `en` and `currency` defaults to `EUR`."
       operationId: simpleSearchProductListings
       tags:
         - ProductListings
       parameters:
+        - name: businessGeography
+          in: query
+          style: deepObject
+          explode: true
+          description: Associated business geography, independent of advertised inventory and seller attribution.
+          schema: {$ref: '#/components/schemas/GeographicSearchData'}
+        - name: inventoryGeography
+          in: query
+          style: deepObject
+          explode: true
+          description: Advertised item geography; source defaults do not confirm individual physical custody.
+          schema: {$ref: '#/components/schemas/GeographicSearchData'}
         - name: language
           in: query
           required: false
@@ -16731,6 +16803,12 @@ components:
         - images
         - updated
       properties:
+        geography:
+          type: object
+          description: Public eligible geography on geographic search summaries only.
+          properties:
+            business: {$ref: '#/components/schemas/ListingDiscoveryDimensionData'}
+            inventory: {$ref: '#/components/schemas/ListingDiscoveryDimensionData'}
         productListingId:
           type: string
         productListingTitleSlugId:
@@ -17938,10 +18016,88 @@ components:
             - BODY
           description: Type of parameter that caused the error
           example: PATH
+    GeographicOriginData:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude]
+      description: Explicit finite numeric WGS 84 coordinates in degrees; no text, address or preference resolution.
+      properties:
+        latitude: {type: number, minimum: -90, maximum: 90}
+        longitude: {type: number, minimum: -180, maximum: 180}
+    GeographicSearchData:
+      type: object
+      additionalProperties: false
+      description: >-
+        At least one country, subdivision, radius or distance order is required. Sets are OR;
+        predicates and listing dimensions are AND. Subdivisions must belong to a supplied country
+        when countries is nonempty. Absence excludes a result. Radius and ordering require an
+        explicit numeric origin; an origin or approximate mode without proximity is invalid.
+        Strict proximity admits PREMISES only; approximate also admits STREET, LOCALITY and
+        REPRESENTATIVE. Only one listing dimension may request distance ordering, incompatible
+        with the existing sort. Saved filters retain a private immutable snapshot until replaced.
+      properties:
+        countries:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: {type: string, pattern: '^[A-Z]{2}$'}
+          example: [DE]
+        subdivisions:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: {type: string}
+          example: [DE-BY]
+        origin: {$ref: '#/components/schemas/GeographicOriginData'}
+        radiusKm: {type: number, minimum: 0, exclusiveMinimum: true, maximum: 20000, example: 25}
+        mode: {type: string, enum: [STRICT, APPROXIMATE], default: STRICT}
+        distanceOrder: {type: string, enum: [ASC, DESC]}
+    ListingDiscoveryDimensionData:
+      type: object
+      required: [locationId, basis, referenceRelease]
+      description: >-
+        Public source-default geography, independent for each role. Distance is to recorded
+        evidence, not verified object position or journey distance. Display is rounded to
+        0.1 km for premises, 1 km for street and 10 km for locality/representative evidence.
+      properties:
+        locationId: {type: string}
+        basis: {type: string, enum: [SOURCE_DEFAULT_DERIVED]}
+        referenceRelease: {type: string}
+        country: {type: string}
+        subdivision: {type: string}
+        point: {$ref: '#/components/schemas/GeographicOriginData'}
+        precision: {type: string, enum: [PREMISES, STREET, LOCALITY, REPRESENTATIVE]}
+        distanceKm: {type: number, minimum: 0}
+    PartyLocationDiscoveryCursorData:
+      type: object
+      additionalProperties: false
+      required: [locationId]
+      description: Repeat with the same query. distanceKm is required exactly when ordering by distance; it is an unrounded continuation value.
+      properties:
+        locationId: {type: string}
+        distanceKm: {type: number, minimum: 0}
+    PublicPartyLocationData:
+      type: object
+      required: [partyId, partyName, locationId, label, basis]
+      properties:
+        partyId: {type: string}
+        partyName: {type: string}
+        locationId: {type: string}
+        label: {type: string}
+        basis: {type: string, enum: [CALLER_ASSERTED, ACCEPTED_DERIVED, MIXED_ASSERTED_AND_DERIVED]}
+        country: {type: string}
+        subdivision: {type: string}
+        point: {$ref: '#/components/schemas/GeographicOriginData'}
+        precision: {type: string, enum: [PREMISES, STREET, LOCALITY, REPRESENTATIVE]}
+        distanceKm: {type: number, minimum: 0, description: Rounded display distance following evidence precision.}
     ProductListingSearchData:
       type: object
       description: ProductListing search criteria used by saved search filters.
       properties:
+        businessGeography:
+          $ref: '#/components/schemas/GeographicSearchData'
+        inventoryGeography:
+          $ref: '#/components/schemas/GeographicSearchData'
         language:
           $ref: "#/components/schemas/LanguageData"
         currency:
@@ -18105,6 +18261,14 @@ components:
         date ranges, and the availability query may be cleared with `null`; availability, orderability, and includeUnspecifiedAvailability`
         must be supplied together or all be `null`.
       properties:
+        businessGeography:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/GeographicSearchData'}]
+          description: Omitted leaves the private snapshot unchanged; null clears; an object replaces the complete dimension.
+        inventoryGeography:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/GeographicSearchData'}]
+          description: Omitted leaves the private snapshot unchanged; null clears; an object replaces the complete dimension.
         language:
           $ref: "#/components/schemas/LanguageData"
           nullable: true

@@ -73,6 +73,12 @@ pub struct GeographyWrite {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum GeographyError {
+    #[error("geographic eligibility read failed")]
+    Eligibility(
+        #[from]
+        #[source]
+        geo_service::discovery::GeographicEligibilityError,
+    ),
     #[error("effective geography persistence failed")]
     Storage(#[source] BoxError),
     #[error("effective geography transaction failed")]
@@ -274,14 +280,9 @@ pub fn derive(
 
 /// A query-wide barrier: guard BEFORE query/filter/ranking/facets and AFTER execution.
 /// G7 must wrap every public geographic query in this service capability. No cache.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeographicQueryPermit {
-    pub epoch: i64,
-}
-#[async_trait::async_trait]
-pub trait GeographicQueryGate: Send + Sync {
-    async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError>;
-}
+pub use geo_service::discovery::{
+    GeographicEligibilityError, GeographicQueryGate, GeographicQueryPermit,
+};
 pub async fn with_geographic_eligibility<G, F, Fut, T>(
     gate: &G,
     query: F,
@@ -291,14 +292,9 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, GeographyError>>,
 {
-    let Some(before) = gate.permit().await? else {
-        return Ok(None);
-    };
-    let result = query().await?;
-    if gate.permit().await? != Some(before) {
-        return Ok(None);
-    }
-    Ok(Some(result))
+    geo_service::discovery::with_geographic_eligibility(gate, || async { Ok(query().await) })
+        .await?
+        .transpose()
 }
 
 #[async_trait::async_trait]
@@ -382,11 +378,16 @@ mod tests {
         struct Gate(std::sync::Mutex<Vec<Option<GeographicQueryPermit>>>);
         #[async_trait::async_trait]
         impl GeographicQueryGate for Gate {
-            async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError> {
+            async fn permit(
+                &self,
+            ) -> Result<Option<GeographicQueryPermit>, GeographicEligibilityError> {
                 Ok(self.0.lock().expect("lock").remove(0))
             }
         }
-        let p = Some(GeographicQueryPermit { epoch: 1 });
+        let p = Some(GeographicQueryPermit {
+            epoch: 1,
+            ..Default::default()
+        });
         let closed = Gate(std::sync::Mutex::new(vec![None]));
         assert!(
             with_geographic_eligibility(&closed, || async {
@@ -398,7 +399,13 @@ mod tests {
             .expect("gate")
             .is_none()
         );
-        for end in [None, Some(GeographicQueryPermit { epoch: 2 })] {
+        for end in [
+            None,
+            Some(GeographicQueryPermit {
+                epoch: 2,
+                ..Default::default()
+            }),
+        ] {
             let revoked = Gate(std::sync::Mutex::new(vec![p, end]));
             assert!(
                 with_geographic_eligibility(&revoked, || async {

@@ -1,6 +1,7 @@
 pub mod continent;
 pub mod country;
 pub mod description;
+pub mod discovery;
 pub mod distance;
 pub mod position;
 pub mod subdivision;

@@ -70,6 +70,7 @@ pub struct ProductListingSearchCursor {
 /// Raw image URLs stay here until the service hydrates user state and applies content policy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSearchItem {
+    pub geography: crate::geographic_search::ListingDiscoveryGeography,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
@@ -88,6 +89,7 @@ pub struct ProductListingSearchItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
+    pub geography: crate::geographic_search::ListingDiscoveryGeography,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
@@ -147,6 +149,10 @@ pub enum ProductListingSearchReadExecutionPolicy {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchProductListingsError {
+    #[error("contradictory geographic query or distance ordering")]
+    InvalidGeographicQuery,
+    #[error("geographic eligibility read failed")]
+    Geography(#[source] crate::geography::GeographyError),
     #[error("product search query failed")]
     ProductListingSearchQueryFailed,
     #[error("product search read model is invalid")]
@@ -495,6 +501,7 @@ pub(crate) fn present_product_summaries_from_assessments(
             let visible = may_show_product_listing_images(decision, show_all);
             Personalized {
                 item: ProductListingSummary {
+                    geography: product.item.item.geography,
                     product_listing_id: product.item.item.product_listing_id,
                     product_listing_title_slug_id: (!product
                         .user_state
@@ -600,6 +607,9 @@ fn fx_rate_snapshot_read_error(error: FxRateSnapshotReadError) -> SearchProductL
 }
 
 fn hybrid_embedding_query(request: &SearchProductListingsRequest) -> Option<EmbeddingText> {
+    if request.search.distance_query().is_some() {
+        return None;
+    }
     if !matches!(
         request.sort.as_ref().map(|sort| sort.sort),
         None | Some(SortProductListingField::Score)
@@ -633,6 +643,10 @@ fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::
 impl From<ProductListingSearchReadError> for SearchProductListingsError {
     fn from(error: ProductListingSearchReadError) -> Self {
         match error {
+            ProductListingSearchReadError::Geography(e) => Self::Geography(e),
+            ProductListingSearchReadError::GeographicEligibilityPending => {
+                Self::ProductListingSearchQueryFailed
+            }
             ProductListingSearchReadError::ProductListingSearchQueryFailed => {
                 Self::ProductListingSearchQueryFailed
             }
@@ -1381,6 +1395,7 @@ mod tests {
     fn search_result() -> Result<ProductListingSearchReadResult, url::ParseError> {
         Ok(ProductListingSearchReadResult {
             items: vec![ProductListingSearchItem {
+                geography: Default::default(),
                 product_listing_id: ProductListingId::new(),
                 product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
                     .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),

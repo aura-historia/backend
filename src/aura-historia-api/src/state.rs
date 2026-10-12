@@ -1009,6 +1009,7 @@ impl PartnershipsState {
 
 #[derive(Clone)]
 pub struct PartyLocationsState {
+    pub(crate) discovery: Option<Arc<dyn party_service::discovery::DiscoverPartyLocationsUseCase>>,
     pub(crate) create:
         Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
     pub(crate) update:
@@ -1037,6 +1038,7 @@ impl PartyLocationsState {
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
+            discovery: None,
             create,
             update,
             lifecycle,

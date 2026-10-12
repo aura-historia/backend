@@ -440,13 +440,12 @@ impl SqlxGeographicQueryGate {
 }
 #[async_trait::async_trait]
 impl GeographicQueryGate for SqlxGeographicQueryGate {
-    async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographyError> {
-        let epoch=sqlx::query_scalar::<_,i64>(r#"
-            SELECT epoch FROM listing_geography_gate WHERE NOT EXISTS(SELECT 1 FROM listing_geography_work WHERE pending AND blocks_queries)
-            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE blocks_queries AND indexed_version<geography_version)
-            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE valid_until<=clock_timestamp())
-        "#).fetch_optional(&self.pool).await.map_err(storage)?;
-        Ok(epoch.map(|epoch| GeographicQueryPermit { epoch }))
+    async fn permit(&self) -> Result<Option<GeographicQueryPermit>, GeographicEligibilityError> {
+        let permit = sqlx::query_as::<_, GeographicPermitRow>(GEOGRAPHIC_PERMIT_SQL)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| GeographicEligibilityError(box_error(e)))?;
+        Ok(permit.map(Into::into))
     }
 }
 
@@ -481,5 +480,37 @@ impl EffectiveListingGeographyBatchReader for SqlxEffectiveListingGeographyBatch
                 .bind(ids).fetch_all(&self.pool).await.map_err(storage)?;
             rows.into_iter().map(|(id,value)|Ok((id.try_into().map_err(storage)?,decode(value)?))).collect()
         }).await?.unwrap_or_default())
+    }
+}
+
+pub(crate) const GEOGRAPHIC_PERMIT_SQL: &str = r#"
+            SELECT epoch, (
+                SELECT min(r.valid_until)
+                FROM geo_resolution_bindings b
+                JOIN party_locations l ON b.subject_kind='PARTY_LOCATION'
+                    AND l.party_location_id=b.subject_id AND l.lifecycle='ACTIVE'
+                    AND b.guard=l.revision AND b.input_revision=l.input_revision
+                JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
+                JOIN geo_resolution_provider_controls c ON c.profile=r.profile
+                WHERE c.storage_permitted AND NOT r.erased AND r.valid_until>clock_timestamp()
+                    AND (r.evidence->>'accepted_index' IS NOT NULL
+                        OR (b.selected_generation=r.generation AND b.selected_candidate IS NOT NULL))
+            ) AS eligibility_deadline
+            FROM listing_geography_gate WHERE NOT EXISTS(SELECT 1 FROM listing_geography_work WHERE pending AND blocks_queries)
+            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE blocks_queries AND indexed_version<geography_version)
+            AND NOT EXISTS(SELECT 1 FROM product_listing_geographies WHERE valid_until<=clock_timestamp())
+        "#;
+
+#[derive(sqlx::FromRow)]
+pub(crate) struct GeographicPermitRow {
+    epoch: i64,
+    eligibility_deadline: Option<time::OffsetDateTime>,
+}
+impl From<GeographicPermitRow> for GeographicQueryPermit {
+    fn from(row: GeographicPermitRow) -> Self {
+        Self {
+            epoch: row.epoch,
+            eligibility_deadline: row.eligibility_deadline,
+        }
     }
 }

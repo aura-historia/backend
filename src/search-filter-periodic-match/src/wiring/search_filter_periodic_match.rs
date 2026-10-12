@@ -62,8 +62,9 @@ pub async fn build_from_env()
             SqlxPeriodicSearchFilterMatchingRunLock::new(config.postgres),
             SqlxPeriodicSearchFilterCandidateReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductListingSearchReader::new(client),
-            SqlxExistingSearchFilterMatchReader::new(pool),
+            product_listing_service::geographic_search::GeographicallyEligibleProductListingSearchReader::new(
+                OpenSearchProductListingSearchReader::new(client), product_listing_postgres::geography::SqlxGeographicQueryGate::new(pool.clone())),
+            SqlxExistingSearchFilterMatchReader::new(pool.clone()),
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             evaluator,
             SqlxProductListingCurrentEventGuardFactory::new(),
@@ -71,7 +72,8 @@ pub async fn build_from_env()
             SqlxPeriodicSearchFilterProgressFactory,
             config.policy,
         )
-        .map_err(WiringError::Handler)?,
+        .map_err(WiringError::Handler)?
+        .with_geographic_gate(Arc::new(product_listing_postgres::geography::SqlxGeographicQueryGate::new(pool))),
     );
     Ok((handler, config.max_run_duration))
 }
