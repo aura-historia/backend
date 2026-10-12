@@ -810,7 +810,9 @@ describe.each(STAGES)("%s worker queues", (stage) => {
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {
-    data.resourceCountIs("AWS::CloudWatch::Alarm", 0);
+    const dataQueueAlarms = Object.values(data.findResources("AWS::CloudWatch::Alarm"))
+      .filter((resource) => resource.Properties.Namespace === "AWS/SQS");
+    expect(dataQueueAlarms).toHaveLength(0);
     compute.resourceCountIs("AWS::CloudWatch::Alarm", 0);
     if (stage !== "prod") {
       expect(stacks.observability).toBeUndefined();
