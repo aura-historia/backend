@@ -70,18 +70,23 @@ async fn should_purge_only_its_source_and_dlq_including_invisible_messages() {
 
 #[aura_integration_test(services = [SQS])]
 async fn should_expose_production_queue_metadata_for_every_worker_visibility_class() {
-    for (scope, visibility) in [
-        ("product-listing-normalization", 300),
-        ("search-filter-projection", 60),
-        ("search-filter-percolator", 300),
-        ("search-filter-match-notification", 60),
-        ("watchlist-notification", 60),
-        ("notification-delivery", 360),
-        ("product-content-assessment", 60),
-        ("product-embedding", 300),
+    let expected = [
+        ("product-listing-opensearch", 300),
+        ("search-filter-match-notification", 300),
+        ("watchlist-notification", 300),
+        ("product-content-assessment", 270),
+        ("product-embedding", 360),
         ("product-translation", 300),
-        ("product-listing-opensearch", 60),
-    ] {
+        ("product-listing-normalization", 270),
+        ("notification-delivery", 330),
+        ("marketing-consent-sync", 330),
+        ("geo-resolution", 300),
+        ("listing-geography", 300),
+    ];
+    assert_eq!(11, expected.len());
+    for (scope, visibility) in expected {
+        let fifo = scope == "marketing-consent-sync";
+        let suffix = if fifo { ".fifo" } else { "" };
         let queues = WorkerSqs::new(scope, visibility);
         queues.set_up().await;
         let source = get_sqs_client()
@@ -104,7 +109,7 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
         let dlq = dlq.attributes().unwrap();
         assert_eq!(
             format!(
-                "{}/000000000000/aura-worker-{scope}-test",
+                "{}/000000000000/aura-worker-{scope}-test{suffix}",
                 localstack::get_endpoint_url()
             ),
             queues.queue_url()
@@ -114,7 +119,12 @@ async fn should_expose_production_queue_metadata_for_every_worker_visibility_cla
         assert_eq!(visibility.to_string(), source[&A::VisibilityTimeout]);
         assert_eq!("20", source[&A::ReceiveMessageWaitTimeSeconds]);
         for attrs in [source, dlq] {
-            assert_ne!(Some("true"), attrs.get(&A::FifoQueue).map(String::as_str));
+            if fifo {
+                assert_eq!("true", attrs[&A::FifoQueue]);
+                assert_eq!("false", attrs[&A::ContentBasedDeduplication]);
+            } else {
+                assert_ne!(Some("true"), attrs.get(&A::FifoQueue).map(String::as_str));
+            }
             assert_eq!("true", attrs[&A::SqsManagedSseEnabled]);
             let policy: serde_json::Value = serde_json::from_str(&attrs[&A::Policy]).unwrap();
             assert_eq!(

@@ -53,7 +53,7 @@ fn queue_url(name: &str) -> String {
     format!("{}/000000000000/{name}", get_endpoint_url())
 }
 
-/// Configurable Standard source/DLQ pair. Cleanup touches only these two queues.
+/// Configurable source/DLQ pair. Cleanup touches only these two queues.
 #[derive(Debug, Clone)]
 pub struct SqsQueuePair {
     pub name: String,
@@ -112,9 +112,11 @@ impl WorkerSqs {
 
     pub fn queues(&self) -> SqsQueuePair {
         use QueueAttributeName as A;
+        let fifo = self.scope == "marketing-consent-sync";
+        let suffix = if fifo { ".fifo" } else { "" };
         let mut pair = SqsQueuePair::new(
-            format!("aura-worker-{}-test", self.scope),
-            format!("aura-worker-{}-dlq-test", self.scope),
+            format!("aura-worker-{}-test{suffix}", self.scope),
+            format!("aura-worker-{}-dlq-test{suffix}", self.scope),
         );
         pair.max_receive_count = 5;
         pair.attributes = HashMap::from([
@@ -141,6 +143,12 @@ impl WorkerSqs {
                 .to_string(),
             ),
         ]);
+        if fifo {
+            for attributes in [&mut pair.attributes, &mut pair.dead_letter_attributes] {
+                attributes.insert(A::FifoQueue, "true".to_owned());
+                attributes.insert(A::ContentBasedDeduplication, "false".to_owned());
+            }
+        }
         pair
     }
 
@@ -377,4 +385,44 @@ async fn drain_queue(queue_url: &str) {
             });
     }
     debug!("Drained SQS queue '{queue_url}'.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_queue_pairs_preserve_standard_and_consent_fifo_metadata() {
+        for (scope, visibility, fifo) in [
+            ("search-filter-match-notification", 300, false),
+            ("marketing-consent-sync", 330, true),
+        ] {
+            let pair = WorkerSqs::new(scope, visibility).queues();
+            let suffix = if fifo { ".fifo" } else { "" };
+            assert_eq!(format!("aura-worker-{scope}-test{suffix}"), pair.name);
+            assert_eq!(
+                format!("aura-worker-{scope}-dlq-test{suffix}"),
+                pair.dead_letter_name
+            );
+            assert_eq!(5, pair.max_receive_count);
+            assert_eq!(
+                visibility.to_string(),
+                pair.attributes[&QueueAttributeName::VisibilityTimeout]
+            );
+            for attributes in [&pair.attributes, &pair.dead_letter_attributes] {
+                if fifo {
+                    assert_eq!("true", attributes[&QueueAttributeName::FifoQueue]);
+                    assert_eq!(
+                        "false",
+                        attributes[&QueueAttributeName::ContentBasedDeduplication]
+                    );
+                } else {
+                    assert!(!attributes.contains_key(&QueueAttributeName::FifoQueue));
+                    assert!(
+                        !attributes.contains_key(&QueueAttributeName::ContentBasedDeduplication)
+                    );
+                }
+            }
+        }
+    }
 }

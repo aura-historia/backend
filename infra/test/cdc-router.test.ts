@@ -5,8 +5,6 @@ import { createApplicationStacks } from "../src/application-stack";
 const REAL_STAGES = ["dev", "prod"] as const;
 
 const ROUTER_QUEUES = {
-  SEARCH_FILTER_PROJECTION: "search-filter-projection",
-  SEARCH_FILTER_PERCOLATOR: "search-filter-percolator",
   SEARCH_FILTER_MATCH_NOTIFICATION: "search-filter-match-notification",
   WATCHLIST_NOTIFICATION: "watchlist-notification",
   PRODUCT_LISTING_CONTENT_ASSESSMENT: "product-content-assessment",
@@ -248,8 +246,8 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     });
     const sourceQueueArns = sourceQueues?.Resource as unknown[];
     const deadLetterQueueArns = deadLetterQueues?.Resource as unknown[];
-    expect(sourceQueueArns).toHaveLength(13);
-    expect(deadLetterQueueArns).toHaveLength(13);
+    expect(sourceQueueArns).toHaveLength(Object.keys(ROUTER_QUEUES).length);
+    expect(deadLetterQueueArns).toHaveLength(Object.keys(ROUTER_QUEUES).length);
     for (const workerScope of Object.values(ROUTER_QUEUES)) {
       expect(JSON.stringify(sourceQueueArns)).toContain(`aura-worker-${workerScope}-${stage}`);
       expect(JSON.stringify(deadLetterQueueArns)).toContain(`aura-worker-${workerScope}-dlq-${stage}`);

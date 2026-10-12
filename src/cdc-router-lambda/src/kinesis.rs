@@ -304,7 +304,30 @@ mod tests {
             .await
             .unwrap();
         assert!(result.batch_item_failures.is_empty());
-        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
+        assert_eq!(4, recorder.attempts.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn removed_search_filter_source_retains_failure_custody_and_stops_later_records() {
+        for removed in [
+            include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
+            include_str!("../tests/fixtures/dms-kinesis/search-filter-update.json"),
+            include_str!("../tests/fixtures/dms-kinesis/synthetic-search-filter-delete.json"),
+        ] {
+            let (fanout, recorder) = fanout();
+            let result = handler(
+                event(vec![record("100", removed), record("101", DATA)]),
+                &fanout,
+            )
+            .await
+            .unwrap();
+            assert_eq!(1, result.batch_item_failures.len());
+            assert_eq!(
+                Some("100"),
+                result.batch_item_failures[0].item_identifier.as_deref()
+            );
+            assert_eq!(0, recorder.attempts.load(Ordering::SeqCst));
+        }
     }
 
     #[tokio::test]
@@ -348,7 +371,7 @@ mod tests {
             Some("102"),
             result.batch_item_failures[0].item_identifier.as_deref()
         );
-        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
+        assert_eq!(4, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -384,9 +407,9 @@ mod tests {
         .unwrap();
         assert!(replay.batch_item_failures.is_empty());
         let bodies = recorder.bodies.lock().unwrap();
-        assert_eq!(11, bodies.len()); // One confirmed job, then both five-job fanouts.
+        assert_eq!(9, bodies.len()); // One confirmed job, then both four-job fanouts.
         assert_eq!(first, bodies[1]);
-        assert_eq!(bodies[1..6], bodies[6..11]);
+        assert_eq!(bodies[1..5], bodies[5..9]);
     }
 
     #[tokio::test]
@@ -460,7 +483,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result.batch_item_failures.is_empty());
-        assert_eq!(5, recorder.attempts.load(Ordering::SeqCst));
+        assert_eq!(4, recorder.attempts.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

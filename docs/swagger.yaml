@@ -4050,6 +4050,11 @@ paths:
         pagination in ascending persisted match-creation order. This endpoint does not execute a
         live search or preview the filter against current product listings.
 
+        New matches are discovered only by scheduled matching of active enhanced filters, subject
+        to product-search projection lag. Non-enhanced filters do not discover new matches;
+        their historical matches remain available. Match discovery and notifications are not
+        synchronous with listing changes or filter creation.
+
         Requires a Cognito JWT or an Aura access token with `search-filters:read`.
       operationId: listSearchFilterMatches
       tags:

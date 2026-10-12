@@ -212,12 +212,10 @@ fn job_body(
         target_queue: WorkerQueue::ProductListingEmbed,
         idempotency_key: IdempotencyKey::new(format!("product-event:{source}")),
         ordering_key: OrderingKey::new(format!("product:{product}")),
-        payload: DomainJobPayload::<aura_historia_jobs::SearchFilterOperation>::ProductListingEvent(
-            ProductListingEventJob {
-                event_id: source,
-                product_listing_id: product,
-            },
-        ),
+        payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+            event_id: source,
+            product_listing_id: product,
+        }),
     })
 }
 

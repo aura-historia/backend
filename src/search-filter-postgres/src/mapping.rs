@@ -20,9 +20,8 @@ use product_listing_core::product_listing_search::{
 };
 use search_filter_core::{SearchFilter, SearchFilterProductListingMatch};
 use search_filter_service::ports::{
-    PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterIndexReadError,
-    SearchFilterMatchView, SearchFilterProjection, SearchFilterReadError,
-    SearchFilterRepositoryError, SearchFilterView,
+    PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterMatchView,
+    SearchFilterReadError, SearchFilterRepositoryError, SearchFilterView,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -192,49 +191,6 @@ impl FilterRow {
             embedding: self.embedding,
             created,
             updated,
-        })
-    }
-
-    pub(crate) fn into_projection(
-        self,
-    ) -> Result<SearchFilterProjection, SearchFilterIndexReadError> {
-        let source_version = self.version;
-        let created = self.created;
-        let updated = self.updated;
-        let view = SearchFilterView {
-            search_filter_id: UserSearchFilterId::try_from(self.user_search_filter_id).map_err(
-                |source| SearchFilterIndexReadError::InvalidPersistedState {
-                    source: box_error(source),
-                },
-            )?,
-            user_id: UserId::try_from(self.user_id).map_err(|source| {
-                SearchFilterIndexReadError::InvalidPersistedState {
-                    source: box_error(source),
-                }
-            })?,
-            name: name(self.name).map_err(|source| {
-                SearchFilterIndexReadError::InvalidPersistedState {
-                    source: box_error(source),
-                }
-            })?,
-            notifications: self.notifications,
-            state: state(&self.state).map_err(|source| {
-                SearchFilterIndexReadError::InvalidPersistedState {
-                    source: box_error(source),
-                }
-            })?,
-            search: product_search_from_json(self.search).map_err(|source| {
-                SearchFilterIndexReadError::InvalidPersistedState {
-                    source: box_error(source),
-                }
-            })?,
-            embedding: self.embedding,
-            created,
-            updated,
-        };
-        Ok(SearchFilterProjection {
-            view,
-            source_version,
         })
     }
 }
@@ -777,15 +733,11 @@ mod tests {
         let persisted =
             filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_persisted()?;
         let view = filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_view()?;
-        let projection =
-            filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_projection()?;
 
         assert_eq!(search_filter_id, persisted.filter.id());
         assert_eq!(user_id, persisted.filter.user_id());
         assert_eq!(search_filter_id, view.search_filter_id);
         assert_eq!(user_id, view.user_id);
-        assert_eq!(search_filter_id, projection.view.search_filter_id);
-        assert_eq!(user_id, projection.view.user_id);
         Ok(())
     }
 
@@ -798,10 +750,6 @@ mod tests {
         assert!(matches!(
             filter_row(UserSearchFilterId::new().into_uuid(), uuid::Uuid::new_v4())?.into_view(),
             Err(SearchFilterReadError::InvalidPersistedState)
-        ));
-        assert!(matches!(
-            filter_row(uuid::Uuid::new_v4(), UserId::new().into_uuid())?.into_projection(),
-            Err(SearchFilterIndexReadError::InvalidPersistedState { .. })
         ));
         Ok(())
     }

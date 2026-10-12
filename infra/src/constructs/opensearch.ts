@@ -25,10 +25,6 @@ export class Search extends Construct {
     });
   }
 
-  grantRead(grantee: iam.IGrantable): void {
-    this.addPolicy(grantee, ["es:Describe*", "es:List*", "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost"]);
-  }
-
   grantIndexDocumentWrite(grantee: iam.IGrantable): void {
     this.addPolicy(grantee, ["es:ESHttpPut"]);
   }

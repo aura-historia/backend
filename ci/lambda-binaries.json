@@ -14,8 +14,6 @@
   "product-content-assessment-lambda",
   "product-embedding-lambda",
   "product-translation-lambda",
-  "search-filter-projection-lambda",
-  "search-filter-percolator-lambda",
   "search-filter-match-notification-lambda",
   "watchlist-notification-lambda",
   "notification-delivery-lambda",

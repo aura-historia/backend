@@ -259,9 +259,10 @@ revisions. Geographic HTTP responses are `private, no-store`, including anonymou
 
 Saved geographic predicates contain private, release-pinned coordinate snapshots. Replacing
 the predicate replaces its origin; unrelated patches or address/preference edits never move
-it. Owner authorization and account erasure apply. Geography events evaluate geographic
-filters only; ordinary events also evaluate ordinary filters. Existing version, authority
-and idempotency checks apply. [OpenAPI](swagger.yaml) owns field shapes and errors.
+it. Owner authorization and account erasure apply. [Periodic matching](events/flow.md#periodic-saved-filter-matching)
+evaluates saved geographic predicates through ProductListing search, subject to its
+projection lag; geography events do not directly match saved filters.
+[OpenAPI](swagger.yaml) owns field shapes and errors.
 
 ## Private user address books and browsing destinations (#2005)
 

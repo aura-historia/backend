@@ -26,8 +26,6 @@ export interface EventingProps {
   readonly productContentAssessmentVersion: lambda.IVersion;
   readonly productEmbeddingVersion: lambda.IVersion;
   readonly productTranslationVersion: lambda.IVersion;
-  readonly searchFilterProjectionVersion: lambda.IVersion;
-  readonly searchFilterPercolatorVersion: lambda.IVersion;
   readonly searchFilterMatchNotificationVersion: lambda.IVersion;
   readonly watchlistNotificationVersion: lambda.IVersion;
   readonly notificationDeliveryVersion: lambda.IVersion;
@@ -41,8 +39,6 @@ export interface EventingProps {
 }
 
 const CDC_ROUTER_QUEUE_SCOPES = {
-  SEARCH_FILTER_PROJECTION: "search-filter-projection",
-  SEARCH_FILTER_PERCOLATOR: "search-filter-percolator",
   SEARCH_FILTER_MATCH_NOTIFICATION: "search-filter-match-notification",
   WATCHLIST_NOTIFICATION: "watchlist-notification",
   PRODUCT_LISTING_CONTENT_ASSESSMENT: "product-content-assessment",
@@ -108,8 +104,6 @@ export class Eventing extends Construct {
       props.productContentAssessmentVersion,
       props.productEmbeddingVersion,
       props.productTranslationVersion,
-      props.searchFilterProjectionVersion,
-      props.searchFilterPercolatorVersion,
       props.searchFilterMatchNotificationVersion,
       props.watchlistNotificationVersion,
       props.notificationDeliveryVersion,
@@ -394,8 +388,6 @@ function createSqsEventSources(
   productContentAssessmentVersion: lambda.IVersion,
   productEmbeddingVersion: lambda.IVersion,
   productTranslationVersion: lambda.IVersion,
-  searchFilterProjectionVersion: lambda.IVersion,
-  searchFilterPercolatorVersion: lambda.IVersion,
   searchFilterMatchNotificationVersion: lambda.IVersion,
   watchlistNotificationVersion: lambda.IVersion,
   notificationDeliveryVersion: lambda.IVersion,
@@ -446,28 +438,6 @@ function createSqsEventSources(
     enabled: true,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
-    functionResponseTypes: ["ReportBatchItemFailures"],
-  });
-
-  const searchFilterProjection = workerQueues["search-filter-projection"];
-  if (!searchFilterProjection) {
-    throw new Error("Search-filter projection worker queue is required for its Lambda event source.");
-  }
-  functions.searchFilterProjection.addToRolePolicy(new iam.PolicyStatement({
-    actions: [
-      "sqs:ReceiveMessage",
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes",
-      "sqs:ChangeMessageVisibility",
-      "sqs:GetQueueUrl",
-    ],
-    resources: [searchFilterProjection.queue.queueArn],
-  }));
-  new lambda.CfnEventSourceMapping(scope, "SearchFilterProjectionQueueEventSource", {
-    batchSize: 1,
-    enabled: true,
-    eventSourceArn: searchFilterProjection.queue.queueArn,
-    functionName: searchFilterProjectionVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 
@@ -540,28 +510,6 @@ function createSqsEventSources(
     enabled: true,
     eventSourceArn: notificationDelivery.queue.queueArn,
     functionName: notificationDeliveryVersion.functionArn,
-    functionResponseTypes: ["ReportBatchItemFailures"],
-  });
-
-  const searchFilterPercolator = workerQueues["search-filter-percolator"];
-  if (!searchFilterPercolator) {
-    throw new Error("Search-filter percolator worker queue is required for its Lambda event source.");
-  }
-  functions.searchFilterPercolator.addToRolePolicy(new iam.PolicyStatement({
-    actions: [
-      "sqs:ReceiveMessage",
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes",
-      "sqs:ChangeMessageVisibility",
-      "sqs:GetQueueUrl",
-    ],
-    resources: [searchFilterPercolator.queue.queueArn],
-  }));
-  new lambda.CfnEventSourceMapping(scope, "SearchFilterPercolatorQueueEventSource", {
-    batchSize: 1,
-    enabled: true,
-    eventSourceArn: searchFilterPercolator.queue.queueArn,
-    functionName: searchFilterPercolatorVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 

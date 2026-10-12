@@ -1,11 +1,11 @@
-use aura_historia_jobs::{DomainJobPayload, SearchFilterOperation, WorkerScope, decode};
+use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use product_listing_service::geography::ProjectListingGeographyUseCase;
 use std::time::Duration;
 pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCase) -> bool {
-    let Ok(job) = decode::<SearchFilterOperation>(body, WorkerScope::ListingGeography) else {
+    let Ok(job) = decode(body, WorkerScope::ListingGeography) else {
         return false;
     };
     let DomainJobPayload::ListingGeography(job) = job.payload else {

@@ -136,18 +136,15 @@ pub async fn process_product_listing_opensearch_job(
     body: &str,
     use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
 ) -> ProductListingOpenSearchJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::ProductListingOpenSearch,
-    ) {
+    match decode(body, WorkerScope::ProductListingOpenSearch) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => ProductListingOpenSearchJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     use_case: &(dyn ProjectProductListingUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> ProductListingOpenSearchJobDisposition {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return ProductListingOpenSearchJobDisposition::Poison("unexpected_payload");

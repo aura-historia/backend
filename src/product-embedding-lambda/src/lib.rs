@@ -151,18 +151,15 @@ pub async fn process_product_embedding_job(
     body: &str,
     use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
 ) -> ProductEmbeddingJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::ProductListingEmbedding,
-    ) {
+    match decode(body, WorkerScope::ProductListingEmbedding) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => ProductEmbeddingJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     use_case: &(dyn EmbedProductListingEventUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> ProductEmbeddingJobDisposition {
     let Ok(command) = command_from_job(job) else {
         return ProductEmbeddingJobDisposition::Poison("unexpected_payload");
@@ -200,8 +197,8 @@ pub fn embedding_disposition(
     }
 }
 
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<EmbedProductListingCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

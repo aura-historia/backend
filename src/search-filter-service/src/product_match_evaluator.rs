@@ -82,7 +82,6 @@ where
                 should_show: None,
                 threshold: should_show_threshold,
                 decision: &decision,
-                error: Some(&error),
                 duration_millis,
             });
         }
@@ -118,7 +117,6 @@ where
                             should_show: Some(should_show),
                             threshold: should_show_threshold,
                             decision: &decision,
-                            error: None,
                             duration_millis: response
                                 .diagnostics
                                 .duration_millis
@@ -145,7 +143,6 @@ where
                             should_show,
                             threshold: should_show_threshold,
                             decision: &decision,
-                            error: Some(&error),
                             duration_millis: response
                                 .diagnostics
                                 .duration_millis
@@ -165,7 +162,6 @@ where
                         should_show: None,
                         threshold: should_show_threshold,
                         decision: &decision,
-                        error: Some(&error),
                         duration_millis: duration_millis(batch_started.elapsed()),
                     });
                     decision
@@ -216,7 +212,7 @@ struct MatchEvaluationDiagnostic<'a> {
     should_show: Option<Probability>,
     threshold: Probability,
     decision: &'a ProductListingMatchEvaluationOutcome,
-    error: Option<&'a ClassificationError>,
+
     duration_millis: u64,
 }
 
@@ -230,7 +226,6 @@ fn log_match_evaluation(event: MatchEvaluationDiagnostic<'_>) {
         should_show,
         threshold,
         decision,
-        error,
         duration_millis,
     } = event;
     let diagnostics = response.map(|response| &response.diagnostics);
@@ -243,6 +238,11 @@ fn log_match_evaluation(event: MatchEvaluationDiagnostic<'_>) {
         .map(|diagnostics| diagnostics.model.as_str())
         .filter(|value| !value.is_empty())
         .unwrap_or(model);
+    let error = match decision {
+        ProductListingMatchEvaluationOutcome::RetryableFailure(error)
+        | ProductListingMatchEvaluationOutcome::PermanentFailure(error) => Some(error),
+        _ => None,
+    };
     let decision = match decision {
         ProductListingMatchEvaluationOutcome::Matched => "matched",
         ProductListingMatchEvaluationOutcome::Rejected => "rejected",

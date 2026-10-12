@@ -131,18 +131,15 @@ pub async fn process_product_content_assessment_job(
     body: &str,
     use_case: &(dyn AssessProductListingContentEventUseCase + Send + Sync),
 ) -> ProductContentAssessmentJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::ProductListingContentAssessment,
-    ) {
+    match decode(body, WorkerScope::ProductListingContentAssessment) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => ProductContentAssessmentJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     use_case: &(dyn AssessProductListingContentEventUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> ProductContentAssessmentJobDisposition {
     let Ok(command) = command_from_job(job) else {
         return ProductContentAssessmentJobDisposition::Poison("unexpected_payload");
@@ -181,8 +178,8 @@ pub fn assessment_disposition(
     }
 }
 
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<AssessProductListingContentCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

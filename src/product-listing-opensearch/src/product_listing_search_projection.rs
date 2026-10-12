@@ -1,5 +1,5 @@
-use crate::product_listing_percolation_document::{
-    ProductListingPercolationDocumentError, product_listing_document,
+use crate::product_listing_projection_document::{
+    ProductListingProjectionDocumentError, product_listing_document,
 };
 use application::error::box_error;
 use fxrate_core::FxRateSnapshot;
@@ -147,7 +147,7 @@ fn checked_source_version(version: i64) -> Result<i64, ProductListingSearchProje
 }
 
 fn document_error(
-    source: ProductListingPercolationDocumentError,
+    source: ProductListingProjectionDocumentError,
 ) -> ProductListingSearchProjectionWriteError {
     ProductListingSearchProjectionWriteError::WriteFailed {
         source: box_error(source),

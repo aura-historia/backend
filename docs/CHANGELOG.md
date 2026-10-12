@@ -1,6 +1,10 @@
 # API contract changelog
 
-Only document REST API contract changes here. No internal changes.
+Only document REST API contract and user-visible behavior changes here. No internal changes.
+
+## 2026-10-12 — Periodic saved-search matching (#2036)
+
+- New saved-search matches are discovered by scheduled matching of active enhanced filters only. Non-enhanced filters no longer discover new matches. Notifications for newly discovered matches wait for a scheduled run rather than listing-change processing. Saved-filter CRUD, historical match records, feedback and notification settings are unchanged; request and response shapes are unchanged.
 
 ## 2026-10-12 — Geographic discovery and private addresses
 

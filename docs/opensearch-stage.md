@@ -8,9 +8,11 @@ the engine and resource limits; it is not proof of the running version or capaci
 A single stage host is an outage domain, not a production availability design.
 Verify actual host/DNS, security, assets, capacity and AWS connectivity before activation.
 
-PostgreSQL owns business state; OpenSearch is rebuildable. Checked-in mappings and
-pipeline assets define the projection. Versioned, content-free deletion tombstones
-must survive delayed writes, and readers must exclude them. Never physically delete
+PostgreSQL owns business state; OpenSearch contains only rebuildable ProductListing
+search state. Saved-filter configuration, matching progress and matches stay in PostgreSQL;
+[periodic matching](events/flow.md#periodic-saved-filter-matching) queries product search.
+Checked-in mappings and pipeline assets define the product projection. Versioned,
+content-free deletion tombstones must survive delayed writes, and readers must exclude them. Never physically delete
 fences or configure a TTL to clear them. Rebuild rules belong in the
 [projection runbook](durable-worker-runbook.md#projection-fences-and-rebuild).
 
@@ -39,20 +41,19 @@ Use a mode-0600 `.admin-curl` file with Basic credentials; `insecure` is allowed
 for loopback administration** at `https://127.0.0.1:19200`. Never pass passwords on
 CLI arguments. PUT the checked-in [role files](../opensearch/stage/roles/) to
 `/_plugins/_security/api/roles/aura_stage_<role>` and privately create distinct
-random-password users mapped only to their role. Role names use `reader`,
-`product_projector`, `filter_projector`, `percolator` (filenames use hyphens).
-Reader searches; projectors index only their own documents; percolator searches
-filters and manages PITs. None receives administration or index-management rights.
+random-password users mapped only to their role. Role names use `reader` and
+`product_projector` (filenames use hyphens). The reader searches ProductListings;
+the product projector indexes only ProductListing documents. Neither receives
+administration or index-management rights.
 Single-document indexing also requires the internal `indices:data/write/bulk*`
-actions, scoped to the projector's own index. Do not substitute the broader `write`
+actions, scoped to the product index. Do not substitute the broader `write`
 or `index` action groups: they also grant mapping or other document-write rights.
 
-Only after confirming the indices/pipeline are absent, apply the fresh-install assets:
+Only after confirming the product index/pipeline are absent, apply the fresh-install assets:
 
 ```sh
 curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @opensearch/stage/hybrid-search-pipeline.json https://127.0.0.1:19200/_search/pipeline/hybrid-search-pipeline
 jq '.settings += {"number_of_shards":1,"number_of_replicas":0}' opensearch/mappings/product_listings.json | curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @- https://127.0.0.1:19200/product-listings
-jq '.settings += {"number_of_shards":1,"number_of_replicas":0}' opensearch/mappings/user_search_filters.json | curl --config opensearch/stage/.admin-curl --fail-with-body -H 'Content-Type: application/json' -X PUT --data-binary @- https://127.0.0.1:19200/user_search_filters
 ```
 
 Compose preserves its data volume; **never use `down -v`** on populated storage.
@@ -94,15 +95,14 @@ docker compose --profile public --env-file opensearch/stage/.env -f opensearch/s
 ```
 
 Require unauthenticated/wrong-credential requests to fail, a scoped reader search to
-succeed with trusted TLS, and reader writes/admin routes to be denied. Verify projector
-and PIT permissions separately with safe fixtures. Host-local checks do not prove AWS access.
+succeed with trusted TLS, and reader writes/admin routes to be denied. Verify product-projector
+permissions separately with safe fixtures. Host-local checks do not prove AWS access.
 
 ### Dev private-subnet egress and release gate
 
 AWS uses **`dev`**, not `stage`: `/opensearch/dev/endpoint-url` selects this service,
-with distinct `reader`, `product-projector`, `filter-projector` and `percolator`
-credential pairs. Do not recreate shared dev credentials or change unrelated stage
-parameters. Current CDK references require SSM `String` values, including passwords;
+with distinct `reader` and `product-projector` credential pairs. Do not recreate shared
+dev credentials or change unrelated stage parameters. Current CDK references require SSM `String` values, including passwords;
 restrict SSM/function-configuration reads and never expose values in transcripts.
 Rotate host credentials and affected deployed consumers together before revoking old ones.
 
@@ -115,8 +115,8 @@ URL or disable verification. Host-side NAT-EIP allowlisting is not a stage prere
 
 Use an approved private probe path before `scope=all` activates consumers; if it is
 unavailable, hold activation. Record effective endpoint/role references, rule/CIDR
-and sanitized private-workload readiness, reader, projector and percolator results
-as applicable, including Fargate when used. Synth, SSM inspection, local curl or a
+and sanitized private-workload readiness, product-reader and projector results,
+including periodic-matcher Fargate access. Synth, SSM inspection, local curl or a
 waived standalone NAT test are not workload evidence. Label failed/omitted/waived
 checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutover.
 
@@ -127,6 +127,9 @@ Migrate and Initialize do not manage OpenSearch. Follow the
 [first-time release](infra.md#first-time-stage) and
 [consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff), without
 using compute creation as a readiness probe. Runtime roles must never gain admin rights.
+On existing hosts, reconcile gateway routes, runtime users and role mappings against the
+approved assets. Retire unused identities and indices only after ownership, in-flight work
+and recovery posture are settled; removing source assets does not decommission live state.
 
 Compare release assets with actual state. Approve compatible readers/additive mappings
 before writers; incompatible changes require a
@@ -143,7 +146,7 @@ index/security changes; recovery and prod host approval are separate decisions.
 ## Monitoring and recovery
 
 Monitor cluster/index health, restarts, disk/inodes, JVM/native memory, gateway
-TLS/auth failures, certificate expiry and search/percolation latency. Configure
+TLS/auth failures, certificate expiry and product-search/projection latency. Configure
 alerts from measured capacity and recovery headroom, not the Compose limits alone.
 Validate representative populated-data load and rebuild time before broad activation.
 Reconstruct under the projection fence rules; use off-host snapshots only with tested
@@ -151,5 +154,4 @@ restore. Preserve failure custody under [controlled recovery](durable-worker-run
 
 The product-projector role additionally permits `indices:admin/refresh` on product-listings
 only. Its IAM POST grant is scoped to that index refresh path. Geographic index acknowledgment
-records refresh visibility, including conflict/replay recovery; the filter projector
-retains its existing write-only role.
+records refresh visibility, including conflict/replay recovery.

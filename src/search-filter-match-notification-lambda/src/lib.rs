@@ -153,18 +153,15 @@ pub async fn process_search_filter_match_notification_job(
     body: &str,
     use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
 ) -> SearchFilterMatchNotificationJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::SearchFilterMatchNotification,
-    ) {
+    match decode(body, WorkerScope::SearchFilterMatchNotification) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => SearchFilterMatchNotificationJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     use_case: &(dyn GenerateSearchFilterMatchNotificationUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> SearchFilterMatchNotificationJobDisposition {
     let Ok(command) = command_from_job(job) else {
         return SearchFilterMatchNotificationJobDisposition::Poison("match_metadata_invalid");
@@ -217,8 +214,8 @@ pub fn notification_outcome(
         }
     }
 }
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<GenerateSearchFilterMatchNotificationCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::SearchFilterMatchCreated(change) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

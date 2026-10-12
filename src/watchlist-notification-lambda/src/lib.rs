@@ -139,18 +139,15 @@ pub async fn process_watchlist_notification_job(
     body: &str,
     use_case: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
 ) -> WatchlistNotificationJobDisposition {
-    match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::WatchlistNotification,
-    ) {
+    match decode(body, WorkerScope::WatchlistNotification) {
         Ok(job) => execute_job(use_case, job).await,
         Err(_) => WatchlistNotificationJobDisposition::Poison("invalid_wire_job"),
     }
 }
 
-pub async fn execute_job<O>(
+pub async fn execute_job(
     handler: &(dyn GenerateWatchlistNotificationsUseCase + Send + Sync),
-    job: DomainJob<O>,
+    job: DomainJob,
 ) -> WatchlistNotificationJobDisposition {
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return WatchlistNotificationJobDisposition::Poison("unexpected_payload");

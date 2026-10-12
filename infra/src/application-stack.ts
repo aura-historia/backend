@@ -311,8 +311,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
       productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
       productTranslationVersion: this.lambdas.productTranslationVersion,
-      searchFilterProjectionVersion: this.lambdas.searchFilterProjectionVersion,
-      searchFilterPercolatorVersion: this.lambdas.searchFilterPercolatorVersion,
       searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
       watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
       notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,

@@ -2,8 +2,6 @@ import type { StageName } from "./config";
 
 export const WORKER_SCOPES = [
   "product-listing-opensearch",
-  "search-filter-projection",
-  "search-filter-percolator",
   "search-filter-match-notification",
   "watchlist-notification",
   "product-content-assessment",
@@ -27,9 +25,6 @@ interface WorkerQueueDefinition {
 // Lambda-backed scopes use visibility that covers six bounded 45-second invocations.
 export const WORKER_QUEUE_DEFINITIONS = {
   "product-listing-opensearch": { id: "ProductListingOpensearch", visibilityTimeoutSeconds: 300 },
-  // Lambda timeout is 45s; six bounded invocation attempts require 300s visibility.
-  "search-filter-projection": { id: "SearchFilterProjection", visibilityTimeoutSeconds: 300 },
-  "search-filter-percolator": { id: "SearchFilterPercolator", visibilityTimeoutSeconds: 300 },
   "search-filter-match-notification": { id: "SearchFilterMatchNotification", visibilityTimeoutSeconds: 300 },
   "watchlist-notification": { id: "WatchlistNotification", visibilityTimeoutSeconds: 300 },
   // A 45s Lambda needs the six-times-timeout SQS visibility margin (270s); failed messages still redrive after maxReceiveCount 5.

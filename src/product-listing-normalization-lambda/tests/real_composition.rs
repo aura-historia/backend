@@ -303,14 +303,11 @@ fn job_body(
         target_queue: WorkerQueue::ProductListingRawNormalization,
         idempotency_key: IdempotencyKey::new(format!("product-listing-raw-revision:{revision_id}")),
         ordering_key: OrderingKey::new(format!("product-listing-raw-stream:{stream}")),
-        payload:
-            DomainJobPayload::<aura_historia_jobs::SearchFilterOperation>::ProductListingRawRevision(
-                ProductListingRawRevisionJob {
-                    product_listing_raw_stream_id: stream,
-                    product_listing_raw_revision_id: revision_id,
-                    revision,
-                },
-            ),
+        payload: DomainJobPayload::ProductListingRawRevision(ProductListingRawRevisionJob {
+            product_listing_raw_stream_id: stream,
+            product_listing_raw_revision_id: revision_id,
+            revision,
+        }),
     })
 }
 

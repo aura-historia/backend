@@ -150,7 +150,7 @@ impl SqsQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_historia_jobs::{WorkerScope, jobs::SearchFilterOperation, wire};
+    use aura_historia_jobs::{WorkerScope, wire};
 
     fn queue(scope: WorkerScope) -> SqsQueue {
         let fifo = if scope.queue_type() == WorkerQueueType::Fifo {
@@ -190,7 +190,7 @@ mod tests {
             }
             _ => panic!("test scope is not configured"),
         };
-        let job = wire::decode::<SearchFilterOperation>(body, scope).unwrap();
+        let job = wire::decode(body, scope).unwrap();
         wire::prepare(&job).unwrap()
     }
 

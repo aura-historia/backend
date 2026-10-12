@@ -1,5 +1,5 @@
 use application::operation_context::{OperationContext, Principal};
-use aura_historia_jobs::{DomainJobPayload, SearchFilterOperation, WorkerScope, decode};
+use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use geo_service::resolution::{ResolutionWork, ResolveOutcome, ResolveUseCase};
 use lambda_runtime::{Error, LambdaEvent};
@@ -14,7 +14,7 @@ fn context() -> OperationContext {
     }
 }
 pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
-    let Ok(job) = decode::<SearchFilterOperation>(body, WorkerScope::GeoResolution) else {
+    let Ok(job) = decode(body, WorkerScope::GeoResolution) else {
         return false;
     };
     let DomainJobPayload::GeoResolution(job) = job.payload else {

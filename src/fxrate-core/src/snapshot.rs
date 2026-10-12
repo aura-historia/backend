@@ -691,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_percolation_and_inverse_range_membership_identical() {
+    fn should_keep_display_conversion_and_inverse_range_membership_identical() {
         let snapshot = snapshot();
         let ranges = [
             DisplayAmountRange {

@@ -290,19 +290,17 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 
   test("keeps Vertex ADC configuration and permissions out of the projector", () => {
     const template = computeTemplate(stage);
-    for (const name of ["product-listing-opensearch-lambda", "search-filter-projection-lambda"]) {
-      const projector = lambdaFunction(template, `${name}-${stage}`);
-      const projectorEnvironment = projector.Properties.Environment as { Variables: Record<string, unknown> };
+    const projector = lambdaFunction(template, `product-listing-opensearch-lambda-${stage}`);
+    const projectorEnvironment = projector.Properties.Environment as { Variables: Record<string, unknown> };
 
-      expect(projectorEnvironment.Variables.AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON).toBeUndefined();
-      expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
-      expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
-      expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
-      expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
-      expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
-    }
+    expect(projectorEnvironment.Variables.AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON).toBeUndefined();
+    expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+    expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
+    expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
+    expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
+    expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
     const projectorPolicies = Object.entries(template.findResources("AWS::IAM::Policy"))
-      .filter(([id]) => id.includes("ProductListingOpenSearchLambda") || id.includes("SearchFilterProjectionLambda"));
+      .filter(([id]) => id.includes("ProductListingOpenSearchLambda"));
     expect(JSON.stringify(projectorPolicies)).not.toContain("ssm:GetParameter");
   });
 
@@ -336,8 +334,6 @@ describe.each(STAGES)("%s OpenSearch runtime credentials", (stage) => {
     for (const [binary, role] of [
       ["aura-historia-api", "reader"],
       ["product-listing-opensearch-lambda", "product-projector"],
-      ["search-filter-projection-lambda", "filter-projector"],
-      ["search-filter-percolator-lambda", "percolator"],
     ] as const) {
       const environment = lambdaFunction(template, `${binary}-${stage}`).Properties.Environment as {
         Variables: Record<string, unknown>;
@@ -351,7 +347,7 @@ describe.each(STAGES)("%s OpenSearch runtime credentials", (stage) => {
       paths.push(username, password);
     }
 
-    expect(new Set(paths).size).toBe(8);
+    expect(new Set(paths).size).toBe(4);
   });
 });
 

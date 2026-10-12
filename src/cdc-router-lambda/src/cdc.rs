@@ -1,9 +1,12 @@
 //! Strict DMS record decoding and scoped job fanout. Source data never enters SQS jobs.
 use crate::queue::SqsQueue;
+pub use aura_historia_cdc_routing::CdcChange;
 pub use aura_historia_cdc_routing::{CdcRouteError, route_change};
-use aura_historia_cdc_routing::{CdcTable, canonical_decimal_i64, row_for_operation};
+use aura_historia_cdc_routing::{
+    CdcTable, Operation as CdcOperation, canonical_decimal_i64, row_for_operation,
+};
 use aura_historia_jobs::{
-    jobs::{SearchFilterOperation as CdcOperation, WorkerQueue},
+    jobs::WorkerQueue,
     wire::{self, PreparedJob},
 };
 use serde::Deserialize;
@@ -12,8 +15,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
-
-pub type CdcChange = aura_historia_cdc_routing::CdcChange<CdcOperation>;
 
 pub const MAX_CDC_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_CDC_JOBS: usize = 500;
@@ -445,7 +446,6 @@ fn classify_dms_table_operation(
         | (CdcTable::GeoResolutionWakeups, CdcOperation::Insert)
         | (CdcTable::ListingGeographyWakeups, CdcOperation::Insert)
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
-        | (CdcTable::SearchFilters, _)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
         | (CdcTable::NotificationDeliveries, CdcOperation::Insert)
         | (CdcTable::MarketingEmailConsentSyncIntents, CdcOperation::Insert) => {
@@ -469,7 +469,6 @@ fn dms_table_is_selected(table: &str) -> bool {
             | CdcTable::GeoResolutionWakeups
             | CdcTable::ListingGeographyWakeups
             | CdcTable::ProductListingRawRevisions
-            | CdcTable::SearchFilters
             | CdcTable::SearchFilterMatches
             | CdcTable::NotificationDeliveries
             | CdcTable::MarketingEmailConsentSyncIntents
@@ -561,10 +560,7 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
                 "revision",
             ]
             .as_slice(),
-            (
-                "search_filters",
-                CdcOperation::Insert | CdcOperation::Update | CdcOperation::Delete,
-            ) => ["user_search_filter_id", "user_id", "version"].as_slice(),
+
             ("search_filter_matches", CdcOperation::Insert) => [
                 "user_id",
                 "user_search_filter_id",
@@ -593,7 +589,7 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
             "geo_resolution_wakeups" => validate_geography_wakeup(row, "resolution_id")?,
             "listing_geography_wakeups" => validate_geography_wakeup(row, "work_id")?,
             "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
-            "search_filters" => validate_dms_positive_decimal(row, "version")?,
+
             _ => {}
         }
     }
@@ -846,22 +842,10 @@ mod tests {
             ),
             (
                 include_str!("../tests/fixtures/dms-kinesis/product-listing-event-insert.json"),
-                5,
+                4,
             ),
             (
                 include_str!("../tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json"),
-                1,
-            ),
-            (
-                include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
-                1,
-            ),
-            (
-                include_str!("../tests/fixtures/dms-kinesis/search-filter-update.json"),
-                1,
-            ),
-            (
-                include_str!("../tests/fixtures/dms-kinesis/synthetic-search-filter-delete.json"),
                 1,
             ),
             (
@@ -890,7 +874,7 @@ mod tests {
             );
         }
         let bodies = publisher.bodies.lock().unwrap();
-        assert_eq!(14, bodies.len());
+        assert_eq!(10, bodies.len());
         for body in bodies.iter() {
             let job: Value = serde_json::from_str(body).unwrap();
             assert_eq!(2, job["schema_version"]);
@@ -1075,26 +1059,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_incompatible_control_and_invalid_versions_before_publication() {
+    fn rejects_incompatible_control_and_missing_destinations_before_publication() {
         let (router, publisher) = fanout();
-        for fixture in [
-            include_str!("../tests/fixtures/dms-kinesis/incompatible-control-add-column.json"),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-numeric-version.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-missing-user.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-numeric-version.json"
-            ),
-        ] {
-            assert!(
-                router
-                    .prepare_dms_kinesis_record(fixture.as_bytes())
-                    .is_err()
-            );
-        }
+        let fixture =
+            include_str!("../tests/fixtures/dms-kinesis/incompatible-control-add-column.json");
+        assert!(
+            router
+                .prepare_dms_kinesis_record(fixture.as_bytes())
+                .is_err()
+        );
         let valid = include_str!("../tests/fixtures/dms-kinesis/product-listing-event-insert.json");
         let mut registry = WorkerQueueRegistry::default();
         registry =
@@ -1128,14 +1101,14 @@ mod tests {
             .prepare_dms_kinesis_record(record.as_bytes())
             .unwrap();
         assert_eq!(
-            5,
+            4,
             router
                 .publish_prepared(prepared, PUBLICATION_TIMEOUT)
                 .await
                 .unwrap()
         );
         let bodies = publisher.bodies.lock().unwrap();
-        assert_eq!(6, bodies.len());
+        assert_eq!(5, bodies.len());
         assert_eq!(bodies[0], bodies[1]);
     }
 
@@ -1164,7 +1137,7 @@ mod tests {
             "../tests/fixtures/dms-kinesis/synthetic-product-listing-event-jsonb-string.json"
         );
         let jobs = published_jobs(serialized);
-        assert_eq!(5, jobs.len());
+        assert_eq!(4, jobs.len());
         assert_eq!(published_jobs(object), jobs);
         for job in jobs {
             assert!(!job.to_string().contains("fixture-source-id"));
@@ -1182,13 +1155,13 @@ mod tests {
                 "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
                 json!({"images": {"previousCount": 1, "currentCount": 2}}),
-                3,
+                2,
             ),
             (
                 "ENRICHMENT_EMBEDDED",
                 "ENRICHMENT",
                 json!({"sourceEventId": "01900000-0000-7000-8000-000000000003"}),
-                2,
+                1,
             ),
             (
                 "ENRICHMENT_TRANSLATED_TITLES",
@@ -1198,7 +1171,7 @@ mod tests {
                     "sourceLanguage": "de",
                     "targetLanguages": ["en"]
                 }),
-                2,
+                1,
             ),
         ] {
             let mut record = base.clone();
@@ -1267,7 +1240,19 @@ mod tests {
         let product = published_jobs(include_str!(
             "../tests/fixtures/dms-kinesis/product-listing-event-insert.json"
         ));
-        assert_eq!(5, product.len());
+        assert_eq!(4, product.len());
+        assert_eq!(
+            vec![
+                "product-listing-opensearch",
+                "product-content-assessment",
+                "product-embedding",
+                "product-translation"
+            ],
+            product
+                .iter()
+                .map(|job| job["scope"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+        );
         for job in &product {
             assert_eq!(
                 job["idempotency_key"],
@@ -1303,51 +1288,12 @@ mod tests {
         assert!(!raw[0].to_string().contains("source_payload"));
         assert!(!raw[0].to_string().contains("raw_values"));
 
-        for (file, version, operation) in [
-            (
-                include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
-                i64::MAX,
-                "INSERT",
-            ),
-            (
-                include_str!("../tests/fixtures/dms-kinesis/search-filter-update.json"),
-                2,
-                "UPDATE",
-            ),
-            (
-                include_str!("../tests/fixtures/dms-kinesis/synthetic-search-filter-delete.json"),
-                3,
-                "DELETE",
-            ),
-        ] {
-            let jobs = published_jobs(file);
-            assert_eq!(1, jobs.len());
-            assert_eq!(jobs[0]["payload"]["version"], version);
-            assert_eq!(jobs[0]["payload"]["operation"], operation);
-            assert_eq!(
-                jobs[0]["payload"]["user_id"],
-                "usr_01j0000000e008000000000001"
-            );
-            assert_eq!(
-                jobs[0]["payload"]["user_search_filter_id"],
-                "sf_01j0000000e008000000000006"
-            );
-            assert_eq!(
-                jobs[0]["ordering_key"],
-                "search-filter:sf_01j0000000e008000000000006"
-            );
-            assert_eq!(
-                jobs[0]["idempotency_key"],
-                format!(
-                    "search-filter:sf_01j0000000e008000000000006:{version}:{}",
-                    operation.to_ascii_lowercase()
-                )
-            );
-        }
         let matched = published_jobs(include_str!(
             "../tests/fixtures/dms-kinesis/search-filter-match-insert.json"
         ));
         assert_eq!(matched.len(), 1);
+        assert_eq!("search-filter-match-notification", matched[0]["scope"]);
+        assert_eq!("SEARCH_FILTER_MATCH_CREATED", matched[0]["job_type"]);
         assert_eq!(
             matched[0]["idempotency_key"],
             "search-filter-match:usr_01j0000000e008000000000001:sf_01j0000000e008000000000006:pl_01j0000000e008000000000004:evt_01j0000000e008000000000005"
@@ -1371,52 +1317,73 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_dms_decimal_and_delete_vectors_fail_closed() {
+    fn synthetic_dms_decimal_vectors_fail_closed() {
         let (router, publisher) = fanout();
-        for fixture in [
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-missing-user.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-invalid-user.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-numeric-version.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-delete-zero-version.json"
-            ),
-            include_str!(
-                "../tests/fixtures/dms-kinesis/invalid-search-filter-numeric-version.json"
-            ),
+        let fixture =
+            include_str!("../tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json");
+        for value in [
+            json!(1),
+            json!("1e3"),
+            json!("001"),
+            json!("+1"),
+            json!("0"),
+            json!("-1"),
+            json!("-0"),
+            json!("9223372036854775808"),
         ] {
+            let mut record: Value = serde_json::from_str(fixture).unwrap();
+            record["data"]["revision"] = value;
             assert!(
                 router
-                    .prepare_dms_kinesis_record(fixture.as_bytes())
+                    .prepare_dms_kinesis_record(record.to_string().as_bytes())
+                    .is_err(),
+                "accepted revision={}",
+                record["data"]["revision"],
+            );
+        }
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn removed_search_filter_data_and_controls_fail_closed_before_publication() {
+        let (router, publisher) = fanout();
+        assert!(!dms_table_is_selected("search_filters"));
+        assert!(dms_table_is_selected("search_filter_matches"));
+        for fixture in [
+            include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
+            include_str!("../tests/fixtures/dms-kinesis/search-filter-update.json"),
+            include_str!("../tests/fixtures/dms-kinesis/synthetic-search-filter-delete.json"),
+        ] {
+            assert_eq!(
+                "table or operation",
+                parse_dms_kinesis_record(fixture.as_bytes())
+                    .unwrap_err()
+                    .to_string(),
+            );
+            assert!(matches!(
+                router.prepare_dms_kinesis_record(fixture.as_bytes()),
+                Err(CdcIngestError::InvalidJson(_)),
+            ));
+        }
+        for operation in ["create-table", "add-column", "drop-table"] {
+            let control = json!({
+                "control": {"table-def": {}},
+                "metadata": {"record-type": "control", "operation": operation,
+                    "schema-name": "public", "table-name": "search_filters"}
+            });
+            assert_eq!(
+                "schema control",
+                parse_dms_kinesis_record(control.to_string().as_bytes())
+                    .unwrap_err()
+                    .to_string(),
+            );
+            assert!(
+                router
+                    .prepare_dms_kinesis_record(control.to_string().as_bytes())
                     .is_err()
             );
         }
-        for fixture in [
-            include_str!("../tests/fixtures/dms-kinesis/search-filter-insert-max-version.json"),
-            include_str!("../tests/fixtures/dms-kinesis/raw-revision-insert-max-version.json"),
-        ] {
-            for value in ["1e3", "001", "+1", "0", "-1", "-0"] {
-                let mut record: Value = serde_json::from_str(fixture).unwrap();
-                let field = if record["metadata"]["table-name"] == "search_filters" {
-                    "version"
-                } else {
-                    "revision"
-                };
-                record["data"][field] = Value::String(value.into());
-                assert!(
-                    router
-                        .prepare_dms_kinesis_record(record.to_string().as_bytes())
-                        .is_err(),
-                    "accepted {field}={value}"
-                );
-            }
-        }
-        assert!(publisher.bodies.lock().unwrap().is_empty());
+        assert_eq!(0, publisher.attempts.load(Ordering::SeqCst));
     }
 
     #[test]

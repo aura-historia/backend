@@ -20,6 +20,14 @@ checks and omissions. Keep payloads, credentials and personal content out of evi
    slot/start position and router activation; do not invent an LSN or restart from a new
    first-start point. Verify real CDC operation/control shapes, checkpoints and failure
    archive delivery. Router and periodic-matcher enablement are independent release gates.
+   Complete source/destination retirement **before** a data-stack update removes queues
+   or access policies: exclude retiring sources from effective capture under the approved
+   checkpoint plan, then drain previously captured records through the compatible router.
+   Verify per-shard router checkpoints passed those records, pause the old router so it cannot
+   publish to retiring destinations, and settle queue/DLQ/in-flight and retained archive custody
+   before resource removal. A new router rejects retired-source records and stops later records
+   in that batch; selection exclusion alone is not a safe cutover. Preserve unrelated records
+   and never purge a shared stream. Resume routing only with the compatible destination catalog.
 4. Verify private workload connectivity and scoped access, completed outcomes, lag and
    retained failure custody. Retire old subscriptions, slots and credentials only after
    ownership, drained/preserved work and rollback posture are proven. Rollback needs a
@@ -73,12 +81,10 @@ approved activation plan, not on every deployment.
 
    Confirm running state, source-slot activity and checkpoint progress. Subsequent
    recovery uses `resume-processing` and the task checkpoint, not a fresh first start.
-5. Reconcile approved preexisting state through its owning consumer contract. A guarded
-   no-op update can wake a current saved-filter projection without changing its values,
-   version or timestamps; verify row identity/version and unchanged business state.
-   This is not a general backfill method for immutable history or notification intents.
-   Recheck source inventory at the capture boundary; additional preexisting work needs
-   its own reconciliation plan.
+5. Reconcile approved preexisting state through its owning consumer contract. CDC-only
+   capture does not backfill immutable history or notification intents; do not mutate
+   business rows merely to manufacture delivery. Recheck source inventory at the capture
+   boundary; additional preexisting work needs its own reconciliation plan.
 6. Trace a real selected-source change through DMS, Kinesis, confirmed router publication,
    SQS and the owning worker's completed outcome. Connection tests, control records,
    an enabled mapping or a successful invocation alone do not prove completion. Check
@@ -188,17 +194,37 @@ also requires checking partial activation and release prerequisites.
 
 ## Projection fences and rebuild
 
-ProductListing withdrawals and saved-filter deletions use content-free, externally
-versioned `projectionDeleted: true` tombstones. Deploy mappings and **all** excluding
+ProductListing withdrawals use content-free, externally versioned
+`projectionDeleted: true` tombstones. Deploy mappings and **all** excluding
 readers before writers; fence old physical-DELETE writers, including in-flight requests.
 Never TTL or physically delete tombstones: remote physical-delete version memory expires.
 
 Rebuild into an isolated index generation: fence old writers, reconstruct authoritative
 facts, catch up commits, verify IDs/source versions/deletion visibility, then switch the
-approved reader/alias target. Withdrawn listings retain source state; hard-deleted filters
-need retained deletion facts or a fenced fresh-generation rebuild. Index reset, expired
-queues and absent history cannot restore those facts. [OpenSearch operations](opensearch-stage.md)
-own host/security and asset changes.
+approved reader/alias target. Withdrawn listings retain authoritative source state.
+Index reset, expired queues and absent history cannot restore missing authoritative facts.
+[OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
+
+## Periodic matching recovery
+
+[Event flow](events/flow.md#periodic-saved-filter-matching) owns matching semantics;
+[infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
+runs, verify private PostgreSQL access, ProductListing search with reader credentials,
+complete persisted FX and classifier configuration. Filter candidates and progress come
+from PostgreSQL, so no saved-filter index or CDC backfill is required.
+
+Inspect Scheduler delivery failures separately from actual ECS task exit and application
+completion reports. Failed filters, cancellation or timeout are incomplete work even if
+other matches committed; overlapping-run exclusion is not evidence that a run advanced
+progress. Verify per-filter progress and persisted matches with bounded read-only checks.
+Repair the dependency and use the next scheduled run or an approved bounded invocation;
+preserve checkpoints and match identities instead of resetting progress or deleting
+matches to force a replay. The replay overlap tolerates bounded projection lag, not an
+unlimited outage: review uncovered windows after prolonged search/projection failures.
+
+Match INSERT delivery still requires healthy CDC/router/notification workers. Verify
+that path independently; rerunning matching is not a substitute for recovering a retained
+notification job and must not blindly resend historical mail.
 
 ## Notification recovery limits
 
@@ -222,8 +248,8 @@ binaries through the [schema-dependent release procedure](infra.md#routine-and-s
 Coordinate DMS capture of compact resolution and listing-geography wake-ups with the existing
 checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. Protected
 Request establishes work for preexisting eligible PartyLocations; CDC-only capture does not
-backfill them. Deploy geographic mappings and rebuild saved-filter projections before enabling
-new geographic filters, so `hasGeography` and percolator predicates are refresh-visible.
+backfill them. Deploy compatible ProductListing geographic mappings and verify refreshed
+product search visibility before enabling new geographic filters.
 
 The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work,
 even with paid calls disabled. Fresh wake-ups require healthy CDC/SQS. Recovery preserves

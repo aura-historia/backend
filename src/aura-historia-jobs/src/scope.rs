@@ -2,8 +2,6 @@ use crate::jobs::WorkerQueue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
 pub enum WorkerScope {
-    SearchFilterProjection,
-    SearchFilterPercolator,
     SearchFilterMatchNotification,
     WatchlistNotification,
     ProductListingContentAssessment,
@@ -18,9 +16,7 @@ pub enum WorkerScope {
 }
 
 impl WorkerScope {
-    pub const ALL: [Self; 13] = [
-        Self::SearchFilterProjection,
-        Self::SearchFilterPercolator,
+    pub const ALL: [Self; 11] = [
         Self::SearchFilterMatchNotification,
         Self::WatchlistNotification,
         Self::ProductListingContentAssessment,
@@ -36,8 +32,6 @@ impl WorkerScope {
 
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::SearchFilterProjection => "search-filter-projection",
-            Self::SearchFilterPercolator => "search-filter-percolator",
             Self::SearchFilterMatchNotification => "search-filter-match-notification",
             Self::WatchlistNotification => "watchlist-notification",
             Self::ProductListingContentAssessment => "product-content-assessment",
@@ -54,12 +48,6 @@ impl WorkerScope {
 
     pub const fn router_queue_url_env(self) -> &'static str {
         match self {
-            Self::SearchFilterProjection => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PROJECTION"
-            }
-            Self::SearchFilterPercolator => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_PERCOLATOR"
-            }
             Self::SearchFilterMatchNotification => {
                 "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_MATCH_NOTIFICATION"
             }
@@ -88,8 +76,6 @@ impl WorkerScope {
 
     pub const fn consumer_queue(self) -> WorkerQueue {
         match self {
-            Self::SearchFilterProjection => WorkerQueue::SearchFilterOpenSearch,
-            Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
             Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
             Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
             Self::ProductListingContentAssessment => WorkerQueue::ProductListingContentAssessment,
@@ -127,14 +113,6 @@ mod tests {
     fn should_keep_scope_strings_and_consumer_queues() {
         let expected = [
             (
-                "search-filter-projection",
-                WorkerQueue::SearchFilterOpenSearch,
-            ),
-            (
-                "search-filter-percolator",
-                WorkerQueue::SearchFilterPercolator,
-            ),
-            (
                 "search-filter-match-notification",
                 WorkerQueue::SearchFilterMatchNotification,
             ),
@@ -158,6 +136,8 @@ mod tests {
             ("geo-resolution", WorkerQueue::GeoResolution),
             ("listing-geography", WorkerQueue::ListingGeography),
         ];
+        assert_eq!(11, WorkerScope::ALL.len());
+        assert_eq!(expected.len(), WorkerScope::ALL.len());
         assert_eq!(
             WorkerScope::ALL,
             WorkerScope::iter().collect::<Vec<_>>().as_slice()
@@ -166,6 +146,17 @@ mod tests {
             assert_eq!(wire, scope.as_str());
             assert_eq!(queue, scope.consumer_queue());
             assert_eq!(Some(scope), queue.scope());
+        }
+        assert_eq!(WorkerQueue::ALL.len(), WorkerScope::ALL.len());
+        for queue in WorkerQueue::ALL {
+            assert!(queue.scope().is_some());
+        }
+        for removed in ["search-filter-projection", "search-filter-percolator"] {
+            assert!(
+                WorkerScope::ALL
+                    .into_iter()
+                    .all(|scope| scope.as_str() != removed)
+            );
         }
         assert_eq!(None, WorkerQueue::UserTierEnforcement.scope());
         assert_eq!(

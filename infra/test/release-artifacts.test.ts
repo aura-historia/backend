@@ -8,6 +8,11 @@ import { STAGES } from "../src/config";
 const releaseBinaries = JSON.parse(readFileSync(resolve(__dirname, "../../ci/lambda-binaries.json"), "utf8")) as string[];
 const artifactBucket = "aura-historia-binary-artifacts-eu-central-1";
 
+test("does not publish removed saved-filter matching or projection binaries", () => {
+  expect(releaseBinaries).not.toContain("search-filter-percolator-lambda");
+  expect(releaseBinaries).not.toContain("search-filter-projection-lambda");
+});
+
 describe.each(STAGES)("%s release Lambda artifacts", (stage) => {
   test("every synthesized Lambda has a published binary", () => {
     const app = new cdk.App({ analyticsReporting: false });

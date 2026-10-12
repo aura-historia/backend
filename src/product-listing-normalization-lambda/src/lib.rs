@@ -135,10 +135,7 @@ pub async fn process_product_listing_raw_normalization_job(
     body: &str,
     use_case: &(dyn NormalizeProductListingRawRevisionUseCase + Send + Sync),
 ) -> ProductListingRawNormalizationJobDisposition {
-    let job = match decode::<aura_historia_jobs::SearchFilterOperation>(
-        body,
-        WorkerScope::ProductListingRawNormalization,
-    ) {
+    let job = match decode(body, WorkerScope::ProductListingRawNormalization) {
         Ok(job) => job,
         Err(_) => return ProductListingRawNormalizationJobDisposition::Poison("invalid_wire_job"),
     };
@@ -184,8 +181,8 @@ pub async fn process_product_listing_raw_normalization_job_for_command(
     }
 }
 
-pub fn command_from_job<O>(
-    job: DomainJob<O>,
+pub fn command_from_job(
+    job: DomainJob,
 ) -> Result<NormalizeProductListingRawRevisionCommand, aura_historia_jobs::InvalidJob> {
     let DomainJobPayload::ProductListingRawRevision(revision) = job.payload else {
         return Err(aura_historia_jobs::InvalidJob);

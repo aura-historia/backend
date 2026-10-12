@@ -5,8 +5,7 @@ use crate::{
     jobs::{
         DomainJob, DomainJobPayload, IdempotencyKey, InvalidJob,
         MarketingConsentSyncIntentCreatedJob, NotificationDeliveryCreatedJob, OrderingKey,
-        ProductListingEventJob, ProductListingRawRevisionJob, SearchFilterChangedJob,
-        SearchFilterMatchCreatedJob, SearchFilterOperation,
+        ProductListingEventJob, ProductListingRawRevisionJob, SearchFilterMatchCreatedJob,
     },
 };
 use domain_primitives::event_id::EventId;
@@ -18,7 +17,6 @@ use product_listing_core::product_listing_raw_id::{
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
 use strum::IntoEnumIterator;
 use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
@@ -64,13 +62,6 @@ enum PayloadV2 {
         product_listing_raw_stream_id: ProductListingRawStreamId,
         product_listing_raw_revision_id: ProductListingRawRevisionId,
         revision: u64,
-    },
-    #[serde(rename = "SEARCH_FILTER_CHANGED")]
-    SearchFilterChanged {
-        user_id: UserId,
-        user_search_filter_id: UserSearchFilterId,
-        version: i64,
-        operation: OperationV2,
     },
     #[serde(rename = "SEARCH_FILTER_MATCH_CREATED")]
     SearchFilterMatchCreated {
@@ -128,16 +119,6 @@ impl PreparedJob {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-enum OperationV2 {
-    #[serde(rename = "INSERT")]
-    Insert,
-    #[serde(rename = "UPDATE")]
-    Update,
-    #[serde(rename = "DELETE")]
-    Delete,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum WireError {
     #[error("invalid job JSON")]
@@ -157,10 +138,7 @@ impl From<InvalidJob> for WireError {
     }
 }
 
-pub fn encode<O>(job: &DomainJob<O>) -> Result<String, WireError>
-where
-    O: Copy + Display + Into<SearchFilterOperation>,
-{
+pub fn encode(job: &DomainJob) -> Result<String, WireError> {
     let scope = job.validate()?;
     let payload = match &job.payload {
         DomainJobPayload::ListingGeography(job) => PayloadV2::ListingGeography {
@@ -180,22 +158,6 @@ where
                 product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
                 product_listing_raw_revision_id: revision.product_listing_raw_revision_id,
                 revision: revision.revision,
-            }
-        }
-        DomainJobPayload::SearchFilterChanged(change) => {
-            let operation: SearchFilterOperation = change.operation.into();
-            if change.operation.to_string() != operation.to_string() {
-                return Err(WireError::Invalid);
-            }
-            PayloadV2::SearchFilterChanged {
-                user_id: change.user_id,
-                user_search_filter_id: change.user_search_filter_id,
-                version: change.version,
-                operation: match operation {
-                    SearchFilterOperation::Insert => OperationV2::Insert,
-                    SearchFilterOperation::Update => OperationV2::Update,
-                    SearchFilterOperation::Delete => OperationV2::Delete,
-                },
             }
         }
         DomainJobPayload::SearchFilterMatchCreated(change) => PayloadV2::SearchFilterMatchCreated {
@@ -231,10 +193,7 @@ where
 }
 
 /// Validate and encode a job before publication, preserving FIFO semantics outside its body.
-pub fn prepare<O>(job: &DomainJob<O>) -> Result<PreparedJob, WireError>
-where
-    O: Copy + Display + Into<SearchFilterOperation>,
-{
+pub fn prepare(job: &DomainJob) -> Result<PreparedJob, WireError> {
     let scope = job.validate()?;
     let body = encode(job)?;
     let fifo = match &job.payload {
@@ -257,10 +216,7 @@ where
     Ok(PreparedJob { scope, body, fifo })
 }
 
-pub fn decode<O>(body: &str, expected_scope: WorkerScope) -> Result<DomainJob<O>, WireError>
-where
-    O: From<SearchFilterOperation> + Display,
-{
+pub fn decode(body: &str, expected_scope: WorkerScope) -> Result<DomainJob, WireError> {
     if body.len() > MAX_JOB_BYTES {
         return Err(WireError::TooLarge);
     }
@@ -305,22 +261,6 @@ where
             product_listing_raw_stream_id,
             product_listing_raw_revision_id,
             revision,
-        }),
-        PayloadV2::SearchFilterChanged {
-            user_id,
-            user_search_filter_id,
-            version,
-            operation,
-        } => DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
-            user_id,
-            user_search_filter_id,
-            version,
-            operation: match operation {
-                OperationV2::Insert => SearchFilterOperation::Insert,
-                OperationV2::Update => SearchFilterOperation::Update,
-                OperationV2::Delete => SearchFilterOperation::Delete,
-            }
-            .into(),
         }),
         PayloadV2::SearchFilterMatchCreated {
             user_id,
@@ -397,12 +337,6 @@ mod tests {
                     format!("product-listing-raw-revision:{RAW_REVISION_ID}"),
                     format!("product-listing-raw-stream:{RAW_STREAM_ID}"),
                 ),
-                WorkerScope::SearchFilterProjection => (
-                    "SEARCH_FILTER_CHANGED",
-                    json!({"user_id": USER_ID, "user_search_filter_id": SEARCH_FILTER_ID, "version": 3, "operation": "UPDATE"}),
-                    format!("search-filter:{SEARCH_FILTER_ID}:3:update"),
-                    format!("search-filter:{SEARCH_FILTER_ID}"),
-                ),
                 WorkerScope::SearchFilterMatchNotification => (
                     "SEARCH_FILTER_MATCH_CREATED",
                     json!({"user_id": USER_ID, "user_search_filter_id": SEARCH_FILTER_ID, "product_listing_id": PRODUCT_LISTING_ID, "origin_event_id": EVENT_ID}),
@@ -446,24 +380,7 @@ mod tests {
             let job: crate::jobs::DomainJob = decode(&snapshot.to_string(), scope)?;
             assert_eq!(snapshot, serde_json::from_str::<Value>(&encode(&job)?)?);
         }
-        for (wire, key) in [
-            ("INSERT", "insert"),
-            ("UPDATE", "update"),
-            ("DELETE", "delete"),
-        ] {
-            let Some((_, mut snapshot)) = snapshots()
-                .into_iter()
-                .find(|(scope, _)| *scope == WorkerScope::SearchFilterProjection)
-            else {
-                return Err("missing search-filter projection snapshot".into());
-            };
-            snapshot["payload"]["operation"] = json!(wire);
-            snapshot["idempotency_key"] =
-                json!(format!("search-filter:{SEARCH_FILTER_ID}:3:{key}"));
-            let job: crate::jobs::DomainJob =
-                decode(&snapshot.to_string(), WorkerScope::SearchFilterProjection)?;
-            assert_eq!(snapshot, serde_json::from_str::<Value>(&encode(&job)?)?);
-        }
+
         Ok(())
     }
 
@@ -484,12 +401,6 @@ mod tests {
                     "PRODUCT_LISTING_RAW_REVISION",
                     format!(
                         "{{\"product_listing_raw_stream_id\":\"{RAW_STREAM_ID}\",\"product_listing_raw_revision_id\":\"{RAW_REVISION_ID}\",\"revision\":3}}"
-                    ),
-                ),
-                WorkerScope::SearchFilterProjection => (
-                    "SEARCH_FILTER_CHANGED",
-                    format!(
-                        "{{\"user_id\":\"{USER_ID}\",\"user_search_filter_id\":\"{SEARCH_FILTER_ID}\",\"version\":3,\"operation\":\"UPDATE\"}}"
                     ),
                 ),
                 WorkerScope::SearchFilterMatchNotification => (
@@ -543,6 +454,38 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_removed_scopes_and_search_filter_changed_payloads() {
+        let (_, snapshot) = snapshots()
+            .into_iter()
+            .find(|(scope, _)| *scope == WorkerScope::ProductListingOpenSearch)
+            .unwrap();
+        for removed in ["search-filter-projection", "search-filter-percolator"] {
+            let mut body = snapshot.clone();
+            body["scope"] = json!(removed);
+            for expected_scope in WorkerScope::ALL {
+                assert_eq!(
+                    Err(WireError::Scope),
+                    decode(&body.to_string(), expected_scope),
+                );
+            }
+        }
+        for scope in WorkerScope::ALL {
+            for operation in ["INSERT", "UPDATE", "DELETE"] {
+                let body = json!({
+                    "schema_version": 2,
+                    "scope": scope.as_str(),
+                    "job_type": "SEARCH_FILTER_CHANGED",
+                    "idempotency_key": format!("search-filter:{SEARCH_FILTER_ID}:3:{}", operation.to_ascii_lowercase()),
+                    "ordering_key": format!("search-filter:{SEARCH_FILTER_ID}"),
+                    "payload": {"user_id": USER_ID, "user_search_filter_id": SEARCH_FILTER_ID,
+                        "version": 3, "operation": operation}
+                });
+                assert_eq!(Err(WireError::Json), decode(&body.to_string(), scope));
+            }
+        }
+    }
+
+    #[test]
     fn should_reject_schema_v1_without_compatibility_decoding() {
         let body = json!({
             "schema_version": 1,
@@ -558,10 +501,7 @@ mod tests {
 
         assert_eq!(
             Err(WireError::SchemaVersion),
-            decode::<crate::jobs::SearchFilterOperation>(
-                &body.to_string(),
-                WorkerScope::ProductListingOpenSearch
-            )
+            decode(&body.to_string(), WorkerScope::ProductListingOpenSearch)
         );
     }
 
@@ -572,10 +512,7 @@ mod tests {
             let expected: crate::jobs::DomainJob = decode(&value.to_string(), scope)?;
             value["future_metadata"] = json!({"extra": [1, 2]});
             value["payload"]["future_metadata"] = json!(true);
-            assert_eq!(
-                expected,
-                decode::<crate::jobs::SearchFilterOperation>(&value.to_string(), scope)?
-            );
+            assert_eq!(expected, decode(&value.to_string(), scope)?);
         }
         Ok(())
     }
@@ -641,13 +578,7 @@ mod tests {
             "other:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ] {
             snapshot["ordering_key"] = json!(invalid);
-            assert!(
-                decode::<crate::jobs::SearchFilterOperation>(
-                    &snapshot.to_string(),
-                    WorkerScope::MarketingConsentSync
-                )
-                .is_err()
-            );
+            assert!(decode(&snapshot.to_string(), WorkerScope::MarketingConsentSync).is_err());
         }
     }
 
@@ -693,8 +624,7 @@ mod tests {
                     let mut body = original.clone();
                     body["payload"][&field] = invalid;
                     assert!(
-                        decode::<crate::jobs::SearchFilterOperation>(&body.to_string(), scope)
-                            .is_err(),
+                        decode(&body.to_string(), scope).is_err(),
                         "accepted invalid {field} for {}",
                         scope.as_str()
                     );
@@ -719,50 +649,31 @@ mod tests {
             ] {
                 let mut body = original.clone();
                 body[field] = value;
-                assert!(
-                    decode::<crate::jobs::SearchFilterOperation>(&body.to_string(), scope).is_err(),
-                    "{field}"
-                );
+                assert!(decode(&body.to_string(), scope).is_err(), "{field}");
             }
             for field in original.as_object().unwrap().keys() {
                 let mut body = original.clone();
                 body.as_object_mut().unwrap().remove(field);
-                assert!(
-                    decode::<crate::jobs::SearchFilterOperation>(&body.to_string(), scope).is_err(),
-                    "missing {field}"
-                );
+                assert!(decode(&body.to_string(), scope).is_err(), "missing {field}");
             }
             for (field, value) in original["payload"].as_object().unwrap() {
                 let mut body = original.clone();
                 body["payload"].as_object_mut().unwrap().remove(field);
-                assert!(
-                    decode::<crate::jobs::SearchFilterOperation>(&body.to_string(), scope).is_err(),
-                    "missing {field}"
-                );
+                assert!(decode(&body.to_string(), scope).is_err(), "missing {field}");
                 let invalid = invalid_payload_values(field, value);
                 for value in invalid {
                     let mut body = original.clone();
                     body["payload"][field] = value;
-                    assert!(
-                        decode::<crate::jobs::SearchFilterOperation>(&body.to_string(), scope)
-                            .is_err(),
-                        "invalid {field}"
-                    );
+                    assert!(decode(&body.to_string(), scope).is_err(), "invalid {field}");
                 }
             }
             for wrong_scope in WorkerScope::iter().filter(|other| *other != scope) {
-                assert!(
-                    decode::<crate::jobs::SearchFilterOperation>(
-                        &original.to_string(),
-                        wrong_scope
-                    )
-                    .is_err()
-                );
+                assert!(decode(&original.to_string(), wrong_scope).is_err());
             }
         }
         assert_eq!(
             Err(WireError::TooLarge),
-            decode::<crate::jobs::SearchFilterOperation>(
+            decode(
                 &" ".repeat(MAX_JOB_BYTES + 1),
                 WorkerScope::NotificationDelivery
             )
