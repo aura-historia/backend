@@ -177,18 +177,11 @@ fn map_summary(
     let display_price = resolve_price(&document, price_filter)?;
     let price_valuation = price_valuation(&document, price_filter)?;
     let geography = if search.has_geography() {
-        product_listing_service::geographic_search::ListingDiscoveryGeography {
-            business: document
-                .business_geography
-                .clone()
-                .map(discovery_dimension)
-                .transpose()?,
-            inventory: document
-                .inventory_geography
-                .clone()
-                .map(discovery_dimension)
-                .transpose()?,
-        }
+        document
+            .inventory_geography
+            .clone()
+            .map(discovery_dimension)
+            .transpose()?
     } else {
         Default::default()
     };
@@ -381,13 +374,11 @@ pub(crate) fn build_search_request(
         json!({ sort_field: { "order": order, "missing": "_last" } })
     };
     let search = &request.compiled_search.search;
-    let primary_sort = [
-        ("businessGeography", search.business_geography.as_ref()),
-        ("inventoryGeography", search.inventory_geography.as_ref()),
-    ]
-    .into_iter()
-    .find_map(|(field, q)| q.and_then(|q| crate::geographic_query::distance_sort(field, q)))
-    .unwrap_or(primary_sort);
+    let primary_sort = search
+        .geography
+        .as_ref()
+        .and_then(|q| crate::geographic_query::distance_sort("inventoryGeography", q))
+        .unwrap_or(primary_sort);
     body["sort"] = json!([
         primary_sort,
         { ProductListingDocumentSerdeField::ProductListingId.as_str(): { "order": "asc" } }
@@ -610,16 +601,12 @@ pub(crate) fn build_common_filter_clauses(
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
-    search
-        .validate_geography()
-        .map_err(serde_json::Error::custom)?;
-    for (field, query) in [
-        ("businessGeography", search.business_geography.as_ref()),
-        ("inventoryGeography", search.inventory_geography.as_ref()),
-    ] {
-        if let Some(query) = query {
-            filter.extend(crate::geographic_query::clauses(field, query));
-        }
+
+    if let Some(query) = &search.geography {
+        filter.extend(crate::geographic_query::clauses(
+            "inventoryGeography",
+            query,
+        ));
     }
 
     if !search.exclude_product_listing_id_query.is_empty() {
@@ -838,7 +825,7 @@ fn availability_matches_query(
 fn discovery_dimension(
     d: crate::product_listing_document::GeographicDimensionDocument,
 ) -> Result<
-    product_listing_service::geographic_search::DiscoveryDimension,
+    product_listing_service::geographic_search::ListingDiscoveryGeography,
     ProductListingSearchReadError,
 > {
     let invalid = || ProductListingSearchReadError::ProductListingSearchReadModelInvalid;
@@ -877,7 +864,7 @@ fn discovery_dimension(
         _ => return Err(invalid()),
     };
     Ok(
-        product_listing_service::geographic_search::DiscoveryDimension {
+        product_listing_service::geographic_search::ListingDiscoveryGeography {
             geography: product_listing_service::geography::GeographicDimension {
                 location_id: d.location_id,
                 reference_release: release,

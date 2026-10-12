@@ -330,42 +330,6 @@ async fn signals(pool: &PgPool, id: PartyLocationId) -> i64 {
 }
 
 #[aura_integration_test(services=[BUSINESS_SCHEMA])]
-async fn disclosure_removal_migrates_legacy_creation_receipts_for_replay() {
-    let pool = get_postgres_client().await;
-    let party = party(&pool).await;
-    let command = command(party, "legacy-receipt");
-    let original = create(&pool)
-        .execute(&trusted(), command.clone())
-        .await
-        .unwrap();
-    let mut tx = pool.begin().await.unwrap();
-    // Recreate the removed column and receipt members to exercise the actual
-    // forward migration against previously persisted creation semantics.
-    sqlx::query(
-        "ALTER TABLE party_locations ADD COLUMN disclosure text NOT NULL DEFAULT 'PRIVATE'",
-    )
-    .execute(&mut *tx)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE party_location_create_receipts SET command=jsonb_set(command,'{content,disclosure}','\"PRIVATE\"'::jsonb),result=jsonb_set(result,'{content,disclosure}','\"PRIVATE\"'::jsonb) WHERE party_id=$1")
-        .bind(party.into_uuid()).execute(&mut *tx).await.unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../migrations/20261011150000_remove_party_location_disclosure.sql"
-    ))
-    .execute(&mut *tx)
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
-    assert_eq!(
-        original,
-        create(&pool).execute(&trusted(), command).await.unwrap()
-    );
-    let has_column: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='party_locations' AND column_name='disclosure')")
-        .fetch_one(&pool).await.unwrap();
-    assert!(!has_column);
-}
-
-#[aura_integration_test(services=[BUSINESS_SCHEMA])]
 async fn concurrent_create_retries_converge_and_replay_original_result() {
     let pool = get_postgres_client().await;
     let party = party(&pool).await;
@@ -1283,4 +1247,224 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
         }
         tx.commit().await.unwrap();
     }
+}
+
+struct DatabaseAdmin(PgPool);
+#[async_trait::async_trait]
+impl CheckUserAdminUseCase for DatabaseAdmin {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        _: CheckUserAdminRequest,
+    ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+        let user = match context.principal {
+            Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => id,
+            _ => return Err(CheckUserAdminError::Forbidden),
+        };
+        let admin: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE user_id=$1 AND role='ADMIN' AND NOT suspended)",
+        )
+        .bind(user.into_uuid())
+        .fetch_one(&self.0)
+        .await
+        .unwrap();
+        if admin {
+            Ok(CheckUserAdminResult)
+        } else {
+            Err(CheckUserAdminError::Forbidden)
+        }
+    }
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn location_authority_rechecks_admin_after_waiting_for_the_party() {
+    let pool = get_postgres_client().await;
+    let party_id = party(&pool).await;
+    let admin = UserId::new();
+    sqlx::query("INSERT INTO users(user_id,email,tier,role) VALUES($1,$2,'FREE','ADMIN')")
+        .bind(admin.into_uuid())
+        .bind(format!("{admin}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    for grant in [false, true] {
+        for suspend in [false, true] {
+            sqlx::query("UPDATE users SET role='ADMIN',suspended=false WHERE user_id=$1")
+                .bind(admin.into_uuid())
+                .execute(&pool)
+                .await
+                .unwrap();
+            let mut blocked_by = pool.begin().await.unwrap();
+            sqlx::query("SELECT party_id FROM parties WHERE party_id=$1 FOR UPDATE")
+                .bind(party_id.into_uuid())
+                .execute(&mut *blocked_by)
+                .await
+                .unwrap();
+            let request = tokio::spawn({
+                let pool = pool.clone();
+                async move {
+                    let context = context(if grant {
+                        Principal::DelegatedUser {
+                            user_id: admin,
+                            capabilities: BTreeSet::from([CredentialCapability::PartiesWrite]),
+                        }
+                    } else {
+                        Principal::User(admin)
+                    });
+                    if grant {
+                        GrantPartyLocationManagementHandler::new(
+                            SqlxUnitOfWork::new(pool.clone()),
+                            SqlxPartyLocationAccessFactory,
+                            DatabaseAdmin(pool),
+                        )
+                        .execute(
+                            &context,
+                            GrantPartyLocationManagementCommand {
+                                party_id,
+                                user_id: admin,
+                                granted: true,
+                            },
+                        )
+                        .await
+                    } else {
+                        CreatePartyLocationHandler::new(
+                            SqlxUnitOfWork::new(pool.clone()),
+                            SqlxPartyLocationRepositoryFactory,
+                            SqlxPartyLocationAccessFactory,
+                            DatabaseAdmin(pool),
+                        )
+                        .execute(&context, command(party_id, "revoked-admin"))
+                        .await
+                        .map(|_| ())
+                    }
+                }
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    let waiting: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM parties WHERE party_id = $1 FOR UPDATE%')",
+                    ).fetch_one(&pool).await.unwrap();
+                    if waiting { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            sqlx::query("UPDATE users SET role=$2,suspended=$3 WHERE user_id=$1")
+                .bind(admin.into_uuid())
+                .bind(if suspend { "ADMIN" } else { "USER" })
+                .bind(suspend)
+                .execute(&pool)
+                .await
+                .unwrap();
+            blocked_by.commit().await.unwrap();
+            assert!(matches!(
+                request.await.unwrap(),
+                Err(PartyLocationError::Forbidden)
+            ));
+        }
+    }
+    let effects: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM party_locations)+(SELECT count(*) FROM party_location_management_grants)",
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(0, effects);
+    sqlx::query("UPDATE users SET role='ADMIN',suspended=false WHERE user_id=$1")
+        .bind(admin.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let context = context(Principal::User(admin));
+    CreatePartyLocationHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxPartyLocationRepositoryFactory,
+        SqlxPartyLocationAccessFactory,
+        DatabaseAdmin(pool.clone()),
+    )
+    .execute(&context, command(party_id, "current-admin"))
+    .await
+    .unwrap();
+    GrantPartyLocationManagementHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxPartyLocationAccessFactory,
+        DatabaseAdmin(pool),
+    )
+    .execute(
+        &context,
+        GrantPartyLocationManagementCommand {
+            party_id,
+            user_id: admin,
+            granted: true,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+#[aura_integration_test(services=[BUSINESS_SCHEMA])]
+async fn location_authority_holds_user_status_until_commit() {
+    let pool = get_postgres_client().await;
+    let party_id = party(&pool).await;
+    let user = UserId::new();
+    sqlx::query("INSERT INTO users(user_id,email,tier,role) VALUES($1,$2,'FREE','USER')")
+        .bind(user.into_uuid())
+        .bind(format!("{user}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO party_location_management_grants(party_id,user_id,granted_actor) VALUES($1,$2,'test')")
+        .bind(party_id.into_uuid()).bind(user.into_uuid()).execute(&pool).await.unwrap();
+    let mut operation = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let factory = SqlxPartyLocationAccessFactory;
+    assert!(
+        factory
+            .in_transaction(&mut operation)
+            .lock_party(party_id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        factory
+            .in_transaction(&mut operation)
+            .can_manage_locations(party_id, user)
+            .await
+            .unwrap()
+    );
+    let mut suspension = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout='100ms'")
+        .execute(&mut *suspension)
+        .await
+        .unwrap();
+    let result = sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
+        .bind(user.into_uuid())
+        .execute(&mut *suspension)
+        .await;
+    assert_eq!(
+        Some("55P03"),
+        result
+            .unwrap_err()
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref()
+    );
+    suspension.rollback().await.unwrap();
+    operation.commit().await.unwrap();
+    sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
+        .bind(user.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut operation = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert!(
+        factory
+            .in_transaction(&mut operation)
+            .lock_party(party_id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !factory
+            .in_transaction(&mut operation)
+            .can_manage_locations(party_id, user)
+            .await
+            .unwrap()
+    );
+    operation.commit().await.unwrap();
 }

@@ -211,116 +211,64 @@ historic customer mail.
 
 ## Geographic resolution recovery
 
-[Geography](geography.md#durable-resolution-and-party-integration-2002) owns scope,
-acceptance and retention eligibility. Apply its migration before the new Party and worker
-runtimes. Stage `geoResolutionEnabled` and PostgreSQL provider `enabled` and
-`storage_permitted` default false. Confirm the reviewed provider profile, applicable
-storage/private-input rights, attribution, database capacity and daily/concurrency caps
-before enabling paid work. Disabling paid calls preserves permitted cached evidence;
-revoking rights requires `storage_permitted=false` and verification of physical purging.
+[Geography](geography.md#durable-resolution-and-party-integration-2002) owns acceptance,
+privacy and retention. Paid work defaults off in stage configuration and provider controls;
+storage permission is separate. Before enabling it, confirm applicable provider/private-input
+rights, attribution, database capacity and call/concurrency budgets. Turning off paid calls
+preserves permitted cache entries; rights withdrawal requires revocation and physical purging.
 
-Only compact resolution IDs/generations cross CDC and SQS. Private input, provider
-evidence and scope owners must stay out of logs, jobs and operator evidence. Monitor
-`geo_resolution_input` reuse, `geo_resolution_outcome` method/policy/outcome/failure and
-attempt counts, `geo_resolution_oldest_pending` age and `geo_resolution_maintenance`
-expired/requeued counts, plus queue age/depth/DLQ and backend cleanup failures.
-These structured log fields are aggregate observations, not
-provisioned CloudWatch metric filters. Investigate BLOCKED/FAILED database state as well
-as transport custody; partial failures need not increment Lambda Errors.
+Apply the consolidated geography migration with compatible API, router, workers and cleanup
+binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
+Coordinate DMS capture of compact resolution and listing-geography wake-ups with the existing
+checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. Protected
+Request establishes work for preexisting eligible PartyLocations; CDC-only capture does not
+backfill them. Deploy geographic mappings and rebuild saved-filter projections before enabling
+new geographic filters, so `hasGeography` and percolator predicates are refresh-visible.
 
-The existing hourly `backend-cleanup-lambda` handles geography maintenance alongside
-credential and consent cleanup. Each invocation purges at most 100 evidence records and
-requeues at most 100 runnable inputs, using `EXPIRY_CLEANUP_BATCH_SIZE` capped at 100.
-It makes no provider calls and needs no geocoding or SQS publishing permission. Recovery
-advances generations and inserts new compact immutable CDC wake-ups without resetting
-attempts, pending age or budget reservations; active leases, backoff deadlines and
-provider/scope budgets remain authoritative. CDC and SQS must be healthy for these fresh
-wake-ups to reach the worker. Recovery can wait until the next hourly invocation;
-monitor backlog age and capacity, and run additional bounded cleanup invocations under
-the normal operational approval when a backlog or rights withdrawal requires faster
-physical erasure. Geography cleanup runs with paid work off to purge expired, revoked
-and orphaned evidence and review selections. Readers hide ineligible evidence immediately.
-Verify INVALIDATED/REQUEUED journal entries and changed generations after maintenance;
-the journal contains no provider derivatives. Each cleanup capability runs even when
-another returns an error, and any error fails the invocation. Listing projection consumes
-current state through [durable dependency fanout](#listing-geography-recovery).
+The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work,
+even with paid calls disabled. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
+attempts, pending age, backoff and spent budgets; live leases retain their reservations.
+Additional bounded cleanup invocations follow ordinary operational approval when backlog or
+rights withdrawal requires faster erasure. Readers suppress ineligible evidence immediately;
+listing search accepts projection lag while removal propagates.
 
-For recovery, use bounded read-only metadata queries to inspect current binding,
-generation, lease, attempt count, last failure, deadline and provider/scope budgets. An
-active claim is incomplete. A paid-call/commit crash can repeat charging after lease
-expiry; five durable attempts and one SDK attempt per reservation bound ordinary retries.
-Budget reservations are not refunded after uncertain calls. Hourly maintenance requeues
-expired leases; exhausted work requires an explicit protected Retry after correcting the
-cause for business locations. Private user addresses expose status through normal address
-reads and correction through ordinary replacement; they have no manual retry/selection
-API. After operators correct authentication/configuration/storage gates, hourly recovery
-can resume blocked private work within the existing five-attempt allowance, preserving
-backoff and spent-call budgets. Exhausted attempts and invalid/unsupported inputs require
-cause correction and changed input or approved operational recovery; they do not loop
-automatically. Authentication/configuration/retention failures are
-not geographic no-match. Follow the purpose-specific acceptance and policy-upgrade
-rollout in [geography](geography.md#policy-migration-and-rollout); autocomplete selection
-is not a reason to bypass the backend policy or provider storage gate.
+Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
+deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
+counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
+provisioned metric filters; BLOCKED/FAILED work also needs inspection. Never include private
+input or provider payloads in logs, operator evidence or replay messages.
 
-Request establishes work for a preexisting eligible site; CDC-only capture does not
-backfill PartyLocations. Protected Retry and candidate selection require current location
-CAS and resolution generation. An unchanged completed retry is free; forced resolution
-invalidates prior derivatives and selections, and cannot bypass budget caps. Preserve
-IDs/generations on a small approved DLQ redrive: old generations acknowledge as stale,
-completed current generations reuse evidence, active claims defer, and malformed jobs
-retain custody. Never fabricate a new generation by editing transport payloads or copy a
-private input into a diagnostic job. Confirm completion and current eligibility before
-expanding redrive.
+An active claim is incomplete. A paid-call/commit crash may repeat charging after lease
+expiry; reservations are not refunded. Business Retry/selection requires current location
+CAS and resolution generation. Unchanged completed retries reuse evidence; forced resolution
+invalidates derivatives/selections and cannot bypass budgets. Private addresses expose
+ordinary replacement/read APIs; corrected configuration gates allow bounded background
+recovery, while exhausted or invalid inputs require cause correction and changed input or
+approved operational recovery.
+
+Redrive a small approved DLQ sample with original identities/generations: superseded work
+completes as stale, completed work reuses evidence, active leases defer and malformed jobs
+retain custody. Confirm completion and eligibility before expanding redrive. Never invent a
+new generation in a transport payload. Runbook checks do not establish deployed readiness.
 
 ## Listing geography recovery
 
-The `listing-geography` source/DLQ and `listing-geography-lambda` process compact schema-2
-LISTING_GEOGRAPHY work ID/generation wake-ups. The Lambda reserves concurrency 2, one
-PostgreSQL connection per invocation and one message per batch; each page is at most 100
-listings. No geocoder, OpenSearch or queue send permission belongs to this worker.
-Continuation wake-ups commit with each unfinished page. Claim leases last 60 seconds;
-uncertain/crashed page transactions roll back, and a replacement claim resumes from the
-last committed cursor. The hourly backend cleanup independently drains one page and
-reestablishes continuation custody even if wake-up delivery was missed or exhausted.
+The worker consumes compact work ID/generation wake-ups and commits bounded pages plus
+checkpoints. Continuations retain durable custody; newer invalidation fences claims and
+restarts traversal. The hourly cleanup also drains a page to recover missed wake-ups. Neither
+path calls a geocoder or writes OpenSearch directly. Initial migration enqueues source-level
+rebuild work without rewriting every listing synchronously.
 
-Deploy the compatible enrichment decoder/router/projector/percolator and compact geo
-mappings before enabling the migration's producers and CDC selection for
-`listing_geography_wakeups`. Keep private inputs, bindings and work checkpoints
-outside CDC. Migration establishes initial source-level rebuild work; it never rewrites
-all listings in a management transaction. Use the existing DLQ/archive replay procedure,
-then reread current authority; never replay coordinates or resurrect a captured default.
+For rebuilding, fence old projection writers and follow the existing isolated OpenSearch
+generation procedure. Enqueue source UUIDs in bounded keyset pages with
+`SELECT enqueue_listing_geography('SOURCE', $1)` in the operational transaction. Workers reread
+current permitted authority. After draining derived state, replay the product projection
+journal and validate the replacement index before activation: source enqueue alone cannot
+repopulate a missing index when derived values are unchanged. Preserve checkpoints,
+projection versions and deletion tombstones. Repeat source traversal if source creation
+overlaps it; listing journals independently cover concurrent listings.
 
-The PartyLocation disclosure-removal migration requires a coordinated release: quiesce
-the affected API, resolution and geography workers, and cleanup schedule, and wait for
-older invocations to finish before applying it. Older binaries require the dropped column
-and cannot read new resolution inputs. Deploy all affected runtimes from the same migration
-SHA before resuming them; rollback also requires the compatible binaries. The migration
-adapts completed creation receipts and enqueues source rebuilds, while existing resolution
-bindings, reviewed selections and paid attempts remain reusable. Follow the
-[schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
-
-For a deliberate rebuild, fence old projection writers and use the existing isolated
-OpenSearch generation procedure. Enqueue source UUIDs in bounded ascending keyset pages
-using `SELECT enqueue_listing_geography('SOURCE', $1)` inside the operational transaction.
-Draining reuses only current permitted authoritative resolution and needs no provider
-access. Deleted/withdrawn listings retain the existing monotonic tombstone guarantees.
-Replay the product projection journal into the replacement index after draining derived
-state, then complete the existing generation validation before activating it. Source
-enqueue alone does not repopulate a missing index: unchanged derived fields intentionally
-emit no new enrichment event.
-Do not clear checkpoints or reset projection versions. Backfill sources repeatedly if
-source creation overlaps the traversal; new listing journals independently cover listings.
-
-Monitor `listing_geography_backlog` oldest pending seconds, pending work/expired claims,
-`product_listing_geographies` rows awaiting index acknowledgment and earliest retention
-deadline, plus queue age/DLQ alarms. Projection lag affects freshness of geographic results;
-queries and saved matching continue during catch-up. Repair/replay stalled geography and
-product projectors to propagate retirement, applicability changes and evidence removal.
-Runbook checks establish local contracts, not production activation or provider rights.
-
-Apply `20261012090000_remove_geographic_query_gate.sql` with compatible runtimes in a
-coordinated schema-dependent release. Quiesce the affected API, projection/matching workers
-and cleanup schedule and drain older invocations before migration: older binaries require
-the removed query-gate state. The migration preserves pending work, generations, leases,
-checkpoints and projection versions. Resume compatible consumers after migration; rollback
-must retain compatible binaries.
+Monitor oldest pending work, expired claims, unacknowledged geography versions, retention
+deadlines and queue/DLQ failures. Index acknowledgment means refresh visibility, including
+conflict/replay recovery. Queries continue during catch-up; repair/replay stalled geography
+and product projectors to propagate retirement, applicability and evidence removal.

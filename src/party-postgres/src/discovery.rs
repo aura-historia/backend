@@ -264,8 +264,10 @@ impl PartyLocationDiscoveryReader for Reader<'_> {
             if country.map(|c| c.alpha2()) != row.country.as_deref()
                 || subdivision.map(|s| s.as_str()) != row.subdivision.as_deref()
                 || position != sql_position
-                || !q.matches(country, subdivision.as_ref(), position)
             {
+                return Err(DiscoverPartyLocationsError::InconsistentSnapshot);
+            }
+            if !q.matches(country, subdivision.as_ref(), position) {
                 return Err(corrupt());
             }
             let location_id = row.party_location_id.try_into().map_err(invalid)?;

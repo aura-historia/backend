@@ -35,8 +35,7 @@ use user_service::ports::{
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingSearchPatch {
-    pub business_geography: PatchField<geo::core::discovery::GeographicQuery>,
-    pub inventory_geography: PatchField<geo::core::discovery::GeographicQuery>,
+    pub geography: PatchField<geo::core::discovery::GeographicQuery>,
     pub language: PatchField<Language>,
     pub currency: PatchField<Currency>,
     pub product_listing_query: PatchField<Vec<TextQuery<1>>>,
@@ -336,11 +335,8 @@ fn apply_product_search_patch(
     patch: &ProductListingSearchPatch,
 ) -> Result<bool, UpdateOwnedSearchFilterError> {
     let mut changed = false;
-    changed |= apply_optional_patch(&patch.business_geography, &mut search.business_geography);
-    changed |= apply_optional_patch(&patch.inventory_geography, &mut search.inventory_geography);
-    search
-        .validate_geography()
-        .map_err(|_| UpdateOwnedSearchFilterError::InvalidSearchFilterPatch)?;
+    changed |= apply_optional_patch(&patch.geography, &mut search.geography);
+
     changed |= apply_required_patch(&patch.language, &mut search.language)?;
     changed |= apply_required_patch(&patch.currency, &mut search.currency)?;
     changed |= apply_default_patch(
@@ -517,7 +513,7 @@ mod tests {
         };
         let original = query(48.137);
         let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
-        search.business_geography = Some(original.clone());
+        search.geography = Some(original.clone());
         assert!(
             apply_product_search_patch(
                 &mut search,
@@ -528,30 +524,30 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(Some(original), search.business_geography);
+        assert_eq!(Some(original), search.geography);
         let replacement = query(49.137);
         assert!(
             apply_product_search_patch(
                 &mut search,
                 &ProductListingSearchPatch {
-                    business_geography: PatchField::Set(replacement.clone()),
+                    geography: PatchField::Set(replacement.clone()),
                     ..Default::default()
                 }
             )
             .unwrap()
         );
-        assert_eq!(Some(replacement), search.business_geography);
+        assert_eq!(Some(replacement), search.geography);
         assert!(
             apply_product_search_patch(
                 &mut search,
                 &ProductListingSearchPatch {
-                    business_geography: PatchField::Clear,
+                    geography: PatchField::Clear,
                     ..Default::default()
                 }
             )
             .unwrap()
         );
-        assert!(search.business_geography.is_none());
+        assert!(search.geography.is_none());
     }
     #[test]
     fn should_merge_only_patched_search_fields() -> Result<(), Box<dyn std::error::Error>> {

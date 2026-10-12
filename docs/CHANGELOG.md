@@ -2,43 +2,15 @@
 
 Only document REST API contract changes here. No internal changes.
 
-## 2026-10-11 — Geographic discovery (#2004)
+## 2026-10-12 — Geographic discovery and private addresses
 
-- Listing search and private saved filters accept separate `businessGeography` and `inventoryGeography` predicates with ISO country/subdivision sets, explicit numeric origins, `radius: {amount, unit}` (positive, equivalent to at most 20000 km), strict/approximate evidence modes and distance ordering. Radius units include `KILOMETERS`, `MILES`, `METERS`, `YARDS`, `FEET`, `INCHES`, `CENTIMETERS`, `MILLIMETERS` and `NAUTICAL_MILES`. Strict proximity requires premises precision. Search summaries expose public basis and precision; distance display follows evidence quality.
-- Anonymous `GET /api/v1/party-locations` discovers eligible active locations with bounded keyset pagination. Results identify each matching location and its Party; management evidence and revisions remain private.
-- Geographic listing search and saved matching accept ordinary read-projection lag: results can briefly reflect an earlier location state while updates catch up. Geographic responses are `private, no-store`. Saved origins remain private coordinate snapshots; user addresses and preferences never supply or move them.
+- Listing search and saved filters accept one `geography` predicate: ISO countries/subdivisions, an explicit numeric origin, a radius with units, strict/approximate precision and optional distance order. Listing summaries expose one source-derived geography; backend inventory applicability determines eligibility. Strict proximity requires premises evidence. Geographic responses are `private, no-store` and accept projection lag. Saved origins are private snapshots independent of address edits/preferences.
+- Added anonymous `GET /api/v1/party-locations` with bounded keyset discovery. Active locations permit exact eligible geography; public views exclude raw addresses, management evidence and revision tokens.
+- Added protected PartyLocation management under `/api/v1/parties/{party_id}/locations`, supporting multiple sites, idempotent creation, same-site correction, relocation and retirement/restoration. Mutations require current revision. Administrators, active partnership members or explicit location managers may operate; delegated callers also require the relevant Party scope. Admin grant/revoke routes manage independent location grants.
+- Added protected and admin ListingSource `location-default` GET/PUT/PATCH/DELETE routes. Each source selects at most one operator-owned location with explicit business/inventory applicability evidence. Current revision, active-site eligibility and source authority are required; clear remains possible after retirement. Responses are `no-store`.
+- Added private `/api/v1/me/addresses` create/list/get/replace/delete routes with server-generated `uaddr_` IDs, owner-scoped `Idempotency-Key` creation and CAS replacement/deletion. Ordinary reads expose resolution status, permitted derived geography and attribution. Unique compatible premises results may resolve automatically; uncertain inputs remain saved and editable.
+- Added GET/PUT `/api/v1/me/browsing-destination` with CAS choices `NONE`, `ADDRESS` or `COUNTRY_POSTAL`. Deleting the selected address clears the preference. Address/preference routes require a current unsuspended owner and corresponding delegated user scope; all responses are `no-store`. They do not implicitly supply listing-search origins.
 
-## 2026-10-11 — Exact PartyLocation geography (#2003)
-
-- Removed `disclosure` from PartyLocation create/correct requests and management responses. Requests containing the removed field return `400`; active locations always provide exact geography to eligible public consumers.
-- Retired locations remain ineligible for effective geography. Explicit source applicability, provider retention, and protected management/evidence access still govern their respective consumers.
-
-## 2026-10-11 — Private user addresses and browsing destinations (#2005)
-
-- Added private create/list/get/replace/delete `/api/v1/me/addresses` and `/{address_id}` routes. Creation accepts only label/geography and returns a server-generated `uaddr_` UUIDv7 ID. Exactly one valid `Idempotency-Key` header is required: unchanged creation retries return the same entry's current view; changed content or deleted entries conflict. Replacement/deletion require `expectedVersion`. Entries keep verbatim free-text geographic assertions, without parsed street components or PlaceId. Lists use `after` and `limit` (1–100, default 25).
-- Added GET/PUT `/api/v1/me/browsing-destination` with one mutually exclusive `NONE`, `ADDRESS` or `COUNTRY_POSTAL` choice and preference CAS. At most one address is preferred. Deleting that address atomically clears the preference without selecting another. Search consumers resolve an authorized submitted/derived snapshot internally; an explicit request choice wins over the stored preference, including explicit `NONE`.
-- Address create/get/replace/list responses include `resolution: { status, derived, attribution }`. Eligible unique compatible premises results are accepted automatically for browsing; coarse results can supply country/subdivision without a point. Failed/ambiguous/unresolved bookmarks stay saved, background retries remain bounded, and users correct input with ordinary replacement. Expired/revoked evidence is `UNAVAILABLE` with no derived data or attribution. The pre-release separate resolution inspect/retry/selection and destination-resolve routes were removed; clients use ordinary address reads.
-- All routes require an unsuspended current user; delegated reads require `users:read`, mutations `users:write`. All responses are `no-store`; owner fields and mixed destination variants are rejected. Existing profile, email, consent and billing contracts are unchanged.
-
-## 2026-10-11 — Administrator ListingSource location defaults (#2000)
-
-- Added GET/PUT/PATCH/DELETE `/api/v1/admin/listing-sources/{listing_source_id}/location-default` with the same request, response, expected-revision and no-store contracts as the protected source-management routes.
-- Admin routes require a current unsuspended administrator; operator-partnership membership or a source grant alone is insufficient. Delegated credentials additionally require `listing-sources:read` for GET and `listing-sources:write` for mutations. Administrator authority is revalidated within the operation transaction.
-
-## 2026-10-10 — ListingSource location defaults (#2000)
-
-- Added protected GET/PUT/PATCH/DELETE `/api/v1/listing-sources/{listing_source_id}/location-default`. A source selects zero or one operator-owned PartyLocation. PUT replaces the reference and applicability together; PATCH changes applicability on that reference; DELETE clears it with a JSON `expectedRevision` body.
-- Business association and advertised inventory each require their own scoped evidence; absent applicability asserts nothing. Source configuration creates no seller, shipping, pickup or production-origin assertion.
-- Unsuspended administrators or active operator-partnership members with the exact source grant may manage defaults. Delegated tokens additionally require `listing-sources:read` or `listing-sources:write`. Current authority and location eligibility are checked during execution. Ordinary product-listing scope confers no authority.
-- Results contain a protected revision (initially 1), nullable assignment and current ACTIVE/RETIRED eligibility. Every mutation requires `expectedRevision`; stale/exhausted revisions, retired assignments and applicability changes without an assignment return `409 CONFLICT`. Current-revision no-ops preserve revisions. All responses use `Cache-Control: no-store`; protected retained references include evidence but no location address or point.
-
-## 2026-10-10 — Party location management (#1999)
-
-- Added protected create/get/list/correct/lifecycle endpoints under `/api/v1/parties/{party_id}/locations`. One Party can hold multiple independent sites. Creation requires `Idempotency-Key`, defaults to private disclosure, and optionally relocates an explicitly referenced old site atomically.
-- Protected access requires administrator/internal authority, membership in the Party's active partnership, or an explicit Party-location management grant. Unsuspended partnership members gain access automatically on approval or membership addition; membership removal/dissolution removes that authority. Delegated callers also need `parties:read`/`parties:write`. Administrator grant/revoke uses `PUT /api/v1/admin/parties/{party_id}/location-managers/{user_id}` and controls only independent explicit grants. Listing-write scope provides no access.
-- Corrections require `correction: SAME_SITE` and `expectedRevision`; lifecycle changes explicitly choose `ACTIVE` or `RETIRED` with `expectedRevision`. Nullable geography/position/evidence clear on null; label/roles/disclosure reject null. Stale revisions and conflicting idempotency-key reuse return `409 CONFLICT`. Lists use `after` TypeIDs and `limit` (1–100, default 25), returning `items` and nullable `next`.
-- All location endpoints require authentication and use `Cache-Control: no-store`. There are no public Party-location get/list endpoints.
-- 
 ## 2026-10-10 — Historical ProductListing price display (#2018)
 
 - `GET /api/v1/product-listings/{productListingId}/history` accepts optional `currency`. Omission preserves the existing response. Monetary discovery prices/estimates and both sides of price/estimate changes can include additive `display` values with the requested currency, minor-unit amount, `fxRateId` and `capturedAt`.

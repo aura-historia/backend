@@ -104,6 +104,76 @@ struct Fixture {
 }
 
 #[tokio::test]
+async fn postal_evidence_regression_reaches_private_acceptance_through_the_real_adapter() {
+    use geo_service::resolution::{
+        ResolutionInput, ResolutionScope, ResolutionStatus, RetentionPurpose, ScopeKind, evaluate,
+    };
+    let server = MockServer::start().await;
+    let provider = provider(
+        &server,
+        AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+    );
+    let request = GeocodingRequest::new(AddressText::new("Synthetic London address").unwrap())
+        .with_submitted(SubmittedGeography::new(
+            GeographicDescription::new(
+                None,
+                Some(CountryCode::GBR),
+                None,
+                Some(geo::PostalCode::new("SW1A 1AA").unwrap()),
+            )
+            .unwrap()
+            .unwrap(),
+        ));
+    let input = ResolutionInput::new(
+        request.clone(),
+        ResolutionScope::new(
+            ScopeKind::User,
+            Some("01900000-0000-7000-8000-000000000008".parse().unwrap()),
+        )
+        .unwrap(),
+        RetentionPurpose::UserLocation,
+    )
+    .unwrap();
+    for (postal, expected) in [
+        (Some("sw1a1aa"), ResolutionStatus::Accepted),
+        (Some("SW1A 2AA"), ResolutionStatus::Ambiguous),
+        (None, ResolutionStatus::Ambiguous),
+    ] {
+        server.reset().await;
+        let body = json!({"ResultItems": [{"PlaceId": "synthetic-gb", "PlaceType": "PointAddress",
+            "Position": [-0.1, 51.5], "Address": {"Country": {"Code2": "GB"}, "PostalCode": postal}}]});
+        mount(&server, success(body, "Stored"), 1).await;
+        let result = provider.geocode(&request).await.unwrap();
+        assert_eq!(
+            postal,
+            candidates(&result)[0]
+                .geography()
+                .unwrap()
+                .description()
+                .unwrap()
+                .postal_code()
+                .map(|p| p.as_str())
+        );
+        let evidence = evaluate(&input, result, TERMS_PROFILE).unwrap();
+        assert_eq!(expected, evidence.status);
+        assert_eq!(
+            expected == ResolutionStatus::Accepted,
+            evidence.accepted_index.is_some()
+        );
+    }
+    for postal in [String::new(), "x".repeat(65), "invalid\npostal".into()] {
+        server.reset().await;
+        let body = json!({"ResultItems": [{"PlaceId": "synthetic-gb", "PlaceType": "PointAddress",
+            "Position": [-0.1, 51.5], "Address": {"Country": {"Code2": "GB"}, "PostalCode": postal}}]});
+        mount(&server, success(body, "Stored"), 1).await;
+        assert_eq!(
+            GeocodingFailure::InvalidResponse,
+            provider.geocode(&request).await.unwrap_err().kind
+        );
+    }
+}
+
+#[tokio::test]
 async fn representative_offline_fixtures_use_real_sdk_encoding_and_parsing() {
     let fixtures: Vec<Fixture> =
         serde_json::from_str(include_str!("../fixtures/geocode.json")).unwrap();
@@ -376,7 +446,7 @@ async fn malformed_successes_invalid_coordinates_and_excess_candidates_fail_clos
             .is_some()
     );
     // Nonfinite f64 values can also come from SDK/custom decoding paths, independently
-    // of JSON's numeric grammar. Test the adapter-to-G1 boundary directly.
+    // of JSON's numeric grammar. Test the adapter-to-domain boundary directly.
     for coordinate in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let item = GeocodeResultItem::builder()
             .place_id("synthetic-nonfinite")

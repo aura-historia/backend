@@ -13,7 +13,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
 
 [dev-dependencies]
-aws-config = { workspace = true }
 localization = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

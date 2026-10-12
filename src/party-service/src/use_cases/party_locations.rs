@@ -510,18 +510,23 @@ async fn authorize<Tx, F: PartyLocationAccessFactory<Tx>>(
     if !access.in_transaction(tx).lock_party(party_id).await? {
         return Err(PartyLocationError::NotFound);
     }
-    if privileged {
-        return Ok(());
-    }
     let user = match context.principal {
+        Principal::Service(_) | Principal::System => return Ok(()),
         Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => id,
         _ => return Err(PartyLocationError::Forbidden),
     };
-    if access
-        .in_transaction(tx)
-        .can_manage_locations(party_id, user)
-        .await?
-    {
+    let permitted = if privileged {
+        access
+            .in_transaction(tx)
+            .can_administer_locations(user)
+            .await?
+    } else {
+        access
+            .in_transaction(tx)
+            .can_manage_locations(party_id, user)
+            .await?
+    };
+    if permitted {
         Ok(())
     } else {
         Err(PartyLocationError::Forbidden)

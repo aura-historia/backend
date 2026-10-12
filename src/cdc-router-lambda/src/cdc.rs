@@ -230,7 +230,11 @@ impl TryFrom<DmsKinesisRecord> for CdcBatch {
                     DmsKinesisRecordClassification::Noop
                         if matches!(
                             metadata.table_name.as_deref(),
-                            Some("marketing_email_consent_sync_intents" | "geo_resolution_wakeups")
+                            Some(
+                                "marketing_email_consent_sync_intents"
+                                    | "geo_resolution_wakeups"
+                                    | "listing_geography_wakeups"
+                            )
                         ) =>
                     {
                         let operation = metadata
@@ -439,6 +443,7 @@ fn classify_dms_table_operation(
     match (CdcTable::from(table), operation) {
         (CdcTable::ProductListingEvents, CdcOperation::Insert)
         | (CdcTable::GeoResolutionWakeups, CdcOperation::Insert)
+        | (CdcTable::ListingGeographyWakeups, CdcOperation::Insert)
         | (CdcTable::ProductListingRawRevisions, CdcOperation::Insert)
         | (CdcTable::SearchFilters, _)
         | (CdcTable::SearchFilterMatches, CdcOperation::Insert)
@@ -448,6 +453,7 @@ fn classify_dms_table_operation(
         }
         (CdcTable::ProductListingEvents, _)
         | (CdcTable::GeoResolutionWakeups, _)
+        | (CdcTable::ListingGeographyWakeups, _)
         | (CdcTable::ProductListingRawRevisions, _)
         | (CdcTable::SearchFilterMatches, _)
         | (CdcTable::NotificationDeliveries, _)
@@ -461,6 +467,7 @@ fn dms_table_is_selected(table: &str) -> bool {
         CdcTable::from(table),
         CdcTable::ProductListingEvents
             | CdcTable::GeoResolutionWakeups
+            | CdcTable::ListingGeographyWakeups
             | CdcTable::ProductListingRawRevisions
             | CdcTable::SearchFilters
             | CdcTable::SearchFilterMatches
@@ -495,12 +502,19 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
     for change in &batch.changes {
         match classify_dms_change(change) {
             DmsKinesisRecordClassification::Trigger => {}
-            DmsKinesisRecordClassification::Noop if change.table == "geo_resolution_wakeups" => {
-                require_exact_dms_columns(
-                    row_for_operation(change)?,
-                    &["resolution_id", "generation"],
-                )?;
-                validate_resolution_wakeup(row_for_operation(change)?)?;
+            DmsKinesisRecordClassification::Noop
+                if matches!(
+                    change.table.as_str(),
+                    "geo_resolution_wakeups" | "listing_geography_wakeups"
+                ) =>
+            {
+                let id_field = if change.table == "geo_resolution_wakeups" {
+                    "resolution_id"
+                } else {
+                    "work_id"
+                };
+                require_exact_dms_columns(row_for_operation(change)?, &[id_field, "generation"])?;
+                validate_geography_wakeup(row_for_operation(change)?, id_field)?;
                 continue;
             }
             DmsKinesisRecordClassification::Noop
@@ -528,6 +542,9 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         let required_columns = match (change.table.as_str(), change.operation) {
             ("geo_resolution_wakeups", CdcOperation::Insert) => {
                 ["resolution_id", "generation"].as_slice()
+            }
+            ("listing_geography_wakeups", CdcOperation::Insert) => {
+                ["work_id", "generation"].as_slice()
             }
             ("product_listing_events", CdcOperation::Insert) => [
                 "event_id",
@@ -568,11 +585,13 @@ fn validate_dms_contract(batch: &CdcBatch) -> Result<(), CdcRouteError> {
         require_dms_columns(row, required_columns)?;
         if change.table == "marketing_email_consent_sync_intents"
             || change.table == "geo_resolution_wakeups"
+            || change.table == "listing_geography_wakeups"
         {
             require_exact_dms_columns(row, required_columns)?;
         }
         match change.table.as_str() {
-            "geo_resolution_wakeups" => validate_resolution_wakeup(row)?,
+            "geo_resolution_wakeups" => validate_geography_wakeup(row, "resolution_id")?,
+            "listing_geography_wakeups" => validate_geography_wakeup(row, "work_id")?,
             "product_listing_raw_revisions" => validate_dms_positive_decimal(row, "revision")?,
             "search_filters" => validate_dms_positive_decimal(row, "version")?,
             _ => {}
@@ -620,16 +639,15 @@ fn validate_dms_positive_decimal(row: &Value, field: &'static str) -> Result<(),
     Ok(())
 }
 
-fn validate_resolution_wakeup(row: &Value) -> Result<(), CdcRouteError> {
+fn validate_geography_wakeup(row: &Value, id_field: &'static str) -> Result<(), CdcRouteError> {
     validate_dms_positive_decimal(row, "generation")?;
     let raw = row
-        .get("resolution_id")
+        .get(id_field)
         .and_then(Value::as_str)
-        .ok_or(CdcRouteError::InvalidObjectId("resolution_id"))?;
-    let id =
-        uuid::Uuid::parse_str(raw).map_err(|_| CdcRouteError::InvalidObjectId("resolution_id"))?;
+        .ok_or(CdcRouteError::InvalidObjectId(id_field))?;
+    let id = uuid::Uuid::parse_str(raw).map_err(|_| CdcRouteError::InvalidObjectId(id_field))?;
     if id.to_string() != raw || domain_primitives::object_id::validate_uuid(id).is_err() {
-        return Err(CdcRouteError::InvalidObjectId("resolution_id"));
+        return Err(CdcRouteError::InvalidObjectId(id_field));
     }
     Ok(())
 }
@@ -722,6 +740,48 @@ mod tests {
     }
 
     #[test]
+    fn listing_geography_dms_regression_validates_and_routes_all_operations() {
+        let (router, _) = fanout();
+        let fixture = include_str!("../tests/fixtures/dms-kinesis/listing-geography-insert.json");
+        let first = published_jobs(fixture);
+        assert_eq!(first, published_jobs(fixture));
+        assert_eq!(1, first.len());
+        assert_eq!("listing-geography", first[0]["scope"]);
+        assert_eq!(i64::MAX, first[0]["payload"]["generation"]);
+        assert_eq!(2, first[0]["payload"].as_object().unwrap().len());
+        for operation in ["insert", "update", "delete"] {
+            let mut record: Value = serde_json::from_str(fixture).unwrap();
+            record["metadata"]["operation"] = json!(operation);
+            if operation != "insert" {
+                assert!(published_jobs(&record.to_string()).is_empty());
+            }
+            for (field, invalid) in [
+                ("address", json!("private address")),
+                ("generation", json!("0")),
+                ("generation", json!("01")),
+                ("generation", json!("9223372036854775808")),
+                ("generation", json!(1)),
+                ("work_id", json!("01900000-0000-4000-8000-000000000008")),
+                ("work_id", json!("not-a-uuid")),
+            ] {
+                let mut poison = record.clone();
+                poison["data"][field] = invalid;
+                assert!(
+                    router
+                        .prepare_dms_kinesis_record(poison.to_string().as_bytes())
+                        .is_err()
+                );
+            }
+        }
+        let control = json!({
+            "control": {"table-def": {}},
+            "metadata": {"record-type": "control", "operation": "create-table",
+                "schema-name": "public", "table-name": "listing_geography_wakeups"}
+        });
+        assert!(published_jobs(&control.to_string()).is_empty());
+    }
+
+    #[test]
     fn resolution_routing_replays_compact_identity_and_rejects_sensitive_extra_columns() {
         let (router, publisher) = fanout();
         let fixture = include_str!("../tests/fixtures/dms-kinesis/geo-resolution-insert.json");
@@ -777,6 +837,10 @@ mod tests {
         let (router, publisher) = fanout();
         let fixtures: &[(&str, usize)] = &[
             (
+                include_str!("../tests/fixtures/dms-kinesis/listing-geography-insert.json"),
+                1,
+            ),
+            (
                 include_str!("../tests/fixtures/dms-kinesis/geo-resolution-insert.json"),
                 1,
             ),
@@ -826,7 +890,7 @@ mod tests {
             );
         }
         let bodies = publisher.bodies.lock().unwrap();
-        assert_eq!(13, bodies.len());
+        assert_eq!(14, bodies.len());
         for body in bodies.iter() {
             let job: Value = serde_json::from_str(body).unwrap();
             assert_eq!(2, job["schema_version"]);

@@ -138,14 +138,6 @@ pub(crate) fn parse_body(
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ListingGeographyData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    business: Option<DiscoveryDimensionData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inventory: Option<DiscoveryDimensionData>,
-}
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DiscoveryDimensionData {
     location_id: party_core::party_location_id::PartyLocationId,
     basis: &'static str,
     reference_release: &'static str,
@@ -160,10 +152,10 @@ struct DiscoveryDimensionData {
     #[serde(skip_serializing_if = "Option::is_none")]
     distance_km: Option<f64>,
 }
-impl From<product_listing_service::geographic_search::DiscoveryDimension>
-    for DiscoveryDimensionData
+impl From<product_listing_service::geographic_search::ListingDiscoveryGeography>
+    for ListingGeographyData
 {
-    fn from(d: product_listing_service::geographic_search::DiscoveryDimension) -> Self {
+    fn from(d: product_listing_service::geographic_search::ListingDiscoveryGeography) -> Self {
         Self {
             location_id: d.geography.location_id,
             basis: product_listing_service::geography::GeographicDimension::BASIS,
@@ -179,20 +171,31 @@ impl From<product_listing_service::geographic_search::DiscoveryDimension>
         }
     }
 }
-impl From<product_listing_service::geographic_search::ListingDiscoveryGeography>
-    for ListingGeographyData
-{
-    fn from(g: product_listing_service::geographic_search::ListingDiscoveryGeography) -> Self {
-        Self {
-            business: g.business.map(Into::into),
-            inventory: g.inventory.map(Into::into),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listing_geography_is_one_public_value_with_its_derived_basis() {
+        let geography = product_listing_service::geographic_search::ListingDiscoveryGeography {
+            geography: product_listing_service::geography::GeographicDimension {
+                location_id: party_core::party_location_id::PartyLocationId::new(),
+                reference_release: ReferenceRelease::CURRENT,
+                country: Some(geo::CountryCode::DEU),
+                subdivision: None,
+                position: None,
+            },
+            distance_km: None,
+        };
+        let value = serde_json::to_value(ListingGeographyData::from(geography)).unwrap();
+        assert_eq!("DE", value["country"]);
+        assert_eq!("SOURCE_DEFAULT_DERIVED", value["basis"]);
+        assert!(value.get("business").is_none());
+        assert!(value.get("inventory").is_none());
+        assert!(value.get("point").is_none());
+        assert!(value.get("distanceKm").is_none());
+    }
+
     #[test]
     fn radius_object_preserves_units_in_query_and_saved_filter_views() {
         let data: GeographicSearchData = serde_qs::from_str(

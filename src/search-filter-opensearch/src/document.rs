@@ -217,8 +217,6 @@ pub(crate) struct SearchFilterDocument {
 pub enum ProductListingSearchDocumentMappingError {
     #[error("invalid geographic predicate")]
     Geography(#[source] geo::data::discovery_data::InvalidGeographicQueryData),
-    #[error("invalid geographic predicate combination")]
-    GeographicCombination(#[source] geo::core::discovery::InvalidGeographicQuery),
     #[error("inconsistent geographic percolation marker")]
     GeographicMarker,
     #[error("OpenSearch document has malformed product search JSON")]
@@ -282,18 +280,8 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchDocument {
-    #[serde(
-        default,
-        rename = "businessGeography",
-        skip_serializing_if = "Option::is_none"
-    )]
-    business_geography: Option<geo::data::discovery_data::GeographicQueryData>,
-    #[serde(
-        default,
-        rename = "inventoryGeography",
-        skip_serializing_if = "Option::is_none"
-    )]
-    inventory_geography: Option<geo::data::discovery_data::GeographicQueryData>,
+    #[serde(default, rename = "geography", skip_serializing_if = "Option::is_none")]
+    geography: Option<geo::data::discovery_data::GeographicQueryData>,
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
@@ -384,8 +372,7 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
 
     fn try_from(search: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
-            business_geography: search.business_geography.as_ref().map(Into::into),
-            inventory_geography: search.inventory_geography.as_ref().map(Into::into),
+            geography: search.geography.as_ref().map(Into::into),
             language: search.language,
             currency: search.currency,
             product_listing_query: search.product_listing_query.clone(),
@@ -432,13 +419,8 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
 
     fn try_from(document: ProductListingSearchDocument) -> Result<Self, Self::Error> {
         let search = Self {
-            business_geography: document
-                .business_geography
-                .map(TryInto::try_into)
-                .transpose()
-                .map_err(ProductListingSearchDocumentMappingError::Geography)?,
-            inventory_geography: document
-                .inventory_geography
+            geography: document
+                .geography
                 .map(TryInto::try_into)
                 .transpose()
                 .map_err(ProductListingSearchDocumentMappingError::Geography)?,
@@ -479,9 +461,7 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
                 .map(parse_time_range)
                 .transpose()?,
         };
-        search
-            .validate_geography()
-            .map_err(ProductListingSearchDocumentMappingError::GeographicCombination)?;
+
         Ok(search)
     }
 }
@@ -552,7 +532,7 @@ mod tests {
     #[test]
     fn geographic_marker_must_agree_with_private_predicates() {
         let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
-        search.business_geography = Some(
+        search.geography = Some(
             geo::core::discovery::GeographicQuery::new(
                 geo::reference::ReferenceRelease::CURRENT,
                 std::collections::HashSet::from([geo::CountryCode::DEU]),

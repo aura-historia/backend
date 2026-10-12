@@ -12,7 +12,7 @@ use party_core::party_location_id::PartyLocationId;
 use product_listing_core::product_listing_id::ProductListingId;
 use uuid::Uuid;
 
-pub const POLICY: &str = "EFFECTIVE_GEOGRAPHY_V2";
+pub const POLICY: &str = "EFFECTIVE_GEOGRAPHY_V1";
 domain_primitives::object_id_newtype!(GeographyWorkId, "gwork");
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,7 +224,7 @@ where
         Ok(changed)
     }
 }
-/// G11 must replace this selection as a whole when overrides/suppression are added.
+/// Future listing overrides/suppression must replace this selection as a whole.
 /// Assertions are preserved; only accepted enrichment fills missing administrative facts.
 pub fn derive(
     input: &GeographyInput,

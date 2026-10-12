@@ -204,6 +204,203 @@ async fn complete(pool: &PgPool, c: &ResolutionClaim, e: ResolutionCompletion) -
 }
 
 #[aura_integration_test(services=[SCHEMA])]
+async fn input_failures_regression_do_not_open_the_shared_provider_circuit() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    for failure in [
+        GeocodingFailure::UnsupportedInput,
+        GeocodingFailure::StorageNotPermitted,
+    ] {
+        for index in 0..3 {
+            let w = bind(
+                &pool,
+                &input(
+                    Uuid::now_v7(),
+                    &format!("Local rejection {failure:?} {index}"),
+                ),
+                binding(),
+            )
+            .await;
+            let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
+                panic!("claim required")
+            };
+            assert!(!complete(&pool, &c, ResolutionCompletion::Failure(failure)).await);
+        }
+        let state: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+            "SELECT consecutive_failures,open_until FROM geo_resolution_provider_controls WHERE profile=$1"
+        ).bind(PROFILE).fetch_one(&pool).await.unwrap();
+        assert_eq!((0, None), state);
+    }
+    let valid = bind(
+        &pool,
+        &input(Uuid::now_v7(), "Other owner's valid address"),
+        binding(),
+    )
+    .await;
+    assert!(matches!(
+        claim(&pool, valid).await,
+        ClaimOutcome::Claimed(_)
+    ));
+    let calls: i32 =
+        sqlx::query_scalar("SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1")
+            .bind(PROFILE)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        7, calls,
+        "input refusals still consume their conservative reservations"
+    );
+}
+
+async fn mutation_before_inspection_lock_order(operation: &'static str) {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let owner = Uuid::now_v7();
+    let mut source = binding();
+    let input = if operation == "erasure" {
+        source.subject =
+            ResolutionSubject::new(RetentionPurpose::UserLocation, source.subject.id()).unwrap();
+        sqlx::query("INSERT INTO users(user_id,email,tier,role) VALUES($1,$2,'FREE','USER')")
+            .bind(owner)
+            .bind(format!("{owner}@example.test"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO user_addresses(address_id,user_id,label,geography) VALUES($1,$2,'Home',$3)")
+            .bind(source.subject.id()).bind(owner)
+            .bind(serde_json::json!({"reference_release":"iso-codes-4.20.1","address_text":"Original private address"}))
+            .execute(&pool).await.unwrap();
+        ResolutionInput::new(
+            GeocodingRequest::new(AddressText::new("Original private address").unwrap()),
+            ResolutionScope::new(ScopeKind::User, Some(owner)).unwrap(),
+            RetentionPurpose::UserLocation,
+        )
+        .unwrap()
+    } else {
+        input(owner, "Existing reusable address")
+    };
+    let work = bind(&pool, &input, source).await;
+    let ClaimOutcome::Claimed(c) = claim(&pool, work).await else {
+        panic!("claim required")
+    };
+    assert!(
+        complete(
+            &pool,
+            &c,
+            ResolutionCompletion::Evidence(evaluate(&input, result(), PROFILE).unwrap())
+        )
+        .await
+    );
+
+    // The worker takes its existing provider lock, then waits for this test to
+    // start a mutation. The mutation must wait before taking the resolution lock.
+    let mut worker = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT profile FROM geo_resolution_provider_controls WHERE profile=$1 FOR NO KEY UPDATE",
+    )
+    .bind(PROFILE)
+    .fetch_one(&mut *worker)
+    .await
+    .unwrap();
+    let mut writer = pool.begin().await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    let writing = tokio::spawn(async move {
+        match operation {
+            "bind" => {
+                SqlxResolutionRepositoryFactory::on_connection(&mut writer)
+                    .bind(&input, ResolutionBinding { guard: 2, ..source })
+                    .await
+                    .unwrap();
+            }
+            "select" => {
+                SqlxResolutionRepositoryFactory::on_connection(&mut writer)
+                    .select(source, work, 0, "test-reviewer")
+                    .await
+                    .unwrap();
+            }
+            "erasure" => {
+                sqlx::query("UPDATE user_addresses SET geography=$2,version=2,input_revision=2 WHERE address_id=$1")
+                    .bind(source.subject.id())
+                    .bind(serde_json::json!({"reference_release":"iso-codes-4.20.1","address_text":"Corrected private address"}))
+                    .execute(&mut *writer).await.unwrap();
+                let next = ResolutionInput::new(
+                    GeocodingRequest::new(AddressText::new("Corrected private address").unwrap()),
+                    input.scope(),
+                    input.purpose(),
+                )
+                .unwrap();
+                SqlxResolutionRepositoryFactory::on_connection(&mut writer)
+                    .bind(
+                        &next,
+                        ResolutionBinding {
+                            input_revision: 2,
+                            guard: 2,
+                            ..source
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let view = SqlxResolutionRepositoryFactory::on_connection(&mut writer)
+            .inspect(source.subject)
+            .await
+            .unwrap()
+            .unwrap();
+        writer.commit().await.unwrap();
+        view
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock')")
+                .bind(pid).fetch_one(&pool).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }).await.expect("mutation must wait for the worker's provider lock");
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *worker)
+        .await
+        .unwrap();
+    let claim_result = SqlxResolutionRepositoryFactory::on_connection(&mut worker)
+        .claim(work, PROFILE, true)
+        .await;
+    worker.rollback().await.unwrap();
+    let view = tokio::time::timeout(std::time::Duration::from_secs(5), writing)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(claim_result, Ok(ClaimOutcome::Complete)),
+        "{operation} blocked the worker's resolution lock"
+    );
+    assert_eq!(
+        if operation == "erasure" { 2 } else { 1 },
+        view.input_revision
+    );
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn bind_then_inspect_lock_order_regression() {
+    mutation_before_inspection_lock_order("bind").await;
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn select_then_inspect_lock_order_regression() {
+    mutation_before_inspection_lock_order("select").await;
+}
+
+#[aura_integration_test(services=[SCHEMA])]
+async fn private_erasure_then_rebind_lock_order_regression() {
+    mutation_before_inspection_lock_order("erasure").await;
+}
+
+#[aura_integration_test(services=[SCHEMA])]
 async fn batch_read_waits_for_provider_control_before_locking_resolution() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
@@ -1300,59 +1497,6 @@ async fn corrupt_evidence_cannot_invent_an_automatically_accepted_precise_point(
             .await,
         Err(ResolutionError::InvalidState(_))
     ));
-}
-
-#[aura_integration_test(services=[SCHEMA])]
-async fn legacy_input_binding_reuses_the_same_work_and_paid_attempts() {
-    let pool = get_postgres_client().await;
-    configure(&pool).await;
-    let input = input(
-        Uuid::parse_str("019cb180-0000-7000-8000-000000000001").unwrap(),
-        "123 Street, unit 1",
-    );
-    let binding = binding();
-    let work = bind(&pool, &input, binding).await;
-    let ClaimOutcome::Claimed(reservation) = claim(&pool, work).await else {
-        panic!("claim required");
-    };
-    assert!(
-        complete(
-            &pool,
-            &reservation,
-            ResolutionCompletion::Evidence(evaluate(&input, result(), PROFILE).unwrap())
-        )
-        .await
-    );
-    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
-    SqlxResolutionRepositoryFactory
-        .resolutions(&mut tx)
-        .select(binding, work, 0, "legacy-reviewer")
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-    sqlx::query("UPDATE geo_resolutions SET input=jsonb_set(input,'{retention_context}','\"PRIVATE\"'::jsonb),fingerprint=$2 WHERE resolution_id=$1")
-        .bind(work.id.into_uuid())
-        .bind("3d5e3b124d0287ffaee50ce7ca9357a34e3e8c9feb6fe93308189634e5751500")
-        .execute(&pool).await.unwrap();
-    // A new subject can reuse the legacy evidence without another paid call.
-    let second = ResolutionBinding {
-        subject: ResolutionSubject::new(RetentionPurpose::PartyLocation, Uuid::now_v7()).unwrap(),
-        ..binding
-    };
-    assert_eq!(work, bind(&pool, &input, second).await);
-    // If a current key also exists, preserve this subject's legacy binding and
-    // reviewed selection instead of redirecting it to the new pending work.
-    sqlx::query("INSERT INTO geo_resolutions(resolution_id,fingerprint,profile,policy_version,scope_key,input) SELECT $2,$3,profile,policy_version,scope_key,input-'retention_context' FROM geo_resolutions WHERE resolution_id=$1")
-        .bind(work.id.into_uuid()).bind(ResolutionId::new().into_uuid())
-        .bind(input.fingerprint(PROFILE)).execute(&pool).await.unwrap();
-    assert_eq!(work, bind(&pool, &input, binding).await);
-    let current = inspect(&pool, binding).await.unwrap();
-    assert_eq!(work, current.work);
-    assert_eq!(1, current.attempts);
-    assert_eq!(Some(0), current.selected_candidate);
-    assert!(current.evidence.is_some());
-    assert!(current.accepted_geography().unwrap().position().is_some());
-    assert!(matches!(claim(&pool, work).await, ClaimOutcome::Complete));
 }
 
 #[aura_integration_test(services=[SCHEMA])]

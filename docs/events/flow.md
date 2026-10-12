@@ -55,7 +55,7 @@ no-ops emit nothing; clearing emits a null selection and preserves the ordering 
 Location/default rows and receipts remain outside CDC. Exact persistence and
 inheritance semantics belong to [geography](../geography.md#listingsource-location-defaults-2000).
 
-These signals atomically establish coalesced durable dependency work for G6. The
+These signals atomically establish coalesced durable listing-geography work. The
 `listing_geography_wakeups` table alone adds CDC/job routing; the original journals stay
 outside DMS. Consumers reread current authority under dependency equality guards and
 use the listing's monotonic projection fence. Location correction, retirement,

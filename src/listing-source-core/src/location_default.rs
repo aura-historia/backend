@@ -148,33 +148,6 @@ impl ListingSourceLocationDefault {
     }
 }
 
-/// Future G11 assertions are whole values and are resolved separately for each meaning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ListingLocationIntent {
-    Inherit,
-    Assert,
-    Suppress,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EffectiveLocationSelection {
-    ListingAssertion,
-    SourceDefault,
-    Absent,
-}
-pub fn select_effective_location(
-    intent: ListingLocationIntent,
-    eligible_applicable_default: bool,
-) -> EffectiveLocationSelection {
-    match intent {
-        ListingLocationIntent::Assert => EffectiveLocationSelection::ListingAssertion,
-        ListingLocationIntent::Suppress => EffectiveLocationSelection::Absent,
-        ListingLocationIntent::Inherit if eligible_applicable_default => {
-            EffectiveLocationSelection::SourceDefault
-        }
-        ListingLocationIntent::Inherit => EffectiveLocationSelection::Absent,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,38 +207,6 @@ mod tests {
         assert!(
             !format!("{:?}", evidence(SourceLocationMeaning::AdvertisedInventory))
                 .contains("Caller observation")
-        );
-    }
-    #[test]
-    fn assertions_and_suppression_override_whole_defaults_per_meaning() {
-        for default in [false, true] {
-            assert_eq!(
-                EffectiveLocationSelection::ListingAssertion,
-                select_effective_location(ListingLocationIntent::Assert, default)
-            );
-            assert_eq!(
-                EffectiveLocationSelection::Absent,
-                select_effective_location(ListingLocationIntent::Suppress, default)
-            );
-        }
-        assert_eq!(
-            EffectiveLocationSelection::Absent,
-            select_effective_location(ListingLocationIntent::Inherit, false)
-        );
-        assert_eq!(
-            EffectiveLocationSelection::SourceDefault,
-            select_effective_location(ListingLocationIntent::Inherit, true)
-        );
-        // Clearing an assertion returns to Inherit; suppression remains independently explicit.
-        let business = true;
-        let inventory = false;
-        assert_eq!(
-            EffectiveLocationSelection::SourceDefault,
-            select_effective_location(ListingLocationIntent::Inherit, business)
-        );
-        assert_eq!(
-            EffectiveLocationSelection::Absent,
-            select_effective_location(ListingLocationIntent::Inherit, inventory)
         );
     }
 }

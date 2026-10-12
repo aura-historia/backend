@@ -1499,7 +1499,7 @@ mod tests {
 
     fn geographic_filter() -> PeriodicSearchFilterCandidate {
         let mut filter = filter();
-        filter.search.business_geography = Some(
+        filter.search.geography = Some(
             geo::core::discovery::GeographicQuery::new(
                 geo::reference::ReferenceRelease::CURRENT,
                 HashSet::from([geo::CountryCode::DEU]),

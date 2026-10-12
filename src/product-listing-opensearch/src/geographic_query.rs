@@ -1,7 +1,7 @@
 use geo::core::discovery::{GeographicQuery, ProximityMode};
 use serde_json::{Value, json};
 
-/// G6 selects one location per meaning. Keeping separate objects preserves association.
+/// Effective geography selects one location per meaning; each object preserves that association.
 pub(crate) fn clauses(field: &str, q: &GeographicQuery) -> Vec<Value> {
     let mut filters = vec![
         json!({"term": {format!("{field}.referenceRelease"): q.reference_release().as_str()}}),

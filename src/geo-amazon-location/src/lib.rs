@@ -62,7 +62,7 @@ impl AmazonLocationGeocoder {
             );
         }
         if let Some(point) = request.bias_position() {
-            // AWS uses [longitude, latitude]; G1 accessors explicitly name the other order.
+            // AWS uses [longitude, latitude]; domain accessors explicitly name the other order.
             builder = builder.set_bias_position(Some(vec![
                 point.longitude_degrees(),
                 point.latitude_degrees(),

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
+use user_core::role::UserRole;
 use user_core::user_id::UserId;
 use uuid::Uuid;
 
@@ -298,6 +299,26 @@ impl TryFrom<LocationRow> for StoredPartyLocation {
 }
 const COLUMNS: &str = "party_location_id, party_id, label, roles, geography, position, lifecycle, revision, input_revision, evidence, created, updated";
 
+impl LocationAccess<'_> {
+    async fn lock_active_user(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<Option<UserRole>, PartyLocationError> {
+        // The Party is locked first. Hold user authority against demotion,
+        // suspension and account deletion until the protected operation commits.
+        let user: Option<(String, bool)> =
+            sqlx::query_as("SELECT role,suspended FROM users WHERE user_id=$1 FOR SHARE")
+                .bind(user_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(sql_error)?;
+        match user {
+            Some((role, false)) => Ok(Some(UserRole::from_code(&role).ok_or_else(corrupt)?)),
+            _ => Ok(None),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl PartyLocationAccess for LocationAccess<'_> {
     async fn lock_party(&mut self, party_id: PartyId) -> Result<bool, PartyLocationError> {
@@ -310,11 +331,20 @@ impl PartyLocationAccess for LocationAccess<'_> {
         .map_err(sql_error)?
         .is_some())
     }
+    async fn can_administer_locations(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<bool, PartyLocationError> {
+        Ok(self.lock_active_user(user_id).await? == Some(UserRole::Admin))
+    }
     async fn can_manage_locations(
         &mut self,
         party_id: PartyId,
         user_id: UserId,
     ) -> Result<bool, PartyLocationError> {
+        if self.lock_active_user(user_id).await?.is_none() {
+            return Ok(false);
+        }
         sqlx::query_scalar(
             "SELECT EXISTS ( \
                 SELECT 1 FROM users u WHERE u.user_id = $2 AND NOT u.suspended AND ( \

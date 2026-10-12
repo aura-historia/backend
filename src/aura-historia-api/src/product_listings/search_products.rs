@@ -43,9 +43,7 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 struct ProductListingSearchData {
     #[serde(default)]
-    business_geography: Option<crate::geographic_search::GeographicSearchData>,
-    #[serde(default)]
-    inventory_geography: Option<crate::geographic_search::GeographicSearchData>,
+    geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -134,14 +132,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
 
     fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
-            business_geography: crate::geographic_search::parse_query(
-                data.business_geography,
-                "businessGeography",
-            )?,
-            inventory_geography: crate::geographic_search::parse_query(
-                data.inventory_geography,
-                "inventoryGeography",
-            )?,
+            geography: crate::geographic_search::parse_query(data.geography, "geography")?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -571,8 +562,8 @@ mod tests {
     async fn anonymous_geographic_searches_keep_origins_and_eligibility_results_out_of_shared_cache()
     -> Result<(), Box<dyn std::error::Error>> {
         for query in [
-            "inventoryGeography[countries][0]=DE&inventoryGeography[subdivisions][0]=DE-BY",
-            "businessGeography[origin][latitude]=48.137&businessGeography[origin][longitude]=11.575&businessGeography[radius][amount]=25&businessGeography[radius][unit]=KILOMETERS",
+            "geography[countries][0]=DE&geography[subdivisions][0]=DE-BY",
+            "geography[origin][latitude]=48.137&geography[origin][longitude]=11.575&geography[radius][amount]=25&geography[radius][unit]=KILOMETERS",
         ] {
             let (app, calls) = app();
             let response = app

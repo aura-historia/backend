@@ -1,7 +1,7 @@
 use application::error::{box_error, static_error};
 use aws_sdk_geoplaces::{operation::geocode::GeocodeOutput, types::GeocodeResultItem};
 use geo::{
-    CountryCode, DerivedGeography, GeoPoint, GeographicDescription, SpatialPosition,
+    CountryCode, DerivedGeography, GeoPoint, GeographicDescription, PostalCode, SpatialPosition,
     SpatialPrecision, SubdivisionCode, country_from_code, reference::ReferenceRelease,
 };
 use geo_service::geocoding::{
@@ -175,8 +175,18 @@ fn map_candidate(
         })?;
     // No accuracy is supplied by this API. Distance to a bias, bounding boxes, score and
     // coordinate decimal places are not accuracy estimates.
+    let postal = item
+        .address
+        .as_ref()
+        .and_then(|a| a.postal_code.as_ref())
+        .map(|value| PostalCode::new(value.clone()))
+        .transpose()
+        .map_err(|source| GeocodingError {
+            kind: GeocodingFailure::InvalidResponse,
+            source: box_error(source),
+        })?;
     let description =
-        GeographicDescription::new(None, country, subdivision, None).map_err(|source| {
+        GeographicDescription::new(None, country, subdivision, postal).map_err(|source| {
             GeocodingError {
                 kind: GeocodingFailure::InvalidResponse,
                 source: box_error(source),

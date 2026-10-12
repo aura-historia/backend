@@ -136,9 +136,9 @@ struct ResolutionRow {
 impl ResolutionRow {
     fn input(&self) -> Result<ResolutionInput, ResolutionError> {
         let data = decode::<InputData>(self.input.clone().ok_or_else(corrupt)?)?;
-        let input: ResolutionInput = data.clone().try_into()?;
+        let input: ResolutionInput = data.try_into()?;
         if self.policy_version != input.policy_version()
-            || data.stored_fingerprint(&input, &self.profile) != self.fingerprint
+            || input.fingerprint(&self.profile) != self.fingerprint
             || input.budget_key() != self.scope_key
             || self.generation <= 0
             || !(0..=5).contains(&self.attempts)
@@ -243,7 +243,9 @@ impl ResolutionRepository for Repository<'_> {
             return Err(ResolutionError::InvalidInput);
         }
         let profile: String = sqlx::query_scalar(
-            "SELECT profile FROM geo_resolution_provider_controls WHERE is_default",
+            // Subsequent command-result reads lock provider controls before resolution
+            // rows. Keep that order even when binding reuses an existing resolution.
+            "SELECT profile FROM geo_resolution_provider_controls WHERE is_default FOR SHARE",
         )
         .fetch_optional(&mut *self.connection)
         .await
@@ -251,29 +253,14 @@ impl ResolutionRepository for Repository<'_> {
         .ok_or_else(corrupt)?;
         let fingerprint = input.fingerprint(&profile);
         let id = ResolutionId::new();
-        // Reuse existing V1 work after removing disclosure from the cache key.
-        // Prefer this subject's binding to preserve its review and paid attempts.
-        let existing: Option<(Uuid, i64)> = sqlx::query_as(r#"
-            SELECT r.resolution_id,r.generation FROM geo_resolutions r
-            WHERE r.fingerprint=ANY($1)
-            ORDER BY EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id
-                AND b.subject_kind=$2 AND b.subject_id=$3) DESC,
-                (r.fingerprint=$4) DESC,r.resolution_id LIMIT 1
-        "#).bind(compatible_input_fingerprints(input, &profile))
-            .bind(b.subject.kind().as_str()).bind(b.subject.id()).bind(&fingerprint)
-            .fetch_optional(&mut *self.connection).await.map_err(sql_error)?;
-        let (stored_id, _) = if let Some(existing) = existing {
-            existing
-        } else {
-            sqlx::query_as::<_, (Uuid, i64)>(
+        let (stored_id, _) = sqlx::query_as::<_, (Uuid, i64)>(
             r#"
             INSERT INTO geo_resolutions(resolution_id,fingerprint,profile,policy_version,scope_key,input) VALUES
             ($1,$2,$3,$4,$5,$6) ON CONFLICT(fingerprint) DO UPDATE SET generation=geo_resolutions.generation
             RETURNING resolution_id,generation
             "#,
         )
-            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(input.policy_version()).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?
-        };
+            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(input.policy_version()).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
         let row = self
             .row(ResolutionId::try_from(stored_id).map_err(invalid)?)
             .await?
@@ -569,8 +556,15 @@ impl ResolutionRepository for Repository<'_> {
                     WHERE resolution_id=$1
                     "#,
                 ).bind(c.work.id.into_uuid()).bind(status).bind(kind.as_str()).bind(now+backoff).execute(&mut *self.connection).await.map_err(sql_error)?;
-                let failures = control.consecutive_failures.saturating_add(1).min(100000);
-                sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=$2,open_until=$3 WHERE profile=$1").bind(&c.profile).bind(failures).bind(if failures>=3 {Some(now+Duration::minutes(5))} else {control.open_until}).execute(&mut *self.connection).await.map_err(sql_error)?;
+                // An unsupported address or country-specific retention refusal says
+                // nothing about provider health and must not block unrelated inputs.
+                if !matches!(
+                    kind,
+                    GeocodingFailure::UnsupportedInput | GeocodingFailure::StorageNotPermitted
+                ) {
+                    let failures = control.consecutive_failures.saturating_add(1).min(100000);
+                    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=$2,open_until=$3 WHERE profile=$1").bind(&c.profile).bind(failures).bind(if failures>=3 {Some(now+Duration::minutes(5))} else {control.open_until}).execute(&mut *self.connection).await.map_err(sql_error)?;
+                }
                 // Operational/configuration failures keep transport failure custody.
                 Ok(false)
             }
@@ -694,6 +688,11 @@ impl ResolutionRepository for Repository<'_> {
         index: usize,
         actor: &str,
     ) -> Result<(), ResolutionError> {
+        // Selection is followed by inspection in the same service transaction.
+        // Coordinate provider rights before taking the resolution lock, as workers do.
+        sqlx::query("SELECT c.profile FROM geo_resolution_provider_controls c JOIN geo_resolutions r USING(profile) WHERE r.resolution_id=$1 FOR SHARE OF c")
+            .bind(w.id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(sql_error)?
+            .ok_or(ResolutionError::Missing)?;
         let r = self.row(w.id).await?.ok_or(ResolutionError::Missing)?;
         let input = r.input()?;
         let now = self.clock().await?;

@@ -1,9 +1,6 @@
-//! Release-pinned compatibility codec for private geographic predicates.
+//! Release-pinned codec for private geographic predicates.
 use crate::core::discovery::{DistanceOrder, GeographicQuery, ProximityMode};
-use crate::{
-    Distance, DistanceUnit, GeoPoint, SubdivisionCode, country_from_code,
-    reference::ReferenceRelease,
-};
+use crate::{Distance, GeoPoint, SubdivisionCode, country_from_code, reference::ReferenceRelease};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -15,9 +12,6 @@ pub struct GeographicQueryData {
     origin: Option<super::geography_data::GeoPointData>,
     #[serde(default)]
     radius: Option<super::geography_data::DistanceData>,
-    /// Read compatibility for snapshots written before explicit radius units.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    radius_km: Option<f64>,
     mode: String,
     distance_order: Option<String>,
 }
@@ -73,17 +67,7 @@ impl TryFrom<GeographicQueryData> for GeographicQuery {
             .transpose()
             .map_err(super::geography_data::InvalidGeographyData::from)
             .map_err(invalid)?;
-        let radius = match (d.radius, d.radius_km) {
-            (Some(radius), None) => Some(Distance::try_from(radius)?),
-            (None, Some(km)) => Some(
-                Distance::new(km, DistanceUnit::Kilometers)
-                    .map_err(super::geography_data::InvalidGeographyData::from)?,
-            ),
-            (None, None) => None,
-            (Some(_), Some(_)) => {
-                return Err(crate::core::discovery::InvalidGeographicQuery::Radius.into());
-            }
-        };
+        let radius = d.radius.map(Distance::try_from).transpose()?;
         let mode = ProximityMode::from_code(&d.mode).ok_or(InvalidGeographicQueryData::Code)?;
         let order = d
             .distance_order
@@ -122,7 +106,6 @@ impl From<&GeographicQuery> for GeographicQueryData {
             subdivisions,
             origin: q.origin().map(Into::into),
             radius: q.radius().map(Into::into),
-            radius_km: None,
             mode: q.mode().as_str().into(),
             distance_order: q.distance_order().map(|o| o.as_str().into()),
         }
@@ -132,8 +115,9 @@ impl From<&GeographicQuery> for GeographicQueryData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DistanceUnit;
     #[test]
-    fn snapshots_preserve_units_and_decode_legacy_kilometers_without_ambiguity() {
+    fn snapshots_preserve_explicit_units() {
         let query = GeographicQuery::new(
             ReferenceRelease::CURRENT,
             Default::default(),
@@ -152,20 +136,5 @@ mod tests {
         assert!(value.get("radius_km").is_none());
         let decoded: GeographicQueryData = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(query, GeographicQuery::try_from(decoded).unwrap());
-
-        let mut legacy = value.clone();
-        legacy.as_object_mut().unwrap().remove("radius");
-        legacy["radius_km"] = serde_json::json!(25);
-        let decoded: GeographicQueryData = serde_json::from_value(legacy).unwrap();
-        let legacy_query = GeographicQuery::try_from(decoded).unwrap();
-        assert_eq!(query.origin(), legacy_query.origin());
-        assert_eq!(
-            Some(Distance::new(25.0, DistanceUnit::Kilometers).unwrap()),
-            legacy_query.radius()
-        );
-        let mut ambiguous = value;
-        ambiguous["radius_km"] = serde_json::json!(25);
-        let decoded: GeographicQueryData = serde_json::from_value(ambiguous).unwrap();
-        assert!(GeographicQuery::try_from(decoded).is_err());
     }
 }

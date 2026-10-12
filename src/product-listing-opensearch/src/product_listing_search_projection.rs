@@ -45,7 +45,7 @@ impl OpenSearchProductListingSearchProjection {
             return Ok(());
         }
         // A conflicting higher/equal write can still be awaiting refresh. A replay
-        // after an uncertain response must establish visibility before gate custody.
+        // after an uncertain response must establish visibility before recording index acknowledgment.
         let response = self
             .client
             .indices()

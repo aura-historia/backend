@@ -1309,7 +1309,7 @@ mod tests {
 
     fn geographic_filter() -> SearchFilterView {
         let mut f = filter(UserId::new(), UserSearchFilterId::new());
-        f.search.inventory_geography = Some(
+        f.search.geography = Some(
             geo::core::discovery::GeographicQuery::new(
                 geo::reference::ReferenceRelease::CURRENT,
                 std::collections::HashSet::from([geo::CountryCode::DEU]),

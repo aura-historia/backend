@@ -531,7 +531,7 @@ impl ProductListingSummaryData {
             view_url: summary.view_url,
             images: summary.images.into_iter().map(Into::into).collect(),
             content_policy: summary.content_policy.map(Into::into),
-            geography: (!summary.geography.is_empty()).then(|| summary.geography.into()),
+            geography: summary.geography.map(Into::into),
             updated: summary.updated,
         }
     }

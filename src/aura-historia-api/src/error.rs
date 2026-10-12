@@ -705,7 +705,6 @@ impl From<GetOwnedSearchFilterError> for ApiError {
 impl From<CreateSearchFilterError> for ApiError {
     fn from(error: CreateSearchFilterError) -> Self {
         match error {
-            CreateSearchFilterError::InvalidGeographicQuery => Self::bad_request(BAD_BODY_VALUE),
             CreateSearchFilterError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")

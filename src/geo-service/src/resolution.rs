@@ -146,7 +146,7 @@ impl ResolutionInput {
             hash.update((s.len() as u64).to_be_bytes());
             hash.update(s.as_bytes());
         };
-        field("RESOLUTION_INPUT_V2");
+        field("RESOLUTION_INPUT_V1");
         field(profile);
         field(self.policy_version());
         field(geo::reference::ReferenceRelease::CURRENT.as_str());

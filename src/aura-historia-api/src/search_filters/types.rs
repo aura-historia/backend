@@ -205,9 +205,7 @@ impl UpdateSearchFilterData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProductListingSearchPatchData {
     #[serde(default)]
-    business_geography: PatchValue<crate::geographic_search::GeographicSearchData>,
-    #[serde(default)]
-    inventory_geography: PatchValue<crate::geographic_search::GeographicSearchData>,
+    geography: PatchValue<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
     #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
     language: PatchValue<Language>,
@@ -263,14 +261,7 @@ pub(super) struct ProductListingSearchPatchData {
 impl ProductListingSearchPatchData {
     fn try_into_patch(self) -> Result<ProductListingSearchPatch, crate::error::ApiError> {
         Ok(ProductListingSearchPatch {
-            business_geography: geographic_patch(
-                self.business_geography,
-                "search.businessGeography",
-            )?,
-            inventory_geography: geographic_patch(
-                self.inventory_geography,
-                "search.inventoryGeography",
-            )?,
+            geography: geographic_patch(self.geography, "search.geography")?,
             language: non_nullable_patch(self.language, "search.language")?,
             currency: non_nullable_patch(self.currency, "search.currency")?,
             product_listing_query: non_nullable_patch(
@@ -427,9 +418,7 @@ pub(super) struct ProductListingSearchData<
     AuctionIdValue = String,
 > {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    business_geography: Option<crate::geographic_search::GeographicSearchData>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    inventory_geography: Option<crate::geographic_search::GeographicSearchData>,
+    geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default, with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
@@ -529,14 +518,7 @@ impl TryFrom<ProductListingSearchData<String, String, String>> for ProductListin
         data: ProductListingSearchData<String, String, String>,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
-            business_geography: crate::geographic_search::parse_body(
-                data.business_geography,
-                "search.businessGeography",
-            )?,
-            inventory_geography: crate::geographic_search::parse_body(
-                data.inventory_geography,
-                "search.inventoryGeography",
-            )?,
+            geography: crate::geographic_search::parse_body(data.geography, "search.geography")?,
             language: data.language,
             currency: data.currency,
             product_listing_query: data.product_listing_query,
@@ -594,8 +576,7 @@ impl From<ProductListingSearch>
 {
     fn from(search: ProductListingSearch) -> Self {
         Self {
-            business_geography: search.business_geography.map(Into::into),
-            inventory_geography: search.inventory_geography.map(Into::into),
+            geography: search.geography.map(Into::into),
             language: search.language,
             currency: search.currency,
             product_listing_query: search.product_listing_query,
@@ -734,25 +715,19 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let omitted: UpdateSearchFilterData =
             serde_json::from_value(serde_json::json!({"name":"renamed"}))?;
-        assert_eq!(
-            PatchField::Unchanged,
-            omitted.into_fields()?.3.business_geography
-        );
+        assert_eq!(PatchField::Unchanged, omitted.into_fields()?.3.geography);
         let set: UpdateSearchFilterData = serde_json::from_value(
-            serde_json::json!({"search":{"businessGeography":{"origin":{"latitude":48.137,"longitude":11.575},"radius":{"amount":25,"unit":"KILOMETERS"}}}}),
+            serde_json::json!({"search":{"geography":{"origin":{"latitude":48.137,"longitude":11.575},"radius":{"amount":25,"unit":"KILOMETERS"}}}}),
         )?;
         let patch = set.into_fields()?.3;
-        let PatchField::Set(query) = patch.business_geography else {
+        let PatchField::Set(query) = patch.geography else {
             panic!("expected coordinate snapshot");
         };
         assert_eq!(Some(25.0), query.radius().map(geo::Distance::amount));
         assert_eq!(48.137, query.origin().unwrap().latitude_degrees());
         let cleared: UpdateSearchFilterData =
-            serde_json::from_value(serde_json::json!({"search":{"businessGeography":null}}))?;
-        assert_eq!(
-            PatchField::Clear,
-            cleared.into_fields()?.3.business_geography
-        );
+            serde_json::from_value(serde_json::json!({"search":{"geography":null}}))?;
+        assert_eq!(PatchField::Clear, cleared.into_fields()?.3.geography);
         Ok(())
     }
 

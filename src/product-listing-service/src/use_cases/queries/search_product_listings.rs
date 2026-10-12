@@ -70,7 +70,7 @@ pub struct ProductListingSearchCursor {
 /// Raw image URLs stay here until the service hydrates user state and applies content policy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSearchItem {
-    pub geography: crate::geographic_search::ListingDiscoveryGeography,
+    pub geography: Option<crate::geographic_search::ListingDiscoveryGeography>,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
@@ -89,7 +89,7 @@ pub struct ProductListingSearchItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
-    pub geography: crate::geographic_search::ListingDiscoveryGeography,
+    pub geography: Option<crate::geographic_search::ListingDiscoveryGeography>,
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
@@ -284,10 +284,6 @@ where
         context: &OperationContext,
         request: SearchProductListingsRequest,
     ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
-        request
-            .search
-            .validate_geography()
-            .map_err(|_| SearchProductListingsError::InvalidGeographicQuery)?;
         if request.search.distance_query().is_some() && request.sort.is_some() {
             return Err(SearchProductListingsError::InvalidGeographicQuery);
         }
@@ -456,9 +452,9 @@ where
             summaries
         };
         for item in &mut items {
-            item.item
-                .geography
-                .set_distances(&read_request.compiled_search.search);
+            if let Some(geography) = &mut item.item.geography {
+                geography.set_distance(&read_request.compiled_search.search);
+            }
         }
         tracing::info!(
             metric = "product_listing_search_result",
@@ -1488,13 +1484,13 @@ mod tests {
     #[tokio::test]
     async fn geographic_search_preserves_projection_results_counts_continuation_and_distance_display()
     -> Result<(), Box<dyn std::error::Error>> {
-        use crate::geographic_search::DiscoveryDimension;
+        use crate::geographic_search::ListingDiscoveryGeography;
         use crate::geography::GeographicDimension;
         use geo::core::discovery::GeographicQuery;
         for proximity in [false, true] {
             let state = state();
             let mut projected = search_result()?;
-            projected.items[0].geography.business = Some(DiscoveryDimension {
+            projected.items[0].geography = Some(ListingDiscoveryGeography {
                 geography: GeographicDimension {
                     location_id: party_core::party_location_id::PartyLocationId::new(),
                     reference_release: geo::reference::ReferenceRelease::CURRENT,
@@ -1510,7 +1506,7 @@ mod tests {
             });
             lock_state(&state).search_result = Some(Ok(projected));
             let mut request = request();
-            request.search.business_geography = Some(GeographicQuery::new(
+            request.search.geography = Some(GeographicQuery::new(
                 geo::reference::ReferenceRelease::CURRENT,
                 std::collections::HashSet::from([geo::CountryCode::DEU]),
                 Default::default(),
@@ -1532,15 +1528,8 @@ mod tests {
             );
             assert_eq!(
                 proximity.then_some(11.1),
-                result.items[0]
-                    .item
-                    .geography
-                    .business
-                    .as_ref()
-                    .unwrap()
-                    .distance_km
+                result.items[0].item.geography.as_ref().unwrap().distance_km
             );
-            assert!(result.items[0].item.geography.inventory.is_none());
         }
         Ok(())
     }

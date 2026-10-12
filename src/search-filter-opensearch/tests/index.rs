@@ -53,7 +53,7 @@ async fn should_percolate_private_geographic_snapshots_separately_and_preserve_u
     let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
     let ordinary = sample_view("geographic inventory cabinet");
     let mut geographic = sample_view("geographic inventory cabinet");
-    geographic.search.inventory_geography = Some(
+    geographic.search.geography = Some(
         GeographicQuery::new(
             geo::reference::ReferenceRelease::CURRENT,
             std::collections::HashSet::from([geo::CountryCode::DEU]),
