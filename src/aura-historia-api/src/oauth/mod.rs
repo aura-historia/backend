@@ -76,6 +76,7 @@ fn parse_scope_with_field(
         "product-listings:write" => Scope::ProductListingsWrite,
         "listing-sources:write" => Scope::ListingSourcesWrite,
         "auctions:read" => Scope::AuctionsRead,
+        "product-listings:read" => Scope::ProductListingsRead,
         "auctions:write" => Scope::AuctionsWrite,
         "listing-sources:read" => Scope::ListingSourcesRead,
         "parties:read" => Scope::PartiesRead,
@@ -151,6 +152,26 @@ mod tests {
         );
         assert_eq!("auctions:read", scope_string(&expected));
         assert_eq!(vec!["auctions:read".to_owned()], scope_strings(expected));
+    }
+
+    #[test]
+    fn should_parse_canonical_product_listing_read_for_oauth_scopes() {
+        let expected = HashSet::from([Scope::ProductListingsRead]);
+
+        assert_eq!(
+            expected,
+            parse_scopes(["product-listings:read".to_owned()]).unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!(
+            expected,
+            parse_scope_string(Some("product-listings:read"), "scope")
+                .unwrap_or_else(|_| unreachable!())
+        );
+        assert_eq!("product-listings:read", scope_string(&expected));
+        assert_eq!(
+            vec!["product-listings:read".to_owned()],
+            scope_strings(expected)
+        );
     }
 
     #[test]

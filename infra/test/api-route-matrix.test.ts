@@ -130,12 +130,21 @@ function resolveConcreteArn(value: unknown): string {
 }
 
 describe("HTTP API route policy matrix", () => {
+  test("classifies every admin ProductListing route as administrator bearer access", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/product-listings"));
+    expect(routes).toHaveLength(5);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy.authorization).toBe(RouteAuthorizationClass.Administrator);
+    }
+  });
+
   test("covers the declared Axum and OpenAPI operations without a catch-all", () => {
     const catalog = catalogRouteKeys();
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(128);
+    expect(catalog).toHaveLength(133);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -468,7 +477,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(128);
+    expect(routes).toHaveLength(133);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

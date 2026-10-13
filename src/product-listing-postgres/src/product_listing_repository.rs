@@ -440,7 +440,7 @@ impl TryFrom<ProductListingRow> for VersionedProductListing {
     }
 }
 
-fn sale_observation_from_parts(
+pub(crate) fn sale_observation_from_parts(
     observed_at: Option<OffsetDateTime>,
     fx_rate_id: Option<uuid::Uuid>,
 ) -> Result<Option<ListingSaleObservation>, ProductListingRepositoryError> {
@@ -501,7 +501,7 @@ fn product_listing_price_to_parts(
     }
 }
 
-fn product_listing_price_from_parts(
+pub(crate) fn product_listing_price_from_parts(
     kind: Option<String>,
     amount: Option<i64>,
     currency: Option<String>,
@@ -529,7 +529,7 @@ fn product_listing_price_from_parts(
     }
 }
 
-fn price_from_parts(
+pub(crate) fn price_from_parts(
     amount: Option<i64>,
     currency: Option<String>,
 ) -> Result<Option<Price>, ProductListingRepositoryError> {
@@ -583,7 +583,7 @@ fn images_to_json(images: &IndexSet<ProductListingImage>) -> Result<serde_json::
     serde_json::to_value(images).map_err(|_| ())
 }
 
-fn images_from_json(
+pub(crate) fn images_from_json(
     value: serde_json::Value,
 ) -> Result<IndexSet<ProductListingImage>, ProductListingRepositoryError> {
     let images: Vec<ProductListingImageJson> = serde_json::from_value(value)
@@ -623,7 +623,7 @@ fn parse_currency(value: &str) -> Result<Currency, ProductListingRepositoryError
     Currency::from_code(value).ok_or(ProductListingRepositoryError::InvalidPriceCurrencyPersisted)
 }
 
-fn parse_listing_availability(
+pub(crate) fn parse_listing_availability(
     value: Option<&str>,
 ) -> Result<Option<ListingAvailability>, ProductListingRepositoryError> {
     value
@@ -634,7 +634,9 @@ fn parse_listing_availability(
         .transpose()
 }
 
-fn parse_listing_lifecycle(value: &str) -> Result<ListingLifecycle, ProductListingRepositoryError> {
+pub(crate) fn parse_listing_lifecycle(
+    value: &str,
+) -> Result<ListingLifecycle, ProductListingRepositoryError> {
     ListingLifecycle::from_code(value)
         .ok_or(ProductListingRepositoryError::InvalidListingLifecyclePersisted)
 }
@@ -648,8 +650,8 @@ struct ProductListingUpdateSqlxError(sqlx::Error);
 
 impl From<ProductListingLookupByIdSqlxError> for ProductListingRepositoryError {
     fn from(value: ProductListingLookupByIdSqlxError) -> Self {
-        let ProductListingLookupByIdSqlxError(_error) = value;
-        Self::ProductListingLookupByIdFailed
+        let ProductListingLookupByIdSqlxError(error) = value;
+        crate::query_error::repository_query_error(error)
     }
 }
 
@@ -690,7 +692,7 @@ impl From<ProductListingUpdateSqlxError> for ProductListingRepositoryError {
             {
                 Self::SourceListingAlreadyExists
             }
-            _ => Self::ProductListingUpdateFailed,
+            _ => crate::query_error::repository_query_error(error),
         }
     }
 }

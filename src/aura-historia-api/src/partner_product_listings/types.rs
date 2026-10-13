@@ -1,24 +1,21 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
+use crate::product_listing_fields::{ProductListingAuctionData, auction_patch, product_images};
 use crate::values::{LocalizedTextData, PriceData, ProductListingPriceData};
 use crate::wire::parse_path_object_id;
 use application::patch_field::PatchField;
-use auction_core::AuctionId;
 use listing_source_core::ListingSourceId;
 use money::Price;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{CataloguePosition, LotNumber, ProductListingPricing};
+use product_listing_core::product_listing::ProductListingPricing;
 use product_listing_core::product_listing_id::ProductListingKey;
-use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
-use product_listing_service::product_listing_auction_patch::ProductListingAuctionPatch;
 use product_listing_service::use_cases::{
     CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use time::OffsetDateTime;
 use url::Url;
 
 pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
@@ -89,30 +86,6 @@ pub(super) struct UpsertProductListingData {
     pub(super) images: PatchValue<Vec<Url>>,
     #[serde(default)]
     auction: PatchValue<ProductListingAuctionData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ProductListingAuctionData {
-    #[serde(default)]
-    auction_id: PatchValue<String>,
-    #[serde(default)]
-    lot_number: PatchValue<String>,
-    #[serde(default)]
-    catalogue_position: PatchValue<u64>,
-    #[serde(default)]
-    timing: Option<LotAuctionTimesData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LotAuctionTimesData {
-    #[serde(default, deserialize_with = "patch_rfc3339")]
-    bidding_opens: PatchValue<OffsetDateTime>,
-    #[serde(default, deserialize_with = "patch_rfc3339")]
-    scheduled_closes: PatchValue<OffsetDateTime>,
-    #[serde(default, deserialize_with = "patch_rfc3339")]
-    reported_closed_at: PatchValue<OffsetDateTime>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,32 +196,6 @@ impl UpsertProductListingData {
     }
 }
 
-impl ProductListingAuctionData {
-    fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
-        Ok(ProductListingAuctionPatch {
-            auction_id: auction_id_patch(self.auction_id)?,
-            lot_number: lot_number_patch(self.lot_number)?,
-            catalogue_position: catalogue_position_patch(self.catalogue_position)?,
-            ..self
-                .timing
-                .map(LotAuctionTimesData::into_core)
-                .transpose()?
-                .unwrap_or_default()
-        })
-    }
-}
-
-impl LotAuctionTimesData {
-    fn into_core(self) -> Result<ProductListingAuctionPatch, ApiError> {
-        Ok(ProductListingAuctionPatch {
-            bidding_opens: patch_value(self.bidding_opens),
-            scheduled_closes: patch_value(self.scheduled_closes),
-            reported_closed_at: patch_value(self.reported_closed_at),
-            ..Default::default()
-        })
-    }
-}
-
 impl WithdrawProductListingData {
     pub(super) fn into_product_key(
         self,
@@ -293,84 +240,6 @@ fn product_listing_price(
     value: ProductListingPriceData,
 ) -> product_listing_core::product_listing_price::ProductListingPrice {
     value.into()
-}
-
-fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
-    values.into_iter().map(ProductListingImage::new).collect()
-}
-
-fn auction_patch(
-    value: PatchValue<ProductListingAuctionData>,
-) -> Result<PatchField<ProductListingAuctionPatch>, ApiError> {
-    match value {
-        PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Err(ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("auction cannot be null; omit it or clear auction.auctionId.")),
-        PatchValue::Value(value) => value.into_core().map(PatchField::Set),
-    }
-}
-
-fn auction_id_patch(value: PatchValue<String>) -> Result<PatchField<AuctionId>, ApiError> {
-    match value {
-        PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Ok(PatchField::Clear),
-        PatchValue::Value(value) => {
-            parse_path_object_id(&value, "auctionId", "Auction").map(PatchField::Set)
-        }
-    }
-}
-
-fn lot_number_patch(value: PatchValue<String>) -> Result<PatchField<LotNumber>, ApiError> {
-    match value {
-        PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Ok(PatchField::Clear),
-        PatchValue::Value(value) => LotNumber::try_from(value)
-            .map(PatchField::Set)
-            .map_err(|_| {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail(
-                    "auction.lotNumber must be nonblank, NUL-free, and at most 128 UTF-8 bytes.",
-                )
-            }),
-    }
-}
-
-fn catalogue_position_patch(
-    value: PatchValue<u64>,
-) -> Result<PatchField<CataloguePosition>, ApiError> {
-    match value {
-        PatchValue::Omitted => Ok(PatchField::Unchanged),
-        PatchValue::Null => Ok(PatchField::Clear),
-        PatchValue::Value(value) => CataloguePosition::try_from(value)
-            .map(PatchField::Set)
-            .map_err(|_| {
-                ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("auction.cataloguePosition must be a positive 32-bit integer.")
-            }),
-    }
-}
-
-fn patch_value<T>(value: PatchValue<T>) -> PatchField<T> {
-    match value {
-        PatchValue::Omitted => PatchField::Unchanged,
-        PatchValue::Null => PatchField::Clear,
-        PatchValue::Value(value) => PatchField::Set(value),
-    }
-}
-
-fn patch_rfc3339<'de, D>(deserializer: D) -> Result<PatchValue<OffsetDateTime>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = PatchValue::<String>::deserialize(deserializer)?;
-    match value {
-        PatchValue::Omitted => Ok(PatchValue::Omitted),
-        PatchValue::Null => Ok(PatchValue::Null),
-        PatchValue::Value(value) => {
-            OffsetDateTime::parse(&value, &time::format_description::well_known::Rfc3339)
-                .map(PatchValue::Value)
-                .map_err(serde::de::Error::custom)
-        }
-    }
 }
 
 fn source_listing_id(value: String) -> Result<SourceListingId, ApiError> {

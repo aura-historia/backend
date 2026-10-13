@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-13 — ProductListing administration (#2038)
+
+- Added admin ProductListing directory/detail, PATCH, retained DELETE withdrawal and explicit POST restore. Reads include active/withdrawn originals and privileged canonical image URLs. Responses and errors use `private, no-store`; public discovery and image filtering are unchanged.
+- Delegated admin reads require the new `product-listings:read` scope; writes require `product-listings:write`. Persisted administrator authority is always required for HTTP users, without a Partnership prerequisite. The forward scope migration accepts the new scope without broadening existing grants.
+- Mutations require `expectedVersion`, preserve immutable identity/text and use the ordinary atomic state/event pipeline. Stale/racing writes return `409 PRODUCT_LISTING_CONCURRENCY_CONFLICT`; PATCH of withdrawn listings returns `409 PRODUCT_LISTING_WITHDRAWN`. No-ops preserve versions and timestamps. Later ingestion can overwrite edits or restore withdrawn listings; downstream effects converge asynchronously.
+
 ## 2026-10-12 — Periodic saved-search matching (#2036)
 
 - New saved-search matches are discovered by scheduled matching of active enhanced filters only. Non-enhanced filters no longer discover new matches. Notifications for newly discovered matches wait for a scheduled run rather than listing-change processing. Saved-filter CRUD, historical match records, feedback and notification settings are unchanged; request and response shapes are unchanged.

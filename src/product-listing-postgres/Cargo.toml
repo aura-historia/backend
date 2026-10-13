@@ -39,6 +39,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+user-service = { workspace = true }
 geo-postgres = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }
 auction-postgres = { workspace = true }

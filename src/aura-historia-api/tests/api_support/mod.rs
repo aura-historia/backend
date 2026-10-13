@@ -126,6 +126,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
+use product_listing_postgres::SqlxAdminProductListingReader;
 use product_listing_postgres::{
     SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
@@ -137,6 +138,12 @@ use product_listing_postgres::{
 };
 use product_listing_service::ports::{
     ProductListingIngestionPublishError, ProductListingIngestionPublisher,
+};
+use product_listing_service::use_cases::{
+    commands::admin_product_listings::AdminProductListingMutationHandler,
+    queries::admin_product_listings::{
+        GetAdminProductListingHandler, SearchAdminProductListingsHandler,
+    },
 };
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
@@ -1353,6 +1360,37 @@ async fn test_state(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let admin_reader = SqlxAdminProductListingReader::new(pool.clone());
+    let admin_mutations = Arc::new(AdminProductListingMutationHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+        SqlxAuctionReferenceValidatorFactory::new(),
+    ));
+    let admin_product_listings_state = aura_historia_api::state::AdminProductListingsState::new(
+        Arc::new(GetAdminProductListingHandler::new(
+            admin_reader.clone(),
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(SearchAdminProductListingsHandler::new(
+            admin_reader,
+            CheckUserAdminHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        admin_mutations.clone(),
+        admin_mutations.clone(),
+        admin_mutations,
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let public_auctions_state = PublicAuctionsState::new(
         Arc::new(GetPublicAuctionHandler::new(
             SqlxPublicAuctionDetailsReader::new(pool.clone()),
@@ -2001,6 +2039,7 @@ async fn test_state(
     );
     state::AppState::new()
         .with_auctions(auctions_state)
+        .with_admin_product_listings(admin_product_listings_state)
         .with_public_auctions(public_auctions_state)
         .with_admin_overview(AdminOverviewState::new(
             Arc::new(GetAdminOverviewHandler::new(

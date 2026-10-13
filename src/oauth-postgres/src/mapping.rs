@@ -187,6 +187,7 @@ fn scope_to_db(scope: Scope) -> String {
 fn scope_from_db(value: &str) -> Result<Scope, OAuthRowMappingError> {
     match value {
         "auctions:read" => Ok(Scope::AuctionsRead),
+        "product-listings:read" => Ok(Scope::ProductListingsRead),
         "auctions:write" => Ok(Scope::AuctionsWrite),
         "listing-sources:read" => Ok(Scope::ListingSourcesRead),
         "parties:read" => Ok(Scope::PartiesRead),
@@ -253,6 +254,29 @@ mod tests {
             parse_scopes(vec!["auctions:read".to_owned()]).expect("canonical scope")
         );
         for invalid in ["auction:read", "AUCTIONS:READ", "auctions:delete"] {
+            assert!(matches!(
+                scope_from_db(invalid),
+                Err(OAuthRowMappingError::InvalidScope(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn should_round_trip_canonical_product_listing_read_scope() {
+        let scopes = HashSet::from([Scope::ProductListingsRead]);
+        assert_eq!(
+            vec!["product-listings:read".to_owned()],
+            scope_values(&scopes)
+        );
+        assert_eq!(
+            scopes,
+            parse_scopes(vec!["product-listings:read".to_owned()]).expect("canonical scope")
+        );
+        for invalid in [
+            "product-listing:read",
+            "PRODUCT-LISTINGS:READ",
+            "product-listings:delete",
+        ] {
             assert!(matches!(
                 scope_from_db(invalid),
                 Err(OAuthRowMappingError::InvalidScope(_))

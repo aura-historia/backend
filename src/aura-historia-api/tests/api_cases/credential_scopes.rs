@@ -11,6 +11,12 @@ async fn should_require_resource_read_scopes_for_private_collections() {
     let client = reqwest::Client::new();
     for (path, scope, write_scope, admin_only) in [
         (
+            "/api/v1/admin/product-listings",
+            Scope::ProductListingsRead,
+            Scope::ProductListingsWrite,
+            true,
+        ),
+        (
             "/api/v1/admin/auctions",
             Scope::AuctionsRead,
             Scope::AuctionsWrite,

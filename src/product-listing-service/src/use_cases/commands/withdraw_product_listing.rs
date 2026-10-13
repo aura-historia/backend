@@ -255,6 +255,8 @@ impl From<PartnerProductListingAuthorizationError> for WithdrawProductListingErr
 impl From<ProductListingRepositoryError> for WithdrawProductListingError {
     fn from(error: ProductListingRepositoryError) -> Self {
         match error {
+            ProductListingRepositoryError::TemporarilyUnavailable { .. }
+            | ProductListingRepositoryError::QueryFailed { .. } => Self::PersistenceFailed,
             ProductListingRepositoryError::ProductListingLookupByIdFailed
             | ProductListingRepositoryError::ProductListingLookupByKeyFailed { .. }
             | ProductListingRepositoryError::ProductListingInsertFailed

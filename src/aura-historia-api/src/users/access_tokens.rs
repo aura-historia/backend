@@ -457,6 +457,7 @@ fn parse_scopes(values: HashSet<String>) -> Result<HashSet<Scope>, ApiError> {
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
             "listing-sources:write" => Ok(Scope::ListingSourcesWrite),
             "auctions:read" => Ok(Scope::AuctionsRead),
+            "product-listings:read" => Ok(Scope::ProductListingsRead),
             "auctions:write" => Ok(Scope::AuctionsWrite),
             "listing-sources:read" => Ok(Scope::ListingSourcesRead),
             "parties:read" => Ok(Scope::PartiesRead),
@@ -662,6 +663,16 @@ mod tests {
         assert!(matches!(
             scopes,
             Ok(scopes) if scopes == HashSet::from([Scope::AuctionsRead])
+        ));
+    }
+
+    #[test]
+    fn should_accept_canonical_product_listings_read_scope() {
+        let scopes = parse_scopes(HashSet::from(["product-listings:read".to_owned()]));
+
+        assert!(matches!(
+            scopes,
+            Ok(scopes) if scopes == HashSet::from([Scope::ProductListingsRead])
         ));
     }
 

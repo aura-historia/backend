@@ -159,6 +159,10 @@ pub(crate) const PARTY_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PARTY_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INTERNAL_ERROR");
+pub(crate) const PRODUCT_LISTING_CONCURRENCY_CONFLICT: ApiErrorCode =
+    ApiErrorCode("PRODUCT_LISTING_CONCURRENCY_CONFLICT");
+pub(crate) const PRODUCT_LISTING_WITHDRAWN: ApiErrorCode =
+    ApiErrorCode("PRODUCT_LISTING_WITHDRAWN");
 pub(crate) const PRODUCT_LISTING_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_NOT_FOUND");
 pub(crate) const PRODUCT_LISTING_UNAVAILABLE: ApiErrorCode =

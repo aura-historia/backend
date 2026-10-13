@@ -624,6 +624,7 @@ async fn client_secret_columns(
 
 fn credential_scopes() -> HashSet<Scope> {
     HashSet::from([
+        Scope::ProductListingsRead,
         Scope::ProductListingsWrite,
         Scope::AuctionsRead,
         Scope::AuctionsWrite,

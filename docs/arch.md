@@ -561,6 +561,8 @@ The update handler MUST translate command fields into explicit aggregate methods
 
 A broad update use case is one logical write. Domain methods SHOULD distinguish changes from no-ops without knowing storage versions. The handler MUST skip persistence when nothing changed and persist the complete authoritative state once when it did, enforcing optimistic concurrency. The storage version is internal persistence/CDC state and MUST NOT be returned from ordinary use cases.
 
+Administrative edit contracts MAY expose the authoritative storage version as an explicit optimistic precondition. These commands MUST compare the client's version before applying changes, retain repository compare-and-set protection, and return the committed version from the transaction result. A stale command MUST NOT be retried automatically against newer state. This exception does not make the version a mutable domain fact or a public projection revision.
+
 ### 6.2 Read use-case contract
 
 ```rust

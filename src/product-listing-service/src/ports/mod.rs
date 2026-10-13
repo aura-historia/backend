@@ -1,3 +1,4 @@
+pub mod admin_product_listing_reader;
 pub mod auction_catalogue_reader;
 pub mod listing_source_summary;
 pub mod listing_source_summary_reader;

@@ -1,4 +1,5 @@
 pub(crate) mod admin_overview;
+pub mod admin_product_listings;
 pub mod auctions;
 pub mod auth;
 pub mod billing;
@@ -15,6 +16,7 @@ pub mod partner_product_listings;
 pub(crate) mod partnership_applications;
 pub(crate) mod partnerships;
 pub(crate) mod patch_value;
+mod product_listing_fields;
 pub mod product_listings;
 pub mod search_filters;
 pub mod state;
@@ -99,6 +101,13 @@ use opensearch::{
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+};
+use product_listing_postgres::SqlxAdminProductListingReader;
+use product_listing_service::use_cases::{
+    commands::admin_product_listings::AdminProductListingMutationHandler,
+    queries::admin_product_listings::{
+        GetAdminProductListingHandler, SearchAdminProductListingsHandler,
+    },
 };
 use woocommerce_service::WoocommerceWebhookIntake;
 
@@ -809,6 +818,30 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(admin_product_listings) = state.admin_product_listings {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/product-listings",
+                    get(admin_product_listings::search_admin_product_listings),
+                )
+                .route(
+                    "/api/v1/admin/product-listings/{product_listing_id}",
+                    get(admin_product_listings::get_admin_product_listing)
+                        .patch(admin_product_listings::update_admin_product_listing)
+                        .delete(admin_product_listings::withdraw_admin_product_listing),
+                )
+                .route(
+                    "/api/v1/admin/product-listings/{product_listing_id}/restore",
+                    post(admin_product_listings::restore_admin_product_listing),
+                )
+                .layer(axum::middleware::map_response(
+                    admin_product_listings::no_store,
+                ))
+                .with_state(admin_product_listings),
+        );
+    }
+
     if let Some(auctions) = state.auctions {
         routes = routes.merge(
             Router::new()
@@ -1284,6 +1317,22 @@ async fn app_state_from_config_and_pool(
         SqlxAdminAuctionSearchReader::new(pool.clone()),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
+    let admin_product_listing_reader = SqlxAdminProductListingReader::new(pool.clone());
+    let get_admin_product_listing = GetAdminProductListingHandler::new(
+        admin_product_listing_reader.clone(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let search_admin_product_listings = SearchAdminProductListingsHandler::new(
+        admin_product_listing_reader,
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let admin_product_listing_mutations = Arc::new(AdminProductListingMutationHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+        auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
+    ));
     let get_public_auction =
         GetPublicAuctionHandler::new(SqlxPublicAuctionDetailsReader::new(pool.clone()));
     let list_auctions = ListAuctionsHandler::new(SqlxAuctionDirectoryReader::new(pool.clone()));
@@ -2046,6 +2095,14 @@ async fn app_state_from_config_and_pool(
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     Ok(AppState::new()
+        .with_admin_product_listings(state::AdminProductListingsState::new(
+            Arc::new(get_admin_product_listing),
+            Arc::new(search_admin_product_listings),
+            admin_product_listing_mutations.clone(),
+            admin_product_listing_mutations.clone(),
+            admin_product_listing_mutations,
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_auctions(AuctionsState::new(
             Arc::new(create_auction),
             Arc::new(get_auction),

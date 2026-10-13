@@ -1,3 +1,5 @@
+mod admin_product_listing_reader;
+pub use admin_product_listing_reader::SqlxAdminProductListingReader;
 mod auction_catalogue_reader;
 mod listing_source_summary_reader;
 mod product_listing_content_assessment_reader;
