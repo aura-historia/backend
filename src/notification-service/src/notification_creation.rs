@@ -83,6 +83,25 @@ where
 
         let mut deliveries = Vec::new();
         for (notification, outcome) in notifications.iter().zip(&outcomes) {
+            if let ExternalDeliveryRequest::SavedSearchDigest { run_end } =
+                notification.external_delivery
+            {
+                if !matches!(
+                    notification.notification.content(),
+                    notification_core::notification::NotificationContent::SearchFilter { .. }
+                ) {
+                    return Err(creation_error(
+                        "saved-search digest delivery requires search-filter content",
+                    ));
+                }
+                if matches!(outcome, NotificationCreationOutcome::Inserted { .. }) {
+                    self.deliveries
+                        .in_transaction(self.tx)
+                        .stage_saved_search(notification.notification.notification_id(), run_end)
+                        .await?;
+                }
+                continue;
+            }
             if notification.external_delivery != ExternalDeliveryRequest::Requested
                 || !matches!(outcome, NotificationCreationOutcome::Inserted { .. })
             {

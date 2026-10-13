@@ -11,6 +11,12 @@ use user_core::user_id::UserId;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationDeliverySourceId {
+    Notification(NotificationId),
+    SavedSearchDigest(notification_core::saved_search_digest_id::SavedSearchDigestId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationDeliveryStatus {
     Pending,
     Processing,
@@ -21,7 +27,7 @@ pub enum NotificationDeliveryStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClaimedNotificationDelivery {
     pub notification_delivery_id: NotificationDeliveryId,
-    pub notification_id: NotificationId,
+    pub source_id: NotificationDeliverySourceId,
     pub lease_token: Uuid,
     pub lease_expires_at: OffsetDateTime,
     pub attempt_count: u32,
@@ -30,11 +36,12 @@ pub struct ClaimedNotificationDelivery {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NotificationDeliverySource {
     pub notification_delivery_id: NotificationDeliveryId,
-    pub notification_id: NotificationId,
+    pub source_id: NotificationDeliverySourceId,
     pub user_id: UserId,
     pub channel: NotificationDeliveryChannel,
     pub target_key: NotificationDeliveryTargetKey,
     pub content: NotificationContent,
+    pub saved_search_digest: Option<crate::saved_search_digest::SavedSearchEmailDigest>,
     pub presentation_preferences: NotificationPresentationPreferences,
 }
 

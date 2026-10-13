@@ -2,6 +2,15 @@ use backend_cleanup_lambda::{cleanup_batch_size_from_env, run_cleanup};
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use notification_postgres::{
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+    SqlxSavedSearchDigestStoreFactory,
+};
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
+    saved_search_digest::MaintainSavedSearchDigestsHandler,
+};
 use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
 use platform_lambda_bootstrap::{
@@ -12,11 +21,23 @@ use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
+use product_listing_postgres::{
+    SqlxProductListingContentAssessmentSnapshotReaderFactory,
+    SqlxProductListingSearchFilterMatchSourceReaderFactory,
+};
 use product_listing_service::geography::{
     ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
 };
+use search_filter_postgres::{
+    SqlxPendingSavedSearchNotificationReader, SqlxSearchFilterMatchNotificationSourceReaderFactory,
+    SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+};
+use search_filter_service::use_cases::{
+    GenerateSearchFilterMatchNotificationHandler, RecoverSavedSearchNotificationsHandler,
+};
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
+use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_postgres::{SqlxConsentWorkflowCleanup, SqlxNewsletterConfirmationChallengesRepository};
 use user_service::ports::SystemNewsletterConfirmationClock;
 use user_service::use_cases::CleanupConsentWorkflowHandler;
@@ -67,9 +88,29 @@ async fn main() -> Result<(), Error> {
                             SqlxResolutionRepositoryFactory,
                         ),
                         ProjectListingGeographyHandler::new(
-                            SqlxUnitOfWork::new(pool),
+                            SqlxUnitOfWork::new(pool.clone()),
                             SqlxGeographyProjectionStoreFactory,
                             SqlxResolutionRepositoryFactory,
+                        ),
+                        RecoverSavedSearchNotificationsHandler::new(
+                            SqlxPendingSavedSearchNotificationReader::new(pool.clone()),
+                            Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
+                                SqlxUnitOfWork::new(pool.clone()),
+                                SqlxSearchFilterMatchNotificationSourceReaderFactory,
+                                SqlxProductListingSearchFilterMatchSourceReaderFactory,
+                                SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+                                SqlxUserTierEntitlementsFactory::new(),
+                                SqlxProductListingContentAssessmentSnapshotReaderFactory,
+                                NotificationCreationCoordinatorFactory::new(
+                                    SqlxNotificationRepositoryFactory,
+                                    InitialExternalDeliveryPlanReaderFactory,
+                                    SqlxNotificationDeliveryIntentRepositoryFactory,
+                                ),
+                            )),
+                        ),
+                        MaintainSavedSearchDigestsHandler::new(
+                            SqlxUnitOfWork::new(pool),
+                            SqlxSavedSearchDigestStoreFactory,
                         ),
                     ))
                 })
@@ -86,7 +127,14 @@ async fn main() -> Result<(), Error> {
             if recovery_result.is_err() {
                 tracing::warn!(event = "backend_cleanup.listing_geography.failed");
             }
+            let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
+            let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
             cleanup_result?;
+            let failed_notifications = notification_recovery?;
+            digest_recovery?;
+            if failed_notifications > 0 {
+                return Err(Error::from("saved-search notification recovery incomplete"));
+            }
             recovery_result?;
             Ok::<(), Error>(())
         }

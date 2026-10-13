@@ -20,6 +20,425 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_finalizes_once() {
+    let result: TestResult = async {
+        use notification_service::ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome};
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let first = seed_filter(&pool, user).await?;
+        let second = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[first, second]).await?;
+        let use_case = compose_search_filter_match_notification_use_case(pool.clone());
+        seed_run_match(&pool, user, first, listing, origin, end).await?;
+        assert!(failure_ids(handler(event("first", job_body(user, first, listing, origin)?), use_case.as_ref()).await?).is_empty());
+        terminal_filter(&pool, end, first).await?;
+        let maintenance = digest_maintenance(&pool);
+        assert_eq!(0, maintenance.execute(10).await?.digests_created);
+
+        // Crash after the second match commits, before its CDC notification job.
+        seed_run_match(&pool, user, second, listing, origin, end).await?;
+        terminal_filter(&pool, end, second).await?;
+        assert_eq!(0, maintenance.execute(10).await?.digests_created);
+        let recovery = search_filter_service::use_cases::RecoverSavedSearchNotificationsHandler::new(search_filter_postgres::SqlxPendingSavedSearchNotificationReader::new(pool.clone()), use_case.clone());
+        assert_eq!(0, recovery.execute(100).await?);
+        let other = digest_maintenance(&pool);
+        let (a, b) = tokio::join!(maintenance.execute(10), other.execute(10));
+        assert_eq!(1, a?.digests_created + b?.digests_created);
+        assert_eq!(0, maintenance.execute(10).await?.digests_created);
+        assert!(failure_ids(handler(event("replay", job_body(user, first, listing, origin)?), use_case.as_ref()).await?).is_empty());
+        let counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM notifications WHERE user_id = $1), (SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1), (SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1), (SELECT count(*) FROM search_filter_matches WHERE user_id = $1)")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!((2, 2, 1, 2), counts);
+        let id: uuid::Uuid = sqlx::query_scalar("SELECT d.notification_delivery_id FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1").bind(user.as_uuid()).fetch_one(&pool).await?;
+        let id = notification_delivery_id(id)?;
+        let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
+        let now = time::OffsetDateTime::now_utc();
+        let ClaimNotificationDeliveryOutcome::Claimed { delivery, source } = repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected digest claim") };
+        assert_eq!(2, source.unwrap().saved_search_digest.unwrap().members.len());
+        // Accepted provider result and its exact lease survive a lost commit response.
+        assert!(repository.mark_delivered(id, delivery.lease_token, "test-provider-accepted", now).await?);
+        assert!(repository.mark_delivered(id, delivery.lease_token, "test-provider-accepted", now).await?);
+        assert!(matches!(repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await?, ClaimNotificationDeliveryOutcome::Delivered));
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "digest recovery and concurrent finalization: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn zero_matches_and_legacy_matches_produce_no_new_digest() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        seed_match(&pool, user, filter, listing, origin).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(
+            failure_ids(
+                handler(
+                    event("legacy", job_body(user, filter, listing, origin)?),
+                    generator.as_ref()
+                )
+                .await?
+            )
+            .is_empty()
+        );
+        assert_notification(&pool, user, filter, origin).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        terminal_filter(&pool, end, filter).await?;
+        assert_eq!(
+            0,
+            digest_maintenance(&pool).execute(10).await?.digests_created
+        );
+        assert!(
+            failure_ids(
+                handler(
+                    event("legacy-replay", job_body(user, filter, listing, origin)?),
+                    generator.as_ref()
+                )
+                .await?
+            )
+            .is_empty()
+        );
+        assert_notification(&pool, user, filter, origin).await?;
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "zero/legacy cutover: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn interrupted_run_finalizes_successes_and_late_members_are_carried_to_next_run() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let first = seed_filter(&pool, user).await?;
+        let failed = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[first, failed]).await?;
+        seed_run_match(&pool, user, first, listing, origin, end).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("success", job_body(user, first, listing, origin)?), generator.as_ref()).await?).is_empty());
+        terminal_filter(&pool, end, first).await?;
+        let maintenance = digest_maintenance(&pool);
+        let completed_user = seed_user(&pool).await?;
+        let completed_filter = seed_filter(&pool, completed_user).await?;
+        sqlx::query("INSERT INTO saved_search_digest_groups(window_end, user_id) VALUES ($1, $2)").bind(end).bind(completed_user.as_uuid()).execute(&pool).await?;
+        sqlx::query("INSERT INTO search_filter_matching_run_filters(window_end, user_id, user_search_filter_id, snapshot, terminal) SELECT $1, user_id, user_search_filter_id, to_jsonb(f), true FROM search_filters f WHERE user_search_filter_id = $2")
+            .bind(end).bind(completed_filter.as_uuid()).execute(&pool).await?;
+        seed_run_match(&pool, completed_user, completed_filter, listing, origin, end).await?;
+        assert!(failure_ids(handler(event("completed-user", job_body(completed_user, completed_filter, listing, origin)?), generator.as_ref()).await?).is_empty());
+        assert_eq!(1, maintenance.execute(10).await?.digests_created);
+        assert_eq!(0, maintenance.execute(10).await?.digests_created);
+        sqlx::query("UPDATE search_filter_matching_runs SET recovery_deadline = now() - INTERVAL '1 second' WHERE window_end = $1").bind(end).execute(&pool).await?;
+        assert_eq!(1, maintenance.execute(10).await?.digests_created);
+
+        let (late_listing, late_origin) = seed_product(&pool).await?;
+        seed_run_match(&pool, user, failed, late_listing, late_origin, end).await?;
+        assert!(failure_ids(handler(event("late", job_body(user, failed, late_listing, late_origin)?), generator.as_ref()).await?).is_empty());
+        assert_eq!(0, maintenance.execute(10).await?.digests_created);
+        let unassigned: i64 = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1 AND digest_id IS NULL").bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, unassigned);
+        let next = seed_digest_run(&pool, user, &[first, failed]).await?;
+        terminal_filter(&pool, next, first).await?;
+        terminal_filter(&pool, next, failed).await?;
+        assert_eq!(1, maintenance.execute(10).await?.digests_created);
+        let sizes: Vec<i64> = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1 GROUP BY digest_id ORDER BY digest_id").bind(user.as_uuid()).fetch_all(&pool).await?;
+        assert_eq!(vec![1, 1], sizes);
+        Ok(())
+    }.await;
+    assert!(result.is_ok(), "partial run and late arrivals: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn digest_delivery_rechecks_filter_preference_and_fences_individual_email() {
+    let result: TestResult = async {
+        use notification_service::ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome};
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        seed_run_match(&pool, user, filter, listing, origin, end).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("new", job_body(user, filter, listing, origin)?), generator.as_ref()).await?).is_empty());
+        let old_path = sqlx::query("INSERT INTO notification_deliveries(notification_delivery_id, notification_id, channel, target_key) SELECT $1, notification_id, 'EMAIL', 'PRIMARY' FROM notifications WHERE user_id = $2")
+            .bind(uuid::Uuid::now_v7()).bind(user.as_uuid()).execute(&pool).await;
+        assert!(old_path.is_err());
+        terminal_filter(&pool, end, filter).await?;
+        assert_eq!(1, digest_maintenance(&pool).execute(10).await?.digests_created);
+        sqlx::query("UPDATE search_filters SET notifications = false WHERE user_search_filter_id = $1").bind(filter.as_uuid()).execute(&pool).await?;
+        let id: uuid::Uuid = sqlx::query_scalar("SELECT d.notification_delivery_id FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1").bind(user.as_uuid()).fetch_one(&pool).await?;
+        let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
+        let now = time::OffsetDateTime::now_utc();
+        let ClaimNotificationDeliveryOutcome::Claimed { source, .. } = repository.claim_and_load_source(notification_delivery_id(id)?, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected digest claim") };
+        assert!(source.is_none());
+        assert_eq!(1, notification_count(&pool, user, filter, origin).await?);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "delivery preference and cutover fence: {result:?}"
+    );
+}
+
+fn notification_delivery_id(
+    id: uuid::Uuid,
+) -> Result<
+    notification_core::notification_delivery_id::NotificationDeliveryId,
+    domain_primitives::object_id::ObjectIdError,
+> {
+    id.try_into()
+}
+
+fn digest_maintenance(
+    pool: &sqlx::PgPool,
+) -> notification_service::saved_search_digest::MaintainSavedSearchDigestsHandler<
+    platform_postgres::SqlxUnitOfWork,
+    notification_postgres::SqlxSavedSearchDigestStoreFactory,
+> {
+    notification_service::saved_search_digest::MaintainSavedSearchDigestsHandler::new(
+        platform_postgres::SqlxUnitOfWork::new(pool.clone()),
+        notification_postgres::SqlxSavedSearchDigestStoreFactory,
+    )
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn free_monthly_quota_selects_ten_matches_before_creating_one_email() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        sqlx::query("UPDATE users SET tier = 'FREE' WHERE user_id = $1").bind(user.as_uuid()).execute(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        let mut jobs = Vec::new();
+        for _ in 0..11 {
+            let (listing, origin) = seed_product(&pool).await?;
+            seed_run_match(&pool, user, filter, listing, origin, end).await?;
+            jobs.push(job_body(user, filter, listing, origin)?);
+        }
+        for body in &jobs { assert!(failure_ids(handler(event("quota", body.clone()), generator.as_ref()).await?).is_empty()); }
+        terminal_filter(&pool, end, filter).await?;
+        let report = digest_maintenance(&pool).execute(10).await?;
+        assert_eq!(1, report.digests_created);
+        assert_eq!(10, report.matches_enrolled);
+        for body in jobs { assert!(failure_ids(handler(event("quota-replay", body), generator.as_ref()).await?).is_empty()); }
+        let counts: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM search_filter_matches WHERE user_id = $1), (SELECT count(*) FROM notifications WHERE user_id = $1), (SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1)").bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!((11, 10, 10), counts);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "digest preserves monthly match quota: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn finalization_rollback_retains_members_and_delivery_uses_snapshots_with_current_guards() {
+    let result: TestResult = async {
+        use application::transaction::UnitOfWork;
+        use notification_service::{saved_search_digest::{SavedSearchDigestStore, SavedSearchDigestStoreFactory}, ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome}};
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        let mut products = Vec::new();
+        for _ in 0..3 {
+            let (listing, origin) = seed_product(&pool).await?;
+            seed_run_match(&pool, user, filter, listing, origin, end).await?;
+            assert!(failure_ids(handler(event("snapshot", job_body(user, filter, listing, origin)?), generator.as_ref()).await?).is_empty());
+            products.push((listing, origin));
+        }
+        terminal_filter(&pool, end, filter).await?;
+        let unit = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+        let mut tx = unit.begin().await?;
+        assert_eq!(1, notification_postgres::SqlxSavedSearchDigestStoreFactory.in_transaction(&mut tx).finalize_next().await?.unwrap().digests_created);
+        drop(tx); // Simulate death after enrollment/outbox writes but before commit.
+        // SQLx schedules rollback on drop. Wait for the group lock to be released
+        // before asserting recovery; SKIP LOCKED intentionally defers live claims.
+        sqlx::query("SELECT user_id FROM saved_search_digest_groups WHERE window_end = $1 AND user_id = $2 FOR UPDATE")
+            .bind(end).bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, digest_maintenance(&pool).execute(10).await?.digests_created);
+        sqlx::query("DELETE FROM notifications WHERE user_id = $1").bind(user.as_uuid()).execute(&pool).await?;
+        sqlx::query("UPDATE search_filters SET name = 'Renamed after finalization' WHERE user_search_filter_id = $1").bind(filter.as_uuid()).execute(&pool).await?;
+        sqlx::query("UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1").bind(products[0].0.as_uuid()).execute(&pool).await?;
+        sqlx::query("INSERT INTO product_listing_content_assessments(product_listing_id, source_event_id, decision, category) VALUES ($1, $2, 'REQUIRES_CONSENT', 'NAZI_GERMANY')").bind(products[1].0.as_uuid()).bind(products[1].1.as_uuid()).execute(&pool).await?;
+        let id: uuid::Uuid = sqlx::query_scalar("SELECT d.notification_delivery_id FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1").bind(user.as_uuid()).fetch_one(&pool).await?;
+        let now = time::OffsetDateTime::now_utc();
+        let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
+        let ClaimNotificationDeliveryOutcome::Claimed { source, .. } = repository.claim_and_load_source(notification_delivery_id(id)?, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected digest") };
+        let digest = source.unwrap().saved_search_digest.unwrap();
+        assert_eq!(2, digest.members.len());
+        for member in &digest.members {
+            let notification_core::notification::NotificationContent::SearchFilter { user_search_filter_name, .. } = member else { panic!("unexpected member") };
+            assert_eq!("Fixture filter", user_search_filter_name.as_ref());
+        }
+        assert!(digest.members.iter().any(|member| matches!(member, notification_core::notification::NotificationContent::SearchFilter { snapshot, .. } if snapshot.content_policy == Some(product_listing_core::content_policy::ContentPolicyDecision::RequiresConsent(product_listing_core::content_policy::SensitiveContentCategory::NaziGermany)))));
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "finalization rollback/current delivery guards: {result:?}"
+    );
+}
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn newer_run_cannot_enroll_members_from_an_unfinished_older_group() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let old_end = seed_digest_run(&pool, user, &[filter]).await?;
+        let (first, first_origin) = seed_product(&pool).await?;
+        let (second, second_origin) = seed_product(&pool).await?;
+        seed_run_match(&pool, user, filter, first, first_origin, old_end).await?;
+        seed_run_match(&pool, user, filter, second, second_origin, old_end).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("selected", job_body(user, filter, first, first_origin)?), generator.as_ref()).await?).is_empty());
+        terminal_filter(&pool, old_end, filter).await?;
+        sqlx::query("UPDATE search_filter_matching_runs SET status = 'INTERRUPTED' WHERE window_end = $1")
+            .bind(old_end).execute(&pool).await?;
+        // The old group's second selection is still in retry custody when a new run completes.
+        let next_end = seed_digest_run(&pool, user, &[filter]).await?;
+        terminal_filter(&pool, next_end, filter).await?;
+        let maintenance = digest_maintenance(&pool);
+        let report = maintenance.execute(10).await?;
+        assert_eq!(1, report.groups_finalized);
+        assert_eq!(0, report.digests_created);
+        let unassigned: i64 = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1 AND digest_id IS NULL")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, unassigned);
+
+        assert!(failure_ids(handler(event("recovered", job_body(user, filter, second, second_origin)?), generator.as_ref()).await?).is_empty());
+        let report = maintenance.execute(10).await?;
+        assert_eq!(1, report.digests_created);
+        assert_eq!(2, report.matches_enrolled);
+        let delivered_run: time::OffsetDateTime = sqlx::query_scalar("SELECT window_end FROM saved_search_digests WHERE user_id = $1")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(old_end, delivered_run);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "unfinished group retains membership: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn digest_claim_rejects_snapshot_identity_corruption_and_preserves_delivery_target() {
+    let result: TestResult = async {
+        use notification_service::ports::notification_delivery_repository::{
+            ClaimNotificationDeliveryOutcome, NotificationDeliveryError, NotificationDeliveryRepository,
+        };
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let filter = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[filter]).await?;
+        seed_run_match(&pool, user, filter, listing, origin, end).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("snapshot", job_body(user, filter, listing, origin)?), generator.as_ref()).await?).is_empty());
+        terminal_filter(&pool, end, filter).await?;
+        assert_eq!(1, digest_maintenance(&pool).execute(10).await?.digests_created);
+        let id: uuid::Uuid = sqlx::query_scalar("SELECT d.notification_delivery_id FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        let id = notification_delivery_id(id)?;
+        sqlx::query("UPDATE saved_search_digest_members SET snapshot = jsonb_set(snapshot, '{notification_id}', to_jsonb($2::text)) WHERE user_id = $1")
+            .bind(user.as_uuid()).bind(uuid::Uuid::now_v7().to_string()).execute(&pool).await?;
+        let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
+        let now = time::OffsetDateTime::now_utc();
+        assert!(matches!(repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await,
+            Err(NotificationDeliveryError::InvalidPersistedState { .. })));
+        // Failed decoding rolls back the claim; corrected state can be claimed normally.
+        sqlx::query("UPDATE saved_search_digest_members SET snapshot = jsonb_set(snapshot, '{notification_id}', to_jsonb(notification_id::text)) WHERE user_id = $1")
+            .bind(user.as_uuid()).execute(&pool).await?;
+        sqlx::query("UPDATE notification_deliveries SET target_key = 'SECONDARY' WHERE notification_delivery_id = $1")
+            .bind(id.as_uuid()).execute(&pool).await?;
+        let ClaimNotificationDeliveryOutcome::Claimed { delivery, source } = repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected corrected claim") };
+        assert_eq!(1, delivery.attempt_count);
+        let source = source.unwrap();
+        assert_eq!("SECONDARY", source.target_key.as_str());
+        assert_eq!(delivery.source_id, source.source_id);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "digest identity and target decoding: {result:?}"
+    );
+}
+
+async fn seed_digest_run(
+    pool: &sqlx::PgPool,
+    user: UserId,
+    filters: &[UserSearchFilterId],
+) -> Result<time::OffsetDateTime, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    // Tests share one isolated database; earlier completed fixtures need no live run.
+    sqlx::query(
+        "UPDATE search_filter_matching_runs SET status = 'COMPLETED' WHERE status = 'RUNNING'",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let end = sqlx::query_scalar("INSERT INTO search_filter_matching_runs(window_end) VALUES (clock_timestamp()) RETURNING window_end").fetch_one(&mut *tx).await?;
+    sqlx::query("INSERT INTO saved_search_digest_groups(window_end, user_id) VALUES ($1, $2)")
+        .bind(end)
+        .bind(user.as_uuid())
+        .execute(&mut *tx)
+        .await?;
+    for filter in filters {
+        sqlx::query("INSERT INTO search_filter_matching_run_filters(window_end, user_id, user_search_filter_id, snapshot) SELECT $1, user_id, user_search_filter_id, to_jsonb(f) FROM search_filters f WHERE user_search_filter_id = $2")
+            .bind(end).bind(filter.as_uuid()).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(end)
+}
+async fn seed_run_match(
+    pool: &sqlx::PgPool,
+    user: UserId,
+    filter: UserSearchFilterId,
+    listing: ProductListingId,
+    origin: EventId,
+    end: time::OffsetDateTime,
+) -> TestResult {
+    use application::transaction::{Transaction, UnitOfWork};
+    use search_filter_service::ports::{SearchFilterMatchWriter, SearchFilterMatchWriterFactory};
+    let unit = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+    let mut tx = unit.begin().await?;
+    let inserted = search_filter_postgres::SqlxSearchFilterMatchWriterFactory
+        .in_transaction(&mut tx)
+        .insert_for_run(
+            &[search_filter_core::SearchFilterProductListingMatch {
+                user_id: user,
+                user_search_filter_id: filter,
+                product_listing_id: listing,
+                origin_event_id: origin,
+                user_search_filter_name: Some("Fixture filter".into()),
+                price_match_valuation: None,
+                feedback: None,
+            }],
+            end,
+        )
+        .await?;
+    assert_eq!(1, inserted.inserted);
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn terminal_filter(
+    pool: &sqlx::PgPool,
+    end: time::OffsetDateTime,
+    filter: UserSearchFilterId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE search_filter_matching_run_filters SET terminal = true WHERE window_end = $1 AND user_search_filter_id = $2").bind(end).bind(filter.as_uuid()).execute(pool).await?;
+    Ok(())
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn missing_match_is_retried_then_committed_match_creates_one_notification_and_intent() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;

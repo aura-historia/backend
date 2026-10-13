@@ -49,18 +49,22 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
         })?;
         sqlx::query_as::<_, PeriodicCandidateRow>(
             r#"
-            SELECT filter.user_search_filter_id, filter.user_id, filter.name, filter.state,
-                   filter.search, filter.embedding, filter.matching_evidence_policy, filter.created,
-                   COALESCE(progress.matched_through, filter.created) AS matched_through,
-                   filter.version
-            FROM search_filters filter
-            LEFT JOIN search_filter_periodic_match_state progress
-              ON progress.user_search_filter_id = filter.user_search_filter_id
-            WHERE filter.state = 'ACTIVE'
-              AND filter.created <= $1
-              AND (progress.matched_through IS NULL OR progress.matched_through < $1)
-              AND ($2::uuid IS NULL OR filter.user_search_filter_id > $2)
-            ORDER BY filter.user_search_filter_id ASC
+            WITH candidates AS (
+                SELECT f.*, COALESCE(p.matched_through, f.created) AS matched_through
+                FROM search_filters f LEFT JOIN search_filter_periodic_match_state p USING(user_search_filter_id)
+                WHERE NOT EXISTS (SELECT 1 FROM search_filter_matching_runs WHERE window_end = $1)
+                    AND f.state = 'ACTIVE' AND f.created <= $1 AND COALESCE(p.matched_through, f.created) < $1
+                UNION ALL
+                SELECT f.*, (r.snapshot->>'matched_through')::timestamptz AS matched_through
+                FROM search_filter_matching_run_filters r
+                CROSS JOIN LATERAL jsonb_populate_record(NULL::search_filters, r.snapshot) f
+                WHERE r.window_end = $1 AND NOT r.terminal
+                    AND EXISTS (SELECT 1 FROM search_filter_matching_runs run WHERE run.window_end = $1 AND run.status = 'RUNNING')
+            )
+            SELECT user_search_filter_id, user_id, name, state, search, embedding, matching_evidence_policy, created, matched_through, version
+            FROM candidates
+            WHERE ($2::uuid IS NULL OR user_search_filter_id > $2)
+            ORDER BY user_search_filter_id ASC
             LIMIT $3
         "#,
         )

@@ -5,6 +5,7 @@ use notification_core::{notification::Notification, notification_id::Notificatio
 pub enum ExternalDeliveryRequest {
     None,
     Requested,
+    SavedSearchDigest { run_end: time::OffsetDateTime },
 }
 
 #[derive(Debug, Clone, PartialEq)]

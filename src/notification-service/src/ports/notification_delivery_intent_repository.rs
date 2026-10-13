@@ -15,6 +15,12 @@ pub struct NewNotificationDeliveryIntent {
 
 #[async_trait::async_trait]
 pub trait NotificationDeliveryIntentRepository: Send {
+    async fn stage_saved_search(
+        &mut self,
+        notification_id: NotificationId,
+        run_end: time::OffsetDateTime,
+    ) -> Result<(), NotificationCreationError>;
+
     async fn insert_many(
         &mut self,
         deliveries: &[NewNotificationDeliveryIntent],

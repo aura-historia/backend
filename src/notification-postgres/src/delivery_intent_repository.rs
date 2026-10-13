@@ -40,6 +40,25 @@ impl NotificationDeliveryIntentRepositoryFactory<SqlxTransaction>
 
 #[async_trait::async_trait]
 impl NotificationDeliveryIntentRepository for SqlxNotificationDeliveryIntentRepository<'_> {
+    async fn stage_saved_search(
+        &mut self,
+        notification_id: notification_core::notification_id::NotificationId,
+        run_end: time::OffsetDateTime,
+    ) -> Result<(), NotificationCreationError> {
+        // Serialize population against finalization. Late members remain unassigned
+        // and are selected by the next user/run group; finalized membership is immutable.
+        sqlx::query("SELECT g.user_id FROM saved_search_digest_groups g JOIN notifications n ON n.user_id = g.user_id WHERE g.window_end = $1 AND n.notification_id = $2 FOR UPDATE OF g")
+            .bind(run_end).bind(notification_id.into_uuid()).fetch_one(&mut *self.connection).await
+            .map_err(|source| NotificationCreationError::CreateFailed { source: box_error(source) })?;
+        sqlx::query(r#"INSERT INTO saved_search_digest_members(user_id, user_search_filter_id, product_listing_id, origin_event_id, notification_id, matching_run_end, snapshot)
+            SELECT user_id, user_search_filter_id, product_listing_id, origin_event_id, notification_id, $2, to_jsonb(n)
+            FROM notifications n WHERE notification_id = $1 AND kind = 'SEARCH_FILTER_MATCH'
+            ON CONFLICT (user_id, user_search_filter_id, product_listing_id) DO NOTHING"#)
+            .bind(notification_id.into_uuid()).bind(run_end).execute(&mut *self.connection).await
+            .map_err(|source| NotificationCreationError::CreateFailed { source: box_error(source) })?;
+        Ok(())
+    }
+
     async fn insert_many(
         &mut self,
         deliveries: &[NewNotificationDeliveryIntent],

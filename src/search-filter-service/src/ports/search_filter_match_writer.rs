@@ -29,6 +29,12 @@ pub enum SearchFilterMatchWriteError {
 
 #[async_trait::async_trait]
 pub trait SearchFilterMatchWriter: Send {
+    async fn insert_for_run(
+        &mut self,
+        product_matches: &[SearchFilterProductListingMatch],
+        window_end: time::OffsetDateTime,
+    ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError>;
+
     async fn insert_if_absent(
         &mut self,
         product_match: &SearchFilterProductListingMatch,

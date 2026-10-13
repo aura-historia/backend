@@ -209,6 +209,10 @@ where
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch);
         }
+        if match_source.matching_run_end.is_some() && match_source.notification_selection_complete {
+            tx.commit().await.map_err(commit_error)?;
+            return Ok(GenerateSearchFilterMatchNotificationResult::AlreadyExists);
+        }
 
         let product = self
             .product_listings
@@ -217,6 +221,7 @@ where
             .await
             .map_err(product_source_read_error)?;
         let Some(product) = product else {
+            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(
                 GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing,
@@ -228,6 +233,7 @@ where
             return Err(GenerateSearchFilterMatchNotificationError::ProductListingSourceMismatch);
         }
         if product.lifecycle != product_listing_core::listing_lifecycle::ListingLifecycle::Active {
+            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(
                 GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
@@ -248,6 +254,7 @@ where
             .await
             .map_err(tier_entitlements_error)?;
         let Some(tier) = tier else {
+            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForMissingUser);
         };
@@ -263,6 +270,7 @@ where
             .map_err(monthly_match_quota_error)?;
 
         if rank > monthly_match_quota(tier) {
+            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedByQuota);
         }
@@ -274,6 +282,7 @@ where
             content_policy,
         )
         .await?;
+        complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
         tx.commit().await.map_err(commit_error)?;
 
         match outcome {
@@ -285,6 +294,21 @@ where
             }
         }
     }
+}
+
+async fn complete_selection(
+    reader: &mut impl SearchFilterMatchNotificationSourceReader,
+    command: &GenerateSearchFilterMatchNotificationCommand,
+) -> Result<(), GenerateSearchFilterMatchNotificationError> {
+    reader
+        .complete_selection(
+            command.user_id,
+            command.search_filter_id,
+            command.product_listing_id,
+            command.origin_event_id,
+        )
+        .await
+        .map_err(match_source_read_error)
 }
 
 fn match_source_matches_command(
@@ -327,7 +351,10 @@ async fn create_notification(
             },
         ),
         external_delivery: if match_source.external_delivery_requested {
-            ExternalDeliveryRequest::Requested
+            match match_source.matching_run_end {
+                Some(run_end) => ExternalDeliveryRequest::SavedSearchDigest { run_end },
+                None => ExternalDeliveryRequest::Requested,
+            }
         } else {
             ExternalDeliveryRequest::None
         },
@@ -485,6 +512,16 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SearchFilterMatchNotificationSourceReader for MatchReader<'_> {
+        async fn complete_selection(
+            &mut self,
+            _: UserId,
+            _: UserSearchFilterId,
+            _: ProductListingId,
+            _: EventId,
+        ) -> Result<(), SearchFilterMatchNotificationSourceReadError> {
+            Ok(())
+        }
+
         async fn find_source(
             &mut self,
             _user_id: UserId,
@@ -748,6 +785,8 @@ mod tests {
             origin_event_id,
         };
         let match_source = SearchFilterMatchNotificationSource {
+            matching_run_end: None,
+            notification_selection_complete: false,
             user_id,
             search_filter_id,
             product_listing_id,

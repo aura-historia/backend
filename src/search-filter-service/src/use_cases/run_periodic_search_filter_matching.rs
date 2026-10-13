@@ -376,7 +376,22 @@ where
         &self,
         command: RunPeriodicSearchFilterMatchingCommand,
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError> {
-        let window_end = command.started_at - self.policy.projection_lag;
+        let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
+        let window_end = self
+            .progress
+            .in_transaction(&mut run_tx)
+            .begin_run(command.started_at - self.policy.projection_lag)
+            .await
+            .map_err(progress_error)?;
+        run_tx.commit().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
         tracing::Span::current().record("window_end", tracing::field::display(window_end));
         tracing::info!(window_end = %window_end, "search_filter.periodic_match.started");
         let snapshot = load_snapshot(&self.unit_of_work, &self.fx_rates, window_end).await?;
@@ -430,7 +445,22 @@ where
                 let mut filter_candidates_scanned = 0;
                 let mut filter_matches_inserted = 0;
                 let mut filter_matches_duplicate = 0;
-                let mut selected = None;
+                let mut selection_tx = self.unit_of_work.begin().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
+                let mut selected = self
+                    .progress
+                    .in_transaction(&mut selection_tx)
+                    .load_selection(window_end, candidate.search_filter_id)
+                    .await
+                    .map_err(progress_error)?;
+                selection_tx.commit().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
                 for attempt in 1..=self.policy.max_attempts.get() {
                     report.filter_attempts += 1;
                     let mut attempt_report = FilterAttemptReport::default();
@@ -505,6 +535,21 @@ where
                         }
                     }
                 }
+                let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
+                self.progress
+                    .in_transaction(&mut run_tx)
+                    .record_filter_attempt(window_end, candidate.search_filter_id, completed)
+                    .await
+                    .map_err(progress_error)?;
+                run_tx.commit().await.map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                        source: box_error(source),
+                    }
+                })?;
                 if completed {
                     report.filters_completed += 1;
                     tracing::info!(
@@ -524,6 +569,21 @@ where
                 }
             }
         }
+        let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
+        self.progress
+            .in_transaction(&mut run_tx)
+            .finish_run(window_end)
+            .await
+            .map_err(progress_error)?;
+        run_tx.commit().await.map_err(|source| {
+            RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                source: box_error(source),
+            }
+        })?;
         tracing::info!(
             window_end = %report.window_end,
             filters_selected = report.filters_selected,
@@ -680,8 +740,34 @@ where
                 stop_reason = if eligible.len() == self.policy.evaluation_limit.get() { "candidate_cap" }
                     else if scan_cap { "retrieval_scan_cap" } else { "candidate_exhaustion" },
                 retrieval_scan_cap_reached = scan_cap, "search_filter.periodic_match.selected");
-            *selected = Some(eligible);
-            sources
+            let mut selection_tx = self.unit_of_work.begin().await.map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            let frozen = self
+                .progress
+                .in_transaction(&mut selection_tx)
+                .freeze_selection(window_end, filter.search_filter_id, &eligible)
+                .await
+                .map_err(progress_error)?;
+            selection_tx.commit().await.map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            let changed = frozen != eligible;
+            *selected = Some(frozen);
+            if changed {
+                self.load_sources(
+                    selected.as_ref().ok_or(
+                        RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
+                    )?,
+                )
+                .await?
+            } else {
+                sources
+            }
         };
         let refs = selected
             .as_ref()
@@ -893,7 +979,7 @@ where
         } else {
             self.matches
                 .in_transaction(&mut tx)
-                .insert_all_if_absent(&matches)
+                .insert_for_run(&matches, window_end)
                 .await
                 .map_err(match_write_error)?
         };
@@ -1507,6 +1593,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SearchFilterMatchWriter for WritingMatches<'_> {
+        async fn insert_for_run(
+            &mut self,
+            matches: &[SearchFilterProductListingMatch],
+            _: OffsetDateTime,
+        ) -> Result<crate::ports::SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError>
+        {
+            self.insert_all_if_absent(matches).await
+        }
+
         async fn insert_if_absent(
             &mut self,
             product_match: &SearchFilterProductListingMatch,
@@ -1540,6 +1635,47 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PeriodicSearchFilterProgress for LockingProgress<'_> {
+        async fn load_selection(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+        ) -> Result<
+            Option<Vec<ProductListingSearchFilterMatchSourceRef>>,
+            PeriodicSearchFilterProgressError,
+        > {
+            Ok(None)
+        }
+        async fn freeze_selection(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            refs: &[ProductListingSearchFilterMatchSourceRef],
+        ) -> Result<Vec<ProductListingSearchFilterMatchSourceRef>, PeriodicSearchFilterProgressError>
+        {
+            Ok(refs.to_vec())
+        }
+
+        async fn begin_run(
+            &mut self,
+            end: OffsetDateTime,
+        ) -> Result<OffsetDateTime, PeriodicSearchFilterProgressError> {
+            Ok(end)
+        }
+        async fn record_filter_attempt(
+            &mut self,
+            _: OffsetDateTime,
+            _: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            _: bool,
+        ) -> Result<(), PeriodicSearchFilterProgressError> {
+            Ok(())
+        }
+        async fn finish_run(
+            &mut self,
+            _: OffsetDateTime,
+        ) -> Result<(), PeriodicSearchFilterProgressError> {
+            Ok(())
+        }
+
         async fn lock_and_read(
             &mut self,
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
@@ -1696,7 +1832,7 @@ mod tests {
             .await?;
         assert_eq!(FilterOutcome::Completed, outcome);
         let state = state.lock().unwrap();
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.commits);
         assert_eq!(1, state.checkpoints);
         Ok(())
     }
@@ -1767,7 +1903,7 @@ mod tests {
         assert_eq!(0, state.match_writer_calls);
         assert!(state.persisted.is_empty());
         assert_eq!(1, state.checkpoints);
-        assert_eq!(1, state.commits);
+        assert_eq!(2, state.commits);
         Ok(())
     }
 

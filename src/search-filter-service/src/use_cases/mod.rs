@@ -71,3 +71,5 @@ mod tests {
         Ok(())
     }
 }
+mod recover_saved_search_notifications;
+pub use recover_saved_search_notifications::*;

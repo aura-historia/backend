@@ -22,6 +22,162 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn logical_run_freezes_filters_resumes_after_crash_and_does_not_repeat_completed_users() {
+    use search_filter_postgres::SqlxPeriodicSearchFilterCandidateReader;
+    use search_filter_service::ports::{
+        PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReader,
+    };
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let filter = seed_filter(&unit, &pool, "run-resume@example.test").await;
+    let end = OffsetDateTime::from_unix_timestamp_nanos(
+        (OffsetDateTime::now_utc() + Duration::seconds(1)).unix_timestamp_nanos() / 1000 * 1000,
+    )
+    .unwrap();
+    let progress = SqlxPeriodicSearchFilterProgressFactory;
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        end,
+        progress
+            .in_transaction(&mut tx)
+            .begin_run(end)
+            .await
+            .unwrap()
+    );
+    drop(tx); // A crash before registering the run commits no partial snapshot.
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filter_matching_runs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(0, count);
+    let mut tx = begin(&unit).await;
+    progress
+        .in_transaction(&mut tx)
+        .begin_run(end)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let selected = (0..50)
+        .map(
+            |_| product_listing_service::ports::ProductListingSearchFilterMatchSourceRef {
+                product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(
+                ),
+                event_id: domain_primitives::event_id::EventId::new(),
+            },
+        )
+        .collect::<Vec<_>>();
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        selected,
+        progress
+            .in_transaction(&mut tx)
+            .freeze_selection(end, filter.id(), &selected)
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        Some(selected.clone()),
+        progress
+            .in_transaction(&mut tx)
+            .load_selection(end, filter.id())
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        selected,
+        progress
+            .in_transaction(&mut tx)
+            .freeze_selection(end, filter.id(), &[])
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE search_filters SET name = 'Changed after snapshot', version = version + 1 WHERE user_search_filter_id = $1").bind(filter.id().into_uuid()).execute(&pool).await.unwrap();
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        end,
+        progress
+            .in_transaction(&mut tx)
+            .begin_run(end + Duration::hours(1))
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+    let candidates = SqlxPeriodicSearchFilterCandidateReader::new(pool.clone())
+        .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+            after: None,
+            page_size: 100,
+            eligible_at_or_before: end,
+        })
+        .await
+        .unwrap();
+    assert_eq!(1, candidates.len());
+    assert_eq!(filter.id(), candidates[0].search_filter_id);
+    assert_eq!(1, candidates[0].version);
+    assert_ne!("Changed after snapshot", candidates[0].name.as_ref());
+    let mut tx = begin(&unit).await;
+    progress
+        .in_transaction(&mut tx)
+        .record_filter_attempt(end, filter.id(), true)
+        .await
+        .unwrap();
+    progress
+        .in_transaction(&mut tx)
+        .finish_run(end)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let candidates = SqlxPeriodicSearchFilterCandidateReader::new(pool.clone())
+        .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+            after: None,
+            page_size: 100,
+            eligible_at_or_before: end,
+        })
+        .await
+        .unwrap();
+    assert!(candidates.is_empty());
+    let next = end + Duration::hours(1);
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        next,
+        progress
+            .in_transaction(&mut tx)
+            .begin_run(next)
+            .await
+            .unwrap()
+    );
+    assert!(
+        progress
+            .in_transaction(&mut tx)
+            .freeze_selection(next, filter.id(), &[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    tx.commit().await.unwrap();
+    let mut tx = begin(&unit).await;
+    assert_eq!(
+        Some(vec![]),
+        progress
+            .in_transaction(&mut tx)
+            .load_selection(next, filter.id())
+            .await
+            .unwrap()
+    );
+    assert!(
+        progress
+            .in_transaction(&mut tx)
+            .freeze_selection(next, filter.id(), &selected)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_resolve_missing_progress_to_creation_and_only_advance_forward() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

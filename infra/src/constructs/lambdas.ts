@@ -67,7 +67,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
     postgres: true,
-    timeoutSeconds: 10,
+    timeoutSeconds: 120,
     environment: () => ({
       EXPIRY_CLEANUP_BATCH_SIZE: "100",
     }),

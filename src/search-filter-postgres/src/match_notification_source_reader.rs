@@ -40,12 +40,26 @@ struct SearchFilterMatchNotificationSourceRow {
     created: OffsetDateTime,
     user_search_filter_name: String,
     external_delivery_requested: bool,
+    matching_run_end: Option<OffsetDateTime>,
+    notification_selection_complete: bool,
 }
 
 #[async_trait::async_trait]
 impl SearchFilterMatchNotificationSourceReader
     for SqlxSearchFilterMatchNotificationSourceReader<'_>
 {
+    async fn complete_selection(
+        &mut self,
+        user_id: UserId,
+        filter: UserSearchFilterId,
+        listing: ProductListingId,
+        event: EventId,
+    ) -> Result<(), SearchFilterMatchNotificationSourceReadError> {
+        sqlx::query("UPDATE search_filter_matches SET notification_selection_complete = true WHERE user_id = $1 AND user_search_filter_id = $2 AND product_listing_id = $3 AND origin_event_id = $4")
+            .bind(user_id.into_uuid()).bind(filter.into_uuid()).bind(listing.into_uuid()).bind(event.into_uuid()).execute(self.tx.connection()).await
+            .map_err(|source| SearchFilterMatchNotificationSourceReadError::ReadFailed { source: box_error(source) })?;
+        Ok(())
+    }
     async fn find_source(
         &mut self,
         user_id: UserId,
@@ -66,7 +80,8 @@ impl SearchFilterMatchNotificationSourceReader
                 matched.origin_event_id,
                 matched.created,
                 COALESCE(matched.user_search_filter_name, filter.name) AS user_search_filter_name,
-                filter.notifications AS external_delivery_requested
+                filter.notifications AS external_delivery_requested,
+                matched.matching_run_end, matched.notification_selection_complete
             FROM search_filter_matches matched
             JOIN search_filters filter
                 ON filter.user_search_filter_id = matched.user_search_filter_id
@@ -117,6 +132,8 @@ impl SearchFilterMatchNotificationSourceReader
                 })?,
                 matched_at: row.created,
                 external_delivery_requested: row.external_delivery_requested,
+                matching_run_end: row.matching_run_end,
+                notification_selection_complete: row.notification_selection_complete,
             })
         })
         .transpose()
