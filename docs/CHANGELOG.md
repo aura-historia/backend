@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-13 — Saved-search matching across tiers (#2040)
+
+- Active ordinary and enhanced saved searches discover matches in scheduled runs. Each run evaluates the first up to 50 eligible candidates independently; rejected candidates do not stop discovery. Matching remains bounded and subject to projection lag.
+- Free uses listing title/description, Pro adds up to one image, and Ultimate adds up to four images and enhanced instructions when supplied. Filters with only structured constraints require no semantic evaluation. Plan reconciliation preserves authored instructions and fences obsolete matching results when permitted evidence changes.
+
 ## 2026-10-13 — Partner ProductListing management (#2039)
 
 - Added source-scoped management directory/detail, versioned single-listing PATCH/DELETE and explicit POST restore. Path parameters use `listingSourceId` and `productListingId`. PostgreSQL reads include both ACTIVE and WITHDRAWN listings and expose `expectedVersion`; summaries use bounded filters and source-bound keyset cursors. Responses and errors use `private, no-store`.

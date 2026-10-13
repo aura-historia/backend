@@ -142,6 +142,10 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
       task.ContainerDefinitions[0].Environment.map((entry: { Name: string; Value: string }) => [entry.Name, entry.Value]),
     );
     expect(matcherEnvironment).toMatchObject({
+      PERIODIC_MATCH_EVALUATION_LIMIT: "50",
+      PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100",
+      PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY: "8",
+      PERIODIC_MATCH_MAX_RUN_SECONDS: "7200",
       CLASSIFIER_MODEL_PROVIDER: classifierConfig.provider,
       CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
       SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: {

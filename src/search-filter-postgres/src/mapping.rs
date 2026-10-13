@@ -29,13 +29,14 @@ use std::{collections::HashSet, error::Error, fmt};
 use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, version";
+pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version";
 pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, feedback, created, updated";
 
 #[derive(Debug)]
 pub(crate) enum SearchFilterRowMappingError {
     NameTooLong,
     InvalidState,
+    InvalidMatchingEvidencePolicy,
     InvalidPriceMatchValuation,
     InvalidObjectId(domain_primitives::object_id::ObjectIdError),
 }
@@ -47,6 +48,9 @@ impl fmt::Display for SearchFilterRowMappingError {
                 formatter.write_str("persisted search filter name exceeds 255 characters")
             }
             Self::InvalidState => formatter.write_str("persisted search filter state is invalid"),
+            Self::InvalidMatchingEvidencePolicy => {
+                formatter.write_str("persisted matching evidence policy is invalid")
+            }
             Self::InvalidPriceMatchValuation => {
                 formatter.write_str("persisted price match valuation is invalid")
             }
@@ -59,7 +63,10 @@ impl Error for SearchFilterRowMappingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidObjectId(source) => Some(source),
-            Self::NameTooLong | Self::InvalidState | Self::InvalidPriceMatchValuation => None,
+            Self::NameTooLong
+            | Self::InvalidState
+            | Self::InvalidMatchingEvidencePolicy
+            | Self::InvalidPriceMatchValuation => None,
         }
     }
 }
@@ -129,6 +136,7 @@ pub(crate) struct FilterRow {
     pub state: String,
     pub search: serde_json::Value,
     pub embedding: Option<Vec<f32>>,
+    pub matching_evidence_policy: String,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub version: i64,
@@ -139,35 +147,42 @@ impl FilterRow {
     ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
         let created = self.created;
         let updated = self.updated;
-        let filter = SearchFilter::rehydrate(
-            UserSearchFilterId::try_from(self.user_search_filter_id).map_err(|source| {
+        let filter = SearchFilter::rehydrate(search_filter_core::NewSearchFilter {
+            user_search_filter_id: UserSearchFilterId::try_from(self.user_search_filter_id)
+                .map_err(
+                    |source| SearchFilterRepositoryError::InvalidPersistedState {
+                        source: box_error(SearchFilterRowMappingError::InvalidObjectId(source)),
+                    },
+                )?,
+            user_id: UserId::try_from(self.user_id).map_err(|source| {
                 SearchFilterRepositoryError::InvalidPersistedState {
                     source: box_error(SearchFilterRowMappingError::InvalidObjectId(source)),
                 }
             })?,
-            UserId::try_from(self.user_id).map_err(|source| {
-                SearchFilterRepositoryError::InvalidPersistedState {
-                    source: box_error(SearchFilterRowMappingError::InvalidObjectId(source)),
-                }
-            })?,
-            name(self.name).map_err(|source| {
+            name: name(self.name).map_err(|source| {
                 SearchFilterRepositoryError::InvalidPersistedState {
                     source: box_error(source),
                 }
             })?,
-            self.notifications,
-            state(&self.state).map_err(|source| {
+            notifications: self.notifications,
+            state: state(&self.state).map_err(|source| {
                 SearchFilterRepositoryError::InvalidPersistedState {
                     source: box_error(source),
                 }
             })?,
-            product_search_from_json(self.search).map_err(|source| {
+            search: product_search_from_json(self.search).map_err(|source| {
                 SearchFilterRepositoryError::InvalidPersistedState {
                     source: box_error(source),
                 }
             })?,
-            self.embedding,
-        );
+            embedding: self.embedding,
+            matching_evidence_policy: matching_evidence_policy(&self.matching_evidence_policy)
+                .map_err(
+                    |source| SearchFilterRepositoryError::InvalidPersistedState {
+                        source: box_error(source),
+                    },
+                )?,
+        });
         Ok(PersistedSearchFilter {
             filter,
             created,
@@ -176,6 +191,8 @@ impl FilterRow {
         })
     }
     pub(crate) fn into_view(self) -> Result<SearchFilterView, SearchFilterReadError> {
+        matching_evidence_policy(&self.matching_evidence_policy)
+            .map_err(|_| SearchFilterReadError::InvalidPersistedState)?;
         let created = self.created;
         let updated = self.updated;
         Ok(SearchFilterView {
@@ -262,6 +279,13 @@ fn price_match_valuation(
             .map(Some),
         _ => Err(SearchFilterRowMappingError::InvalidPriceMatchValuation),
     }
+}
+
+pub(crate) fn matching_evidence_policy(
+    value: &str,
+) -> Result<search_filter_core::MatchingEvidencePolicy, SearchFilterRowMappingError> {
+    search_filter_core::MatchingEvidencePolicy::from_code(value)
+        .ok_or(SearchFilterRowMappingError::InvalidMatchingEvidencePolicy)
 }
 
 pub(crate) fn state(value: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
@@ -704,6 +728,7 @@ mod tests {
                 Currency::Eur,
             ))?,
             embedding: None,
+            matching_evidence_policy: "TEXT_ONLY".into(),
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
             version: 1,
@@ -1167,6 +1192,7 @@ mod tests {
             state: "ACTIVE".to_owned(),
             search,
             embedding: None,
+            matching_evidence_policy: "TEXT_ONLY".into(),
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
             version: 1,

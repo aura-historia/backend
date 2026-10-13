@@ -47,6 +47,7 @@ export class PeriodicMatcher extends ScheduledEcsJob {
         SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: props.shouldShowThresholdBps,
         CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${config.stage}/account-id`),
         PERIODIC_MATCH_FILTER_PAGE_SIZE: "100", PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100",
+        // Classification budget: never refill to chase accepted matches.
         PERIODIC_MATCH_EVALUATION_LIMIT: "50", PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY: "8",
         PERIODIC_MATCH_MAX_ATTEMPTS: "3", PERIODIC_MATCH_PROJECTION_LAG_SECONDS: "900",
         PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS: "7200", PERIODIC_MATCH_MAX_RUN_SECONDS: "7200",

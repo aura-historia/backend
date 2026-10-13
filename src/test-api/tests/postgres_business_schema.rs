@@ -258,7 +258,8 @@ async fn should_support_core_business_relations() {
             state,
             search,
             language,
-            currency
+            currency,
+            matching_evidence_policy
         )
         VALUES (
             '__USER_SEARCH_FILTER_ID__',
@@ -267,7 +268,8 @@ async fn should_support_core_business_relations() {
             'ACTIVE',
             '{"product_listing_query": ["vase"]}',
             'en',
-            'EUR'
+            'EUR',
+            'TEXT_ONLY'
         );
 
         INSERT INTO search_filter_matches (

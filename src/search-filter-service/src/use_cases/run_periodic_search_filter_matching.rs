@@ -37,9 +37,10 @@ use product_listing_service::ports::{
 };
 
 use search_filter_core::{PriceMatchValuation, SearchFilterProductListingMatch};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use time::{Duration, OffsetDateTime};
+use tracing::Instrument;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeriodicSearchFilterMatchingPolicy {
@@ -60,7 +61,7 @@ pub struct RunPeriodicSearchFilterMatchingCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunPeriodicSearchFilterMatchingOutcome {
-    Applied(PeriodicSearchFilterMatchingReport),
+    Applied(Box<PeriodicSearchFilterMatchingReport>),
     SkippedAlreadyRunning,
 }
 
@@ -77,6 +78,14 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub filters_failed: usize,
     pub filters_invalid_persisted_state: usize,
     pub candidates_scanned: usize,
+    pub filters_scan_cap: usize,
+    pub filters_candidate_cap: usize,
+    pub candidates_accepted: usize,
+    /// Submitted candidate requests, including retries and preparation failures.
+    /// Actual provider attempts are the CLASSIFIER_INVOCATION event stream.
+    pub classification_requests: usize,
+    pub candidates_selected: usize,
+    pub candidates_duplicate: usize,
     pub candidates_existing: usize,
     pub candidates_missing_source: usize,
     pub candidates_stale: usize,
@@ -91,6 +100,12 @@ pub struct PeriodicSearchFilterMatchingReport {
 #[derive(Debug, Default)]
 struct FilterAttemptReport {
     candidates_scanned: usize,
+    filters_scan_cap: usize,
+    filters_candidate_cap: usize,
+    candidates_accepted: usize,
+    classification_requests: usize,
+    candidates_selected: usize,
+    candidates_duplicate: usize,
     candidates_existing: usize,
     candidates_missing_source: usize,
     candidates_stale: usize,
@@ -103,8 +118,14 @@ struct FilterAttemptReport {
 }
 
 impl PeriodicSearchFilterMatchingReport {
-    fn merge_terminal_attempt(&mut self, attempt: &FilterAttemptReport) {
+    fn merge_attempt(&mut self, attempt: &FilterAttemptReport) {
         self.candidates_scanned += attempt.candidates_scanned;
+        self.filters_scan_cap += attempt.filters_scan_cap;
+        self.filters_candidate_cap += attempt.filters_candidate_cap;
+        self.candidates_accepted += attempt.candidates_accepted;
+        self.classification_requests += attempt.classification_requests;
+        self.candidates_selected += attempt.candidates_selected;
+        self.candidates_duplicate += attempt.candidates_duplicate;
         self.candidates_existing += attempt.candidates_existing;
         self.candidates_missing_source += attempt.candidates_missing_source;
         self.candidates_stale += attempt.candidates_stale;
@@ -271,7 +292,9 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         progress: Q,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
-        if policy.evaluation_limit > policy.hybrid_scan_limit
+        if policy.evaluation_limit.get() > 50
+            || policy.hybrid_scan_limit.get() > 100
+            || policy.evaluation_limit > policy.hybrid_scan_limit
             || policy.projection_lag.is_negative()
             || policy.replay_overlap.is_negative()
         {
@@ -369,6 +392,12 @@ where
             filters_failed: 0,
             filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
+            filters_scan_cap: 0,
+            filters_candidate_cap: 0,
+            candidates_accepted: 0,
+            classification_requests: 0,
+            candidates_selected: 0,
+            candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
             candidates_stale: 0,
@@ -401,44 +430,48 @@ where
                 let mut filter_candidates_scanned = 0;
                 let mut filter_matches_inserted = 0;
                 let mut filter_matches_duplicate = 0;
+                let mut selected = None;
                 for attempt in 1..=self.policy.max_attempts.get() {
                     report.filter_attempts += 1;
                     let mut attempt_report = FilterAttemptReport::default();
                     let result = self
-                        .process_filter(&candidate, &snapshot, window_end, &mut attempt_report)
+                        .process_filter(
+                            &candidate,
+                            &snapshot,
+                            window_end,
+                            &mut selected,
+                            &mut attempt_report,
+                        )
+                        .instrument(tracing::info_span!("periodic_filter_attempt", attempt))
                         .await;
-                    filter_candidates_scanned = attempt_report.candidates_scanned;
+                    report.merge_attempt(&attempt_report);
+                    filter_candidates_scanned += attempt_report.candidates_scanned;
                     filter_matches_inserted += attempt_report.matches_inserted;
                     filter_matches_duplicate += attempt_report.matches_duplicate;
                     match result {
                         Ok(FilterOutcome::Completed) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::AlreadyCovered) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_already_covered += 1;
                             tracing::info!(search_filter_id = %candidate.search_filter_id, outcome = "already_covered", "search_filter.periodic_match.filter_noop");
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::ChangedOrInactive) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_changed_or_inactive += 1;
                             tracing::info!(search_filter_id = %candidate.search_filter_id, "search_filter.periodic_match.filter_changed");
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::ProgressSuperseded) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_progress_superseded += 1;
                             tracing::info!(search_filter_id = %candidate.search_filter_id, outcome = "progress_superseded", "search_filter.periodic_match.filter_noop");
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::InvalidPersistedState) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             mark_invalid_persisted_state(&mut report);
                             tracing::error!(search_filter_id = %candidate.search_filter_id, outcome = "invalid_persisted_state", "search_filter.periodic_match.filter_invalid_persisted_state");
                             failed = true;
@@ -446,30 +479,25 @@ where
                         }
                         Ok(FilterOutcome::Retryable) => {
                             if attempt == self.policy.max_attempts.get() {
-                                report.merge_terminal_attempt(&attempt_report);
                                 report.filters_failed += 1;
                                 failed = true;
                             } else {
-                                report.merge_durable_match_counts(&attempt_report);
                                 report.filters_retried += 1;
                                 retry_delay(attempt).await;
                             }
                         }
                         Err(error) if error.retry_class() == FilterRetryClass::Retryable => {
                             if attempt == self.policy.max_attempts.get() {
-                                report.merge_terminal_attempt(&attempt_report);
                                 report.filters_failed += 1;
                                 tracing::error!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_failed");
                                 failed = true;
                             } else {
-                                report.merge_durable_match_counts(&attempt_report);
                                 report.filters_retried += 1;
                                 tracing::warn!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_retry");
                                 retry_delay(attempt).await;
                             }
                         }
                         Err(error) => {
-                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_failed += 1;
                             tracing::error!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_failed");
                             failed = true;
@@ -503,30 +531,48 @@ where
             filters_failed = report.filters_failed,
             candidates_scanned = report.candidates_scanned,
             candidates_withdrawn = report.candidates_withdrawn,
+            candidates_selected = report.candidates_selected,
+            classification_requests = report.classification_requests,
+            candidates_accepted = report.candidates_accepted,
+            candidates_rejected = report.candidates_rejected,
+            candidates_duplicate = report.candidates_duplicate,
+            candidates_existing = report.candidates_existing,
+            candidates_stale = report.candidates_stale,
+            candidates_missing_source = report.candidates_missing_source,
+            filters_candidate_cap = report.filters_candidate_cap,
+            filters_scan_cap = report.filters_scan_cap,
+            permanent_evaluation_failures = report.permanent_evaluation_failures,
+            retryable_evaluation_failures = report.retryable_evaluation_failures,
             matches_inserted = report.matches_inserted,
             matches_duplicate = report.matches_duplicate,
             "search_filter.periodic_match.completed"
         );
-        Ok(RunPeriodicSearchFilterMatchingOutcome::Applied(report))
+        Ok(RunPeriodicSearchFilterMatchingOutcome::Applied(Box::new(
+            report,
+        )))
     }
 
+    #[tracing::instrument(skip_all, fields(search_filter_id = %filter.search_filter_id, filter_version = filter.version, window_end = %window_end))]
     async fn process_filter(
         &self,
         filter: &PeriodicSearchFilterCandidate,
         snapshot: &FxRateSnapshot,
         window_end: OffsetDateTime,
+        selected: &mut Option<Vec<ProductListingSearchFilterMatchSourceRef>>,
         report: &mut FilterAttemptReport,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
         if window_end <= filter.matched_through {
             return Ok(FilterOutcome::AlreadyCovered);
         }
-        let description = match periodic_search_description(filter) {
-            Ok(description) => description,
-            Err(outcome) => return Ok(outcome),
-        };
-        let embedding = match filter_embedding(filter) {
-            Ok(embedding) => embedding,
-            Err(outcome) => return Ok(outcome),
+        let semantic = has_semantic_intent(&filter.search);
+        let enhanced = filter.search.enhanced_search_description.is_some();
+        let embedding = if enhanced {
+            match filter_embedding(filter) {
+                Ok(embedding) => Some(embedding),
+                Err(outcome) => return Ok(outcome),
+            }
+        } else {
+            None
         };
         let Some(search) = periodic_search(filter, window_end, self.policy.replay_overlap) else {
             return self
@@ -554,72 +600,122 @@ where
                 search_after: None,
             }),
         };
-        let result = self
-            .product_listings
-            .search_hybrid(&request, embedding)
-            .await
+        let sources = if let Some(refs) = selected.as_ref() {
+            self.load_sources(refs).await?
+        } else {
+            let result = match embedding {
+                Some(embedding) => {
+                    self.product_listings
+                        .search_hybrid(&request, embedding)
+                        .await
+                }
+                None => self.product_listings.search(&request).await,
+            }
             .map_err(product_search_error)?;
-        report.candidates_scanned += result.items.len();
-        let candidates = result
-            .items
-            .into_iter()
-            .filter(|item| {
-                if is_withdrawn_candidate(item.lifecycle) {
-                    report.candidates_withdrawn += 1;
-                    false
-                } else {
-                    true
+            let scan_count = result.items.len().min(self.policy.hybrid_scan_limit.get());
+            report.candidates_scanned += scan_count;
+            let scan_cap = scan_count == self.policy.hybrid_scan_limit.get();
+            let mut seen = HashSet::new();
+            let candidates = result
+                .items
+                .into_iter()
+                .take(scan_count)
+                .filter(|item| {
+                    if !seen.insert(item.product_listing_id) {
+                        report.candidates_duplicate += 1;
+                        false
+                    } else if is_withdrawn_candidate(item.lifecycle) {
+                        report.candidates_withdrawn += 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect::<Vec<_>>();
+            let ids = candidates
+                .iter()
+                .map(|item| item.product_listing_id)
+                .collect::<Vec<_>>();
+            let existing = self
+                .existing_matches
+                .find_existing_product_listing_ids(filter.search_filter_id, &ids)
+                .await
+                .map_err(|source| {
+                    RunPeriodicSearchFilterMatchingError::ExistingMatchReadFailed {
+                        source: box_error(source),
+                    }
+                })?;
+            report.candidates_existing += existing.len();
+            let refs = candidates
+                .into_iter()
+                .filter(|item| !existing.contains(&item.product_listing_id))
+                .map(|item| ProductListingSearchFilterMatchSourceRef {
+                    product_listing_id: item.product_listing_id,
+                    event_id: item.event_id,
+                })
+                .collect::<Vec<_>>();
+            // Authoritative cheap skips precede the classification budget.
+            let sources = self.load_sources(&refs).await?;
+            let mut eligible = Vec::new();
+            for reference in refs {
+                if eligible.len() == self.policy.evaluation_limit.get() {
+                    break;
                 }
-            })
-            .collect::<Vec<_>>();
-        let ids = candidates
-            .iter()
-            .map(|item| item.product_listing_id)
-            .collect::<Vec<_>>();
-        let existing = self
-            .existing_matches
-            .find_existing_product_listing_ids(filter.search_filter_id, &ids)
-            .await
-            .map_err(
-                |source| RunPeriodicSearchFilterMatchingError::ExistingMatchReadFailed {
-                    source: box_error(source),
-                },
-            )?;
-        report.candidates_existing += existing.len();
-        let refs = candidates
-            .into_iter()
-            .filter(|item| !existing.contains(&item.product_listing_id))
-            .take(self.policy.evaluation_limit.get())
-            .map(|item| ProductListingSearchFilterMatchSourceRef {
-                product_listing_id: item.product_listing_id,
-                event_id: item.event_id,
-            })
-            .collect::<Vec<_>>();
-        let sources = self.load_sources(&refs).await?;
+                if eligible_source(&reference, &sources, report)?.is_some() {
+                    eligible.push(reference);
+                }
+            }
+            report.candidates_selected += eligible.len();
+            if eligible.len() == self.policy.evaluation_limit.get() {
+                report.filters_candidate_cap += 1;
+            }
+            if scan_cap {
+                report.filters_scan_cap += 1;
+            }
+            tracing::info!(search_filter_id = %filter.search_filter_id,
+                filter_version = filter.version, window_end = %window_end,
+                policy_version = search_filter_core::MatchingEvidencePolicy::VERSION,
+                evidence_policy = filter.matching_evidence_policy.as_str(),
+                retrieved = scan_count, selected = eligible.len(),
+                stop_reason = if eligible.len() == self.policy.evaluation_limit.get() { "candidate_cap" }
+                    else if scan_cap { "retrieval_scan_cap" } else { "candidate_exhaustion" },
+                retrieval_scan_cap_reached = scan_cap, "search_filter.periodic_match.selected");
+            *selected = Some(eligible);
+            sources
+        };
+        let refs = selected
+            .as_ref()
+            .ok_or(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)?;
         let mut evaluations = Vec::new();
+        let mut deterministic = Vec::new();
         for reference in refs {
-            match sources.get(&reference) {
-                None => report.candidates_missing_source += 1,
-                Some(source)
-                    if source.product_listing_id != reference.product_listing_id
-                        || source.event_id != reference.event_id =>
-                {
-                    return Err(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch);
+            if let Some(source) = eligible_source(reference, &sources, report)? {
+                if semantic {
+                    evaluations.push(ProductListingMatchEvaluationRequest {
+                        key: *reference,
+                        product: source,
+                        search: &filter.search,
+                        evidence_policy: filter.matching_evidence_policy,
+                        correlation_id: Some(format!(
+                            "{}:{}:{}:{}:{}",
+                            filter.search_filter_id,
+                            filter.version,
+                            window_end.unix_timestamp(),
+                            reference.product_listing_id,
+                            reference.event_id
+                        )),
+                    });
+                } else {
+                    deterministic.push(
+                        crate::product_match_evaluator::ProductListingMatchEvaluationResult {
+                            key: *reference,
+                            outcome: ProductListingMatchEvaluationOutcome::Matched,
+                        },
+                    );
                 }
-                Some(source) if source.current_event_id != reference.event_id => {
-                    report.candidates_stale += 1
-                }
-                Some(source) if is_withdrawn_candidate(source.lifecycle) => {
-                    report.candidates_withdrawn += 1
-                }
-                Some(source) => evaluations.push(ProductListingMatchEvaluationRequest {
-                    key: reference,
-                    product: source,
-                    search_description: description.as_ref(),
-                    search_language: filter.search.language,
-                }),
             }
         }
+        report.classification_requests += evaluations.len();
         let evaluations = evaluate_product_matches(
             &self.evaluator,
             evaluations,
@@ -629,9 +725,10 @@ where
         .await;
         let mut retryable = false;
         let mut accepted = Vec::new();
-        for evaluation in evaluations {
+        for evaluation in evaluations.into_iter().chain(deterministic) {
             match evaluation.outcome {
                 ProductListingMatchEvaluationOutcome::Matched => {
+                    report.candidates_accepted += 1;
                     let source = sources.get(&evaluation.key).ok_or(
                         RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
                     )?;
@@ -673,6 +770,13 @@ where
                     retryable = true;
                 }
             }
+        }
+        if retryable || report.permanent_evaluation_failures > 0 {
+            tracing::warn!(search_filter_id = %filter.search_filter_id, selected = refs.len(),
+                stop_reason = "technical_incomplete", retryable_failures = report.retryable_evaluation_failures,
+                permanent_failures = report.permanent_evaluation_failures,
+                advance_progress = !retryable,
+                "search_filter.periodic_match.incomplete");
         }
         let outcome = self
             .commit_filter(filter, window_end, accepted, !retryable, report)
@@ -774,10 +878,14 @@ where
         let matches = matches
             .into_iter()
             .filter(|item| {
-                checks.get(&ProductListingCurrentEventRef {
+                let current = checks.get(&ProductListingCurrentEventRef {
                     product_listing_id: item.product_listing_id,
                     expected_event_id: item.origin_event_id,
-                }) == Some(&ProductListingCurrentEventCheck::Current)
+                }) == Some(&ProductListingCurrentEventCheck::Current);
+                if !current {
+                    report.candidates_stale += 1;
+                }
+                current
             })
             .collect::<Vec<_>>();
         let persisted = if matches.is_empty() {
@@ -873,21 +981,55 @@ async fn retry_delay(attempt: usize) {
     tokio::time::sleep(delay).await;
 }
 
-fn periodic_search_description(
-    filter: &PeriodicSearchFilterCandidate,
-) -> Result<&product_listing_core::product_listing_search::EnhancedSearchDescription, FilterOutcome>
+fn has_semantic_intent(search: &ProductListingSearch) -> bool {
+    search.enhanced_search_description.is_some()
+        || search
+            .product_listing_query
+            .iter()
+            .any(|query| !query.trim().is_empty())
+}
+
+fn eligible_source<'a>(
+    reference: &ProductListingSearchFilterMatchSourceRef,
+    sources: &'a HashMap<
+        ProductListingSearchFilterMatchSourceRef,
+        ProductListingSearchFilterMatchSource,
+    >,
+    report: &mut FilterAttemptReport,
+) -> Result<Option<&'a ProductListingSearchFilterMatchSource>, RunPeriodicSearchFilterMatchingError>
 {
-    filter
-        .search
-        .enhanced_search_description
-        .as_ref()
-        .ok_or(FilterOutcome::InvalidPersistedState)
+    match sources.get(reference) {
+        None => {
+            report.candidates_missing_source += 1;
+            Ok(None)
+        }
+        Some(source)
+            if source.product_listing_id != reference.product_listing_id
+                || source.event_id != reference.event_id =>
+        {
+            Err(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)
+        }
+        Some(source) if source.current_event_id != reference.event_id => {
+            report.candidates_stale += 1;
+            Ok(None)
+        }
+        Some(source) if is_withdrawn_candidate(source.lifecycle) => {
+            report.candidates_withdrawn += 1;
+            Ok(None)
+        }
+        Some(source) => Ok(Some(source)),
+    }
 }
 
 fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], FilterOutcome> {
     filter
         .embedding
         .as_deref()
+        .filter(|values| {
+            values.len() == embedding::EMBEDDING_DIMENSIONS
+                && values.iter().all(|value| value.is_finite())
+                && values.iter().any(|value| *value != 0.0)
+        })
         .ok_or(FilterOutcome::InvalidPersistedState)
 }
 
@@ -953,19 +1095,6 @@ fn periodic_search(
         min: Some(min),
         max: Some(max),
     });
-    if let Some(query) = search
-        .enhanced_search_description
-        .as_ref()
-        .and_then(|description| description.as_ref().try_into().ok())
-        .filter(|query| {
-            !search
-                .product_listing_query
-                .iter()
-                .any(|existing| existing == query)
-        })
-    {
-        search.product_listing_query.push(query)
-    }
     Some(search)
 }
 
@@ -1107,7 +1236,16 @@ mod tests {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
         current_event_check: ProductListingCurrentEventCheck,
         product_listing_search_result: Option<ProductListingSearchReadResult>,
+        policy_change_during_evaluation: bool,
         evaluator_calls: usize,
+        evaluator_requests: Vec<ClassificationRequest>,
+        evaluator_results:
+            std::collections::VecDeque<Result<ClassificationResponse, ClassificationError>>,
+        sources: HashMap<
+            ProductListingSearchFilterMatchSourceRef,
+            ProductListingSearchFilterMatchSource,
+        >,
+        existing: HashSet<ProductListingId>,
         match_writer_calls: usize,
         commits: usize,
         event_checks: usize,
@@ -1238,7 +1376,7 @@ mod tests {
             product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
             ProductListingSearchReadError,
         >{
-            Err(ProductListingSearchReadError::ProductListingSearchQueryFailed)
+            self.search_hybrid(_request, &[]).await
         }
 
         async fn search_hybrid(
@@ -1259,7 +1397,7 @@ mod tests {
         }
     }
 
-    struct NoopExistingMatches;
+    struct NoopExistingMatches(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl ExistingSearchFilterMatchReader for NoopExistingMatches {
@@ -1268,12 +1406,12 @@ mod tests {
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
             _product_listing_ids: &[ProductListingId],
         ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError> {
-            Ok(HashSet::new())
+            Ok(self.0.lock().unwrap().existing.clone())
         }
     }
 
-    struct NoopSources;
-    struct ReadingNoopSources;
+    struct NoopSources(Arc<Mutex<State>>);
+    struct ReadingNoopSources(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl ProductListingSearchFilterMatchSourceReader for ReadingNoopSources {
@@ -1285,7 +1423,16 @@ mod tests {
             Option<ProductListingSearchFilterMatchSource>,
             ProductListingSearchFilterMatchSourceReadError,
         > {
-            Ok(None)
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .sources
+                .get(&ProductListingSearchFilterMatchSourceRef {
+                    event_id: _event_id,
+                    product_listing_id: _product_listing_id,
+                })
+                .cloned())
         }
     }
 
@@ -1294,7 +1441,7 @@ mod tests {
             &'tx self,
             _tx: &'tx mut FakeTransaction,
         ) -> impl ProductListingSearchFilterMatchSourceReader + 'tx {
-            ReadingNoopSources
+            ReadingNoopSources(Arc::clone(&self.0))
         }
     }
 
@@ -1306,11 +1453,16 @@ mod tests {
             &self,
             _request: ClassificationRequest,
         ) -> Result<ClassificationResponse, ClassificationError> {
-            self.0
-                .lock()
-                .map_err(|_| ClassificationError::PermanentCandidateFailure)?
-                .evaluator_calls += 1;
-            Err(ClassificationError::PermanentCandidateFailure)
+            let mut state = self.0.lock().unwrap();
+            if state.policy_change_during_evaluation {
+                state.lock_outcome = PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive;
+            }
+            state.evaluator_calls += 1;
+            state.evaluator_requests.push(_request);
+            state
+                .evaluator_results
+                .pop_front()
+                .unwrap_or(Err(ClassificationError::PermanentCandidateFailure))
         }
     }
 
@@ -1366,6 +1518,7 @@ mod tests {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     })?;
             state.match_writer_calls += 1;
+            state.existing.insert(product_match.product_listing_id);
             state.persisted.push(product_match.clone());
             Ok(SearchFilterMatchPersistOutcome::Inserted)
         }
@@ -1447,7 +1600,12 @@ mod tests {
             lock_outcome,
             current_event_check: ProductListingCurrentEventCheck::Current,
             product_listing_search_result: None,
+            policy_change_during_evaluation: false,
             evaluator_calls: 0,
+            evaluator_requests: Vec::new(),
+            evaluator_results: Default::default(),
+            sources: HashMap::new(),
+            existing: HashSet::new(),
             match_writer_calls: 0,
             commits: 0,
             event_checks: 0,
@@ -1463,8 +1621,8 @@ mod tests {
             NoopCandidates,
             NoopFxRates,
             NoopProductListings(Arc::clone(&state)),
-            NoopExistingMatches,
-            NoopSources,
+            NoopExistingMatches(Arc::clone(&state)),
+            NoopSources(Arc::clone(&state)),
             NoopEvaluator(Arc::clone(&state)),
             FakeCurrentEvents(Arc::clone(&state)),
             FakeMatches(Arc::clone(&state)),
@@ -1492,6 +1650,8 @@ mod tests {
             state: SearchFilterState::Active,
             search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
+            matching_evidence_policy:
+                search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
         }
@@ -1522,7 +1682,7 @@ mod tests {
         });
         let handler = handler(state.clone())?;
         let mut filter = geographic_filter();
-        filter.embedding = Some(vec![0.1]);
+        filter.embedding = Some(vec![0.1; embedding::EMBEDDING_DIMENSIONS]);
         filter.search.enhanced_search_description = Some("Munich antiques".try_into()?);
         let mut report = FilterAttemptReport::default();
         let outcome = handler
@@ -1530,6 +1690,7 @@ mod tests {
                 &filter,
                 &test_snapshot(),
                 filter.matched_through + Duration::seconds(1),
+                &mut None,
                 &mut report,
             )
             .await?;
@@ -1578,7 +1739,7 @@ mod tests {
             .product_listing_search_result = Some(withdrawn_search_result()?);
         let handler = handler(Arc::clone(&state))?;
         let mut filter = filter();
-        filter.embedding = Some(vec![0.1]);
+        filter.embedding = Some(vec![0.1; embedding::EMBEDDING_DIMENSIONS]);
         filter.search.enhanced_search_description = Some(
             product_listing_core::product_listing_search::EnhancedSearchDescription::try_from(
                 "withdrawn listing",
@@ -1591,6 +1752,7 @@ mod tests {
                 &filter,
                 &test_snapshot(),
                 OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+                &mut None,
                 &mut attempt_report,
             )
             .await?;
@@ -1698,6 +1860,12 @@ mod tests {
             filters_failed: 0,
             filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
+            filters_scan_cap: 0,
+            filters_candidate_cap: 0,
+            candidates_accepted: 0,
+            classification_requests: 0,
+            candidates_selected: 0,
+            candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
             candidates_stale: 0,
@@ -1751,6 +1919,7 @@ mod tests {
                 &filter,
                 &snapshot,
                 filter.matched_through,
+                &mut None,
                 &mut attempt_report,
             )
             .await?;
@@ -1759,6 +1928,7 @@ mod tests {
                 &filter,
                 &snapshot,
                 filter.matched_through - Duration::seconds(1),
+                &mut None,
                 &mut attempt_report,
             )
             .await?;
@@ -1901,7 +2071,7 @@ mod tests {
         assert!(state.persisted.is_empty());
         assert_eq!(1, state.checkpoints);
         assert_eq!(1, state.commits);
-        assert_eq!(0, attempt_report.candidates_stale);
+        assert_eq!(1, attempt_report.candidates_stale);
         assert_eq!(0, attempt_report.matches_inserted);
         assert_eq!(0, attempt_report.matches_duplicate);
         Ok(())
@@ -1938,5 +2108,388 @@ mod tests {
         assert_eq!(state.commits, 1);
         assert_eq!(attempt_report.matches_inserted, 1);
         Ok(())
+    }
+    fn seed_candidates(
+        state: &Arc<Mutex<State>>,
+        count: usize,
+    ) -> Vec<ProductListingSearchFilterMatchSourceRef> {
+        let mut state = state.lock().unwrap();
+        let mut result = ProductListingSearchReadResult::default();
+        let mut refs = Vec::new();
+        for index in 0..count {
+            let mut source = crate::product_match_evaluator::tests::product().unwrap();
+            source
+                .titles
+                .insert(Language::En, format!("Candidate {index}").into());
+            let reference = ProductListingSearchFilterMatchSourceRef {
+                product_listing_id: source.product_listing_id,
+                event_id: source.event_id,
+            };
+            result.items.push(ProductListingSearchItem {
+                geography: Default::default(),
+                product_listing_id: reference.product_listing_id,
+                product_listing_title_slug_id: source.product_listing_title_slug_id.clone(),
+                event_id: reference.event_id,
+                listing_source_id: source.source.listing_source_id,
+                source_listing_id: source.source_listing_id.clone(),
+                auction_id: None,
+                title: None,
+                display_price: None,
+                price_valuation: ProductListingSummaryPriceValuation::Current {
+                    fx_rate_id: FxRateId::new(),
+                    captured_at: OffsetDateTime::UNIX_EPOCH,
+                },
+                availability: source.availability,
+                lifecycle: source.lifecycle,
+                url: source.url.clone(),
+                images: source.images.clone(),
+                updated: source.updated,
+            });
+            state.sources.insert(reference, source);
+            refs.push(reference);
+        }
+        state.product_listing_search_result = Some(result);
+        refs
+    }
+
+    fn decision(accepted: bool) -> Result<ClassificationResponse, ClassificationError> {
+        Ok(ClassificationResponse {
+            answers: std::collections::BTreeMap::from([
+                (
+                    classifier_model::QuestionId::new("should_show").unwrap(),
+                    Probability::new(if accepted { 0.75 } else { 0.1 }).unwrap(),
+                ),
+                (
+                    classifier_model::QuestionId::new("hard_conflict").unwrap(),
+                    Probability::new(0.95).unwrap(),
+                ),
+            ]),
+            usage: Default::default(),
+            diagnostics: Default::default(),
+        })
+    }
+
+    fn full_budget_handler(state: Arc<Mutex<State>>) -> Handler {
+        let mut handler = handler(state).unwrap();
+        handler.policy.hybrid_scan_limit = NonZeroUsize::new(100).unwrap();
+        handler.policy.evaluation_limit = NonZeroUsize::new(50).unwrap();
+        handler.policy.classification_concurrency = NonZeroUsize::new(8).unwrap();
+        handler
+    }
+
+    fn ordinary_filter() -> PeriodicSearchFilterCandidate {
+        let mut filter = filter();
+        filter
+            .search
+            .product_listing_query
+            .push("antique".try_into().unwrap());
+        filter.matching_evidence_policy = search_filter_core::MatchingEvidencePolicy::TextOnly;
+        filter
+    }
+
+    #[tokio::test]
+    async fn all_fifty_are_evaluated_regardless_of_rejection_prefix_and_no_tail_is_chased() {
+        for rejected_prefix in [10, 49, 50] {
+            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                matched_through: OffsetDateTime::UNIX_EPOCH,
+            });
+            let refs = seed_candidates(&state, 51);
+            state.lock().unwrap().evaluator_results = (0..50)
+                .map(|rank| decision(rank >= rejected_prefix))
+                .collect();
+            let handler = full_budget_handler(state.clone());
+            let mut selected = None;
+            let mut report = FilterAttemptReport::default();
+            let outcome = handler
+                .process_filter(
+                    &ordinary_filter(),
+                    &test_snapshot(),
+                    OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                    &mut selected,
+                    &mut report,
+                )
+                .await
+                .unwrap();
+            assert_eq!(FilterOutcome::Completed, outcome);
+            assert_eq!(selected.as_ref().unwrap(), &refs[..50]);
+            assert_eq!(51, report.candidates_scanned);
+            assert_eq!(50, report.candidates_selected);
+            assert_eq!(50, report.classification_requests);
+            assert_eq!(rejected_prefix, report.candidates_rejected);
+            assert_eq!(50 - rejected_prefix, report.matches_inserted);
+            assert_eq!(1, report.filters_candidate_cap);
+            let state = state.lock().unwrap();
+            assert_eq!(50, state.evaluator_calls);
+            assert!(
+                state
+                    .evaluator_requests
+                    .iter()
+                    .all(|request| request.image_urls.is_empty())
+            );
+            assert!(
+                state
+                    .persisted
+                    .iter()
+                    .all(|item| item.product_listing_id != refs[50].product_listing_id)
+            );
+            if rejected_prefix == 49 {
+                assert_eq!(
+                    refs[49].product_listing_id,
+                    state.persisted[0].product_listing_id
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cheap_skips_do_not_spend_slots_and_selected_set_survives_retry() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let refs = seed_candidates(&state, 60);
+        {
+            let mut state = state.lock().unwrap();
+            state.existing.insert(refs[0].product_listing_id);
+            state.sources.remove(&refs[1]);
+            state.sources.get_mut(&refs[2]).unwrap().current_event_id = EventId::new();
+            state.sources.get_mut(&refs[3]).unwrap().lifecycle = ListingLifecycle::Withdrawn;
+            let duplicate = state.product_listing_search_result.as_ref().unwrap().items[4].clone();
+            state
+                .product_listing_search_result
+                .as_mut()
+                .unwrap()
+                .items
+                .insert(5, duplicate);
+            state.evaluator_results = (0..50)
+                .map(|index| {
+                    if index == 49 {
+                        Err(ClassificationError::Timeout)
+                    } else {
+                        decision(true)
+                    }
+                })
+                .collect();
+        }
+        let handler = full_budget_handler(state.clone());
+        let filter = ordinary_filter();
+        let mut selected = None;
+        let mut first = FilterAttemptReport::default();
+        let window_end = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        assert_eq!(
+            FilterOutcome::Retryable,
+            handler
+                .process_filter(
+                    &filter,
+                    &test_snapshot(),
+                    window_end,
+                    &mut selected,
+                    &mut first
+                )
+                .await
+                .unwrap()
+        );
+        assert_eq!(50, first.candidates_selected);
+        assert_eq!(1, first.candidates_duplicate);
+        assert_eq!(1, first.candidates_existing);
+        assert_eq!(1, first.candidates_missing_source);
+        assert_eq!(1, first.candidates_stale);
+        assert_eq!(1, first.candidates_withdrawn);
+        assert_eq!(49, first.matches_inserted);
+        assert_eq!(1, first.retryable_evaluation_failures);
+        assert_eq!(0, state.lock().unwrap().checkpoints);
+        let selected_before = selected.clone();
+        state.lock().unwrap().evaluator_results = (0..50).map(|_| decision(false)).collect();
+        let mut second = FilterAttemptReport::default();
+        assert_eq!(
+            FilterOutcome::Completed,
+            handler
+                .process_filter(
+                    &filter,
+                    &test_snapshot(),
+                    window_end,
+                    &mut selected,
+                    &mut second
+                )
+                .await
+                .unwrap()
+        );
+        assert_eq!(selected_before, selected);
+        assert_eq!(0, second.candidates_scanned);
+        assert_eq!(0, second.candidates_selected);
+        assert_eq!(50, second.classification_requests);
+        let state = state.lock().unwrap();
+        assert_eq!(100, state.evaluator_calls);
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(
+            state.evaluator_requests[..50],
+            state.evaluator_requests[50..]
+        );
+    }
+
+    #[tokio::test]
+    async fn deterministic_searches_skip_embedding_and_classifier_with_the_same_budget() {
+        for count in [0, 3, 51, 100] {
+            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                matched_through: OffsetDateTime::UNIX_EPOCH,
+            });
+            seed_candidates(&state, count);
+            let handler = full_budget_handler(state.clone());
+            let mut report = FilterAttemptReport::default();
+            let outcome = handler
+                .process_filter(
+                    &filter(),
+                    &test_snapshot(),
+                    OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                    &mut None,
+                    &mut report,
+                )
+                .await
+                .unwrap();
+            assert_eq!(FilterOutcome::Completed, outcome);
+            assert_eq!(count.min(50), report.candidates_selected);
+            assert_eq!(count.min(50), report.matches_inserted);
+            assert_eq!(0, report.classification_requests);
+            assert_eq!(usize::from(count == 100), report.filters_scan_cap);
+            assert_eq!(0, state.lock().unwrap().evaluator_calls);
+        }
+    }
+
+    #[test]
+    fn enhanced_retrieval_keeps_complete_intent_out_of_the_mandatory_title_query() {
+        let mut filter = ordinary_filter();
+        let enhanced =
+            "Prefer blue tones, but include red objects too; exclude reproductions. ".repeat(8);
+        filter.search.enhanced_search_description = Some(enhanced.try_into().unwrap());
+        let search = periodic_search(
+            &filter,
+            OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            filter.search.product_listing_query,
+            search.product_listing_query
+        );
+        assert_eq!(
+            filter.search.enhanced_search_description,
+            search.enhanced_search_description
+        );
+        assert!(has_semantic_intent(&search));
+        assert!(!has_semantic_intent(&ProductListingSearch::default()));
+    }
+
+    #[tokio::test]
+    async fn policy_change_during_inference_fences_all_accepted_results_and_progress() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        seed_candidates(&state, 3);
+        {
+            let mut state = state.lock().unwrap();
+            state.policy_change_during_evaluation = true;
+            state.evaluator_results = (0..3).map(|_| decision(true)).collect();
+        }
+        let handler = full_budget_handler(state.clone());
+        let mut report = FilterAttemptReport::default();
+        let outcome = handler
+            .process_filter(
+                &ordinary_filter(),
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut None,
+                &mut report,
+            )
+            .await
+            .unwrap();
+        assert_eq!(FilterOutcome::ChangedOrInactive, outcome);
+        assert_eq!(3, report.classification_requests);
+        assert_eq!(0, report.matches_inserted);
+        assert_eq!(0, state.lock().unwrap().checkpoints);
+        assert!(state.lock().unwrap().persisted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn semantic_zero_and_small_pools_report_exhaustion_without_fabricating_decisions() {
+        for count in [0, 3] {
+            let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+                matched_through: OffsetDateTime::UNIX_EPOCH,
+            });
+            seed_candidates(&state, count);
+            state.lock().unwrap().evaluator_results = (0..count).map(|_| decision(false)).collect();
+            let handler = full_budget_handler(state.clone());
+            let mut report = FilterAttemptReport::default();
+            assert_eq!(
+                FilterOutcome::Completed,
+                handler
+                    .process_filter(
+                        &ordinary_filter(),
+                        &test_snapshot(),
+                        OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                        &mut None,
+                        &mut report
+                    )
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(count, report.candidates_selected);
+            assert_eq!(count, report.classification_requests);
+            assert_eq!(count, report.candidates_rejected);
+            assert_eq!(0, report.filters_candidate_cap);
+            assert_eq!(0, report.filters_scan_cap);
+            assert_eq!(1, state.lock().unwrap().checkpoints);
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_candidate_failures_are_distinct_from_rejections_and_retryable_work() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        seed_candidates(&state, 3);
+        state.lock().unwrap().evaluator_results = [
+            decision(true),
+            Err(ClassificationError::PermanentCandidateFailure),
+            decision(false),
+        ]
+        .into();
+        let handler = full_budget_handler(state.clone());
+        let mut report = FilterAttemptReport::default();
+        assert_eq!(
+            FilterOutcome::Completed,
+            handler
+                .process_filter(
+                    &ordinary_filter(),
+                    &test_snapshot(),
+                    OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                    &mut None,
+                    &mut report,
+                )
+                .await
+                .unwrap()
+        );
+        assert_eq!(3, report.classification_requests);
+        assert_eq!(1, report.candidates_rejected);
+        assert_eq!(1, report.permanent_evaluation_failures);
+        assert_eq!(0, report.retryable_evaluation_failures);
+        assert_eq!(1, report.matches_inserted);
+        assert_eq!(1, state.lock().unwrap().checkpoints);
+    }
+
+    #[test]
+    fn malformed_persisted_semantic_embeddings_fail_closed_without_provider_work() {
+        for values in [
+            vec![],
+            vec![0.1],
+            vec![f32::NAN; embedding::EMBEDDING_DIMENSIONS],
+            vec![f32::INFINITY; embedding::EMBEDDING_DIMENSIONS],
+            vec![0.0; embedding::EMBEDDING_DIMENSIONS],
+        ] {
+            let mut filter = filter();
+            filter.embedding = Some(values);
+            assert_eq!(
+                Err(FilterOutcome::InvalidPersistedState),
+                filter_embedding(&filter)
+            );
+        }
     }
 }

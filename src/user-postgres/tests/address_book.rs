@@ -660,7 +660,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
         .id;
     let filter = uuid::Uuid::now_v7();
     // The current filter contract has no destination field or address reference.
-    sqlx::query("INSERT INTO search_filters(user_search_filter_id,user_id,name,state,search,language,currency) VALUES($1,$2,'Saved private filter','ACTIVE','{}','en','GBP')")
+    sqlx::query("INSERT INTO search_filters(user_search_filter_id,user_id,name,state,search,language,currency, matching_evidence_policy) VALUES($1,$2,'Saved private filter','ACTIVE','{}','en','GBP', 'TEXT_ONLY')")
         .bind(filter).bind(owner.into_uuid()).execute(&pool).await.unwrap();
     h.update(
         &a,

@@ -170,6 +170,7 @@ fn validate_limits(
     max_attempts: NonZeroUsize,
 ) -> Result<(), WiringError> {
     if hybrid_scan_limit.get() > MAX_HYBRID_SCAN_LIMIT
+        || evaluation_limit.get() > 50
         || evaluation_limit > hybrid_scan_limit
         || max_attempts.get() > 10
     {
@@ -313,7 +314,12 @@ mod tests {
                 NonZeroUsize::new(attempts).unwrap(),
             )
         };
-        assert!(valid(100, 100, 10).is_ok());
+        assert!(valid(100, 50, 10).is_ok());
+        assert!(matches!(valid(100, 51, 1), Err(WiringError::InvalidPolicy)));
+        assert!(matches!(
+            valid(100, 100, 1),
+            Err(WiringError::InvalidPolicy)
+        ));
         assert!(matches!(valid(101, 1, 1), Err(WiringError::InvalidPolicy)));
         assert!(matches!(valid(10, 11, 1), Err(WiringError::InvalidPolicy)));
         assert!(matches!(valid(10, 10, 11), Err(WiringError::InvalidPolicy)));

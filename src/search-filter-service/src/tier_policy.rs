@@ -1,6 +1,17 @@
 use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::tier::UserTier;
 
+pub(crate) fn matching_evidence_policy(
+    tier: UserTier,
+) -> search_filter_core::MatchingEvidencePolicy {
+    use search_filter_core::MatchingEvidencePolicy;
+    match tier {
+        UserTier::Free => MatchingEvidencePolicy::TextOnly,
+        UserTier::Pro => MatchingEvidencePolicy::TextAndOneImage,
+        UserTier::Ultimate => MatchingEvidencePolicy::EnhancedTextAndFourImages,
+    }
+}
+
 pub(crate) fn active_filter_quota(tier: UserTier) -> usize {
     match tier {
         UserTier::Free => 1,

@@ -143,6 +143,12 @@ mod tests {
             filters_failed: failed,
             filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
+            filters_scan_cap: 0,
+            filters_candidate_cap: 0,
+            candidates_accepted: 0,
+            classification_requests: 0,
+            candidates_selected: 0,
+            candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
             candidates_stale: 0,
@@ -177,11 +183,15 @@ mod tests {
     async fn maps_reports_overlap_and_service_errors_once() {
         for (result, expected) in [
             (
-                Some(RunPeriodicSearchFilterMatchingOutcome::Applied(report(0))),
+                Some(RunPeriodicSearchFilterMatchingOutcome::Applied(Box::new(
+                    report(0),
+                ))),
                 Ok(()),
             ),
             (
-                Some(RunPeriodicSearchFilterMatchingOutcome::Applied(report(1))),
+                Some(RunPeriodicSearchFilterMatchingOutcome::Applied(Box::new(
+                    report(1),
+                ))),
                 Err(ExecutionError::FailedFilters(1)),
             ),
             (

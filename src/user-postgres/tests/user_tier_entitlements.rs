@@ -261,7 +261,7 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
     let filter_id = uuid::Uuid::now_v7();
 
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency) VALUES ($1, $2, 'legacy-compatible', 'ACTIVE', $3, 'en', 'EUR')",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'legacy-compatible', 'ACTIVE', $3, 'en', 'EUR', 'TEXT_ONLY')",
     )
     .bind(filter_id)
     .bind(user_id.into_uuid())
@@ -300,7 +300,7 @@ async fn should_reconcile_free_auction_id_filter_and_reactivate_for_pro() {
     let created = OffsetDateTime::now_utc();
 
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, created, updated) VALUES ($1, $2, 'auction filter', 'ACTIVE', $3, 'en', 'EUR', $4, $4)",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, created, updated, matching_evidence_policy) VALUES ($1, $2, 'auction filter', 'ACTIVE', $3, 'en', 'EUR', $4, $4, 'TEXT_ONLY')",
     )
     .bind(filter_id)
     .bind(user_id.into_uuid())
@@ -477,7 +477,7 @@ async fn seed_search_filter(
 ) -> uuid::Uuid {
     let filter_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, enhanced_search_description, language, currency, created, updated) VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, 'en', 'EUR', $6, $6)",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, enhanced_search_description, language, currency, created, updated, matching_evidence_policy, embedding) VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, 'en', 'EUR', $6, $6, $7, $8)",
     )
     .bind(filter_id)
     .bind(user_id.into_uuid())
@@ -485,6 +485,8 @@ async fn seed_search_filter(
     .bind(state)
     .bind(enhanced_search_description)
     .bind(created)
+    .bind(if enhanced_search_description.is_some() { "ENHANCED_TEXT_AND_FOUR_IMAGES" } else { "TEXT_ONLY" })
+    .bind(enhanced_search_description.map(|_| vec![1.0_f32; 768]))
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("failed to seed search filter: {error:?}"));

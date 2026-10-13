@@ -636,7 +636,7 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
     let filter_id = UserSearchFilterId::new();
     let pool = get_postgres_client().await;
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'Hidden listing alerts', true, 'ACTIVE', '{}', 'en', 'EUR')",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'Hidden listing alerts', true, 'ACTIVE', '{}', 'en', 'EUR', 'TEXT_ONLY')",
     )
     .bind(filter_id.as_uuid())
     .bind(uuid::Uuid::from(user_id))

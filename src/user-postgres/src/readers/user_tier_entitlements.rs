@@ -82,12 +82,21 @@ WITH candidates AS (
 )
 UPDATE search_filters AS filter
 SET state = reconciled.target_state,
+    matching_evidence_policy = CASE $3
+        WHEN 'ULTIMATE' THEN 'ENHANCED_TEXT_AND_FOUR_IMAGES'
+        WHEN 'PRO' THEN 'TEXT_AND_ONE_IMAGE'
+        ELSE 'TEXT_ONLY'
+    END,
     version = filter.version + 1,
     updated = now()
 FROM reconciled
 WHERE filter.user_id = $1
   AND filter.user_search_filter_id = reconciled.user_search_filter_id
-  AND filter.state IS DISTINCT FROM reconciled.target_state
+  AND (filter.state IS DISTINCT FROM reconciled.target_state
+       OR filter.matching_evidence_policy IS DISTINCT FROM CASE $3
+           WHEN 'ULTIMATE' THEN 'ENHANCED_TEXT_AND_FOUR_IMAGES'
+           WHEN 'PRO' THEN 'TEXT_AND_ONE_IMAGE'
+           ELSE 'TEXT_ONLY' END)
 "#;
 
 #[derive(Debug, Clone, Copy, Default)]

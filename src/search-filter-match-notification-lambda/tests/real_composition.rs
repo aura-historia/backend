@@ -186,7 +186,7 @@ async fn seed_user(pool: &sqlx::PgPool) -> Result<UserId, sqlx::Error> {
 
 async fn seed_filter(pool: &sqlx::PgPool, user: UserId) -> Result<UserSearchFilterId, sqlx::Error> {
     let filter = UserSearchFilterId::new();
-    sqlx::query("INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'Fixture filter', true, 'ACTIVE', $3, 'en', 'EUR')")
+    sqlx::query("INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'Fixture filter', true, 'ACTIVE', $3, 'en', 'EUR', 'TEXT_ONLY')")
         .bind(filter.as_uuid()).bind(user.as_uuid()).bind(json!({})).execute(pool).await?;
     Ok(filter)
 }

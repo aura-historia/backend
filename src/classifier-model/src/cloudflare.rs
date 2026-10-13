@@ -1,7 +1,7 @@
 use crate::{
-    ClassificationBatchOptions, ClassificationDiagnostics, ClassificationError,
-    ClassificationOperation, ClassificationRequest, ClassificationResponse, ClassificationUsage,
-    ClassifierModel, ImageOmissionReason, Probability, QuestionId,
+    ClassificationDiagnostics, ClassificationError, ClassificationOperation, ClassificationRequest,
+    ClassificationResponse, ClassificationUsage, ClassifierModel, ImageOmissionReason, Probability,
+    QuestionId,
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
@@ -24,6 +24,11 @@ const API_BASE: &str = "https://api.cloudflare.com/client/v4/";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 13 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_IMAGES: usize = 4;
+const CONTEXT_TOKENS: usize = 24_576;
+const IMAGE_CONTEXT_TOKENS: usize = 1027;
+const CONTEXT_SCHEMA_RESERVE: usize = 1024;
 const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ACCOUNT_ID_BYTES: usize = 128;
@@ -160,6 +165,7 @@ impl CloudflareClassifierModel {
     ) -> Result<ClassificationResponse, ClassificationError> {
         validate_request(&request)?;
         let operation = request.operation.as_str();
+        let correlation_id = request.correlation_id.clone();
         let mut questions = BTreeMap::new();
         for question in request.questions {
             if questions
@@ -177,6 +183,15 @@ impl CloudflareClassifierModel {
         }
         let expected_question_ids = questions.keys().cloned().collect::<BTreeSet<_>>();
 
+        if images.len() > MAX_IMAGES
+            || images
+                .iter()
+                .map(PreparedCloudflareImage::decoded_bytes)
+                .sum::<usize>()
+                > MAX_TOTAL_IMAGE_BYTES
+        {
+            return Err(ClassificationError::PermanentCandidateFailure);
+        }
         let images = images
             .into_iter()
             .map(|image| format!("data:{};base64,{}", image.mime_type(), image.base64_data()))
@@ -244,11 +259,23 @@ impl CloudflareClassifierModel {
         match result {
             Ok(mut response) => {
                 response.diagnostics = diagnostics.clone();
-                log_classifier_attempt(operation, &diagnostics, Some(&response.usage), None);
+                log_classifier_attempt(
+                    operation,
+                    correlation_id.as_deref(),
+                    &diagnostics,
+                    Some(&response.usage),
+                    None,
+                );
                 Ok(response)
             }
             Err(error) => {
-                log_classifier_attempt(operation, &diagnostics, None, Some(&error));
+                log_classifier_attempt(
+                    operation,
+                    correlation_id.as_deref(),
+                    &diagnostics,
+                    None,
+                    Some(&error),
+                );
                 Err(error)
             }
         }
@@ -280,64 +307,15 @@ impl ClassifierModel for CloudflareClassifierModel {
                 .and_then(cloudflare_image)
         })
         .await;
-        let prepared = request
-            .image_urls
-            .first()
-            .and_then(|url| image_results.get(url.as_str()))
-            .cloned()
-            .unwrap_or_default();
+        let (images, omission_reason, duration) = prepare_request_images(&request, &image_results);
         self.classify_with_images(
             request,
-            prepared.image.into_iter().collect(),
+            images,
             requested_image_count,
-            prepared.omission_reason,
-            prepared.duration,
+            omission_reason,
+            duration,
         )
         .await
-    }
-
-    async fn classify_batch(
-        &self,
-        requests: Vec<ClassificationRequest>,
-        options: ClassificationBatchOptions,
-    ) -> Vec<Result<ClassificationResponse, ClassificationError>> {
-        let unique_urls = unique_image_urls(&requests);
-        let image_results = fetch_unique_images(
-            unique_urls,
-            options.max_concurrent_requests,
-            |url| async move {
-                self.image_fetcher
-                    .fetch(&url)
-                    .await
-                    .ok_or(ImageOmissionReason::FetchFailed)
-                    .and_then(cloudflare_image)
-            },
-        )
-        .await;
-
-        futures::stream::iter(requests)
-            .map(|request| {
-                let requested_image_count = request.image_urls.len();
-                let prepared = request
-                    .image_urls
-                    .first()
-                    .and_then(|url| image_results.get(url.as_str()))
-                    .cloned()
-                    .unwrap_or_default();
-                async move {
-                    self.classify_with_images(
-                        request,
-                        prepared.image.into_iter().collect(),
-                        requested_image_count,
-                        prepared.omission_reason,
-                        prepared.duration,
-                    )
-                    .await
-                }
-            })
-            .buffered(options.max_concurrent_requests.get())
-            .collect()
-            .await
     }
 }
 
@@ -373,9 +351,15 @@ struct CloudflareResult {
 
 fn validate_request(request: &ClassificationRequest) -> Result<(), ClassificationError> {
     if request.operation != ClassificationOperation::ProductEnhancedSearchDescriptionMatching
+        || request.correlation_id.as_ref().is_some_and(|id| {
+            id.len() > 160
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_:-.".contains(&b))
+        })
         || request.questions.is_empty()
         || request.questions.len() > 64
-        || request.image_urls.len() > 1
+        || request.image_urls.len() > MAX_IMAGES
         || request.options.request_timeout.is_zero()
     {
         return Err(ClassificationError::InvalidRequest);
@@ -388,6 +372,23 @@ fn validate_request(request: &ClassificationRequest) -> Result<(), Classificatio
         {
             return Err(ClassificationError::InvalidRequest);
         }
+    }
+    // UTF-8 bytes conservatively bound text tokens. Reserve media and schema tokens
+    // before fetching: the hosted API otherwise silently truncates long state.
+    let text_bytes = serde_json::to_vec(&request.state)
+        .map_err(|_| ClassificationError::InvalidRequest)?
+        .len()
+        + request
+            .questions
+            .iter()
+            .map(|q| q.instructions.len() + q.id.as_str().len())
+            .sum::<usize>();
+    if text_bytes
+        .saturating_add(request.image_urls.len() * IMAGE_CONTEXT_TOKENS)
+        .saturating_add(CONTEXT_SCHEMA_RESERVE)
+        > CONTEXT_TOKENS
+    {
+        return Err(ClassificationError::PermanentCandidateFailure);
     }
     Ok(())
 }
@@ -403,9 +404,72 @@ fn unique_image_urls(requests: &[ClassificationRequest]) -> BTreeSet<String> {
     requests
         .iter()
         .filter(|request| validate_request(request).is_ok())
-        .flat_map(|request| request.image_urls.first())
+        .flat_map(|request| request.image_urls.iter())
         .map(|url| url.as_str().to_owned())
         .collect()
+}
+
+fn prepare_request_images(
+    request: &ClassificationRequest,
+    results: &BTreeMap<String, ImagePreparation>,
+) -> (
+    Vec<PreparedCloudflareImage>,
+    Option<ImageOmissionReason>,
+    Duration,
+) {
+    let mut images = Vec::new();
+    let mut omission = None;
+    let mut duration = Duration::ZERO;
+    let mut total_bytes = 0;
+    let mut seen_urls = BTreeSet::new();
+    for (index, url) in request.image_urls.iter().enumerate() {
+        if !seen_urls.insert(url.as_str()) {
+            log_image_omission(request.correlation_id.as_deref(), index, "duplicate_url");
+            continue;
+        }
+        let Some(prepared) = results.get(url.as_str()) else {
+            omission.get_or_insert(ImageOmissionReason::FetchFailed);
+            log_image_omission(
+                request.correlation_id.as_deref(),
+                index,
+                ImageOmissionReason::FetchFailed.as_str(),
+            );
+            continue;
+        };
+        duration = duration.saturating_add(prepared.duration);
+        if let Some(image) = &prepared.image {
+            if images.contains(image) {
+                log_image_omission(request.correlation_id.as_deref(), index, "duplicate_image");
+                continue;
+            }
+            let bytes = image.decoded_bytes();
+            if total_bytes + bytes > MAX_TOTAL_IMAGE_BYTES {
+                omission.get_or_insert(ImageOmissionReason::AggregateLimit);
+                log_image_omission(
+                    request.correlation_id.as_deref(),
+                    index,
+                    ImageOmissionReason::AggregateLimit.as_str(),
+                );
+                continue;
+            }
+            total_bytes += bytes;
+            images.push(image.clone());
+        } else if let Some(reason) = prepared.omission_reason {
+            omission.get_or_insert(reason);
+            log_image_omission(request.correlation_id.as_deref(), index, reason.as_str());
+        }
+    }
+    (images, omission, duration)
+}
+
+fn log_image_omission(correlation_id: Option<&str>, index: usize, reason: &'static str) {
+    tracing::info!(
+        eventType = "CLASSIFIER_IMAGE_OMITTED",
+        correlationId = correlation_id,
+        requestedImageIndex = index,
+        imageOmissionReason = reason,
+        "Classifier image omitted."
+    );
 }
 
 async fn fetch_unique_images<F, Fut>(
@@ -448,6 +512,7 @@ fn duration_millis(duration: Duration) -> u64 {
 
 fn log_classifier_attempt(
     operation: &'static str,
+    correlation_id: Option<&str>,
     diagnostics: &ClassificationDiagnostics,
     usage: Option<&ClassificationUsage>,
     error: Option<&ClassificationError>,
@@ -455,6 +520,7 @@ fn log_classifier_attempt(
     tracing::info!(
         eventType = "CLASSIFIER_INVOCATION",
         classifierOperation = operation,
+        correlationId = correlation_id,
         classifierProvider = %diagnostics.provider,
         classifierModel = %diagnostics.model,
         durationMs = diagnostics.duration_millis,
@@ -476,6 +542,15 @@ struct PreparedCloudflareImage {
 }
 
 impl PreparedCloudflareImage {
+    fn decoded_bytes(&self) -> usize {
+        self.base64_data.len() / 4 * 3
+            - self
+                .base64_data
+                .bytes()
+                .rev()
+                .take_while(|byte| *byte == b'=')
+                .count()
+    }
     fn mime_type(&self) -> &'static str {
         self.mime_type
     }
@@ -655,7 +730,7 @@ struct CloudflareNoulAnswer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BinaryClassificationQuestion;
+    use crate::{BinaryClassificationQuestion, ClassificationBatchOptions};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
@@ -668,6 +743,7 @@ mod tests {
 
     fn request(image_urls: Vec<Url>) -> ClassificationRequest {
         ClassificationRequest {
+            correlation_id: None,
             operation: ClassificationOperation::ProductEnhancedSearchDescriptionMatching,
             state: serde_json::json!({
                 "user_search": "original search",
@@ -1199,7 +1275,7 @@ mod tests {
     }
 
     #[test]
-    fn neutral_request_validation_rejects_bad_questions_and_multiple_images() {
+    fn neutral_request_validation_rejects_bad_questions_and_more_than_four_images() {
         let mut invalid = request(Vec::new());
         invalid.questions[0].instructions = " \n ".into();
         assert_eq!(
@@ -1221,10 +1297,9 @@ mod tests {
             validate_request(&invalid)
         );
 
-        let image_urls = vec![
-            Url::parse("https://example.test/first.jpg").unwrap(),
-            Url::parse("https://example.test/second.jpg").unwrap(),
-        ];
+        let image_urls = (0..5)
+            .map(|index| Url::parse(&format!("https://example.test/{index}.jpg")).unwrap())
+            .collect();
         let invalid = request(image_urls);
         assert_eq!(
             Err(ClassificationError::InvalidRequest),
@@ -1351,5 +1426,169 @@ mod tests {
         ] {
             assert_invalid_image_falls_back_to_text_only(mime_type, bytes).await;
         }
+    }
+    #[tokio::test]
+    async fn provider_serializes_zero_one_and_four_images_and_reports_partial_evidence() {
+        for count in [0, 1, 4] {
+            let (endpoint, task) = serve_once(
+                r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.9},"should_show":{"type":"noul","noul":0.6}},"usage":{"input_tokens":42}}}"#.into(), "200 OK",
+            ).await;
+            let model = CloudflareClassifierModel::with_endpoint(
+                config(CloudflareModel::ClefFlash),
+                endpoint,
+            )
+            .unwrap();
+            let urls = (0..count)
+                .map(|index| Url::parse(&format!("https://example.test/{index}.png")).unwrap())
+                .collect::<Vec<_>>();
+            let images = (0..count)
+                .map(|_| {
+                    cloudflare_image_parts(
+                        "image/png",
+                        &BASE64.encode(encoded_test_image(ImageFormat::Png)),
+                    )
+                    .unwrap()
+                })
+                .collect();
+            let response = model
+                .classify_with_images(request(urls), images, count, None, Duration::ZERO)
+                .await
+                .unwrap();
+            let wire = task.await.unwrap();
+            let body: Value = serde_json::from_str(wire.split_once("\r\n\r\n").unwrap().1).unwrap();
+            assert_eq!(count, body["images"].as_array().map_or(0, Vec::len));
+            assert_eq!(count, response.diagnostics.sent_image_count);
+            assert_eq!(count, response.diagnostics.requested_image_count);
+            assert_eq!(Some(42), response.usage.input_tokens);
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_batch_bounds_the_complete_request_lifecycle() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tokio::{sync::Barrier, task::JoinSet};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint =
+            Url::parse(&format!("http://{}/test", listener.local_addr().unwrap())).unwrap();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let server_peak = Arc::clone(&peak);
+        // Each wave must fill the configured concurrency before it can finish.
+        let barrier = Arc::new(Barrier::new(3));
+        let server = tokio::spawn(async move {
+            let mut workers = JoinSet::new();
+            for _ in 0..6 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let active = Arc::clone(&active);
+                let peak = Arc::clone(&server_peak);
+                let barrier = Arc::clone(&barrier);
+                workers.spawn(async move {
+                    read_http_request(&mut socket).await;
+                    let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(count, Ordering::SeqCst);
+                    barrier.wait().await;
+                    let body = r#"{"success":true,"result":{"model":"clef-flash","answers":{"hard_conflict":{"type":"noul","noul":0.1},"should_show":{"type":"noul","noul":0.75}}}}"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+            while let Some(worker) = workers.join_next().await {
+                worker.unwrap();
+            }
+        });
+        let model =
+            CloudflareClassifierModel::with_endpoint(config(CloudflareModel::ClefFlash), endpoint)
+                .unwrap();
+        let results = tokio::time::timeout(
+            Duration::from_secs(5),
+            model.classify_batch(
+                vec![request(Vec::new()); 6],
+                ClassificationBatchOptions::new(NonZeroUsize::new(3).unwrap()),
+            ),
+        )
+        .await
+        .expect("both bounded request waves complete");
+        server.await.unwrap();
+        assert_eq!(6, results.len());
+        assert!(results.iter().all(Result::is_ok));
+        assert_eq!(3, peak.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn request_preparation_deduplicates_urls_and_bytes_and_keeps_partial_failures_explicit() {
+        let urls = (0..4)
+            .map(|index| Url::parse(&format!("https://example.test/{index}.png")).unwrap())
+            .collect::<Vec<_>>();
+        let image = cloudflare_image_parts(
+            "image/png",
+            &BASE64.encode(encoded_test_image(ImageFormat::Png)),
+        )
+        .unwrap();
+        let good = ImagePreparation {
+            image: Some(image),
+            ..Default::default()
+        };
+        let failed = ImagePreparation {
+            omission_reason: Some(ImageOmissionReason::FetchFailed),
+            ..Default::default()
+        };
+        let request = request(vec![
+            urls[0].clone(),
+            urls[1].clone(),
+            urls[2].clone(),
+            urls[2].clone(),
+        ]);
+        let results = BTreeMap::from([
+            (urls[0].to_string(), good.clone()),
+            (urls[1].to_string(), failed),
+            (urls[2].to_string(), good),
+        ]);
+        let (images, omission, _) = prepare_request_images(&request, &results);
+        assert_eq!(1, images.len());
+        assert_eq!(Some(ImageOmissionReason::FetchFailed), omission);
+        assert_eq!(3, unique_image_urls(&[request]).len());
+    }
+
+    #[test]
+    fn aggregate_image_limit_omits_later_images_and_context_overflow_is_explicit() {
+        let urls = (0..4)
+            .map(|index| Url::parse(&format!("https://example.test/{index}.png")).unwrap())
+            .collect::<Vec<_>>();
+        let mut results = BTreeMap::new();
+        for (index, url) in urls.iter().enumerate() {
+            let byte = u8::try_from(index).unwrap();
+            results.insert(
+                url.to_string(),
+                ImagePreparation {
+                    image: Some(PreparedCloudflareImage {
+                        mime_type: "image/png",
+                        base64_data: BASE64.encode(vec![byte; 3 * 1024 * 1024]),
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
+        let (images, reason, _) = prepare_request_images(&request(urls), &results);
+        assert_eq!(2, images.len());
+        assert_eq!(Some(ImageOmissionReason::AggregateLimit), reason);
+        let mut oversized = request(Vec::new());
+        oversized.state = serde_json::json!({"criteria": "x".repeat(CONTEXT_TOKENS)});
+        assert_eq!(
+            Err(ClassificationError::PermanentCandidateFailure),
+            validate_request(&oversized)
+        );
+        let bad = BASE64.encode(vec![0; MAX_IMAGE_BYTES + 1]);
+        assert_eq!(
+            Err(ImageOmissionReason::InvalidOrOversized),
+            cloudflare_image_parts("image/png", &bad)
+        );
     }
 }

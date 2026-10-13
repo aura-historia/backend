@@ -63,6 +63,8 @@ impl Default for ClassificationOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassificationRequest {
     pub operation: ClassificationOperation,
+    /// Stable opaque caller identifiers for joining attempt costs to decisions.
+    pub correlation_id: Option<String>,
     pub state: serde_json::Value,
     pub questions: Vec<BinaryClassificationQuestion>,
     pub image_urls: Vec<Url>,
@@ -151,6 +153,7 @@ pub enum ImageOmissionReason {
     FetchFailed,
     UnsupportedFormat,
     InvalidOrOversized,
+    AggregateLimit,
 }
 
 impl ImageOmissionReason {
@@ -159,6 +162,7 @@ impl ImageOmissionReason {
             Self::FetchFailed => "fetch_failed",
             Self::UnsupportedFormat => "unsupported_format",
             Self::InvalidOrOversized => "invalid_or_oversized",
+            Self::AggregateLimit => "aggregate_limit",
         }
     }
 }
@@ -233,6 +237,7 @@ mod tests {
 
     fn request() -> ClassificationRequest {
         ClassificationRequest {
+            correlation_id: None,
             operation: ClassificationOperation::ProductEnhancedSearchDescriptionMatching,
             state: serde_json::json!({}),
             questions: Vec::new(),

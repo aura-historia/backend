@@ -177,7 +177,7 @@ async fn seed_product_listing_owned_rows(pool: &sqlx::PgPool) -> Result<SeededRo
         .bind(product_listing_id)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency) VALUES ($1, $2, 'Delete cascade filter', 'ACTIVE', '{}', 'en', 'EUR')")
+    sqlx::query("INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'Delete cascade filter', 'ACTIVE', '{}', 'en', 'EUR', 'TEXT_ONLY')")
         .bind(search_filter_id)
         .bind(user_id)
         .execute(&mut *transaction)

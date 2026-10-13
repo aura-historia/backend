@@ -7,7 +7,9 @@ use fxrate_core::FxRateId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::user_id::UserId;
+mod matching_evidence_policy;
 pub mod search_filter_state;
+pub use matching_evidence_policy::MatchingEvidencePolicy;
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;
 
@@ -20,6 +22,7 @@ pub struct SearchFilter {
     state: SearchFilterState,
     search: ProductListingSearch,
     embedding: Option<Vec<f32>>,
+    matching_evidence_policy: MatchingEvidencePolicy,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +34,7 @@ pub struct NewSearchFilter {
     pub state: SearchFilterState,
     pub search: ProductListingSearch,
     pub embedding: Option<Vec<f32>>,
+    pub matching_evidence_policy: MatchingEvidencePolicy,
 }
 
 impl SearchFilter {
@@ -43,27 +47,12 @@ impl SearchFilter {
             state: new.state,
             search: new.search,
             embedding: new.embedding,
+            matching_evidence_policy: new.matching_evidence_policy,
         }
     }
 
-    pub fn rehydrate(
-        user_search_filter_id: UserSearchFilterId,
-        user_id: UserId,
-        name: UserSearchFilterName,
-        notifications: bool,
-        state: SearchFilterState,
-        search: ProductListingSearch,
-        embedding: Option<Vec<f32>>,
-    ) -> Self {
-        Self {
-            user_search_filter_id,
-            user_id,
-            name,
-            notifications,
-            state,
-            search,
-            embedding,
-        }
+    pub fn rehydrate(state: NewSearchFilter) -> Self {
+        Self::create(state)
     }
 
     pub fn rename(&mut self, name: UserSearchFilterName) -> ChangeOutcome {
@@ -72,6 +61,18 @@ impl SearchFilter {
         }
         self.name = name;
         ChangeOutcome::Changed
+    }
+
+    pub fn resolve_matching_evidence(&mut self, policy: MatchingEvidencePolicy) -> ChangeOutcome {
+        if self.matching_evidence_policy == policy {
+            return ChangeOutcome::Unchanged;
+        }
+        self.matching_evidence_policy = policy;
+        ChangeOutcome::Changed
+    }
+
+    pub fn matching_evidence_policy(&self) -> MatchingEvidencePolicy {
+        self.matching_evidence_policy
     }
 
     pub fn change_notifications(&mut self, notifications: bool) -> ChangeOutcome {
@@ -169,6 +170,7 @@ mod tests {
             state: SearchFilterState::Active,
             search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
+            matching_evidence_policy: MatchingEvidencePolicy::EnhancedTextAndFourImages,
         })
     }
 

@@ -196,7 +196,12 @@ where
         let mut prepared_search = prepared_view.search;
         let prepared_search_changed =
             apply_product_search_patch(&mut prepared_search, &command.search)?;
-        let prepared_embedding = if prepared_search_changed {
+        let prepare_embedding = prepared_search_changed
+            || (prepared_view.embedding.is_none()
+                && crate::use_cases::embedding_query(&prepared_search)
+                    .map_err(embedding_error)?
+                    .is_some());
+        let prepared_embedding = if prepare_embedding {
             Some(
                 match embedding_query(&prepared_search).map_err(embedding_error)? {
                     Some(query) => Some(
@@ -233,15 +238,20 @@ where
             .ok_or(UpdateOwnedSearchFilterError::SearchFilterNotFound)?;
         let mut filter = persisted.filter.clone();
 
-        let changed = apply_filter_patch(&mut filter, &command)?;
+        let mut changed = apply_filter_patch(&mut filter, &command)?;
         validate_search_feature_changes(tier, persisted.filter.search(), filter.search()).map_err(
             |feature| UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature },
         )?;
         let reactivating = !persisted.filter.state().is_active() && filter.state().is_active();
-        if reactivating {
+        if filter.state().is_active() {
             validate_search_features(tier, filter.search()).map_err(|feature| {
                 UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature }
             })?;
+        }
+        changed.aggregate_changed |= filter
+            .resolve_matching_evidence(crate::tier_policy::matching_evidence_policy(tier))
+            .changed();
+        if reactivating {
             let quota = active_filter_quota(tier);
             let active_count = self
                 .quotas
@@ -256,13 +266,15 @@ where
                 });
             }
         }
-        if changed.search_changed {
-            if !prepared_search_changed || filter.search() != &prepared_search {
+        if changed.search_changed || (filter.embedding().is_none() && prepare_embedding) {
+            if !prepare_embedding || filter.search() != &prepared_search {
                 return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
             }
             let embedding = prepared_embedding
                 .ok_or(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict)?;
-            let _ = filter.replace_search(filter.search().clone(), embedding);
+            changed.aggregate_changed |= filter
+                .replace_search(filter.search().clone(), embedding)
+                .changed();
         }
         if changed.aggregate_changed {
             persisted = self
