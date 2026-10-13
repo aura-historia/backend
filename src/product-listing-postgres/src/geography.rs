@@ -365,7 +365,7 @@ impl GeographyProjectionStore for Store<'_> {
             let dependency = json!({"policy":POLICY,"listingVersion":i.listing_version,"listingActive":i.active,"sourceId":i.source_id,"assignmentRevision":i.assignment_revision,"locationId":i.location_id,"locationRevision":i.location_revision,"inputRevision":i.input_revision,"locationActive":i.location_active,"business":i.business,"inventory":i.inventory,"resolution":w.resolution.as_ref().map(|r|json!({"id":r.work.id,"generation":r.work.generation,"guard":r.guard,"inputRevision":r.input_revision,"selection":r.selected_candidate,"validUntil":r.valid_until.map(|v|v.unix_timestamp_nanos().to_string()),"policy":geo_service::resolution::POLICY_VERSION}))});
             let geography =
                 serde_json::to_value(GeographyData::from(&w.geography)).map_err(storage)?;
-            let old:Option<(serde_json::Value,i64,i64,serde_json::Value)>=sqlx::query_as("SELECT geography,geography_version,indexed_version,dependency FROM product_listing_geographies WHERE product_listing_id=$1").bind(i.listing_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
+            let old:Option<(serde_json::Value,i64,serde_json::Value)>=sqlx::query_as("SELECT geography,geography_version,dependency FROM product_listing_geographies WHERE product_listing_id=$1").bind(i.listing_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(storage)?;
             let empty =
                 serde_json::to_value(GeographyData::from(&EffectiveListingGeography::default()))
                     .map_err(storage)?;
@@ -375,7 +375,7 @@ impl GeographyProjectionStore for Store<'_> {
             // without a new dependency generation.
             if old
                 .as_ref()
-                .is_some_and(|old| old.3 == dependency && old.0 == geography)
+                .is_some_and(|old| old.2 == dependency && old.0 == geography)
             {
                 continue;
             }
@@ -389,8 +389,8 @@ impl GeographyProjectionStore for Store<'_> {
             } else if let Some(old) = &old {
                 version = old.1;
             }
-            sqlx::query("INSERT INTO product_listing_geographies(product_listing_id,dependency,geography,valid_until,geography_version,indexed_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,geography=EXCLUDED.geography,valid_until=EXCLUDED.valid_until,geography_version=EXCLUDED.geography_version")
-                .bind(i.listing_id.into_uuid()).bind(dependency).bind(geography).bind(valid_until).bind(version).bind(old.map(|o|o.2).unwrap_or(if differs {0} else {version})).execute(&mut *self.connection).await.map_err(storage)?;
+            sqlx::query("INSERT INTO product_listing_geographies(product_listing_id,dependency,geography,valid_until,geography_version) VALUES($1,$2,$3,$4,$5) ON CONFLICT(product_listing_id) DO UPDATE SET dependency=EXCLUDED.dependency,geography=EXCLUDED.geography,valid_until=EXCLUDED.valid_until,geography_version=EXCLUDED.geography_version")
+                .bind(i.listing_id.into_uuid()).bind(dependency).bind(geography).bind(valid_until).bind(version).execute(&mut *self.connection).await.map_err(storage)?;
         }
         Ok(changed)
     }

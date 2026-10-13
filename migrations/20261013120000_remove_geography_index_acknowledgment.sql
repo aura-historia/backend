@@ -1,0 +1,2 @@
+DROP INDEX product_listing_geographies_unindexed_idx;
+ALTER TABLE product_listing_geographies DROP COLUMN indexed_version;

@@ -452,12 +452,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     });
     const projectionSearchStatements = Object.values(compute.findResources("AWS::IAM::Policy"))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement) => statement.Action.includes("es:ESHttpPut"));
+      .filter((statement) => statement.Action.includes("es:ESHttpPost"));
     expect(projectionSearchStatements).toHaveLength(1);
     expect(projectionSearchStatements[0]).toMatchObject({
-      Action: "es:ESHttpPut",
+      Action: "es:ESHttpPost",
       Effect: "Allow",
     });
+    expect(JSON.stringify(projectionSearchStatements[0].Resource)).toContain("/product-listings/_doc/*");
   });
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {

@@ -76,30 +76,6 @@ impl ProjectionWriteRelay {
                 let body = response.text().await?;
                 if pause {
                     write_response(&mut socket, status, &body).await?;
-                    if status == StatusCode::CONFLICT {
-                        // The real projector confirms refresh visibility before acknowledging
-                        // a stale write, so relay that request to the same target too.
-                        let (mut visibility, _) = listener.accept().await?;
-                        let refresh = read_request(&mut visibility).await?;
-                        if refresh.method != Method::Post
-                            || !refresh.url.path().ends_with("/_refresh")
-                        {
-                            return Err(io::Error::other("expected index refresh").into());
-                        }
-                        let response = target
-                            .send(
-                                refresh.method,
-                                refresh.url.path(),
-                                HeaderMap::new(),
-                                Some(&refresh.query),
-                                refresh.body,
-                                None,
-                            )
-                            .await?;
-                        let status = response.status_code();
-                        let body = response.text().await?;
-                        write_response(&mut visibility, status, &body).await?;
-                    }
                 }
                 Ok(status)
             })

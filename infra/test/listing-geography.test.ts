@@ -32,15 +32,18 @@ describe.each(STAGES)("%s effective listing geography", stage => {
     );
     expect(policy).toBeDefined();
     expect(JSON.stringify(policy)).not.toMatch(/geo-places:|sqs:SendMessage|es:ESHttp|ses:SendEmail/);
-    const refreshPolicies = policies.filter(p =>
-      JSON.stringify(p.Properties.PolicyDocument).includes("product-listings/_refresh"),
+    expect(JSON.stringify(policies)).not.toContain("product-listings/_refresh");
+    const projectorPolicy = policies.find(p =>
+      JSON.stringify(p.Properties.Roles).includes("ProductListingOpenSearchLambdaServiceRole"),
     );
-    expect(refreshPolicies).toHaveLength(1);
-    expect(JSON.stringify(refreshPolicies[0].Properties.Roles)).toContain("ProductListingOpenSearchLambdaServiceRole");
-    const refresh = refreshPolicies[0].Properties.PolicyDocument.Statement.find(
-      (statement: { Action: string }) => statement.Action === "es:ESHttpPost",
-    );
-    expect(JSON.stringify(refresh.Resource)).toContain("product-listings/_refresh");
+    expect(projectorPolicy).toBeDefined();
+    const searchStatements = projectorPolicy!.Properties.PolicyDocument.Statement
+      .filter((statement: { Action: string | string[] }) =>
+        [statement.Action].flat().some(action => action.startsWith("es:")),
+      );
+    expect(searchStatements).toHaveLength(1);
+    expect([searchStatements[0].Action].flat()).toEqual(["es:ESHttpPost"]);
+    expect(JSON.stringify(searchStatements[0].Resource)).toContain("/product-listings/_doc/*");
 
     const data = Template.fromStack(stacks.data);
     const task = Object.values(data.findResources("AWS::DMS::ReplicationTask"))[0];

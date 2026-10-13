@@ -80,24 +80,6 @@ impl PausedWrite {
                 );
                 socket.write_all(reply.as_bytes()).await?;
                 socket.shutdown().await?;
-                if status==StatusCode::CONFLICT {
-                    // Conflict custody now requires explicit refresh visibility. Proxy
-                    // this follow-up to the same real index after releasing the stale write.
-                    let (mut visibility,_) = listener.accept().await?;
-                    let mut request=Vec::new();
-                    loop {
-                        if visibility.read_buf(&mut request).await?==0 {return Err(io::Error::other("missing visibility request").into());}
-                        if request.windows(4).any(|p|p==b"\r\n\r\n") {break;}
-                    }
-                    let headers=std::str::from_utf8(&request)?;
-                    let line=headers.lines().next().ok_or_else(||io::Error::other("missing refresh path"))?;
-                    let path=line.split_whitespace().nth(1).ok_or_else(||io::Error::other("missing refresh path"))?;
-                    if !line.starts_with("POST ") || !path.ends_with("/_refresh") {return Err(io::Error::other("expected index refresh").into());}
-                    let refreshed=target.send::<JsonBody<serde_json::Value>,()>(Method::Post,path,HeaderMap::new(),None,None,None).await?;
-                    let refresh_status=refreshed.status_code();let body=refreshed.text().await?;
-                    visibility.write_all(format!("HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",refresh_status.as_u16(),body.len(),body).as_bytes()).await?;
-                    visibility.shutdown().await?;
-                }
                 Ok(status)
             }).await?
         });

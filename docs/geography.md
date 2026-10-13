@@ -241,8 +241,10 @@ Listing search and geographic filter matching use available projections while du
 invalidation catches up. Retirement, restrictive applicability, rights revocation and expiry
 can briefly leave earlier geography in results, ordering, counts and continuation. There is
 no global query gate. Writers reread current authority; versions/tombstones fence stale
-writes and refresh-visible acknowledgment tracks recovery. Public Party-location discovery
-reads PostgreSQL eligibility independently. See [listing recovery](durable-worker-runbook.md#listing-geography-recovery).
+writes. PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read
+projection. Projector acknowledgment means a write was accepted or safely fenced as stale;
+search visibility follows the normal OpenSearch refresh cycle. Public Party-location
+discovery reads PostgreSQL eligibility independently. See [listing recovery](durable-worker-runbook.md#listing-geography-recovery).
 
 ## Geographic discovery (#2004)
 
