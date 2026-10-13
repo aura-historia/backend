@@ -122,7 +122,6 @@ async fn resolve(pool: &sqlx::PgPool, id: UserAddressId, calls: Arc<AtomicUsize>
         SqlxResolutionRepositoryFactory,
         SyntheticGeocoder(calls),
         "PRIVATE_API_TEST".into(),
-        true,
     )
     .execute(
         &OperationContext {
