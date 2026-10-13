@@ -77,12 +77,14 @@ where
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             AdminProductListingError::BeginTransactionFailed(box_error(source))
         })?;
-        let loaded = self
-            .products
-            .in_transaction(&mut tx)
-            .find_by_id(id)
-            .await?
-            .ok_or(AdminProductListingError::NotFound)?;
+        let loaded = {
+            let mut products = self.products.in_transaction(&mut tx);
+            match listing_source_id {
+                Some(source) => products.find_by_id_in_source(source, id).await?,
+                None => products.find_by_id(id).await?,
+            }
+        }
+        .ok_or(AdminProductListingError::NotFound)?;
         if listing_source_id.is_some_and(|source| loaded.value.listing_source_id() != source) {
             return Err(AdminProductListingError::NotFound);
         }

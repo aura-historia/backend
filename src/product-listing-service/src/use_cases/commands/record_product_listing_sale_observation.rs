@@ -366,6 +366,14 @@ mod tests {
             Ok(lock(&self.0).listing.clone())
         }
 
+        async fn find_by_id_in_source(
+            &mut self,
+            _: listing_source_core::ListingSourceId,
+            _: ProductListingId,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            panic!("ingestion does not use source-scoped management lookups")
+        }
+
         async fn find_by_key(
             &mut self,
             _key: &product_listing_core::product_listing_id::ProductListingKey,

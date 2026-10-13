@@ -449,6 +449,54 @@ async fn cross_source_ids_are_indistinguishable_from_missing_listings() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn invalid_foreign_state_is_not_exposed_but_invalid_owned_state_fails_closed() {
+    let f = fixture().await;
+    for id in [f.id, f.other_id] {
+        sqlx::query(
+            "UPDATE product_listings SET url = 'invalid URL' WHERE product_listing_id = $1",
+        )
+        .bind(id.as_uuid())
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    }
+    for method in ["GET", "PATCH", "DELETE", "POST"] {
+        for (id, expected_status, expected_error) in [
+            (
+                f.other_id,
+                StatusCode::NOT_FOUND,
+                "PRODUCT_LISTING_NOT_FOUND",
+            ),
+            (
+                ProductListingId::new(),
+                StatusCode::NOT_FOUND,
+                "PRODUCT_LISTING_NOT_FOUND",
+            ),
+            (
+                f.id,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PRODUCT_LISTING_INTERNAL_ERROR",
+            ),
+        ] {
+            let (status, body) = request(
+                &f.app,
+                method,
+                &f.target(method, id, 1),
+                Some("partner"),
+                json!({"expectedVersion":1}),
+            )
+            .await;
+            assert_eq!(expected_status, status, "{method}: {body}");
+            assert_eq!(expected_error, body["error"]);
+        }
+    }
+    for id in [f.id, f.other_id] {
+        assert_eq!(1, version(&f.pool, id).await);
+        assert_eq!(1, events(&f.pool, id).await);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursors() {
     let f = fixture().await;
     let withdrawn = seed_listing(&f.pool, f.source, "Withdrawn/key with spaces").await;
@@ -1033,6 +1081,14 @@ impl<R: ProductListingRepository> ProductListingRepository for RacingRepository<
     ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
         self.inner.find_by_id(id).await
     }
+    async fn find_by_id_in_source(
+        &mut self,
+        source: listing_source_core::ListingSourceId,
+        id: ProductListingId,
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+        self.inner.find_by_id_in_source(source, id).await
+    }
+
     async fn find_by_key(
         &mut self,
         key: &ProductListingKey,
