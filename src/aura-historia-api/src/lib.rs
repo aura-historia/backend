@@ -158,6 +158,7 @@ use party_service::use_cases::commands::create_party::CreatePartyHandler;
 use party_service::use_cases::commands::delete_party::DeletePartyHandler;
 use party_service::use_cases::commands::update_party::UpdatePartyHandler;
 use party_service::use_cases::queries::get_party::GetPartyHandler;
+use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
@@ -1022,6 +1023,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     axum::routing::put(parties::locations::lifecycle),
                 )
                 .route(
+                    "/api/v1/admin/parties/{party_id}/location-managers",
+                    get(parties::list_location_managers::list),
+                )
+                .route(
                     "/api/v1/admin/parties/{party_id}/location-managers/{user_id}",
                     axum::routing::put(parties::locations::grant),
                 )
@@ -1789,6 +1794,12 @@ async fn app_state_from_config_and_pool(
     let location_admin =
         || CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
     let party_locations_state = state::PartyLocationsState {
+        list_managers: Arc::new(ListPartyLocationManagersHandler::new(
+            unit_of_work.clone(),
+            party_postgres::SqlxPartyLocationManagerReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
         discovery: Some(Arc::new(
             party_service::discovery::DiscoverPartyLocationsHandler::new(
                 unit_of_work.clone(),

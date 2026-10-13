@@ -116,6 +116,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/parties/{party_id}/locations/{location_id}/lifecycle", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}/location-managers/{user_id}", ["PUT"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/parties/{party_id}/location-managers", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/account", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/me/addresses", ["GET", "POST"]),

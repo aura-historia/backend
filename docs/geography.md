@@ -76,6 +76,13 @@ Delegated callers also need the corresponding `parties:read` or `parties:write` 
 Authority and invariant-critical policy are checked in the operation transaction under
 the owner Party lock, with current-user authority held through completion.
 
+The administrator location-manager directory reports explicit grants and active Partnership
+membership independently, with one row per current unsuspended user. Access filters select
+users while preserving both reasons. Revocation removes only the explicit reason; dissolved
+Partnerships and deleted users confer no directory access. Identity is limited to the
+administrator-visible email and optional names; grants have no stored timestamp. Exact
+filters, stable pagination and error contracts belong in [OpenAPI](swagger.yaml).
+
 Active PartyLocations permit exact public geography; there is no disclosure setting.
 Retired sites are ineligible. Exact eligibility does not upgrade coarse geocoding evidence.
 Management reads, raw addresses, applicability evidence and revision tokens remain

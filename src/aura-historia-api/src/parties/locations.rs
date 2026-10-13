@@ -623,11 +623,16 @@ mod route_tests {
         state::AppState,
     };
     use axum::{body::Body, http::Request};
+    use party_service::use_cases::queries::list_party_location_managers::{
+        ListPartyLocationManagersRequest, ListPartyLocationManagersUseCase,
+        PartyLocationManagerAccess, PartyLocationManagerView, PartyLocationManagersPage,
+    };
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
     #[derive(Default)]
     struct Capture {
         calls: Mutex<Vec<&'static str>>,
+        manager_error: Mutex<Option<PartyLocationError>>,
     }
     impl Capture {
         fn view(&self, party_id: PartyId, id: PartyLocationId) -> PartyLocationView {
@@ -737,6 +742,40 @@ mod route_tests {
     }
     struct Auth;
     #[async_trait::async_trait]
+    impl ListPartyLocationManagersUseCase for Capture {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            request: ListPartyLocationManagersRequest,
+        ) -> Result<PartyLocationManagersPage, PartyLocationError> {
+            self.calls.lock().unwrap().push("list_managers");
+            if let Some(error) = self.manager_error.lock().unwrap().take() {
+                return Err(error);
+            }
+            let user_id = request.user_id.unwrap_or_default();
+            Ok(PartyLocationManagersPage {
+                items: vec![PartyLocationManagerView {
+                    user_id,
+                    email: serde_email::Email::try_from("manager@example.test").unwrap(),
+                    first_name: Some(user_core::first_name::FirstName::from("Ada")),
+                    last_name: None,
+                    access: vec![
+                        PartyLocationManagerAccess::Explicit,
+                        PartyLocationManagerAccess::Partnership {
+                            partnership_ids: vec![
+                                partnership_core::partnership_id::PartnershipId::new(),
+                            ],
+                        },
+                    ],
+                }],
+                cursor: application::pagination::Cursor {
+                    size: request.cursor.size,
+                    search_after: None,
+                },
+            })
+        }
+    }
+    #[async_trait::async_trait]
     impl TokenAuthenticator for Auth {
         async fn authenticate(
             &self,
@@ -756,9 +795,7 @@ mod route_tests {
             })
         }
     }
-    #[tokio::test]
-    async fn routes_map_commands_authentication_and_cache_headers() {
-        let capture = Arc::new(Capture::default());
+    fn location_app(capture: Arc<Capture>) -> axum::Router {
         let state = PartyLocationsState {
             discovery: None,
             create: capture.clone(),
@@ -767,9 +804,15 @@ mod route_tests {
             grant: capture.clone(),
             get: capture.clone(),
             list: capture.clone(),
+            list_managers: capture.clone(),
             authenticator: Arc::new(Auth),
         };
-        let app = crate::app(AppState::new().with_party_locations(state));
+        crate::app(AppState::new().with_party_locations(state))
+    }
+    #[tokio::test]
+    async fn routes_map_commands_authentication_and_cache_headers() {
+        let capture = Arc::new(Capture::default());
+        let app = location_app(capture.clone());
         let party = PartyId::new();
         let id = PartyLocationId::new();
         let base = format!("/api/v1/parties/{party}/locations");
@@ -886,5 +929,140 @@ mod route_tests {
             }
         }
         assert_eq!(6, capture.calls.lock().unwrap().len());
+    }
+    #[tokio::test]
+    async fn manager_directory_maps_identity_validation_errors_and_cache_headers() {
+        let capture = Arc::new(Capture::default());
+        let app = location_app(capture.clone());
+        let party = PartyId::new();
+        let manager_path = format!("/api/v1/admin/parties/{party}/location-managers");
+        let user_id = UserId::new();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "{manager_path}?userId={user_id}&access=EXPLICIT&size=1"
+                    ))
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(serde_json::json!(user_id), body["items"][0]["userId"]);
+        assert_eq!("manager@example.test", body["items"][0]["email"]);
+        assert_eq!("Ada", body["items"][0]["firstName"]);
+        assert!(body["items"][0].get("lastName").is_none());
+        assert_eq!(4, body["items"][0].as_object().unwrap().len());
+        assert_eq!(
+            serde_json::json!({"type":"EXPLICIT"}),
+            body["items"][0]["access"][0]
+        );
+        assert_eq!("PARTNERSHIP", body["items"][0]["access"][1]["type"]);
+        assert!(
+            body["items"][0]["access"][1]["partnershipIds"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("psh_")
+        );
+        assert_eq!(1, body["size"]);
+        assert!(body.get("searchAfter").is_none());
+        for (error, status, code) in [
+            (
+                PartyLocationError::Forbidden,
+                StatusCode::FORBIDDEN,
+                "FORBIDDEN",
+            ),
+            (
+                PartyLocationError::NotFound,
+                StatusCode::NOT_FOUND,
+                "PARTY_NOT_FOUND",
+            ),
+            (
+                PartyLocationError::TemporarilyUnavailable {
+                    source: application::error::static_error("test outage"),
+                },
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PARTY_TEMPORARILY_UNAVAILABLE",
+            ),
+        ] {
+            *capture.manager_error.lock().unwrap() = Some(error);
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(&manager_path)
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(status, response.status());
+            assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+            let body: serde_json::Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(code, body["error"]);
+        }
+        let calls = capture.calls.lock().unwrap().len();
+        for (path, credential, status) in [
+            (manager_path.clone(), None, StatusCode::UNAUTHORIZED),
+            (
+                manager_path.clone(),
+                Some("Bearer invalid-token"),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                format!("{manager_path}?access=OTHER"),
+                Some("Bearer test-token"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                format!("{manager_path}?userId=bad"),
+                Some("Bearer test-token"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                format!("{manager_path}?searchAfter=bad"),
+                Some("Bearer test-token"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                format!("{manager_path}?size=-1"),
+                Some("Bearer test-token"),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/api/v1/admin/parties/bad/location-managers".to_owned(),
+                Some("Bearer test-token"),
+                StatusCode::BAD_REQUEST,
+            ),
+        ] {
+            let mut request = Request::builder().uri(path);
+            if let Some(credential) = credential {
+                request = request.header("authorization", credential);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(status, response.status());
+            assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        }
+        assert_eq!(calls, capture.calls.lock().unwrap().len());
     }
 }
