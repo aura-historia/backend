@@ -1,4 +1,4 @@
-//! Demo binary — showcases end-to-end usage of [`ScraperService`].
+//! Local development binary — showcases end-to-end usage of [`ScraperService`].
 //!
 //! Uses a hardcoded local Postgres database (`crawler_demo_scraper`). Bootstrap with:
 //!
@@ -26,7 +26,7 @@
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
-//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
+//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
@@ -38,12 +38,10 @@
 //! gcloud auth application-default login
 //! $env:VERTEX_AI_PROJECT_ID="my-project"
 //! $env:VERTEX_AI_LOCATION="europe-west3"
-//! cargo run --bin demo-scraper -p crawler
+//! cargo run --bin dev-scraper -p crawler
 //! ```
 
 use listing_source_core::ListingSourceId;
-use std::fs::File;
-use std::io::BufWriter;
 use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
@@ -187,14 +185,15 @@ async fn main() {
         }
 
         info!("Scraping complete, writing output to 'scraper_output.json'…");
-        let file = File::create("scraper_output.json").unwrap();
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &products).unwrap();
+        let output = serde_json::to_vec_pretty(&products).unwrap();
+        tokio::fs::write("scraper_output.json", output)
+            .await
+            .unwrap();
         info!("Output written to 'scraper_output.json'.");
     }
     .instrument(tracing::info_span!(
-        "crawler_scraper_demo",
-        entrypoint = "demo-scraper",
+        "crawler_scraper_dev",
+        entrypoint = "dev-scraper",
         database = DEMO_SCRAPER_DB_NAME,
         target_count = targets.len()
     ))
@@ -267,7 +266,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         llm_provider = "vertex_ai",
         schema_model = %vertex_ai_models.product_schema,
 
-        "Crawler scraper demo Vertex AI configuration resolved"
+        "Crawler scraper dev Vertex AI configuration resolved"
     );
     let llm_governor = Arc::new(CrawlerLlmGovernor::new(
         CrawlerLlmRateLimitConfig::from_env(),

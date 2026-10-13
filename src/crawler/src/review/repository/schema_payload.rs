@@ -25,29 +25,10 @@ pub(super) fn parse_schemas_payload(
 pub(super) fn validate_product_schemas(
     schemas: &[ProductCssSelectorSchema],
 ) -> Result<(), ReviewRepositoryError> {
-    if schemas.is_empty() || schemas.iter().any(|schema| !valid_schema(schema)) {
+    if schemas.is_empty() || ProductCssSelectorSchema::validate_all(schemas).is_err() {
         return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
     }
     Ok(())
-}
-
-fn valid_schema(schema: &ProductCssSelectorSchema) -> bool {
-    let rules = [
-        schema.source_listing_id.as_ref(),
-        Some(&schema.title),
-        schema.description.as_ref(),
-        schema.price.as_ref(),
-        schema.price_estimate_min.as_ref(),
-        schema.price_estimate_max.as_ref(),
-        Some(&schema.state),
-        Some(&schema.images),
-    ];
-
-    rules
-        .into_iter()
-        .flatten()
-        .chain(schema.raw_attributes.values())
-        .all(|rule| rule.validate().is_ok())
 }
 
 pub(super) fn approval_product_schemas(

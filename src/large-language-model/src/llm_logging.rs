@@ -62,6 +62,7 @@ impl std::fmt::Display for LlmProvider {
 pub enum LlmModel {
     Gemini31FlashLite,
     Gemini31ProPreview,
+    Gemini35Flash,
     GeminiEmbedding2Preview0325,
     GeminiEmbedding2,
     Configured,
@@ -72,6 +73,7 @@ impl LlmModel {
         match self {
             Self::Gemini31FlashLite => "gemini-3.1-flash-lite",
             Self::Gemini31ProPreview => "gemini-3.1-pro-preview",
+            Self::Gemini35Flash => "gemini-3.5-flash",
             Self::GeminiEmbedding2Preview0325 => "gemini-embedding-2-preview-03-25",
             Self::GeminiEmbedding2 => "gemini-embedding-2",
             Self::Configured => "CONFIGURED",

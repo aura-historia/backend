@@ -6,6 +6,7 @@ use crate::scraper::candidate_service::{
     DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, ScrapeCompletion,
     ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
 };
+use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
@@ -941,7 +942,7 @@ async fn persist_non_http_failure(
             | ScraperError::SchemaClassificationRejected { .. }
             | ScraperError::LlmBudgetExceeded { .. }
             | ScraperError::PendingSchemaReview { .. }
-    );
+    ) || is_schema_generation_validation_failure(error);
     if has_retry_cooldown {
         let next_retry_at =
             time::OffsetDateTime::now_utc() + time::Duration::seconds((30 * 60) as i64);
@@ -1036,6 +1037,9 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::MissingDomainContext { .. } => "MissingDomainContext",
+        error if is_schema_generation_validation_failure(error) => {
+            "SchemaGenerationValidationFailed"
+        }
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
@@ -1046,6 +1050,18 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaFingerprint(_) => "SchemaFingerprint",
         ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
     }
+}
+
+/// Model output that failed deterministic schema validation is a schema-generation
+/// outcome, not an infrastructure failure; it receives the bounded schema cooldown.
+fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
+    matches!(
+        error,
+        ScraperError::SchemaServiceError(
+            ProductListingSchemaServiceError::InvalidGeneratedSchema { .. }
+                | ProductListingSchemaServiceError::StructuredResponseValidation { .. }
+        )
+    )
 }
 
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {
@@ -1455,7 +1471,6 @@ mod tests {
     use crate::scraper::candidate_service::{
         DomainCircuitOpenOutcome, DomainHealthSnapshot, MockScraperCandidateService,
     };
-    use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
     use crate::scraper::scraper_service::domain::product::record_transport_failure;
     use crate::scraper::scraper_service::{MockScraperService, ScrapedProduct};
     use crate::service::cron::config::CrawlerCronConfig;
@@ -1469,6 +1484,31 @@ mod tests {
     use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::MockSpiderService;
     use listing_source_core::ListingSourceId;
+
+    #[test]
+    fn should_classify_invalid_generated_schemas_as_schema_generation_outcomes() {
+        for error in [
+            ProductListingSchemaServiceError::InvalidGeneratedSchema {
+                source: application::error::box_error(std::io::Error::other("invalid rule")),
+            },
+            ProductListingSchemaServiceError::StructuredResponseValidation {
+                source: application::error::box_error(std::io::Error::other("invalid")),
+            },
+        ] {
+            let error = ScraperError::SchemaServiceError(error);
+            assert!(is_schema_generation_validation_failure(&error));
+            assert_eq!(
+                scraper_error_kind(&error),
+                "SchemaGenerationValidationFailed"
+            );
+        }
+
+        let database = ScraperError::SchemaServiceError(
+            ProductListingSchemaServiceError::DatabaseError(sqlx::Error::PoolTimedOut),
+        );
+        assert!(!is_schema_generation_validation_failure(&database));
+        assert_eq!(scraper_error_kind(&database), "SchemaServiceError");
+    }
 
     use std::future::Future;
     use std::pin::Pin;

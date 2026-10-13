@@ -137,6 +137,30 @@ pub enum ApplySchemaError {
 }
 
 impl ProductCssSelectorSchema {
+    /// Validates every configured rule deterministically (selector syntax and
+    /// attribute names) without applying it to a page.
+    pub(crate) fn validate_rules(&self) -> Result<(), ExtractionError> {
+        [
+            self.source_listing_id.as_ref(),
+            Some(&self.title),
+            self.description.as_ref(),
+            self.price.as_ref(),
+            self.price_estimate_min.as_ref(),
+            self.price_estimate_max.as_ref(),
+            Some(&self.state),
+            Some(&self.images),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.raw_attributes.values())
+        .try_for_each(ExtractionRule::validate)
+    }
+
+    /// Validates the rules of every schema and returns the first invalid rule.
+    pub(crate) fn validate_all(schemas: &[Self]) -> Result<(), ExtractionError> {
+        schemas.iter().try_for_each(Self::validate_rules)
+    }
+
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,

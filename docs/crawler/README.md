@@ -40,8 +40,8 @@ Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr
 ## Binaries
 
 - `server` runs the scheduled crawler and review console.
-- `demo` exercises the local crawler flow with crawler-local migrations.
-- `demo-spider` and `demo-scraper` are focused development entry points for their respective passes.
+- `dev` exercises the local crawler flow with crawler-local migrations.
+- `dev-spider` and `dev-scraper` are focused development entry points for their respective passes.
 - `fetch-fixture` saves source HTML for stable parser and schema snapshots; it is not a production ingestion path.
 
 ## Boundaries

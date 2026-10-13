@@ -104,6 +104,8 @@ pub(super) enum ProductListingSchemaResponseValidationError {
     InitialReason,
     #[error("initial response contained no product schemas")]
     InitialEmptySchemas,
+    #[error("product schema contained an invalid extraction rule")]
+    InvalidProductSchemaRule,
     #[error("single product response must contain exactly one schema")]
     SingleProductSchemaCount,
     #[error("removed response contained product schemas")]
@@ -123,6 +125,7 @@ impl ProductListingSchemaResponseValidationError {
             Self::InitialRemovedSchema => "initial_removed_schema",
             Self::InitialReason => "initial_reason_present",
             Self::InitialEmptySchemas => "initial_empty_schemas",
+            Self::InvalidProductSchemaRule => "invalid_product_schema_rule",
             Self::SingleProductSchemaCount => "single_product_schema_count",
             Self::RemovedContainsProductSchemas => "removed_contains_product_schemas",
             Self::RemovedMissingSchema => "removed_missing_schema",
@@ -183,6 +186,8 @@ impl ProductListingSchemaGenerationResponse {
         if self.schemas.is_empty() {
             return Err(ProductListingSchemaResponseValidationError::InitialEmptySchemas);
         }
+        ProductCssSelectorSchema::validate_all(&self.schemas)
+            .map_err(|_| ProductListingSchemaResponseValidationError::InvalidProductSchemaRule)?;
         let evaluation = self.evaluation();
         Ok(GeneratedProductSchemas {
             schemas: self.schemas,
@@ -206,6 +211,9 @@ impl ProductListingSchemaGenerationResponse {
                         ProductListingSchemaResponseValidationError::SingleProductSchemaCount,
                     );
                 };
+                schema.validate_rules().map_err(|_| {
+                    ProductListingSchemaResponseValidationError::InvalidProductSchemaRule
+                })?;
                 Ok(GeneratedSingleSchema::ProductListing {
                     schema: Box::new(schema),
                     evaluation,

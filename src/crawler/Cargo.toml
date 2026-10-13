@@ -69,12 +69,12 @@ test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "time", "test-util"] }
 
 [[bin]]
-name = "demo-scraper"
-path = "src/scraper/demo.rs"
+name = "dev-scraper"
+path = "src/scraper/dev.rs"
 
 [[bin]]
-name = "demo-spider"
-path = "src/spider/demo.rs"
+name = "dev-spider"
+path = "src/spider/dev.rs"
 
 
 [[bin]]
@@ -82,8 +82,8 @@ name = "server"
 path = "src/bin/server.rs"
 
 [[bin]]
-name = "demo"
-path = "src/demo.rs"
+name = "dev"
+path = "src/dev.rs"
 
 [[bin]]
 name = "fetch-fixture"
