@@ -140,9 +140,11 @@ describe("HTTP API route policy matrix", () => {
   });
 
   test("requires Partner bearer authority for every management route and excludes shared caching", () => {
-    const collection = "/api/v1/listing-sources/{listing_source_id}/product-listings";
+    const collection = "/api/v1/listing-sources/{listingSourceId}/product-listings";
+    const detail = `${collection}/{productListingId}`;
     const routes = API_ROUTE_CATALOG.filter((route) =>
-      (route.path === collection && route.method === "GET") || route.path.startsWith(`${collection}/`));
+      (route.path === collection && route.method === "GET") ||
+      route.path === detail || route.path === `${detail}/restore`);
     expect(routes).toHaveLength(5);
     for (const route of routes) {
       expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
@@ -284,7 +286,7 @@ describe("HTTP API route policy matrix", () => {
       .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /api/v1/listing-sources/{}/product-listings/async`));
     expect(axumRouteKeys().filter((key) => key.endsWith(" /api/v1/listing-sources/{}/product-listings/async")))
       .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /api/v1/listing-sources/{}/product-listings/async`));
-    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listing_source_id}/product-listings")
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listingSourceId}/product-listings")
       .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE", "GET"]);
   });
 

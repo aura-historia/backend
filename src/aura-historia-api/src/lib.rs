@@ -783,7 +783,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                    "/api/v1/listing-sources/{listingSourceId}/product-listings",
                     post(partner_product_listings::create_products::create_products)
                         .patch(partner_product_listings::update_products::update_products)
                         .put(partner_product_listings::upsert_products::upsert_products)
@@ -797,17 +797,17 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                    "/api/v1/listing-sources/{listingSourceId}/product-listings",
                     get(partner_product_listings::management::list_partner_product_listings),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
+                    "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}",
                     get(partner_product_listings::management::get_partner_product_listing)
                         .patch(partner_product_listings::management::update_partner_product_listing)
                         .delete(partner_product_listings::management::withdraw_partner_product_listing),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}/restore",
+                    "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore",
                     post(partner_product_listings::management::restore_partner_product_listing),
                 )
                 .layer(axum::middleware::map_response(product_listing_management::no_store))
@@ -819,7 +819,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources/{listing_source_id}/product-listings/async",
+                    "/api/v1/listing-sources/{listingSourceId}/product-listings/async",
                     post(partner_product_listings::async_create_products::create_products)
                         .patch(partner_product_listings::async_update_products::update_products)
                         .put(partner_product_listings::async_upsert_products::upsert_products)

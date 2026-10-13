@@ -770,7 +770,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/listing-sources/{listing_source_id}/product-listings:
+  /api/v1/listing-sources/{listingSourceId}/product-listings:
     get:
       summary: List ProductListings for an administered ListingSource
       operationId: listPartnerProductListings
@@ -782,7 +782,7 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       parameters:
-        - { name: listing_source_id, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
         - { name: sourceListingId, in: query, schema: { type: string, maxLength: 512 }, description: Exact case-sensitive source-local identity after outer whitespace trimming. }
         - { name: lifecycle, in: query, schema: { $ref: "#/components/schemas/ListingLifecycleData" } }
         - { name: availability, in: query, schema: { $ref: "#/components/schemas/ListingAvailabilityData" } }
@@ -847,7 +847,7 @@ paths:
       tags:
         - ProductListings
       parameters:
-        - name: listing_source_id
+        - name: listingSourceId
           in: path
           required: true
           description: Unique identifier of the target ListingSource
@@ -1043,7 +1043,7 @@ paths:
       tags:
         - ProductListings
       parameters:
-        - name: listing_source_id
+        - name: listingSourceId
           in: path
           required: true
           description: Unique identifier of the target ListingSource
@@ -1208,7 +1208,7 @@ paths:
       tags:
         - ProductListings
       parameters:
-        - name: listing_source_id
+        - name: listingSourceId
           in: path
           required: true
           description: Unique identifier of the target ListingSource
@@ -1416,7 +1416,7 @@ paths:
       tags:
         - ProductListings
       parameters:
-        - name: listing_source_id
+        - name: listingSourceId
           in: path
           required: true
           description: Unique identifier of the target ListingSource
@@ -1496,7 +1496,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}:
+  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}:
     get:
       summary: Inspect authoritative ProductListing facts
       operationId: getPartnerProductListing
@@ -1508,8 +1508,8 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       parameters:
-        - { name: listing_source_id, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
-        - { name: product_listing_id, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
       responses:
         "200":
           description: Original retained listing facts and expectedVersion; Cache-Control is private, no-store.
@@ -1543,8 +1543,8 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       parameters:
-        - { name: listing_source_id, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
-        - { name: product_listing_id, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "#/components/schemas/UpdateAdminProductListing" } } }
@@ -1584,8 +1584,8 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       parameters:
-        - { name: listing_source_id, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
-        - { name: product_listing_id, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
         - name: expectedVersion
           in: query
           required: true
@@ -1613,7 +1613,7 @@ paths:
         "500":
           description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
           content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
-  /api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}/restore:
+  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore:
     post:
       summary: Explicitly restore a retained ProductListing
       operationId: restorePartnerProductListing
@@ -1625,8 +1625,8 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       parameters:
-        - { name: listing_source_id, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
-        - { name: product_listing_id, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingVersion" } } }
