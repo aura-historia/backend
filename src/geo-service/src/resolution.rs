@@ -549,7 +549,6 @@ pub trait ResolutionRepository: Send {
         &mut self,
         work: ResolutionWork,
         profile: &str,
-        allow_provider: bool,
     ) -> Result<ClaimOutcome, ResolutionError>;
     async fn complete(
         &mut self,
@@ -662,16 +661,14 @@ pub struct ResolveHandler<U, R, P> {
     repository: R,
     provider: P,
     profile: String,
-    enabled: bool,
 }
 impl<U, R, P> ResolveHandler<U, R, P> {
-    pub fn new(uow: U, repository: R, provider: P, profile: String, enabled: bool) -> Self {
+    pub fn new(uow: U, repository: R, provider: P, profile: String) -> Self {
         Self {
             uow,
             repository,
             provider,
             profile,
-            enabled,
         }
     }
 }
@@ -695,7 +692,7 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
         let claim = self
             .repository
             .resolutions(&mut tx)
-            .claim(work, &self.profile, self.enabled)
+            .claim(work, &self.profile)
             .await?;
         tx.commit().await?;
         let claim = match claim {
