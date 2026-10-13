@@ -130,6 +130,24 @@ function resolveConcreteArn(value: unknown): string {
 }
 
 describe("HTTP API route policy matrix", () => {
+  test.each(STAGES)("preserves deployed collection route identities with camelCase keys in %s", (stage) => {
+    const resources = apiTemplate(stage).findResources("AWS::ApiGatewayV2::Route");
+    const path = "/api/v1/listing-sources/{listingSourceId}/product-listings";
+    const deployedLogicalIds = {
+      POST: "HttpApiPOSTapiv1listingsourceslistingsourceidproductlistings99639C00",
+      PATCH: "HttpApiPATCHapiv1listingsourceslistingsourceidproductlistingsC3BE1E06",
+      PUT: "HttpApiPUTapiv1listingsourceslistingsourceidproductlistings8BCC1F25",
+      DELETE: "HttpApiDELETEapiv1listingsourceslistingsourceidproductlistings756A5EAC",
+    };
+    for (const [method, logicalId] of Object.entries(deployedLogicalIds)) {
+      expect(resources[logicalId]?.Properties.RouteKey).toBe(`${method} ${path}`);
+      expect(Object.values(resources).filter((resource) => resource.Properties.RouteKey === `${method} ${path}`))
+        .toHaveLength(1);
+    }
+    expect(Object.values(resources).filter((resource) => resource.Properties.RouteKey === `GET ${path}`))
+      .toHaveLength(1);
+  });
+
   test("classifies every admin ProductListing route as administrator bearer access", () => {
     const routes = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/api/v1/admin/product-listings"));
     expect(routes).toHaveLength(5);

@@ -66,6 +66,15 @@ export interface RouteDefinition {
 const CLOUDFRONT_CACHING_DISABLED_POLICY_ID = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad";
 const CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID = "216adef6-5c7f-47e4-b989-5492eafa07d3";
 
+// addRoutes derives logical IDs from the full path. Preserve the deployed IDs when
+// renaming the collection placeholder so Gateway updates these routes in place.
+const PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS: Partial<Record<apigwv2.HttpMethod, string>> = {
+  [apigwv2.HttpMethod.POST]: "HttpApiPOSTapiv1listingsourceslistingsourceidproductlistings99639C00",
+  [apigwv2.HttpMethod.PATCH]: "HttpApiPATCHapiv1listingsourceslistingsourceidproductlistingsC3BE1E06",
+  [apigwv2.HttpMethod.PUT]: "HttpApiPUTapiv1listingsourceslistingsourceidproductlistings8BCC1F25",
+  [apigwv2.HttpMethod.DELETE]: "HttpApiDELETEapiv1listingsourceslistingsourceidproductlistings756A5EAC",
+};
+
 const apiRoutes = (
   auth: RouteAuthPolicy,
   path: string,
@@ -273,11 +282,19 @@ export class BackendHttpApi extends Construct {
         integrationsByLambda.set(definition.lambda, integration);
       }
 
-      this.api.addRoutes({
+      const httpRoutes = this.api.addRoutes({
         path: definition.path,
         methods: [definition.method],
         integration,
       });
+      if (definition.path === "/api/v1/listing-sources/{listingSourceId}/product-listings") {
+        const logicalId = PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS[definition.method];
+        if (logicalId) {
+          for (const httpRoute of httpRoutes) {
+            (httpRoute.node.defaultChild as apigwv2.CfnRoute).overrideLogicalId(logicalId);
+          }
+        }
+      }
     }
 
     const customDomain = this.configureCustomDomain(props);
