@@ -212,14 +212,7 @@ async fn ensure_container_started() {
                 .expect("shouldn't fail copying Postgres test CA from container");
             POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| certificate_path);
 
-            let mut connection = wait_for_postgres_connection().await;
-            // Business migrations grant heartbeat access to this pre-provisioned role.
-            connection
-                .execute(AssertSqlSafe(
-                    "CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE",
-                ))
-                .await
-                .expect("shouldn't fail creating the replication role for test migrations");
+            let _connection = wait_for_postgres_connection().await;
 
             debug!(
                 image,
@@ -397,6 +390,16 @@ async fn apply_migrations(migrations_dir: &'static str) {
     entries.sort();
 
     let mut connection = open_connection().await;
+    // Schema-only fixtures model the role normally provisioned before business migrations.
+    connection
+        .execute(AssertSqlSafe(
+            "DO $$ BEGIN \
+             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN \
+             CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; \
+             END IF; END $$;",
+        ))
+        .await
+        .expect("shouldn't fail provisioning the replication role for test migrations");
     for path in &entries {
         let sql = std::fs::read_to_string(path).unwrap_or_else(|error| {
             panic!(
