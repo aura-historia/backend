@@ -2,9 +2,8 @@ use crate::{
     ports::{
         PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
         PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
-        ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-        ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
-        stamp_product_listing_event,
+        ProductListingEventAppenderFactory, ProductListingRepository,
+        ProductListingRepositoryError, ProductListingRepositoryFactory,
     },
     product_listing_auction_patch::{
         ProductListingAuctionPatch, compose_product_listing_auction_patch,
@@ -200,37 +199,24 @@ where
                 .await?;
         }
         let mut product = loaded.value;
-        let auction = match &command.auction {
-            PatchField::Unchanged | PatchField::Clear => None,
-            PatchField::Set(patch) => {
-                validate_product_listing_auction_patch(product.auction(), patch)
-                    .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
-                let auction = compose_product_listing_auction_patch(product.auction(), patch)
-                    .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
-                if let PatchField::Set(auction_id) = &patch.auction_id {
-                    self.auction_references
-                        .in_transaction(tx)
-                        .validate(*auction_id, product.listing_source_id())
-                        .await?;
-                }
-                Some(auction)
+        apply_product_listing_update(tx, &self.auction_references, &mut product, command).await?;
+        let persisted = super::product_listing_change::persist_product_listing_change(
+            tx,
+            &self.products,
+            &self.events,
+            &mut product,
+            loaded.version,
+        )
+        .await
+        .map_err(|error| match error {
+            super::product_listing_change::PersistProductListingChangeError::Repository(error) => {
+                UpdateProductListingError::from(error)
             }
-        };
-        apply_command(&mut product, command, auction)?;
-        let event = product.take_pending_event_payload().map(|payload| {
-            stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
-        });
-        let outcome = if let Some(event) = event {
-            let effects = ProductListingWriteEffects::from(&event.payload);
-            self.products
-                .in_transaction(tx)
-                .update(&product, loaded.version, event.event_id, effects)
-                .await?;
-            self.events.in_transaction(tx).append(&event).await?;
-            ChangeOutcome::Changed
-        } else {
-            ChangeOutcome::Unchanged
-        };
+            super::product_listing_change::PersistProductListingChangeError::Event(error) => {
+                UpdateProductListingError::from(error)
+            }
+        })?;
+        let outcome = persisted.outcome;
         Ok(UpdateProductListingResult {
             product_listing_id: product.id(),
             outcome,
@@ -279,6 +265,51 @@ fn validate_preconditions(
         return Err(UpdateProductListingError::UrlRequired);
     }
     Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ProductListingPatchError {
+    #[error(transparent)]
+    Update(#[from] UpdateProductListingError),
+    #[error(transparent)]
+    Auction(#[from] AuctionReferenceValidationError),
+}
+impl From<ProductListingPatchError> for UpdateProductListingError {
+    fn from(error: ProductListingPatchError) -> Self {
+        match error {
+            ProductListingPatchError::Update(error) => error,
+            ProductListingPatchError::Auction(error) => error.into(),
+        }
+    }
+}
+
+pub(crate) async fn apply_product_listing_update<
+    Tx: Send,
+    V: AuctionReferenceValidatorFactory<Tx>,
+>(
+    tx: &mut Tx,
+    auction_references: &V,
+    product: &mut ProductListing,
+    command: UpdateProductListingCommand,
+) -> Result<(), ProductListingPatchError> {
+    let auction = match &command.auction {
+        PatchField::Unchanged | PatchField::Clear => None,
+        PatchField::Set(patch) => {
+            validate_product_listing_auction_patch(product.auction(), patch)
+                .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
+            let auction = compose_product_listing_auction_patch(product.auction(), patch)
+                .map_err(|_| UpdateProductListingError::InvalidProductListing)?;
+            if let PatchField::Set(auction_id) = &patch.auction_id {
+                auction_references
+                    .in_transaction(tx)
+                    .validate(*auction_id, product.listing_source_id())
+                    .await
+                    .map_err(ProductListingPatchError::Auction)?;
+            }
+            Some(auction)
+        }
+    };
+    apply_command(product, command, auction).map_err(ProductListingPatchError::Update)
 }
 
 fn apply_command(
@@ -404,7 +435,10 @@ impl From<ProductListingEventAppendError> for UpdateProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
+    use crate::ports::{
+        ProductListingEventAppender, ProductListingStorageVersion, ProductListingWriteEffects,
+        VersionedProductListing,
+    };
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use auction_core::AuctionId;

@@ -66,6 +66,15 @@ use product_listing_service::use_cases::{
     SubmitPartnerProductListingIngestionUseCase, UpdateProductListingUseCase,
     UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
+use product_listing_service::use_cases::{
+    commands::admin_product_listings::{
+        RestoreAdminProductListingUseCase, UpdateAdminProductListingUseCase,
+        WithdrawAdminProductListingUseCase,
+    },
+    queries::admin_product_listings::{
+        GetAdminProductListingUseCase, SearchAdminProductListingsUseCase,
+    },
+};
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
     ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
@@ -141,6 +150,7 @@ pub struct AppState {
     pub(crate) webhooks: Option<WebhooksState>,
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
     pub(crate) auctions: Option<AuctionsState>,
+    pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
 }
 
@@ -176,6 +186,7 @@ impl AppState {
             webhooks: None,
             loops_webhooks: None,
             auctions: None,
+            admin_product_listings: None,
             public_auctions: None,
         }
     }
@@ -299,6 +310,11 @@ impl AppState {
 
     pub fn with_notifications(mut self, notifications: NotificationsState) -> Self {
         self.notifications = Some(notifications);
+        self
+    }
+
+    pub fn with_admin_product_listings(mut self, state: AdminProductListingsState) -> Self {
+        self.admin_product_listings = Some(state);
         self
     }
 
@@ -1064,4 +1080,33 @@ pub struct UserAddressesState {
     pub commands: Arc<dyn user_service::address_book::AddressBookCommands>,
     pub queries: Arc<dyn user_service::address_book::AddressBookQueries>,
     pub authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+#[derive(Clone)]
+pub struct AdminProductListingsState {
+    pub(crate) get: Arc<dyn GetAdminProductListingUseCase>,
+    pub(crate) search: Arc<dyn SearchAdminProductListingsUseCase>,
+    pub(crate) update: Arc<dyn UpdateAdminProductListingUseCase>,
+    pub(crate) withdraw: Arc<dyn WithdrawAdminProductListingUseCase>,
+    pub(crate) restore: Arc<dyn RestoreAdminProductListingUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+impl AdminProductListingsState {
+    pub fn new(
+        get: Arc<dyn GetAdminProductListingUseCase>,
+        search: Arc<dyn SearchAdminProductListingsUseCase>,
+        update: Arc<dyn UpdateAdminProductListingUseCase>,
+        withdraw: Arc<dyn WithdrawAdminProductListingUseCase>,
+        restore: Arc<dyn RestoreAdminProductListingUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            get,
+            search,
+            update,
+            withdraw,
+            restore,
+            authenticator,
+        }
+    }
 }

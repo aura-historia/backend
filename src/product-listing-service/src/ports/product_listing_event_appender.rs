@@ -24,6 +24,11 @@ pub fn stamp_product_listing_event(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingEventAppendError {
+    #[error("temporary product listing event storage failure")]
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event already exists")]
     ProductListingEventAlreadyExists,
     #[error("product listing event payload serialization failed")]

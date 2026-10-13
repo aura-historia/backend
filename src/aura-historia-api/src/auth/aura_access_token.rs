@@ -73,6 +73,7 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
         Scope::ProductListingsWrite => CredentialCapability::ProductListingsWrite,
         Scope::ListingSourcesWrite => CredentialCapability::ListingSourcesWrite,
         Scope::AuctionsRead => CredentialCapability::AuctionsRead,
+        Scope::ProductListingsRead => CredentialCapability::ProductListingsRead,
         Scope::AuctionsWrite => CredentialCapability::AuctionsWrite,
         Scope::ListingSourcesRead => CredentialCapability::ListingSourcesRead,
         Scope::PartiesRead => CredentialCapability::PartiesRead,
@@ -307,6 +308,10 @@ mod tests {
                 CredentialCapability::ListingSourcesWrite,
             ),
             (Scope::AuctionsRead, CredentialCapability::AuctionsRead),
+            (
+                Scope::ProductListingsRead,
+                CredentialCapability::ProductListingsRead,
+            ),
             (Scope::AuctionsWrite, CredentialCapability::AuctionsWrite),
             (
                 Scope::ListingSourcesRead,

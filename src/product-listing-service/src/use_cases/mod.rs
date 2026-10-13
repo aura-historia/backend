@@ -1,3 +1,4 @@
+pub mod admin_product_listing_error;
 pub mod commands;
 pub mod queries;
 

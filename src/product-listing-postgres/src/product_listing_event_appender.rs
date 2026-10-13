@@ -78,10 +78,13 @@ struct ProductListingEventAppendSqlxError(sqlx::Error);
 impl From<ProductListingEventAppendSqlxError> for ProductListingEventAppendError {
     fn from(value: ProductListingEventAppendSqlxError) -> Self {
         let ProductListingEventAppendSqlxError(error) = value;
-        match &error {
+        match error {
             sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
                 Self::ProductListingEventAlreadyExists
             }
+            error if crate::query_error::is_temporary(&error) => Self::TemporarilyUnavailable {
+                source: box_error(error),
+            },
             _ => Self::ProductListingEventAppendFailed {
                 source: box_error(error),
             },

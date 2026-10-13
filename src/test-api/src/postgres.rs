@@ -212,7 +212,13 @@ async fn ensure_container_started() {
                 .expect("shouldn't fail copying Postgres test CA from container");
             POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| certificate_path);
 
-            let _connection = wait_for_postgres_connection().await;
+            let mut connection = wait_for_postgres_connection().await;
+            // Operational migrations grant heartbeat access to the deployment-managed role.
+            // Provide its identity without login credentials in this isolated test database.
+            connection
+                .execute("CREATE ROLE aura_replication NOLOGIN")
+                .await
+                .expect("shouldn't fail creating the isolated replication test role");
 
             debug!(
                 image,

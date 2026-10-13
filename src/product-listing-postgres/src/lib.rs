@@ -1,5 +1,6 @@
 mod object_id;
 mod product_listing_auction;
+mod query_error;
 
 pub mod product_listing_event_appender;
 mod product_listing_event_codec;
@@ -35,8 +36,8 @@ pub use product_listing_repository::SqlxProductListingRepositoryFactory;
 pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
 pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
 pub use readers::{
-    SqlxAuctionCatalogueReaderFactory, SqlxListingSourceSummaryReader,
-    SqlxProductListingContentAssessmentReader,
+    SqlxAdminProductListingReader, SqlxAuctionCatalogueReaderFactory,
+    SqlxListingSourceSummaryReader, SqlxProductListingContentAssessmentReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingCurrentEventGuardFactory, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,

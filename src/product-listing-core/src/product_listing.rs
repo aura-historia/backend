@@ -396,7 +396,7 @@ impl ProductListing {
         images: IndexSet<ProductListingImage>,
     ) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
-        if self.images == images {
+        if self.images.iter().eq(images.iter()) {
             return Ok(ChangeOutcome::Unchanged);
         }
         let previous_images = self.images.clone();
@@ -422,7 +422,7 @@ impl ProductListing {
         let image_changed = self
             .pending_image_baseline
             .as_ref()
-            .is_some_and(|baseline| baseline != &self.images);
+            .is_some_and(|baseline| !baseline.iter().eq(self.images.iter()));
         self.coalesce_pending_change(|changed| {
             if image_changed {
                 changed.set_image_count_change(image_previous_count, current_count);
@@ -912,6 +912,44 @@ mod tests {
                 .image_count()
                 .map(|change| change.current_count().value())
         );
+    }
+
+    #[test]
+    fn should_emit_image_change_for_reordering_and_cancel_return_to_original_order() {
+        let mut listing = rehydrated();
+        let original = [
+            "https://shop.example/first.jpg",
+            "https://shop.example/second.jpg",
+        ]
+        .into_iter()
+        .map(|value| ProductListingImage::new(Url::parse(value).unwrap()))
+        .collect::<IndexSet<_>>();
+        listing.replace_images(original.clone()).unwrap();
+        listing.take_pending_event_payload();
+        let reordered = original.iter().rev().cloned().collect::<IndexSet<_>>();
+
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.replace_images(reordered.clone())
+        );
+        assert!(listing.images().iter().eq(reordered.iter()));
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            listing.replace_images(reordered.clone())
+        );
+        let Some(ProductListingEventPayload::Changed(changes)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected image change");
+        };
+        let change = changes.image_count().unwrap();
+        assert_eq!(2, change.previous_count().value());
+        assert_eq!(2, change.current_count().value());
+
+        // Within one revision, returning to the starting order is a net no-op.
+        listing.replace_images(original).unwrap();
+        listing.replace_images(reordered).unwrap();
+        assert!(listing.take_pending_event_payload().is_none());
     }
 
     #[test]

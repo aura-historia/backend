@@ -33,6 +33,16 @@ impl From<&ProductListingEventPayload> for ProductListingWriteEffects {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingRepositoryError {
+    #[error("temporary product listing persistence failure")]
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product listing query failed")]
+    QueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product storage version did not match expected version")]
     ConcurrencyConflict,
     #[error("product already exists for source listing identity")]
