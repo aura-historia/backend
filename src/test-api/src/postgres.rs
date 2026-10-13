@@ -212,13 +212,7 @@ async fn ensure_container_started() {
                 .expect("shouldn't fail copying Postgres test CA from container");
             POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| certificate_path);
 
-            let mut connection = wait_for_postgres_connection().await;
-            // Operational migrations grant heartbeat access to the deployment-managed role.
-            // Provide its identity without login credentials in this isolated test database.
-            connection
-                .execute("CREATE ROLE aura_replication NOLOGIN")
-                .await
-                .expect("shouldn't fail creating the isolated replication test role");
+            let _connection = wait_for_postgres_connection().await;
 
             debug!(
                 image,
@@ -396,6 +390,14 @@ async fn apply_migrations(migrations_dir: &'static str) {
     entries.sort();
 
     let mut connection = open_connection().await;
+    if migrations_dir == "migrations" {
+        // Business-schema fixtures need the deployment-managed heartbeat grantee.
+        // Role-bootstrap tests create and own this role through their own setup.
+        connection
+            .execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN CREATE ROLE aura_replication NOLOGIN; END IF; END $$")
+            .await
+            .expect("shouldn't fail creating the isolated replication test role");
+    }
     for path in &entries {
         let sql = std::fs::read_to_string(path).unwrap_or_else(|error| {
             panic!(
