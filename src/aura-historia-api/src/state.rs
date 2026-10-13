@@ -59,6 +59,7 @@ use party_service::use_cases::commands::create_party::CreatePartyUseCase;
 use party_service::use_cases::commands::delete_party::DeletePartyUseCase;
 use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
+use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase,
@@ -1025,6 +1026,7 @@ impl PartnershipsState {
 
 #[derive(Clone)]
 pub struct PartyLocationsState {
+    pub(crate) list_managers: Arc<dyn ListPartyLocationManagersUseCase>,
     pub(crate) discovery: Option<Arc<dyn party_service::discovery::DiscoverPartyLocationsUseCase>>,
     pub(crate) create:
         Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
@@ -1040,6 +1042,7 @@ pub struct PartyLocationsState {
 }
 
 impl PartyLocationsState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         create: Arc<dyn party_service::use_cases::party_locations::CreatePartyLocationUseCase>,
         update: Arc<dyn party_service::use_cases::party_locations::UpdatePartyLocationUseCase>,
@@ -1051,6 +1054,7 @@ impl PartyLocationsState {
         >,
         get: Arc<dyn party_service::use_cases::party_locations::GetPartyLocationUseCase>,
         list: Arc<dyn party_service::use_cases::party_locations::ListPartyLocationsUseCase>,
+        list_managers: Arc<dyn ListPartyLocationManagersUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -1061,6 +1065,7 @@ impl PartyLocationsState {
             grant,
             get,
             list,
+            list_managers,
             authenticator,
         }
     }

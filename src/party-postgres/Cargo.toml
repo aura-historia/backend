@@ -14,6 +14,7 @@ application = { workspace = true }
 async-trait = { workspace = true }
 domain-primitives = { workspace = true }
 party-core = { workspace = true }
+partnership-core = { workspace = true }
 party-service = { workspace = true }
 platform-postgres = { workspace = true }
 serde-email = { workspace = true }

@@ -458,7 +458,7 @@ impl<
     }
 }
 
-async fn privileged<A: CheckUserAdminUseCase>(
+pub(crate) async fn privileged<A: CheckUserAdminUseCase>(
     context: &OperationContext,
     admin: &A,
     write: bool,
@@ -500,7 +500,7 @@ async fn privileged<A: CheckUserAdminUseCase>(
         Principal::Anonymous => Err(PartyLocationError::AuthenticationRequired),
     }
 }
-async fn authorize<Tx, F: PartyLocationAccessFactory<Tx>>(
+pub(crate) async fn authorize<Tx, F: PartyLocationAccessFactory<Tx>>(
     context: &OperationContext,
     privileged: bool,
     access: &F,

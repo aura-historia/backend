@@ -1,3 +1,6 @@
+mod party_location_manager_reader;
 mod party_search_reader;
+
+pub use party_location_manager_reader::SqlxPartyLocationManagerReaderFactory;
 
 pub use party_search_reader::SqlxPartySearchReaderFactory;

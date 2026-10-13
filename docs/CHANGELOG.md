@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-13 — Party location manager directory (#2044)
+
+- Added administrator-only `GET /api/v1/admin/parties/{party_id}/location-managers`, with optional exact `userId` and `access=EXPLICIT|PARTNERSHIP` filters. Each user appears once with email, optional names and all independent current access reasons; Partnership reasons include active `partnershipIds`. Grant timestamps are not stored or returned. Revoking an explicit grant preserves Partnership access; suspended/deleted users and dissolved Partnerships are excluded.
+- Delegated credentials require `parties:read`. Results use ascending user UUID keyset pagination with `size` clamped to 1–100 (default 21); terminal pages omit `searchAfter`. Responses and errors are `no-store`; unknown Parties return `404 PARTY_NOT_FOUND`.
+
 ## 2026-10-13 — ProductListing administration (#2038)
 
 - Added admin ProductListing directory/detail, PATCH, retained DELETE withdrawal and explicit POST restore. Reads include active/withdrawn originals and privileged canonical image URLs. Responses and errors use `private, no-store`; public discovery and image filtering are unchanged.

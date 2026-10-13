@@ -12,6 +12,7 @@ async-trait = { workspace = true }
 domain-primitives = { workspace = true }
 fake = { workspace = true, optional = true }
 party-core = { workspace = true }
+partnership-core = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
 thiserror = { workspace = true }
