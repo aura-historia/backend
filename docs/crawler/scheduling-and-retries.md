@@ -14,6 +14,8 @@ The production server currently schedules spider work every 72 hours and scraper
 
 A scraper request receives up to three inline attempts. Backoff begins at one second and is capped at two seconds. `Retry-After` never blocks a domain worker.
 
+Schema-generation outcomes (exhausted regeneration, failed fresh normalization, rejected classification, pending review, exhausted LLM budget, and generated schemas that fail deterministic validation, recorded as `SchemaGenerationValidationFailed`) give the URL a 30-minute retry cooldown instead of an immediate retry.
+
 After final failure, the crawler records retry metadata and a future `next_retry_at`; it does not hold a worker open. HTTP 404 and 410 are terminal removals. Unsafe targets and other terminal outcomes are not retried immediately. Retryable transport and selected HTTP failures receive a durable cooldown.
 
 ## Scraper domain circuits

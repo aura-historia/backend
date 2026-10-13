@@ -36,11 +36,20 @@ pub(crate) fn parse_request(request: &str) -> Option<ParsedRequest<'_>> {
     })
 }
 
+/// Policy for the console, its API and raw HTML: never framed.
+const CONSOLE_CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
+/// Policy for instrumented shop page previews. `sandbox` gives the untrusted page an
+/// opaque origin even when opened outside the console iframe, so its inline handlers
+/// can never use console credentials or same-origin API access.
+const PREVIEW_CONTENT_SECURITY_POLICY: &str = "sandbox allow-scripts; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
+
 pub(crate) struct HttpResponse {
     status: u16,
     content_type: &'static str,
     headers: Vec<(String, String)>,
     body: String,
+    content_security_policy: &'static str,
 }
 
 impl HttpResponse {
@@ -49,6 +58,7 @@ impl HttpResponse {
             status,
             content_type: "text/plain; charset=utf-8",
             headers: Vec::new(),
+            content_security_policy: CONSOLE_CONTENT_SECURITY_POLICY,
             body: body.to_string(),
         }
     }
@@ -58,6 +68,7 @@ impl HttpResponse {
             status,
             content_type: "text/html; charset=utf-8",
             headers: Vec::new(),
+            content_security_policy: CONSOLE_CONTENT_SECURITY_POLICY,
             body: body.to_string(),
         }
     }
@@ -67,6 +78,7 @@ impl HttpResponse {
             status,
             content_type: "text/css; charset=utf-8",
             headers: Vec::new(),
+            content_security_policy: CONSOLE_CONTENT_SECURITY_POLICY,
             body: body.to_string(),
         }
     }
@@ -76,6 +88,7 @@ impl HttpResponse {
             status,
             content_type: "application/javascript; charset=utf-8",
             headers: Vec::new(),
+            content_security_policy: CONSOLE_CONTENT_SECURITY_POLICY,
             body: body.to_string(),
         }
     }
@@ -87,8 +100,16 @@ impl HttpResponse {
             status,
             content_type: "application/json; charset=utf-8",
             headers: Vec::new(),
+            content_security_policy: CONSOLE_CONTENT_SECURITY_POLICY,
             body,
         }
+    }
+
+    /// Serves this response as a sandboxed shop page preview that only the review
+    /// console may frame. Every other response keeps the console policy.
+    pub(crate) fn into_review_preview(mut self) -> Self {
+        self.content_security_policy = PREVIEW_CONTENT_SECURITY_POLICY;
+        self
     }
 
     pub(crate) fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
@@ -112,11 +133,12 @@ impl std::fmt::Display for HttpResponse {
         };
         write!(
             f,
-            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\n{}\r\n{}",
+            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {}\r\n{}\r\n{}",
             self.status,
             reason,
             self.content_type,
             self.body.len(),
+            self.content_security_policy,
             self.headers
                 .iter()
                 .map(|(name, value)| format!("{name}: {value}\r\n"))

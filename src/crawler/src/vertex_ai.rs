@@ -2,7 +2,7 @@ use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCr
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
-const DEFAULT_MODEL: &str = "gemini-3.1-pro-preview";
+const DEFAULT_MODEL: &str = "gemini-3.5-flash";
 const DEFAULT_CHEAP_MODEL: &str = "gemini-3.1-flash-lite";
 
 /// Provider-specific model selection used only by crawler executable wiring.

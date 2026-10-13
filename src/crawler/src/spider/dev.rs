@@ -1,4 +1,4 @@
-//! Demo binary - showcases end-to-end usage of [`SpiderService`].
+//! Local development binary - showcases end-to-end usage of [`SpiderService`].
 //!
 //! Uses a hardcoded local Postgres database (`crawler_demo_spider`). Bootstrap with:
 //!
@@ -16,7 +16,7 @@
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
-//! | `VERTEX_AI_MODEL` | Default model | `gemini-3.1-pro-preview` |
+//! | `VERTEX_AI_MODEL` | Default model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
@@ -29,7 +29,7 @@
 //! gcloud auth application-default login
 //! $env:VERTEX_AI_PROJECT_ID="my-project"
 //! $env:VERTEX_AI_LOCATION="europe-west3"
-//! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
+//! cargo run --bin dev-spider -p crawler -- https://www.christies.com/en
 //! ```
 
 use crawler::CrawlerDomainId;
@@ -124,7 +124,7 @@ async fn main() {
         info!(
             llm_provider = "vertex_ai",
             url_classification_model = %vertex_ai_models.url_classification,
-            "Crawler spider demo Vertex AI configuration resolved"
+            "Crawler spider dev Vertex AI configuration resolved"
         );
         let llm_governor = Arc::new(CrawlerLlmGovernor::new(
             CrawlerLlmRateLimitConfig::from_env(),
@@ -201,8 +201,8 @@ async fn main() {
         }
     }
     .instrument(tracing::info_span!(
-        "crawler_spider_demo",
-        entrypoint = "demo-spider",
+        "crawler_spider_dev",
+        entrypoint = "dev-spider",
         crawl_root_url = %crawl_root_url,
         classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
     ))

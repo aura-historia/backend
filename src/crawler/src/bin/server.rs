@@ -19,7 +19,7 @@
 //! | `VERTEX_AI_PROJECT_ID`          | Required Google Cloud project for Vertex AI                    |
 //! | `VERTEX_AI_LOCATION`            | Required Vertex AI location                                    |
 //! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
-//! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.1-pro-preview`) |
+//! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.5-flash`) |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |

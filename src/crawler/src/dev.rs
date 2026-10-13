@@ -1,7 +1,7 @@
-//! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
+//! Local development binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
 //! antique ListingSources without needing a running ListingSource service.
 //!
-//! On startup the demo automatically runs `docker compose up -d` (using the
+//! On startup it automatically runs `docker compose up -d` (using the
 //! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
 //! become ready before applying migrations. No manual setup required — just:
 //!
@@ -9,7 +9,7 @@
 //! gcloud auth application-default login
 //! $env:VERTEX_AI_PROJECT_ID="my-project"
 //! $env:VERTEX_AI_LOCATION="europe-west3"
-//! cargo run -p crawler --bin demo
+//! cargo run -p crawler --bin dev
 //! ```
 //!
 //! # Configuration
@@ -19,7 +19,7 @@
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
-//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
+//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
@@ -28,7 +28,7 @@
 //! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
 //! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
-//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API | unset                               |
+//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
@@ -191,8 +191,9 @@ async fn main() {
 
         let review_required = crawler_review_required();
         let url_pattern_review_required = crawler_review_url_pattern_required();
-        let review_config =
-            ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
+        let review_config = ReviewServerConfig::from_env()
+            .expect("CRAWLER_REVIEW_BIND_ADDR must be host:port")
+            .allow_local_mutations_without_token();
         let review_repo = CrawlerReviewRepository::new(pool.clone());
 
         info!(
@@ -355,7 +356,8 @@ async fn main() {
             review_required,
             url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
-            "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
+            review_local_mutations_without_token = review_config.local_mutations_without_token(),
+            "Crawler dev is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );
         let review_server = ReviewServer::new(
             review_repo,
@@ -384,8 +386,8 @@ async fn main() {
         }
     }
     .instrument(tracing::info_span!(
-        "crawler_demo",
-        entrypoint = "demo",
+        "crawler_dev",
+        entrypoint = "dev",
         database = DEMO_DB_NAME
     ))
     .await;

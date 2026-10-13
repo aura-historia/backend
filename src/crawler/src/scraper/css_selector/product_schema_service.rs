@@ -48,6 +48,22 @@ pub enum ProductListingSchemaServiceError {
         source: application::error::BoxError,
     },
 
+    /// A generated schema failed deterministic rule validation and must not be
+    /// persisted as a review candidate or active schema.
+    #[error("generated product schema failed deterministic validation")]
+    InvalidGeneratedSchema {
+        #[source]
+        source: application::error::BoxError,
+    },
+
+    /// Persisting a generated schema review failed for a reason other than the
+    /// database or an invalid candidate.
+    #[error("generated product schema review could not be persisted")]
+    ReviewPersistence {
+        #[source]
+        source: application::error::BoxError,
+    },
+
     #[error("JsonParsingTargetSchemaError: {0}")]
     JsonParsingTargetSchemaError(serde_json::Error),
 
@@ -1534,6 +1550,117 @@ mod tests {
         assert_eq!(requests.len(), 2);
         assert!(requests[1].prompt.contains("initial_empty_schemas"));
         assert!(!requests[1].prompt.contains("sensitive previous response"));
+    }
+
+    fn invalid_selector_schemas() -> [ProductCssSelectorSchema; 2] {
+        let mut invalid_primary = sample_css_schema();
+        invalid_primary.title.selector = "[".into();
+        let mut invalid_additional = sample_css_schema();
+        invalid_additional
+            .state
+            .additional_selectors
+            .push("[".into());
+        [invalid_primary, invalid_additional]
+    }
+
+    fn schema_response_value(schemas: Vec<ProductCssSelectorSchema>) -> serde_json::Value {
+        serde_json::from_str(&generated_response_json(schemas))
+            .unwrap_or_else(|error| panic!("response should serialize: {error}"))
+    }
+
+    #[tokio::test]
+    async fn should_correct_invalid_generated_selectors_before_review() {
+        for invalid_schema in invalid_selector_schemas() {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let llm = SequenceSchemaLlm {
+                responses: Mutex::new(VecDeque::from([
+                    schema_response_value(vec![invalid_schema]),
+                    schema_response_value(vec![sample_css_schema()]),
+                ])),
+                requests: Arc::clone(&requests),
+            };
+            let service = ProductListingSchemaServiceImpl::new(
+                llm,
+                MockLlmProvider,
+                Box::new(MockListingSourceProductSchemaRepository::new()),
+                None,
+            );
+
+            let generated = service
+                .create_product_schemas(&["<main>product</main>".to_owned()])
+                .await
+                .unwrap_or_else(|error| panic!("corrected response should succeed: {error}"));
+
+            assert!(
+                generated
+                    .schemas
+                    .iter()
+                    .all(|schema| schema.validate_rules().is_ok())
+            );
+            let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+            assert_eq!(requests.len(), 2);
+            assert!(requests[1].prompt.contains("invalid_product_schema_rule"));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_fail_as_validation_not_database_error_when_selectors_stay_invalid() {
+        let [invalid_schema, _] = invalid_selector_schemas();
+        let llm = SequenceSchemaLlm {
+            responses: Mutex::new(
+                std::iter::repeat_with(|| schema_response_value(vec![invalid_schema.clone()]))
+                    .take(5)
+                    .collect(),
+            ),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        };
+        let service = ProductListingSchemaServiceImpl::new(
+            llm,
+            MockLlmProvider,
+            Box::new(MockListingSourceProductSchemaRepository::new()),
+            None,
+        );
+
+        let error = service
+            .create_product_schemas(&["<main>product</main>".to_owned()])
+            .await
+            .expect_err("persistently invalid selectors must fail");
+
+        assert!(matches!(
+            error,
+            ProductListingSchemaServiceError::StructuredResponseValidation { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_correct_invalid_selector_in_single_page_schema() {
+        let [invalid_schema, _] = invalid_selector_schemas();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let llm = SequenceSchemaLlm {
+            responses: Mutex::new(VecDeque::from([
+                schema_response_value(vec![invalid_schema]),
+                schema_response_value(vec![sample_css_schema()]),
+            ])),
+            requests: Arc::clone(&requests),
+        };
+        let service = ProductListingSchemaServiceImpl::new(
+            MockLlmProvider,
+            llm,
+            Box::new(MockListingSourceProductSchemaRepository::new()),
+            None,
+        );
+
+        let generated = service
+            .generate_single_schema_for_page("<main>product</main>")
+            .await
+            .unwrap_or_else(|error| panic!("corrected response should succeed: {error}"));
+
+        assert!(matches!(
+            generated,
+            GeneratedSingleSchema::ProductListing { schema, .. } if schema.validate_rules().is_ok()
+        ));
+        let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+        assert!(requests[1].prompt.contains("invalid_product_schema_rule"));
     }
 
     #[test]

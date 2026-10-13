@@ -514,6 +514,7 @@ fn log_model(model: &str) -> LlmModel {
     match model {
         "gemini-3.1-flash-lite" => LlmModel::Gemini31FlashLite,
         "gemini-3.1-pro-preview" => LlmModel::Gemini31ProPreview,
+        "gemini-3.5-flash" => LlmModel::Gemini35Flash,
         _ => LlmModel::Configured,
     }
 }
@@ -1371,6 +1372,7 @@ mod tests {
             log_model("gemini-3.1-pro-preview"),
             LlmModel::Gemini31ProPreview
         );
+        assert_eq!(log_model("gemini-3.5-flash"), LlmModel::Gemini35Flash);
     }
 
     #[test]

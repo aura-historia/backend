@@ -35,6 +35,11 @@ pub enum ReviewServerConfigError {
 pub struct ReviewServerConfig {
     pub bind_addr: SocketAddr,
     pub auth_token: Option<String>,
+    /// Lets same-origin browser requests mutate review state without a token on a
+    /// loopback bind. Only the local `dev` binary opts in through
+    /// [`ReviewServerConfig::allow_local_mutations_without_token`], which keeps it
+    /// limited to a loopback bind without a token.
+    local_mutations_without_token: bool,
 }
 
 impl ReviewServerConfig {
@@ -48,8 +53,21 @@ impl ReviewServerConfig {
         Self {
             bind_addr,
             auth_token,
+            local_mutations_without_token: false,
         }
         .validate()
+    }
+
+    /// Enables tokenless mutations for a loopback bind without a configured token.
+    /// A configured token or a non-loopback bind keeps bearer authorization.
+    pub fn local_mutations_without_token(&self) -> bool {
+        self.local_mutations_without_token
+    }
+
+    pub fn allow_local_mutations_without_token(mut self) -> Self {
+        self.local_mutations_without_token =
+            self.auth_token.is_none() && self.bind_addr.ip().is_loopback();
+        self
     }
 
     pub fn validate(self) -> Result<Self, ReviewServerConfigError> {
@@ -319,14 +337,17 @@ impl ReviewServer {
             };
         }
 
+        // Preview responses, including their errors, are framed by the console.
         if request.method == "GET" && request.path == "/api/live-inspect" {
             let Some(url) = request.query.get("url") else {
-                return HttpResponse::json(400, &json!({ "error": "missing url" }));
+                return HttpResponse::json(400, &json!({ "error": "missing url" }))
+                    .into_review_preview();
             };
             return match self.fetch_live_url(url).await {
                 Ok(html) => HttpResponse::html(200, &instrument_live_html(url, &html)),
                 Err(response) => response,
-            };
+            }
+            .into_review_preview();
         }
 
         if request.method == "GET" && request.path == "/api/live-html" {
@@ -368,7 +389,7 @@ impl ReviewServer {
             && request.path.ends_with("/inspect")
         {
             let Some(page_id) = parse_page_id_with_suffix(request.path, "/inspect") else {
-                return HttpResponse::text(400, "invalid page id");
+                return HttpResponse::text(400, "invalid page id").into_review_preview();
             };
             return match self.live_review_page(page_id).await {
                 Ok(Some((page, html))) => {
@@ -376,7 +397,8 @@ impl ReviewServer {
                 }
                 Ok(None) => HttpResponse::text(404, "not found"),
                 Err(response) => response,
-            };
+            }
+            .into_review_preview();
         }
 
         if request.method == "GET"
@@ -549,10 +571,13 @@ impl ReviewServer {
         let bearer = self.authorized(&request.headers);
         let mutation_bearer = self.config.auth_token.is_some() && bearer;
         let session = self.has_valid_session(&request.headers);
+        let local_mutation = self.config.local_mutations_without_token
+            && self.config.auth_token.is_none()
+            && is_same_origin_loopback_request(&request.headers);
         match (request.method.as_str(), request.path) {
             ("POST", "/api/session") => mutation_bearer,
             ("POST", "/api/session/logout") => mutation_bearer || session,
-            (method, _) if is_mutation_method(method) => mutation_bearer,
+            (method, _) if is_mutation_method(method) => mutation_bearer || local_mutation,
             _ => bearer || session,
         }
     }
@@ -975,6 +1000,35 @@ fn is_mutation_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
 }
 
+/// Browsers send `Origin` on every cross-origin mutation, so requiring it to equal
+/// the loopback `Host` rejects other sites and DNS-rebinding hosts.
+fn is_same_origin_loopback_request(headers: &std::collections::HashMap<String, String>) -> bool {
+    let (Some(host), Some(origin)) = (headers.get("host"), headers.get("origin")) else {
+        return false;
+    };
+    host_is_loopback(host) && origin.eq_ignore_ascii_case(&format!("http://{host}"))
+}
+
+fn host_is_loopback(host: &str) -> bool {
+    let Ok(url) = Url::parse(&format!("http://{host}")) else {
+        return false;
+    };
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain == "localhost",
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
+}
+
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
     let max_len = left.len().max(right.len());
@@ -1093,6 +1147,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
+                local_mutations_without_token: false,
             },
         ))
     }
@@ -1210,6 +1265,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
+                local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1222,6 +1278,48 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains("Content-Type: text/plain; charset=utf-8"));
         assert!(response.ends_with("<script>alert('remote')</script>"));
+        assert!(response.contains("frame-ancestors 'none'"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_let_only_the_review_console_frame_live_inspection()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let server = ReviewServer::new_with_fetcher(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: None,
+                local_mutations_without_token: false,
+            },
+            Arc::new(StaticHtmlFetcher),
+        );
+
+        let inspection = server
+            .route("GET /api/live-inspect?url=https%3A%2F%2Fexample.com HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let console = server.route("GET / HTTP/1.1\r\n\r\n").await.to_string();
+
+        let missing_url = server
+            .route("GET /api/live-inspect HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let invalid_page = server
+            .route("GET /api/review-pages/not-a-page/inspect HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+
+        assert!(inspection.starts_with("HTTP/1.1 200 OK"));
+        for preview in [&inspection, &missing_url, &invalid_page] {
+            assert!(preview.contains("Content-Security-Policy: sandbox allow-scripts;"));
+            assert!(preview.contains("frame-ancestors 'self'\r\n"));
+        }
+        assert!(!console.contains("sandbox"));
+        assert!(console.contains("frame-ancestors 'none'\r\n"));
         Ok(())
     }
 
@@ -1275,6 +1373,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
+                local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1348,11 +1447,110 @@ mod tests {
         Ok(())
     }
 
+    async fn local_demo_review_server_for_test() -> Result<ReviewServer, sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        Ok(ReviewServer::new(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: None,
+                local_mutations_without_token: false,
+            }
+            .allow_local_mutations_without_token(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn should_allow_same_origin_loopback_mutations_without_token_in_local_mode()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let server = local_demo_review_server_for_test().await?;
+
+        for (host, origin) in [
+            ("127.0.0.1:7878", "http://127.0.0.1:7878"),
+            ("localhost:7878", "http://localhost:7878"),
+            ("[::1]:7878", "http://[::1]:7878"),
+        ] {
+            let response = server
+                .route(&format!(
+                    "POST /api/health HTTP/1.1
+Host: {host}
+Origin: {origin}
+
+"
+                ))
+                .await
+                .to_string();
+            assert!(response.starts_with("HTTP/1.1 404"), "{host}: {response}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_cross_origin_or_rebound_mutations_in_local_mode()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let server = local_demo_review_server_for_test().await?;
+
+        for headers in [
+            "Host: 127.0.0.1:7878
+",
+            "Origin: http://127.0.0.1:7878
+",
+            "Host: 127.0.0.1:7878
+Origin: https://evil.example
+",
+            "Host: 127.0.0.1:7878
+Origin: null
+",
+            "Host: evil.example:7878
+Origin: http://evil.example:7878
+",
+            "Host: 127.0.0.1:7878/x
+Origin: http://127.0.0.1:7878/x
+",
+        ] {
+            let response = server
+                .route(&format!(
+                    "POST /api/health HTTP/1.1
+{headers}
+"
+                ))
+                .await
+                .to_string();
+            assert!(
+                response.starts_with("HTTP/1.1 401"),
+                "{headers}: {response}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_bearer_authorization_when_local_mode_has_token_or_public_bind() {
+        let with_token = ReviewServerConfig {
+            bind_addr: "127.0.0.1:7878".parse().unwrap(),
+            auth_token: Some("review-token".to_string()),
+            local_mutations_without_token: false,
+        }
+        .allow_local_mutations_without_token();
+        let public_bind = ReviewServerConfig {
+            bind_addr: "0.0.0.0:7878".parse().unwrap(),
+            auth_token: None,
+            local_mutations_without_token: false,
+        }
+        .allow_local_mutations_without_token();
+
+        assert!(!with_token.local_mutations_without_token);
+        assert!(!public_bind.local_mutations_without_token);
+    }
+
     #[test]
     fn should_require_authentication_for_non_loopback_review_bind() {
         let result = ReviewServerConfig {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: None,
+            local_mutations_without_token: false,
         }
         .validate();
 
@@ -1367,6 +1565,7 @@ mod tests {
         let result = ReviewServerConfig {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: Some("review-token".to_string()),
+            local_mutations_without_token: false,
         }
         .validate();
 
@@ -1378,6 +1577,7 @@ mod tests {
         let result = ReviewServerConfig {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: None,
+            local_mutations_without_token: false,
         }
         .validate();
 

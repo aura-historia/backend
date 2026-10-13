@@ -15,7 +15,7 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use serde_json::{Value, json};
-use tracing::info;
+use tracing::{info, warn};
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
     Persisted(ListingSourceProductSchema),
@@ -33,6 +33,19 @@ impl ScraperServiceImpl {
         pages: Vec<SchemaReviewPageInput>,
         validation_summary: Value,
     ) -> Result<GeneratedSchemaReviewOutcome, ScraperError> {
+        if let Err(error) = ProductCssSelectorSchema::validate_all(&schemas) {
+            warn!(
+                listing_source_id = %listing_source_id,
+                reason,
+                schema_count = schemas.len(),
+                error = %error,
+                "Generated product schema failed deterministic validation; not persisting review"
+            );
+            return Err(ProductListingSchemaServiceError::InvalidGeneratedSchema {
+                source: application::error::box_error(error),
+            }
+            .into());
+        }
         let Some(review_repository) = &self.review_repository else {
             let saved = self
                 .schema_service
@@ -183,7 +196,20 @@ fn should_auto_approve_generated_schema(
 fn review_error_to_schema_service_error(
     err: crate::review::repository::ReviewRepositoryError,
 ) -> ProductListingSchemaServiceError {
-    ProductListingSchemaServiceError::DatabaseError(sqlx::Error::Protocol(err.to_string()))
+    use crate::review::repository::ReviewRepositoryError;
+    match err {
+        ReviewRepositoryError::Database(err) => {
+            ProductListingSchemaServiceError::DatabaseError(err)
+        }
+        err @ ReviewRepositoryError::InvalidProductSchemaCandidate => {
+            ProductListingSchemaServiceError::InvalidGeneratedSchema {
+                source: application::error::box_error(err),
+            }
+        }
+        err => ProductListingSchemaServiceError::ReviewPersistence {
+            source: application::error::box_error(err),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +291,88 @@ mod tests {
             summary["schema_matrix_summary"]["present_but_missing_rule_failures"],
             json!([])
         );
+    }
+
+    #[test]
+    fn should_map_invalid_review_candidate_to_schema_outcome_not_database_error() {
+        let error = review_error_to_schema_service_error(
+            crate::review::repository::ReviewRepositoryError::InvalidProductSchemaCandidate,
+        );
+
+        assert!(matches!(
+            error,
+            ProductListingSchemaServiceError::InvalidGeneratedSchema { .. }
+        ));
+    }
+
+    #[test]
+    fn should_keep_non_database_review_failure_cause_instead_of_database_error() {
+        let error = review_error_to_schema_service_error(
+            crate::review::repository::ReviewRepositoryError::InvalidSchemaField(
+                "price".to_string(),
+            ),
+        );
+
+        let ProductListingSchemaServiceError::ReviewPersistence { source } = &error else {
+            panic!("expected review persistence error, got {error:?}");
+        };
+        assert_eq!(source.to_string(), "invalid schema field `price`");
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_generated_schema_before_persisting_it() {
+        use crate::scraper::candidate_service::MockScraperCandidateService;
+        use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
+        use crate::scraper::normalization::product_normalization_service::MockProductListingNormalizationService;
+        use crate::scraper::scraper_service::service::MockHtmlFetcher;
+        use std::sync::Arc;
+
+        let mut schema_service = MockProductListingSchemaService::new();
+        schema_service.expect_save_product_schemas().never();
+        let service = ScraperServiceImpl::new(
+            Box::new(MockHtmlFetcher::new()),
+            Box::new(schema_service),
+            Box::new(MockProductListingNormalizationService::new()),
+            Arc::new(MockScraperCandidateService::new()),
+        );
+        let mut schema: ProductCssSelectorSchema = serde_json::from_value(json!({
+            "title": {"selector": "h1", "type": "text"},
+            "state": {"selector": ".stock", "type": "text"},
+            "images": {"selector": "img", "type": "image_url", "cardinality": "all"}
+        }))
+        .unwrap_or_else(|error| panic!("schema fixture should deserialize: {error}"));
+        schema.title.selector = "[".into();
+
+        let result = service
+            .handle_generated_schema_review(
+                &ListingSourceId::new(),
+                "initial_schema_generation",
+                vec![schema],
+                SchemaLlmEvaluation::unavailable("not evaluated"),
+                Vec::new(),
+                json!({}),
+            )
+            .await;
+
+        let Err(ScraperError::SchemaServiceError(
+            ProductListingSchemaServiceError::InvalidGeneratedSchema { source },
+        )) = result
+        else {
+            panic!("expected invalid generated schema error");
+        };
+        assert!(source.to_string().contains("invalid CSS selector `[`"));
+    }
+
+    #[test]
+    fn should_keep_review_database_failures_as_database_errors() {
+        let error = review_error_to_schema_service_error(
+            crate::review::repository::ReviewRepositoryError::Database(sqlx::Error::PoolTimedOut),
+        );
+
+        assert!(matches!(
+            error,
+            ProductListingSchemaServiceError::DatabaseError(sqlx::Error::PoolTimedOut)
+        ));
     }
 
     #[test]

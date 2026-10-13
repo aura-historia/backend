@@ -16,6 +16,8 @@ Fresh generation begins only after cached candidates are exhausted. It creates a
 
 Initial generation is product-schema-only. Single-page classification may produce a product schema, a verified removal, or a verified non-product result. A removal needs selector-bound evidence and results in raw deletion capture. A non-product result changes that URL only; one page never rewrites a domain URL pattern.
 
+Every generated product schema must pass deterministic rule validation (selector syntax and attribute names) before it can be reviewed or persisted. An invalid response is returned to the model with a fixed correction code during bounded response correction; if it stays invalid, generation ends with a schema-generation validation failure. The review gate rejects invalid candidates before review persistence, so review artifacts and approved schemas only ever contain valid rules, and model output is never reported as a database failure.
+
 Generated selectors are grounded in page structure. Optional fields remain absent rather than guessed. State selectors represent availability or a cart action, not price text. Raw attribute selectors are review/display inputs and participate in the raw-input hash; adding a new attribute requires schema regeneration for existing cached schemas.
 
 ## Review rail
