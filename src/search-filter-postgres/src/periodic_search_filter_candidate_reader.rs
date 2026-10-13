@@ -1,4 +1,6 @@
-use crate::mapping::{name, product_search_from_json, state};
+use crate::mapping::{
+    SearchFilterRowMappingError, matching_evidence_policy, name, product_search_from_json, state,
+};
 use application::error::box_error;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
@@ -27,6 +29,7 @@ struct PeriodicCandidateRow {
     state: String,
     search: serde_json::Value,
     embedding: Option<Vec<f32>>,
+    matching_evidence_policy: String,
     created: OffsetDateTime,
     matched_through: OffsetDateTime,
     version: i64,
@@ -47,14 +50,13 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
         sqlx::query_as::<_, PeriodicCandidateRow>(
             r#"
             SELECT filter.user_search_filter_id, filter.user_id, filter.name, filter.state,
-                   filter.search, filter.embedding, filter.created,
+                   filter.search, filter.embedding, filter.matching_evidence_policy, filter.created,
                    COALESCE(progress.matched_through, filter.created) AS matched_through,
                    filter.version
             FROM search_filters filter
             LEFT JOIN search_filter_periodic_match_state progress
               ON progress.user_search_filter_id = filter.user_search_filter_id
             WHERE filter.state = 'ACTIVE'
-              AND filter.enhanced_search_description IS NOT NULL
               AND filter.created <= $1
               AND (progress.matched_through IS NULL OR progress.matched_through < $1)
               AND ($2::uuid IS NULL OR filter.user_search_filter_id > $2)
@@ -74,6 +76,28 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
         )?
         .into_iter()
         .map(|row| {
+            let search = product_search_from_json(row.search).map_err(|source| {
+                PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?;
+            let policy =
+                matching_evidence_policy(&row.matching_evidence_policy).map_err(|source| {
+                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                        source: box_error(source),
+                    }
+                })?;
+            // Validate the persisted capability snapshot without consulting entitlements.
+            // Incompatible intent must not be silently removed from an executable filter.
+            if search.enhanced_search_description.is_some() && !policy.permits_enhanced_intent() {
+                return Err(
+                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                        source: box_error(
+                            SearchFilterRowMappingError::InvalidMatchingEvidencePolicy,
+                        ),
+                    },
+                );
+            }
             Ok(PeriodicSearchFilterCandidate {
                 search_filter_id: UserSearchFilterId::try_from(row.user_search_filter_id).map_err(
                     |source| PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
@@ -96,12 +120,9 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
                         source: box_error(source),
                     }
                 })?,
-                search: product_search_from_json(row.search).map_err(|source| {
-                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
-                        source: box_error(source),
-                    }
-                })?,
+                search,
                 embedding: row.embedding,
+                matching_evidence_policy: policy,
                 created: row.created,
                 matched_through: row.matched_through,
             })

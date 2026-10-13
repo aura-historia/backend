@@ -145,7 +145,9 @@ async fn seed_enhanced_filter(unit: &SqlxUnitOfWork, user_id: UserId, name: &str
         notifications: true,
         state: SearchFilterState::Active,
         search,
-        embedding: None,
+        embedding: Some(vec![1.0; 768]),
+        matching_evidence_policy:
+            search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
     });
     let repository = SqlxSearchFilterRepositoryFactory;
     let mut tx = unit
@@ -174,4 +176,90 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
     .await
     .unwrap_or_else(|error| panic!("seed user failed: {error:?}"));
     id
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn ordinary_and_deterministic_active_filters_are_candidates_without_enhanced_intent() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let user_id = seed_user(&pool, "ordinary-periodic@example.test").await;
+    for semantic in [false, true] {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        if semantic {
+            search
+                .product_listing_query
+                .push("brass lamp".try_into().unwrap());
+        }
+        let filter = SearchFilter::create(NewSearchFilter {
+            user_search_filter_id: UserSearchFilterId::new(),
+            user_id,
+            name: "ordinary".into(),
+            notifications: false,
+            state: SearchFilterState::Active,
+            search,
+            embedding: None,
+            matching_evidence_policy: search_filter_core::MatchingEvidencePolicy::TextOnly,
+        });
+        let mut tx = unit.begin().await.unwrap();
+        SqlxSearchFilterRepositoryFactory
+            .in_transaction(&mut tx)
+            .insert(&filter)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+    let candidates = SqlxPeriodicSearchFilterCandidateReader::new(pool)
+        .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+            after: None,
+            page_size: 10,
+            eligible_at_or_before: OffsetDateTime::now_utc() + Duration::hours(1),
+        })
+        .await
+        .unwrap();
+    assert_eq!(2, candidates.len());
+    assert!(
+        candidates
+            .iter()
+            .all(|filter| filter.search.enhanced_search_description.is_none())
+    );
+    assert!(
+        candidates
+            .iter()
+            .all(|filter| filter.matching_evidence_policy
+                == search_filter_core::MatchingEvidencePolicy::TextOnly)
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn incompatible_persisted_enhanced_intent_fails_closed_instead_of_being_omitted() {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool, "incompatible-intent@example.test").await;
+    for policy in ["TEXT_ONLY", "TEXT_AND_ONE_IMAGE"] {
+        let filter_id = UserSearchFilterId::new();
+        // Corrupt the JSON intent while the dedicated feature column remains absent.
+        // Valid write paths update both representations and cannot produce this state.
+        sqlx::query("INSERT INTO search_filters (user_search_filter_id,user_id,name,state,search,embedding,matching_evidence_policy,language,currency) VALUES ($1,$2,'incompatible','ACTIVE',$3,$4,$5,'en','EUR')")
+            .bind(filter_id.into_uuid())
+            .bind(user_id.into_uuid())
+            .bind(serde_json::json!({"enhanced_search_description": "Exclude reproductions"}))
+            .bind(vec![1.0_f32; 768])
+            .bind(policy)
+            .execute(&pool).await.unwrap();
+        let result = SqlxPeriodicSearchFilterCandidateReader::new(pool.clone())
+            .find_active_page(PeriodicSearchFilterCandidatePageRequest {
+                after: None,
+                page_size: 10,
+                eligible_at_or_before: OffsetDateTime::now_utc() + Duration::hours(1),
+            })
+            .await;
+        assert!(matches!(
+            result,
+            Err(search_filter_service::ports::PeriodicSearchFilterCandidateReadError::InvalidPersistedState { .. })
+        ));
+        sqlx::query("DELETE FROM search_filters WHERE user_search_filter_id=$1")
+            .bind(filter_id.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
 }

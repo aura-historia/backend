@@ -23,6 +23,7 @@ pub struct PeriodicSearchFilterCandidate {
     pub state: SearchFilterState,
     pub search: ProductListingSearch,
     pub embedding: Option<Vec<f32>>,
+    pub matching_evidence_policy: search_filter_core::MatchingEvidencePolicy,
     pub created: OffsetDateTime,
     pub matched_through: OffsetDateTime,
 }

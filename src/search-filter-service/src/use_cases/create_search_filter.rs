@@ -3,7 +3,7 @@ use crate::ports::{
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
     SearchFilterView,
 };
-use crate::tier_policy::{active_filter_quota, validate_search_features};
+use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -152,7 +152,7 @@ where
             ),
             None => None,
         };
-        let filter = SearchFilter::create(NewSearchFilter {
+        let mut filter = SearchFilter::create(NewSearchFilter {
             user_search_filter_id: UserSearchFilterId::new(),
             user_id: command.user_id,
             name: command.name,
@@ -160,6 +160,7 @@ where
             state: SearchFilterState::Active,
             search: command.search,
             embedding,
+            matching_evidence_policy: search_filter_core::MatchingEvidencePolicy::TextOnly,
         });
 
         let mut tx =
@@ -176,6 +177,7 @@ where
         validate_search_features(tier, filter.search()).map_err(|feature| {
             CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
         })?;
+        filter.resolve_matching_evidence(matching_evidence_policy(tier));
         let quota = active_filter_quota(tier);
         let active_count = self
             .quotas

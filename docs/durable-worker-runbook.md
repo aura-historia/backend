@@ -211,7 +211,23 @@ Index reset, expired queues and absent history cannot restore missing authoritat
 [infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
 runs, verify private PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
-from PostgreSQL, so no saved-filter index or CDC backfill is required.
+from PostgreSQL. Apply the matching-evidence migration before expanded runs; it resolves
+existing policies and plan/quota states and fences old snapshots. Older saved-filter writers
+cannot populate the required policy or reconcile it on tier changes. Quiesce saved-filter
+and subscription writes and pause/drain matcher runs for migration and deployment of the
+compatible API, billing and matcher runtimes; resume only when every writer maintains the
+new invariant. Query-only filters need no embedding for lexical retrieval. Enhanced filters
+eligible for activation require the existing write-time embedding; migration admission
+aborts if one is missing. Repair missing embeddings with the deployed
+saved-filter write path before migration admission (an effective intent change generates
+the embedding; restore the intended query afterward). The update use case repairs missing
+semantic embeddings outside its transaction and rechecks current intent and tier under
+lock. Preserve authored intent and do not generate embeddings during matching.
+
+With concurrency eight, a 50-candidate filter may require seven request waves per attempt;
+image fetching adds bounded preparation time. The two-hour run deadline also bounds expanded
+Free/Pro coverage: monitor selected/attempted counts, failed filters and timeout outcomes for
+saturation. Candidate/scan caps are successful bounded discovery, not exhaustive coverage.
 
 Inspect Scheduler delivery failures separately from actual ECS task exit and application
 completion reports. Failed filters, cancellation or timeout are incomplete work even if

@@ -120,7 +120,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::InsertSearchSerialization)?;
         let id = filter.id().into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ",
+            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency,matching_evidence_policy) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ",
         );
         query.push(FILTER_COLUMNS);
         let row = query
@@ -141,6 +141,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(filter.embedding())
             .bind(filter.search().language.as_str())
             .bind(filter.search().currency.as_str())
+            .bind(filter.matching_evidence_policy().as_str())
             .fetch_one(self.tx.connection())
             .await
             .map_err(|source| {
@@ -163,7 +164,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::UpdateSearchSerialization)?;
         let id = filter.id().into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,version=version+1,updated=now() WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
+            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,matching_evidence_policy=$11,version=version+1,updated=now() WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
         );
         query.push(FILTER_COLUMNS);
         let row = query
@@ -184,6 +185,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(filter.search().language.as_str())
             .bind(filter.search().currency.as_str())
             .bind(expected_version)
+            .bind(filter.matching_evidence_policy().as_str())
             .fetch_optional(self.tx.connection())
             .await
             .map_err(SearchFilterRepositoryAdapterError::UpdateSqlx)?

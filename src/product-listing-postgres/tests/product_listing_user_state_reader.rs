@@ -557,8 +557,8 @@ async fn insert_search_filter(
     let result = sqlx::query(
         r#"
         INSERT INTO search_filters (
-            user_search_filter_id, user_id, name, notifications, state, search, language, currency
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            user_search_filter_id, user_id, name, notifications, state, search, language, currency, matching_evidence_policy
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'TEXT_ONLY')
         "#,
     )
     .bind(filter_id.into_uuid())

@@ -113,6 +113,8 @@ async fn seed_filter(unit: &SqlxUnitOfWork, pool: &sqlx::PgPool, email: &str) ->
         state: SearchFilterState::Active,
         search: ProductListingSearch::new(Language::En, Currency::Eur),
         embedding: None,
+        matching_evidence_policy:
+            search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
     });
     let repository = SqlxSearchFilterRepositoryFactory;
     let mut tx = begin(unit).await;

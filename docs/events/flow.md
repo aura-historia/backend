@@ -186,27 +186,61 @@ Unsettled PostgreSQL registration therefore needs operator recovery.
 
 ### Periodic saved-filter matching
 
-New saved-filter matches are discovered only by scheduled runs, not by ProductListing
-or geography event fanout. The service pages active **enhanced** filter candidates from
-PostgreSQL and queries ProductListing search; evaluation requires a valid enhanced
-search description and embedding. Non-enhanced filters remain available for CRUD and
-historical match reads but do not discover new matches. Saved-filter configuration has
-no OpenSearch projection. Filter CRUD, persisted matches, feedback and notification
-eligibility remain PostgreSQL-owned.
+New saved-filter matches are discovered by scheduled runs for active ordinary and
+enhanced filters. PostgreSQL owns filter configuration, permitted matching evidence,
+progress, matches, feedback and notification eligibility. Creates, updates, reactivation
+and subscription reconciliation resolve evidence under the authoritative user-tier lock:
+Free permits title/description, Pro adds up to one image, Ultimate adds enhanced intent
+when supplied and up to four images. Restricted filters remain inactive with authored
+intent intact. A policy change increments the filter version even when its state stays
+active; execution consumes that policy without loading subscriptions. Persisted intent
+incompatible with its resolved capability fails validation instead of losing instructions.
 
-A run excludes overlapping execution and uses a bounded window with projection-lag
-allowance and replay overlap. Product search supplies candidates, not authoritative match
-facts: evaluation rereads current listing sources, then the final transaction rechecks
-filter version/state/progress and listing event identity before inserting idempotent
-matches. Per-filter progress advances only for completed work. Search projection lag can
-delay discovery; a successful task launch is not proof of completed matching.
+Query-only intent uses the existing lexical search. Enhanced intent uses hybrid retrieval
+with its write-time base-query + description embedding; the description is never appended
+as a mandatory all-words title query. Filters containing only deterministic constraints
+use ordinary search without embedding or model work. Structured predicates, including
+geography, availability, source/auction and pinned-FX prices, constrain retrieval regardless
+of classifier scores. Current authoritative event checks fence obsolete projection evidence.
 
-Matching uses persisted FX, not live rates. The run pins an eligible snapshot at its
-window end; historical sold valuations retain their observation basis. Enhanced-classifier
-failures are not negative matches: successful candidates may commit while retryable
-failures leave progress unchanged. Scores and generated explanations are not match facts.
-Persisted match INSERTs feed the ordinary `search_filter_matches` CDC notification route;
-notification generation and delivery keep their existing completion/eligibility rules.
+Each logical filter/window attempt scans at most 100 results, deduplicates listing identity
+and skips existing matches, withdrawn listings and missing/stale sources before selecting
+the first up to 50 eligible listings. Every selected semantic candidate receives its own
+request; negative decisions never stop evaluation or refill slots. Bounded retries reuse
+the same selected identities. This is bounded best-effort discovery: exhaustion, candidate
+cap and scan cap are reported separately. Advancing a window does not prove catalogue
+coverage; the unselected tail has no guaranteed later opportunity.
+
+The evaluator includes complete base-query alternatives and permitted enhanced instructions,
+keeps requirements/exclusions distinct from preferences and treats listing/image text as
+untrusted evidence. Missing evidence proves neither satisfaction nor contradiction. Images
+cannot establish authenticity, provenance, authorship or age without supporting evidence.
+`should_show >= SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS / 10000` accepts an alert
+(default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
+`hard_conflict` remains diagnostic-only. Text-only, one-image and four-image requests may
+have different score behavior and require separate evaluation fixtures.
+
+Image selection is primary-first, URL-deduplicated and policy-bounded. Free never fetches
+images. Absent source media is normal; fetching/format/size failures degrade to the remaining
+permitted evidence, including text-only, with requested/sent counts and omission reasons.
+Exact prepared-image duplicates are omitted. The adapter enforces four images, per-image
+and aggregate media/body limits and a conservative context bound before provider truncation.
+A technical failure is never a negative semantic decision. Permanent candidate failures
+are reported as terminal incomplete evaluations and permit bounded-window progress;
+retryable failures leave progress unchanged even when accepted
+matches commit. Only `CLASSIFIER_INVOCATION` events sum provider attempts and token costs;
+`SAVED_SEARCH_MATCH_DECISION` events describe scores and decisions without duplicate costs.
+Reports count selected identities separately from submitted classification requests
+(including retries/preparation failures); actual provider attempts come only from the
+invocation stream. Neither event logs private search text or image bytes.
+
+A run excludes overlapping execution and uses projection lag and replay overlap. Image/model
+work has bounded concurrency outside transactions; cancellation/timeouts and failed filters
+remain incomplete task outcomes. The final short transaction rechecks filter version,
+state/progress and current listing event before idempotent insertion. Matching pins persisted
+FX at the window end and retains historical sale-observation valuations. Persisted match
+INSERTs feed the existing CDC notification route independently of external notification
+eligibility and monthly quotas.
 
 The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)
 owns executable matching semantics; [periodic recovery](../durable-worker-runbook.md#periodic-matching-recovery)

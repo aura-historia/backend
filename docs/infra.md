@@ -294,7 +294,7 @@ for routing, archives, native ownership and recovery. Runtime roles do not recei
 operator purge/redrive powers.
 
 The periodic matcher is the only saved-filter matching path: a one-shot private Fargate
-task using PostgreSQL enhanced-filter candidates and ProductListing search. Its [matching contract](events/flow.md#periodic-saved-filter-matching)
+task using PostgreSQL active-filter candidates and ProductListing search. Its [matching contract](events/flow.md#periodic-saved-filter-matching)
 and [recovery checks](durable-worker-runbook.md#periodic-matching-recovery) are independent of
 CDC activation; persisted match notifications still require CDC. Enable/pause its parameter
 through the approved CloudFormation path, preserving other parameters; do not

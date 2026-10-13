@@ -323,6 +323,8 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
         state: SearchFilterState::Active,
         search: ProductListingSearch::new(Language::En, Currency::Eur),
         embedding: None,
+        matching_evidence_policy:
+            search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
     })
 }
 

@@ -1247,7 +1247,7 @@ async fn should_keep_member_lot_facts_when_shared_schedule_changes_and_redact_hi
 
     let filter_id = UserSearchFilterId::new();
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'F12 hidden catalogue alerts', true, 'ACTIVE', '{}', 'en', 'EUR')",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, 'F12 hidden catalogue alerts', true, 'ACTIVE', '{}', 'en', 'EUR', 'TEXT_ONLY')",
     )
     .bind(filter_id.as_uuid())
     .bind(partner_id.as_uuid())
