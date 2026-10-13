@@ -3,7 +3,7 @@ use crate::CrawlerDomainId;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
-use crate::spider::local_lock::SpiderDomainLock;
+use crate::spider::local_lock::{DomainLock, DomainLockScope};
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
@@ -117,8 +117,11 @@ fn spawn_spider_candidate(
 
     join_set.spawn(
         async move {
-            let Some(_lock) = SpiderDomainLock::try_acquire(&lock_manager, candidate.domain_id)
-            else {
+            let Some(_lock) = DomainLock::try_acquire(
+                &lock_manager,
+                DomainLockScope::Spider,
+                candidate.domain_id,
+            ) else {
                 debug!(
                     listing_source_id = %candidate.listing_source_id,
                     domain_id = %candidate.domain_id,
@@ -1197,8 +1200,7 @@ mod tests {
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());
         let _scraper_lock =
-            crate::spider::local_lock::ScraperDomainLock::try_acquire(&lock_manager, domain_id)
-                .unwrap();
+            DomainLock::try_acquire(&lock_manager, DomainLockScope::Scraper, domain_id).unwrap();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
@@ -1234,7 +1236,9 @@ mod tests {
 
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());
-        let _prelock = SpiderDomainLock::try_acquire(&lock_manager, locked_domain_id).unwrap();
+        let _prelock =
+            DomainLock::try_acquire(&lock_manager, DomainLockScope::Spider, locked_domain_id)
+                .unwrap();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
