@@ -2,7 +2,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const MIGRATION: &str =
-    include_str!("../../../migrations/20261013120000_search_filter_matching_evidence.sql");
+    include_str!("../../../migrations/20261013130000_search_filter_matching_evidence.sql");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn backfill_resolves_policies_and_quotas_preserves_authored_intent_and_fences_versions() {
