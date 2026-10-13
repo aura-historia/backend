@@ -12,6 +12,8 @@ must inspect them.
 against OpenAPI and Axum by [`api-route-matrix.test.ts`](../infra/test/api-route-matrix.test.ts).
 There is no proxy or `$default` route. Ordinary REST methods target the `live` alias
 of the single stage API Lambda; deploy its version/alias before the API stack uses it.
+Preserve deployed route logical IDs when changing path-parameter spelling so
+CloudFormation updates the existing routes rather than creating overlapping patterns.
 
 Gateway deliberately applies **no Cognito JWT authorizer**. Axum validates Cognito
 access JWTs and Aura opaque access tokens, optional bearers, delegated scopes and
