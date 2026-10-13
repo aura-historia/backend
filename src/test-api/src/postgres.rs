@@ -212,7 +212,14 @@ async fn ensure_container_started() {
                 .expect("shouldn't fail copying Postgres test CA from container");
             POSTGRES_TLS_ROOT_CERTIFICATE_PATH.get_or_init(|| certificate_path);
 
-            let _connection = wait_for_postgres_connection().await;
+            let mut connection = wait_for_postgres_connection().await;
+            // Business migrations grant heartbeat access to this pre-provisioned role.
+            connection
+                .execute(AssertSqlSafe(
+                    "CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE",
+                ))
+                .await
+                .expect("shouldn't fail creating the replication role for test migrations");
 
             debug!(
                 image,
