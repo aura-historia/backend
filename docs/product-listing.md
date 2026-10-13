@@ -90,9 +90,13 @@ Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts
 
 Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
-## Administrative inspection and mutation
+## Management inspection and mutation
 
 The `/api/v1/admin/product-listings` directory and detail return authoritative original facts from PostgreSQL, including retained `WITHDRAWN` listings. Administrator authority is checked before reading the target or directory. Delegated credentials additionally require `product-listings:read` for reads and `product-listings:write` for mutations; Cognito users use their persisted role. Partnership/source ingestion grants are not prerequisites. All responses, including errors, are `private, no-store`.
+
+The complementary `/api/v1/listing-sources/{listingSourceId}/product-listings` management directory/detail and single-listing commands use the same canonical views, field whitelist, lifecycle, concurrency and event contracts below. Each partner use case requires a user principal and an active Partnership source grant before accessing listings; administrator role alone is insufficient. Delegated reads require `product-listings:read` and writes require `product-listings:write`. The immutable ListingSource must match the authorized path for every ID-specific operation; cross-source targets are indistinguishable from missing listings. Directory queries always use the path source and bind cursors to it. All responses/errors are `private, no-store`.
+
+Collection POST/PATCH/PUT/DELETE and their async variants remain the source-keyed integration API. Their existing authorization and batch semantics remain independent of versioned management; PUT can still upsert or restore without a management version.
 
 Detail exposes original localized title/description, source-currency prices, immutable identity/slug, original URL and ordered canonical image URLs, Auction/lot facts, read-only sale observation, timestamps and `expectedVersion`. These image URLs are privileged inspection data: previews must respect sensitivity/unassessed status and must not automatically render every source image. Public image redaction and discovery visibility are unchanged. Title/description, assessment and enrichment remain read-only.
 
@@ -102,9 +106,9 @@ PATCH/restore bodies and DELETE query parameters require the positive PostgreSQL
 
 State and the ordinary coalesced `PRODUCT_LISTING_CHANGED` event commit together. Normal asynchronous search, image embedding refresh and eligible watchlist notifications follow the existing event pipeline. Success confirms the PostgreSQL commit, not projection/cache convergence. Logs record the real actor, correlation, action, versions, event and changed field names; the public event journal is not a durable administrator audit log.
 
-The directory supports source/source-local identity, lifecycle, availability and Auction filters, plus bounded literal text matching over original title and source-local ID. No lifecycle filter includes both lifecycle states. Default page size is 21, clamped to 1–100; sorting defaults to updated descending, with listing ID as a deterministic tie-breaker. Opaque `searchAfter` cursors are bound to normalized filters and sort/order. Pagination is live keyset traversal, not a snapshot or count. Exact wire shapes and errors are owned by [OpenAPI](swagger.yaml).
+The admin directory supports source/source-local identity; the partner directory fixes the source from the path. Both support exact source-local identity, lifecycle, availability and Auction filters, plus bounded literal text matching over original title and source-local ID. No lifecycle filter includes both lifecycle states. Default page size is 21, clamped to 1–100; sorting defaults to updated descending, with listing ID as a deterministic tie-breaker. Opaque `searchAfter` cursors are bound to normalized filters and sort/order. Pagination is live keyset traversal, not a snapshot or count. Exact wire shapes and errors are owned by [OpenAPI](swagger.yaml).
 
-Later accepted ingestion can overwrite eligible admin corrections, and upsert can restore a withdrawal. These operations do not establish permanent overrides or immediate permanent takedowns. After a lost response, refetch and reconcile state/version before another command.
+Later accepted ingestion can overwrite eligible management corrections, and upsert can restore a withdrawal. These operations do not establish permanent overrides or immediate permanent takedowns. After a lost response, refetch and reconcile state/version before another command.
 
 ## Asynchronous ingestion submission
 
@@ -152,7 +156,7 @@ Images are URL-only source facts. Listing-level assessment is asynchronous enric
 
 Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT(NAZI_GERMANY)`) and unassessed images. Redaction preserves image order/cardinality and emits hidden URLs as `null`.
 
-The authorized [administrative inspection](#administrative-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
+The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 
 Assessment does not block ingestion, change aggregate revision/history or become search authority. Non-content changes do not invalidate text assessment; a new text source must invalidate the old result.
 

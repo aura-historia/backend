@@ -109,3 +109,5 @@ pub use queries::search_product_listings::{
     ProductListingSummaryPriceValuation, SearchProductListingsError, SearchProductListingsHandler,
     SearchProductListingsRequest, SearchProductListingsResult, SearchProductListingsUseCase,
 };
+
+pub mod partner_product_listing_error;

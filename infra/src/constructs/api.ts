@@ -96,10 +96,12 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/api/v1/newsletter-subscriptions/confirm", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/product-listings", ["POST", "PATCH", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings/{product_listing_id}", ["GET", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/api/v1/admin/product-listings/{product_listing_id}/restore", ["POST"]),
@@ -533,10 +535,9 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       providerProof: ProviderProofRequirement.None,
     };
   }
-  if (path === "/api/v1/listing-sources/{listing_source_id}/product-listings" ||
+  if (path.startsWith("/api/v1/listing-sources/{listingSourceId}/product-listings") ||
       path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
-      path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify" ||
-      path === "/api/v1/listing-sources/{listingSourceId}/product-listings/async") {
+      path === "/api/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify") {
     return {
       bearer: "REQUIRED",
       authorization: RouteAuthorizationClass.Partner,

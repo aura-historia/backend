@@ -107,11 +107,11 @@ impl ProductListingRepositoryFactory<platform_postgres::SqlxTransaction>
     }
 }
 
-#[async_trait::async_trait]
-impl ProductListingRepository for SqlxProductListingRepository<'_> {
-    async fn find_by_id(
+impl SqlxProductListingRepository<'_> {
+    async fn find_by_id_scoped(
         &mut self,
         id: ProductListingId,
+        source: Option<listing_source_core::ListingSourceId>,
     ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
@@ -127,14 +127,34 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 product_listings.created, product_listings.updated
             FROM product_listings
             WHERE product_listings.product_listing_id = $1
+              AND ($2::uuid IS NULL OR product_listings.listing_source_id = $2)
             "#,
         )
         .bind(id.as_uuid())
+        .bind(source.as_ref().map(|source| source.as_uuid()))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingLookupByIdSqlxError)?;
 
         row.map(TryInto::try_into).transpose()
+    }
+}
+
+#[async_trait::async_trait]
+impl ProductListingRepository for SqlxProductListingRepository<'_> {
+    async fn find_by_id(
+        &mut self,
+        id: ProductListingId,
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+        self.find_by_id_scoped(id, None).await
+    }
+
+    async fn find_by_id_in_source(
+        &mut self,
+        source: listing_source_core::ListingSourceId,
+        id: ProductListingId,
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+        self.find_by_id_scoped(id, Some(source)).await
     }
 
     async fn find_by_key(

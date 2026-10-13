@@ -710,11 +710,11 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_not_expose_retired_source_composite_product_route() {
+async fn should_keep_source_scoped_product_management_details_private() {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
-    let (listing_source_id, source_listing_id) = sqlx::query_as::<_, (uuid::Uuid, String)>(
-        "SELECT listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    let listing_source_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT listing_source_id FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(&pool)
@@ -725,14 +725,18 @@ async fn should_not_expose_retired_source_composite_product_route() {
 
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}/product-listings/{source_listing_id}",
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
             AURA_API.base_url()
         ))
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to get retired product route: {error}"));
+        .unwrap_or_else(|error| panic!("failed to get private product management route: {error}"));
 
-    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        "private, no-store",
+        response.headers().get("cache-control").unwrap()
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

@@ -448,7 +448,7 @@ async fn should_reject_partner_product_batch_without_authorization() -> TestResu
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestResult {
+async fn should_reject_source_local_identity_on_management_delete_route() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(product_listings_write_scope()).await?;
 
@@ -460,7 +460,7 @@ async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestRes
         )
         .await?;
 
-        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+        assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -602,4 +602,103 @@ fn failure(listing_source_id: &str, source_listing_id: &str, error: &str) -> Val
         "sourceListingId": source_listing_id,
         "error": error
     })
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn management_withdrawal_keeps_public_exclusion_and_batch_put_can_restore() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(HashSet::from([
+            Scope::ProductListingsRead,
+            Scope::ProductListingsWrite,
+        ]))
+        .await?;
+        create_product(&auth, "managed-retained-listing").await?;
+        let collection = products_path(&auth.listing_source_id);
+        let (status, page) = response_json(
+            send_json(
+                reqwest::Method::GET,
+                format!("{collection}?sourceListingId=managed-retained-listing"),
+                Some(&auth.token),
+                &Value::Null,
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::OK, status);
+        let id = page["items"][0]["productListingId"].as_str().unwrap();
+        let detail = format!("{collection}/{id}");
+        let response = send_json(
+            reqwest::Method::DELETE,
+            format!("{detail}?expectedVersion=1"),
+            Some(&auth.token),
+            &Value::Null,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_eq!(
+            reqwest::StatusCode::NOT_FOUND,
+            send_json(
+                reqwest::Method::GET,
+                format!("/api/v1/product-listings/{id}"),
+                None,
+                &Value::Null
+            )
+            .await?
+            .status()
+        );
+        assert_eq!(
+            reqwest::StatusCode::FORBIDDEN,
+            send_json(
+                reqwest::Method::GET,
+                format!("/api/v1/admin/product-listings/{id}"),
+                Some(&auth.token),
+                &Value::Null
+            )
+            .await?
+            .status()
+        );
+        let (status, withdrawn) = response_json(
+            send_json(
+                reqwest::Method::GET,
+                detail.clone(),
+                Some(&auth.token),
+                &Value::Null,
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!("WITHDRAWN", withdrawn["lifecycle"]);
+        // Integration upsert restores without a management version and applies its supplied availability.
+        let (status, failures) = response_json(
+            send_json(
+                reqwest::Method::PUT,
+                collection,
+                Some(&auth.token),
+                &json!([product("managed-retained-listing")]),
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([]), failures);
+        let (status, restored) = response_json(
+            send_json(
+                reqwest::Method::GET,
+                detail,
+                Some(&auth.token),
+                &Value::Null,
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(id, restored["productListingId"]);
+        assert_eq!("ACTIVE", restored["lifecycle"]);
+        assert_eq!("AVAILABLE", restored["availability"]);
+        assert_eq!(3, restored["expectedVersion"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
 }

@@ -19,7 +19,7 @@ use url::Url;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct UpdateData {
+pub(crate) struct UpdateData {
     expected_version: u64,
     #[serde(default)]
     price: PatchValue<AdminPriceData>,
@@ -84,7 +84,7 @@ fn storage_amount<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u
 }
 
 impl UpdateData {
-    pub(super) fn into_command(
+    pub(crate) fn into_command(
         self,
         id: ProductListingId,
     ) -> Result<UpdateAdminProductListingCommand, ApiError> {
@@ -115,10 +115,10 @@ impl UpdateData {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct VersionData {
-    pub(super) expected_version: u64,
+pub(crate) struct VersionData {
+    pub(crate) expected_version: u64,
 }
-pub(super) fn version(value: u64) -> Result<ProductListingStorageVersion, ApiError> {
+pub(crate) fn version(value: u64) -> Result<ProductListingStorageVersion, ApiError> {
     i64::try_from(value)
         .ok()
         .and_then(|value| ProductListingStorageVersion::try_from(value).ok())
@@ -131,7 +131,7 @@ pub(super) fn version(value: u64) -> Result<ProductListingStorageVersion, ApiErr
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct MutationData {
+pub(crate) struct MutationData {
     product_listing_id: String,
     expected_version: u64,
     outcome: &'static str,
@@ -152,7 +152,7 @@ impl From<AdminProductListingMutationResult> for MutationData {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct SummaryData {
+pub(crate) struct SummaryData {
     product_listing_id: String,
     product_listing_title_slug_id: String,
     source: SourceData,
@@ -203,7 +203,7 @@ impl From<AdminProductListingSummary> for SummaryData {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct DetailsData {
+pub(crate) struct DetailsData {
     #[serde(flatten)]
     summary: SummaryData,
     description: Option<LocalizedTextData>,

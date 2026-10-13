@@ -771,6 +771,46 @@ paths:
                 $ref: "#/components/schemas/ApiError"
 
   /api/v1/listing-sources/{listingSourceId}/product-listings:
+    get:
+      summary: List ProductListings for an administered ListingSource
+      operationId: listPartnerProductListings
+      description: >-
+        An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:read`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. Success and all errors use `private, no-store`. Original source values include retained withdrawn listings and do not depend on OpenSearch or enrichment readiness.
+        Live keyset pagination includes both lifecycle states by default. Source-local identity alone is not globally unique. Text query is bounded literal matching over original title/source-local ID; no total count is returned. Cursors are bound to normalized filters and sort/order, with listing ID breaking timestamp ties.
+      tags: [ProductListings]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: sourceListingId, in: query, schema: { type: string, maxLength: 512 }, description: Exact case-sensitive source-local identity after outer whitespace trimming. }
+        - { name: lifecycle, in: query, schema: { $ref: "#/components/schemas/ListingLifecycleData" } }
+        - { name: availability, in: query, schema: { $ref: "#/components/schemas/ListingAvailabilityData" } }
+        - { name: auctionId, in: query, schema: { type: string }, description: Strict Auction TypeID. }
+        - { name: query, in: query, schema: { type: string, maxLength: 512 }, description: At most 512 UTF-8 bytes and NUL-free; outer whitespace and case normalized. Percent/underscore are literal. }
+        - { name: sort, in: query, schema: { type: string, enum: [created, updated], default: updated } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: size, in: query, schema: { type: integer, default: 21 }, description: Clamped to 1–100. }
+        - { name: searchAfter, in: query, schema: { type: string }, description: Opaque cursor returned by this normalized filter/sort scope. }
+      responses:
+        "200":
+          description: Lightweight summary page; Cache-Control is private, no-store.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingPage" } } }
+        "400":
+          description: Invalid ID, directory query or scoped cursor (`BAD_QUERY_PARAMETER_VALUE`, `INVALID_OBJECT_ID`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "401":
+          description: Missing/invalid credential (`INVALID_CREDENTIALS`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "403":
+          description: Partnership source grant or delegated capability missing (`FORBIDDEN`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "503":
+          description: Temporary authorization/read/persistence dependency failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "500":
+          description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
     post:
       summary: Batch create product-listings (Partner API)
       description:
@@ -1456,6 +1496,165 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}:
+    get:
+      summary: Inspect authoritative ProductListing facts
+      operationId: getPartnerProductListing
+      description: >-
+        An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:read`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. Success and all errors use `private, no-store`. Original source values include retained withdrawn listings and do not depend on OpenSearch or enrichment readiness.
+        Original title/description, slug, sale observation and enrichment are read-only. Canonical image URLs are privileged inspection data; previews must respect sensitive/unassessed content rather than automatically rendering them. Public redaction is unchanged.
+      tags: [ProductListings]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+      responses:
+        "200":
+          description: Original retained listing facts and expectedVersion; Cache-Control is private, no-store.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingDetails" } } }
+        "400":
+          description: Invalid ListingSource or ProductListing ID (`INVALID_OBJECT_ID`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "401":
+          description: Missing/invalid credential (`INVALID_CREDENTIALS`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "403":
+          description: Partnership source grant or delegated capability missing (`FORBIDDEN`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "404":
+          description: Target listing not present under the authorized path ListingSource (`PRODUCT_LISTING_NOT_FOUND`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "503":
+          description: Temporary authorization/read/persistence dependency failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "500":
+          description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+    patch:
+      summary: Update an existing active ProductListing
+      operationId: updatePartnerProductListing
+      description: >-
+        An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:write`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. All responses/errors use `private, no-store`. State and the ordinary change event commit together; indexing, embeddings, notifications and cache convergence are asynchronous. Later ingestion may overwrite edits or restore withdrawal. Refetch/reconcile after a lost response; do not automatically retry with a different version.
+        Never creates or restores a listing. The required expectedVersion is checked before changes and again through compare-and-set persistence. Availability edits do not fabricate sale observations. No-op preserves version/timestamps and emits no event. Unknown/read-only fields and nested unknown fields are rejected.
+      tags: [ProductListings]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateAdminProductListing" } } }
+      responses:
+        "200":
+          description: Committed resulting/current version and CHANGED or UNCHANGED; Cache-Control is private, no-store.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingMutation" } } }
+        "400":
+          description: Invalid ID, JSON, expectedVersion, unknown/read-only field or invalid field/null value (`BAD_BODY_VALUE`, `INVALID_OBJECT_ID`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "401":
+          description: Missing/invalid credential (`INVALID_CREDENTIALS`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "403":
+          description: Partnership source grant or delegated capability missing (`FORBIDDEN`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "404":
+          description: Target listing not present under the authorized path ListingSource, or referenced Auction not found (`PRODUCT_LISTING_NOT_FOUND`, `AUCTION_NOT_FOUND`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "409":
+          description: Stale expectedVersion/racing write (`PRODUCT_LISTING_CONCURRENCY_CONFLICT`), PATCH of withdrawn listing (`PRODUCT_LISTING_WITHDRAWN`), or cross-source Auction reference (`CONFLICT`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "503":
+          description: Temporary authorization/read/persistence dependency failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "500":
+          description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+    delete:
+      summary: Withdraw a retained ProductListing
+      operationId: withdrawPartnerProductListing
+      description: >-
+        An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:write`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. All responses/errors use `private, no-store`. State and the ordinary change event commit together; indexing, embeddings, notifications and cache convergence are asynchronous. Later ingestion may overwrite edits or restore withdrawal. Refetch/reconcile after a lost response; do not automatically retry with a different version.
+        DELETE withdraws rather than physically purging identity, history or watchlist state. Availability is cleared; sale observation is retained. Already withdrawn is a no-op only with a matching current version; stale versions still conflict.
+      tags: [ProductListings]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+        - name: expectedVersion
+          in: query
+          required: true
+          schema: { type: integer, format: int64, minimum: 1, maximum: 9223372036854775807 }
+      responses:
+        "204": { description: "Withdrawal committed or unchanged; Cache-Control is private, no-store." }
+        "400":
+          description: Invalid ID or missing/invalid expectedVersion query parameter (`BAD_QUERY_PARAMETER_VALUE`, `INVALID_OBJECT_ID`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "401":
+          description: Missing/invalid credential (`INVALID_CREDENTIALS`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "403":
+          description: Partnership source grant or delegated capability missing (`FORBIDDEN`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "404":
+          description: Target listing not present under the authorized path ListingSource (`PRODUCT_LISTING_NOT_FOUND`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "409":
+          description: Stale expectedVersion or racing write (`PRODUCT_LISTING_CONCURRENCY_CONFLICT`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "503":
+          description: Temporary authorization/read/persistence dependency failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "500":
+          description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+  /api/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore:
+    post:
+      summary: Explicitly restore a retained ProductListing
+      operationId: restorePartnerProductListing
+      description: >-
+        An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:write`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. All responses/errors use `private, no-store`. State and the ordinary change event commit together; indexing, embeddings, notifications and cache convergence are asynchronous. Later ingestion may overwrite edits or restore withdrawal. Refetch/reconcile after a lost response; do not automatically retry with a different version.
+        Restores to ACTIVE with unknown availability; no former availability is reconstructed. Already active is a no-op only with a matching current version. Missing retained identity is never created.
+      tags: [ProductListings]
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - { name: listingSourceId, in: path, required: true, schema: { type: string }, description: Strict ListingSource TypeID authorized by Partnership grant. }
+        - { name: productListingId, in: path, required: true, schema: { type: string }, description: Strict Aura ProductListing TypeID. }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingVersion" } } }
+      responses:
+        "200":
+          description: Committed resulting/current version and CHANGED or UNCHANGED; Cache-Control is private, no-store.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AdminProductListingMutation" } } }
+        "400":
+          description: Invalid ID, JSON or missing/invalid expectedVersion; unknown fields are rejected (`BAD_BODY_VALUE`, `INVALID_OBJECT_ID`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "401":
+          description: Missing/invalid credential (`INVALID_CREDENTIALS`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "403":
+          description: Partnership source grant or delegated capability missing (`FORBIDDEN`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "404":
+          description: Target listing not present under the authorized path ListingSource (`PRODUCT_LISTING_NOT_FOUND`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "409":
+          description: Stale expectedVersion or racing write (`PRODUCT_LISTING_CONCURRENCY_CONFLICT`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "503":
+          description: Temporary authorization/read/persistence dependency failure (`PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+        "500":
+          description: Unexpected failure or invalid persisted state (`PRODUCT_LISTING_INTERNAL_ERROR`).
+          content: { application/problem+json: { schema: { $ref: "#/components/schemas/ApiError" } } }
   /api/v1/listing-sources/{listingSourceId}/product-listings/async:
     post:
       summary: Submit a batch of product-listing creates asynchronously (Partner API)

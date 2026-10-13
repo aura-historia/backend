@@ -551,6 +551,14 @@ mod tests {
             Ok(state.finds.pop_front().flatten())
         }
 
+        async fn find_by_id_in_source(
+            &mut self,
+            _: listing_source_core::ListingSourceId,
+            _: ProductListingId,
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
+            panic!("ingestion does not use source-scoped management lookups")
+        }
+
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,

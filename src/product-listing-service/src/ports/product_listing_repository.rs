@@ -104,6 +104,14 @@ pub trait ProductListingRepository: Send {
         id: ProductListingId,
     ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError>;
 
+    /// Restrict the lookup before decoding persisted state. A listing outside the
+    /// source is absent even if its persisted state cannot be rehydrated.
+    async fn find_by_id_in_source(
+        &mut self,
+        source: listing_source_core::ListingSourceId,
+        id: ProductListingId,
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError>;
+
     async fn find_by_key(
         &mut self,
         key: &ProductListingKey,

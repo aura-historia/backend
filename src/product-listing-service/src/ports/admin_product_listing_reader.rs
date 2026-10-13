@@ -22,6 +22,7 @@ use product_listing_core::{
 use time::OffsetDateTime;
 use url::Url;
 
+/// Shared admin/partner management models. Readers do not authorize callers.
 /// Authoritative original facts. Image URLs are privileged inspection data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminProductListingDetails {
@@ -108,6 +109,11 @@ pub enum AdminProductListingReadError {
 pub trait AdminProductListingDetailsReader: Send + Sync {
     async fn find_by_id(
         &self,
+        id: ProductListingId,
+    ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError>;
+    async fn find_by_id_in_source(
+        &self,
+        source: ListingSourceId,
         id: ProductListingId,
     ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError>;
 }

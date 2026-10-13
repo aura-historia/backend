@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-13 — Partner ProductListing management (#2039)
+
+- Added source-scoped management directory/detail, versioned single-listing PATCH/DELETE and explicit POST restore. Path parameters use `listingSourceId` and `productListingId`. PostgreSQL reads include both ACTIVE and WITHDRAWN listings and expose `expectedVersion`; summaries use bounded filters and source-bound keyset cursors. Responses and errors use `private, no-store`.
+- Every route requires an active Partnership grant for the path ListingSource. Delegated reads require `product-listings:read`, mutations require `product-listings:write`; administrator role alone grants no access. Listings outside the authorized source return the same `404 PRODUCT_LISTING_NOT_FOUND` as missing listings.
+- Mutations share admin field validation, optimistic concurrency, lifecycle and atomic event behavior. Withdrawal retains history and relationships; restore never creates a listing or recreates availability. Batch/async ingestion, PUT upsert/restore, public discovery and administrator authorization keep their existing behavior.
+
 ## 2026-10-13 — Party location manager directory (#2044)
 
 - Added administrator-only `GET /api/v1/admin/parties/{party_id}/location-managers`, with optional exact `userId` and `access=EXPLICIT|PARTNERSHIP` filters. Each user appears once with email, optional names and all independent current access reasons; Partnership reasons include active `partnershipIds`. Grant timestamps are not stored or returned. Revoking an explicit grant preserves Partnership access; suspended/deleted users and dissolved Partnerships are excluded.

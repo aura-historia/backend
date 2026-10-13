@@ -76,6 +76,15 @@ use product_listing_service::use_cases::{
         GetAdminProductListingUseCase, SearchAdminProductListingsUseCase,
     },
 };
+use product_listing_service::use_cases::{
+    commands::partner_product_listings::{
+        RestorePartnerProductListingUseCase, UpdatePartnerProductListingUseCase,
+        WithdrawPartnerProductListingUseCase,
+    },
+    queries::partner_product_listings::{
+        GetPartnerProductListingUseCase, ListPartnerProductListingsUseCase,
+    },
+};
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
     ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
@@ -131,6 +140,7 @@ pub struct AppState {
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
+    pub(crate) partner_product_listing_management: Option<PartnerProductListingManagementState>,
     pub(crate) async_partner_product_listings: Option<AsyncPartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) admin_overview: Option<AdminOverviewState>,
@@ -167,6 +177,7 @@ impl AppState {
             readiness: Arc::new(AlwaysReady),
             product_listings: None,
             partner_product_listings: None,
+            partner_product_listing_management: None,
             async_partner_product_listings: None,
             listing_sources: None,
             admin_overview: None,
@@ -207,6 +218,14 @@ impl AppState {
         partner_product_listings: PartnerProductListingsState,
     ) -> Self {
         self.partner_product_listings = Some(partner_product_listings);
+        self
+    }
+
+    pub fn with_partner_product_listing_management(
+        mut self,
+        state: PartnerProductListingManagementState,
+    ) -> Self {
+        self.partner_product_listing_management = Some(state);
         self
     }
 
@@ -1108,6 +1127,35 @@ impl AdminProductListingsState {
         Self {
             get,
             search,
+            update,
+            withdraw,
+            restore,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PartnerProductListingManagementState {
+    pub(crate) get: Arc<dyn GetPartnerProductListingUseCase>,
+    pub(crate) list: Arc<dyn ListPartnerProductListingsUseCase>,
+    pub(crate) update: Arc<dyn UpdatePartnerProductListingUseCase>,
+    pub(crate) withdraw: Arc<dyn WithdrawPartnerProductListingUseCase>,
+    pub(crate) restore: Arc<dyn RestorePartnerProductListingUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+impl PartnerProductListingManagementState {
+    pub fn new(
+        get: Arc<dyn GetPartnerProductListingUseCase>,
+        list: Arc<dyn ListPartnerProductListingsUseCase>,
+        update: Arc<dyn UpdatePartnerProductListingUseCase>,
+        withdraw: Arc<dyn WithdrawPartnerProductListingUseCase>,
+        restore: Arc<dyn RestorePartnerProductListingUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            get,
+            list,
             update,
             withdraw,
             restore,
