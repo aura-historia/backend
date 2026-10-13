@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import { Match, Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES } from "../src/config";
 
@@ -12,7 +12,7 @@ describe.each(STAGES)("%s durable geographic resolution", (stage) => {
     compute.hasResourceProperties("AWS::Lambda::Function", {
       FunctionName: `geo-resolution-lambda-${stage}`, Timeout: 45, MemorySize: 256,
       ReservedConcurrentExecutions: 2,
-      Environment: { Variables: { GEO_RESOLUTION_ENABLED: "false", POSTGRES_MAX_CONNECTIONS: "1" } },
+      Environment: { Variables: { GEO_RESOLUTION_ENABLED: Match.absent(), POSTGRES_MAX_CONNECTIONS: "1" } },
     });
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     const mapping = mappings.find((m) => JSON.stringify(m.Properties.FunctionName).includes("GeoResolutionVersion"));

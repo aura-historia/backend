@@ -238,8 +238,9 @@ historic customer mail.
 ## Geographic resolution recovery
 
 [Geography](geography.md#durable-resolution-and-party-integration-2002) owns acceptance,
-privacy and retention. Paid work defaults off in stage configuration and provider controls;
-storage permission is separate. Before enabling it, confirm applicable provider/private-input
+privacy and retention. Resolution workers always process eligible work; provider controls
+govern provider availability, storage permission and budgets. New provider profiles default
+off. Before enabling a profile, confirm applicable provider/private-input
 rights, attribution, database capacity and call/concurrency budgets. Turning off paid calls
 preserves permitted cache entries; rights withdrawal requires revocation and physical purging.
 

@@ -94,13 +94,12 @@ async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, Resolut
         ResolutionWork { id, generation: 1 },
     )
 }
-fn compose(pool: &PgPool, provider: &Arc<Provider>, enabled: bool) -> impl ResolveUseCase {
+fn compose(pool: &PgPool, provider: &Arc<Provider>) -> impl ResolveUseCase {
     ResolveHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxResolutionRepositoryFactory,
         Arc::clone(provider),
         PROFILE.into(),
-        enabled,
     )
 }
 fn job(work: ResolutionWork) -> String {
@@ -160,7 +159,7 @@ async fn view(pool: &PgPool, binding: ResolutionBinding) -> ResolutionView {
 #[aura_integration_test(services=[SCHEMA])]
 async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_authority() {
     let (pool, provider, binding, work) = setup(false).await;
-    let use_case = compose(&pool, &provider, true);
+    let use_case = compose(&pool, &provider);
     assert_eq!(
         vec!["malformed"],
         process(
@@ -177,13 +176,20 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
     assert_eq!(ResolutionStatus::NoMatch, view(&pool, binding).await.status);
 
-    // Completed cache can be acknowledged even while paid requests are disabled.
-    let disabled = compose(&pool, &provider, false);
+    // Completed cache can be acknowledged while the provider is paused.
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(
-        process([("cached-disabled", job(work))], &disabled)
+        process([("cached-disabled", job(work))], &use_case)
             .await
             .is_empty()
     );
+    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true")
+        .execute(&pool)
+        .await
+        .unwrap();
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -201,7 +207,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert!(matches!(
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
-            .claim(current, PROFILE, true)
+            .claim(current, PROFILE)
             .await
             .unwrap(),
         ClaimOutcome::Claimed(_)
@@ -262,13 +268,13 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert_eq!(recovered.generation + 1, expired.work.generation);
     assert!(expired.evidence.is_none());
     assert!(
-        process([("expired-stale-redrive", job(current))], &disabled)
+        process([("expired-stale-redrive", job(current))], &use_case)
             .await
             .is_empty()
     );
     assert_eq!(
         vec!["disabled-pending"],
-        process([("disabled-pending", job(expired.work))], &disabled).await
+        process([("disabled-pending", job(expired.work))], &use_case).await
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 }
@@ -276,7 +282,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
 #[aura_integration_test(services=[SCHEMA])]
 async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
     let (pool, provider, binding, work) = setup(true).await;
-    let use_case = compose(&pool, &provider, true);
+    let use_case = compose(&pool, &provider);
     let context = OperationContext {
         principal: Principal::Service("worker-test".into()),
         request_id: "test".into(),

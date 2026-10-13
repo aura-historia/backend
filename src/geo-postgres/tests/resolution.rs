@@ -109,7 +109,7 @@ async fn claim(pool: &PgPool, w: ResolutionWork) -> ClaimOutcome {
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let result = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(w, PROFILE, true)
+        .claim(w, PROFILE)
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -368,7 +368,7 @@ async fn mutation_before_inspection_lock_order(operation: &'static str) {
         .await
         .unwrap();
     let claim_result = SqlxResolutionRepositoryFactory::on_connection(&mut worker)
-        .claim(work, PROFILE, true)
+        .claim(work, PROFILE)
         .await;
     worker.rollback().await.unwrap();
     let view = tokio::time::timeout(std::time::Duration::from_secs(5), writing)
@@ -559,7 +559,6 @@ async fn creation_disabled_and_then_maintenance_recovery_reuses_unchanged_inputs
         SqlxResolutionRepositoryFactory,
         Arc::clone(&provider),
         PROFILE.into(),
-        true,
     );
     assert_eq!(
         ResolveOutcome::Deferred,
@@ -663,7 +662,7 @@ async fn resolution_claims_and_reuse_allow_independent_binding_invalidation() {
             assert!(matches!(
                 SqlxResolutionRepositoryFactory
                     .resolutions(&mut holder)
-                    .claim(w, PROFILE, true)
+                    .claim(w, PROFILE)
                     .await
                     .unwrap(),
                 ClaimOutcome::Claimed(_)
@@ -938,7 +937,6 @@ async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_der
         SqlxResolutionRepositoryFactory,
         provider,
         PROFILE.into(),
-        true,
     );
     handler.execute(&context(), w).await.unwrap();
     let manage = ManagePartyLocationResolutionHandler::new(
@@ -1321,7 +1319,6 @@ async fn negative_results_reuse_until_reconsideration_and_terms_revocation_fails
             SqlxResolutionRepositoryFactory,
             Arc::clone(&p),
             PROFILE.into(),
-            true,
         );
         h.execute(&context(), w).await.unwrap();
         h.execute(&context(), w).await.unwrap();
@@ -1510,7 +1507,7 @@ async fn corrupt_persisted_input_is_rejected_through_geography_constructors() {
     assert!(matches!(
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
-            .claim(w, PROFILE, true)
+            .claim(w, PROFILE)
             .await,
         Err(ResolutionError::InvalidState(_))
     ));

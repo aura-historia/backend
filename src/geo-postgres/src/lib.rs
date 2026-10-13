@@ -378,7 +378,6 @@ impl ResolutionRepository for Repository<'_> {
         &mut self,
         w: ResolutionWork,
         profile: &str,
-        allow_provider: bool,
     ) -> Result<ClaimOutcome, ResolutionError> {
         let mut control = self.controls(profile).await?;
         let Some(r) = self.row(w.id).await? else {
@@ -410,7 +409,6 @@ impl ResolutionRepository for Repository<'_> {
             return Ok(ClaimOutcome::Complete);
         }
         if r.status != "PENDING"
-            || !allow_provider
             || !control.enabled
             || !control.storage_permitted
             || control.open_until.is_some_and(|until| until > now)

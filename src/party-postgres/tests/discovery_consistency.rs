@@ -77,7 +77,7 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(view.work, "TEST_DISCOVERY_CONSISTENCY", true)
+        .claim(view.work, "TEST_DISCOVERY_CONSISTENCY")
         .await
         .unwrap()
     else {
