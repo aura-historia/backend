@@ -1,6 +1,10 @@
 mod search;
-mod types;
 
+pub(crate) use crate::product_listing_management::no_store;
+use crate::product_listing_management::{
+    parse_body,
+    types::{DetailsData, MutationData, UpdateData, VersionData, version},
+};
 use crate::{
     auth::protected_context, error::*, state::AdminProductListingsState, wire::parse_path_object_id,
 };
@@ -8,7 +12,7 @@ use axum::{
     Json,
     body::Bytes,
     extract::{Path, RawQuery, State, rejection::BytesRejection},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use product_listing_core::product_listing_id::ProductListingId;
@@ -17,8 +21,6 @@ use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingLifecycleCommand,
 };
 pub use search::search_admin_product_listings;
-use serde::de::DeserializeOwned;
-use types::{DetailsData, MutationData, UpdateData, VersionData, version};
 
 pub async fn get_admin_product_listing(
     State(state): State<AdminProductListingsState>,
@@ -122,54 +124,6 @@ pub async fn restore_admin_product_listing(
 fn parse_id(raw: &str) -> Result<ProductListingId, ApiError> {
     parse_path_object_id(raw, "productListingId", "ProductListing")
 }
-fn parse_body<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -> Result<T, ApiError> {
-    let body = body.map_err(|_| ApiError::bad_request(BAD_BODY_VALUE))?;
-    let mut deserializer = serde_json::Deserializer::from_slice(&body);
-    let data = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        let path = error.path().to_string();
-        let mut response =
-            ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.inner().to_string());
-        // Keep the source field within the public whitelist, including nested facts.
-        if let Some(field) = [
-            "auction.timing.biddingOpens",
-            "auction.timing.scheduledCloses",
-            "auction.timing.reportedClosedAt",
-            "auction.auctionId",
-            "auction.lotNumber",
-            "auction.cataloguePosition",
-            "auction.timing",
-            "expectedVersion",
-            "priceEstimateMin",
-            "priceEstimateMax",
-            "price",
-            "availability",
-            "url",
-            "images",
-            "auction",
-        ]
-        .into_iter()
-        .find(|field| {
-            path == *field
-                || path.starts_with(&format!("{field}."))
-                || path.starts_with(&format!("{field}["))
-        }) {
-            response = response.with_body_field(field);
-        }
-        response
-    })?;
-    deserializer
-        .end()
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))?;
-    Ok(data)
-}
-pub(crate) async fn no_store(mut response: Response) -> Response {
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-store"),
-    );
-    response
-}
-
 impl From<AdminProductListingError> for ApiError {
     fn from(error: AdminProductListingError) -> Self {
         match error {

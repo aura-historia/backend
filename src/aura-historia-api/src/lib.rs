@@ -17,6 +17,7 @@ pub(crate) mod partnership_applications;
 pub(crate) mod partnerships;
 pub(crate) mod patch_value;
 mod product_listing_fields;
+mod product_listing_management;
 pub mod product_listings;
 pub mod search_filters;
 pub mod state;
@@ -107,6 +108,12 @@ use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
     queries::admin_product_listings::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
+    },
+};
+use product_listing_service::use_cases::{
+    commands::partner_product_listings::PartnerProductListingMutationHandler,
+    queries::partner_product_listings::{
+        GetPartnerProductListingHandler, ListPartnerProductListingsHandler,
     },
 };
 use woocommerce_service::WoocommerceWebhookIntake;
@@ -783,6 +790,28 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                         .delete(partner_product_listings::delete_products::delete_products),
                 )
                 .with_state(partner_product_listings),
+        );
+    }
+
+    if let Some(management) = state.partner_product_listing_management {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings",
+                    get(partner_product_listings::management::list_partner_product_listings),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}",
+                    get(partner_product_listings::management::get_partner_product_listing)
+                        .patch(partner_product_listings::management::update_partner_product_listing)
+                        .delete(partner_product_listings::management::withdraw_partner_product_listing),
+                )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings/{product_listing_id}/restore",
+                    post(partner_product_listings::management::restore_partner_product_listing),
+                )
+                .layer(axum::middleware::map_response(product_listing_management::no_store))
+                .with_state(management),
         );
     }
 
@@ -1754,6 +1783,28 @@ async fn app_state_from_config_and_pool(
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let partner_management_reader = SqlxAdminProductListingReader::new(pool.clone());
+    let partner_management_mutations = Arc::new(PartnerProductListingMutationHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxListingSourceAuthorization::new(pool.clone()),
+        auction_postgres::SqlxAuctionReferenceValidatorFactory::new(),
+    ));
+    let partner_product_listing_management_state = state::PartnerProductListingManagementState::new(
+        Arc::new(GetPartnerProductListingHandler::new(
+            partner_management_reader.clone(),
+            SqlxListingSourceAuthorization::new(pool.clone()),
+        )),
+        Arc::new(ListPartnerProductListingsHandler::new(
+            partner_management_reader,
+            SqlxListingSourceAuthorization::new(pool.clone()),
+        )),
+        partner_management_mutations.clone(),
+        partner_management_mutations.clone(),
+        partner_management_mutations,
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let async_partner_product_listings_state = AsyncPartnerProductListingsState::new(
         submit_product_listing_ingestion,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
@@ -2150,6 +2201,7 @@ async fn app_state_from_config_and_pool(
             .with_product_listing_history(Arc::new(get_product_listing_history)),
         )
         .with_partner_product_listings(partner_product_listings_state)
+        .with_partner_product_listing_management(partner_product_listing_management_state)
         .with_async_partner_product_listings(async_partner_product_listings_state)
         .with_listing_sources(listing_sources_state)
         .with_webhooks(WebhooksState::new(

@@ -9,3 +9,5 @@ pub mod update_products;
 pub mod upsert_products;
 
 mod types;
+
+pub mod management;

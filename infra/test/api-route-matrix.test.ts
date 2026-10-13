@@ -139,12 +139,24 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
+  test("requires Partner bearer authority for every management route and excludes shared caching", () => {
+    const collection = "/api/v1/listing-sources/{listing_source_id}/product-listings";
+    const routes = API_ROUTE_CATALOG.filter((route) =>
+      (route.path === collection && route.method === "GET") || route.path.startsWith(`${collection}/`));
+    expect(routes).toHaveLength(5);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy.authorization).toBe(RouteAuthorizationClass.Partner);
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
+  });
+
   test("covers the declared Axum and OpenAPI operations without a catch-all", () => {
     const catalog = catalogRouteKeys();
     const swagger = swaggerRouteKeys();
     const axum = axumRouteKeys();
 
-    expect(catalog).toHaveLength(134);
+    expect(catalog).toHaveLength(139);
     expect(new Set(catalog).size).toBe(catalog.length);
     expect(catalog).toEqual(swagger);
     expect(catalog).toEqual(axum);
@@ -273,7 +285,7 @@ describe("HTTP API route policy matrix", () => {
     expect(axumRouteKeys().filter((key) => key.endsWith(" /api/v1/listing-sources/{}/product-listings/async")))
       .toEqual(["DELETE", "PATCH", "POST", "PUT"].map((method) => `${method} /api/v1/listing-sources/{}/product-listings/async`));
     expect(API_ROUTE_CATALOG.filter((route) => route.path === "/api/v1/listing-sources/{listing_source_id}/product-listings")
-      .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE"]);
+      .map((route) => route.method)).toEqual(["POST", "PATCH", "PUT", "DELETE", "GET"]);
   });
 
   test("registers provider configuration PUT routes with the Partner application bearer policy", () => {
@@ -477,7 +489,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(134);
+    expect(routes).toHaveLength(139);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
         .toEqual([expect.objectContaining({ Properties: expect.objectContaining({

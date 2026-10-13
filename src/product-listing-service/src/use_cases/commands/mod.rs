@@ -18,3 +18,6 @@ pub mod upsert_product_listing;
 pub mod withdraw_product_listing;
 
 pub mod process_shopify_product_listing;
+
+pub mod partner_product_listings;
+pub(crate) mod product_listing_management;

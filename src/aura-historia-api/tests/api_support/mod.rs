@@ -145,6 +145,12 @@ use product_listing_service::use_cases::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
     },
 };
+use product_listing_service::use_cases::{
+    commands::partner_product_listings::PartnerProductListingMutationHandler,
+    queries::partner_product_listings::{
+        GetPartnerProductListingHandler, ListPartnerProductListingsHandler,
+    },
+};
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
@@ -1391,6 +1397,29 @@ async fn test_state(
         admin_mutations,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let partner_management_reader = SqlxAdminProductListingReader::new(pool.clone());
+    let partner_management_mutations = Arc::new(PartnerProductListingMutationHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        partnership_postgres::SqlxListingSourceAuthorization::new(pool.clone()),
+        SqlxAuctionReferenceValidatorFactory::new(),
+    ));
+    let partner_product_listing_management_state =
+        aura_historia_api::state::PartnerProductListingManagementState::new(
+            Arc::new(GetPartnerProductListingHandler::new(
+                partner_management_reader.clone(),
+                partnership_postgres::SqlxListingSourceAuthorization::new(pool.clone()),
+            )),
+            Arc::new(ListPartnerProductListingsHandler::new(
+                partner_management_reader,
+                partnership_postgres::SqlxListingSourceAuthorization::new(pool.clone()),
+            )),
+            partner_management_mutations.clone(),
+            partner_management_mutations.clone(),
+            partner_management_mutations,
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        );
     let public_auctions_state = PublicAuctionsState::new(
         Arc::new(GetPublicAuctionHandler::new(
             SqlxPublicAuctionDetailsReader::new(pool.clone()),
@@ -2062,6 +2091,7 @@ async fn test_state(
         ))
         .with_products(products_state)
         .with_partner_product_listings(partner_product_listings_state)
+        .with_partner_product_listing_management(partner_product_listing_management_state)
         .with_async_partner_product_listings(AsyncPartnerProductListingsState::new(
             Arc::new(SubmitPartnerProductListingIngestionHandler::new(
                 RecordingWoocommerceIngestionPublisher,

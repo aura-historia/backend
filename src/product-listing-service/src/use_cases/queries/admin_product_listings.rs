@@ -86,25 +86,7 @@ impl<R: AdminProductListingSearchReader, A: CheckUserAdminUseCase> SearchAdminPr
             CredentialCapability::ProductListingsRead,
         )
         .await?;
-        if !(1..=100).contains(&request.cursor.size) {
-            return Err(AdminProductListingError::InvalidPageSize);
-        }
-        if request
-            .scope
-            .query
-            .as_ref()
-            .is_some_and(|q| q.contains('\0') || q.len() > 512)
-        {
-            return Err(AdminProductListingError::InvalidQuery);
-        }
-        if request
-            .cursor
-            .search_after
-            .as_ref()
-            .is_some_and(|after| after.scope != request.scope)
-        {
-            return Err(AdminProductListingError::CursorScopeMismatch);
-        }
+        validate_search(&request)?;
         self.reader.search(&request).await.map_err(Into::into)
     }
 }
@@ -121,4 +103,29 @@ impl From<AdminProductListingReadError> for AdminProductListingError {
             AdminProductListingReadError::QueryFailed { source } => Self::Internal { source },
         }
     }
+}
+
+pub(crate) fn validate_search(
+    request: &AdminProductListingSearchRequest,
+) -> Result<(), AdminProductListingError> {
+    if !(1..=100).contains(&request.cursor.size) {
+        return Err(AdminProductListingError::InvalidPageSize);
+    }
+    if request
+        .scope
+        .query
+        .as_ref()
+        .is_some_and(|q| q.contains('\0') || q.len() > 512)
+    {
+        return Err(AdminProductListingError::InvalidQuery);
+    }
+    if request
+        .cursor
+        .search_after
+        .as_ref()
+        .is_some_and(|after| after.scope != request.scope)
+    {
+        return Err(AdminProductListingError::CursorScopeMismatch);
+    }
+    Ok(())
 }

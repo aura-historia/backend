@@ -12,7 +12,7 @@ use application::{
     pagination::{Cursor, CursoredResult},
 };
 use domain_primitives::sort::SortOrder;
-use listing_source_core::{ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::{Language, Localized};
 use product_listing_core::{
     description::Description, listing_lifecycle::ListingLifecycle,
@@ -89,11 +89,35 @@ impl AdminProductListingDetailsReader for SqlxAdminProductListingReader {
         &self,
         id: ProductListingId,
     ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError> {
+        self.details(id, None).await
+    }
+
+    async fn find_by_id_in_source(
+        &self,
+        source: ListingSourceId,
+        id: ProductListingId,
+    ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError> {
+        self.details(id, Some(source)).await
+    }
+}
+
+impl SqlxAdminProductListingReader {
+    async fn details(
+        &self,
+        id: ProductListingId,
+        source: Option<ListingSourceId>,
+    ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError> {
         let query = format!(
             "SELECT {SUMMARY_COLUMNS}, p.description_text, p.description_language, p.url, p.product_images, p.lot_number, p.catalogue_position, p.lot_bidding_opens_at, p.lot_scheduled_closes_at, p.lot_reported_closed_at, p.sale_observed_at, p.sale_observation_fx_rate_id{FROM} WHERE p.product_listing_id = "
         );
-        QueryBuilder::<Postgres>::new(query)
-            .push_bind(id.as_uuid())
+        let mut builder = QueryBuilder::<Postgres>::new(query);
+        builder.push_bind(id.as_uuid());
+        if let Some(source) = source {
+            builder
+                .push(" AND p.listing_source_id = ")
+                .push_bind(source.as_uuid());
+        }
+        builder
             .build_query_as::<DetailsRow>()
             .fetch_optional(&self.pool)
             .await
