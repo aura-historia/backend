@@ -404,7 +404,7 @@ impl SpiderServiceImpl {
     }
 
     #[tracing::instrument(
-        name = "spider_run_locked",
+        name = "spider_run_crawl",
         skip(self),
         fields(
             listing_source_id = %listing_source_id,
@@ -413,7 +413,7 @@ impl SpiderServiceImpl {
             classify_threshold
         )
     )]
-    async fn run_locked(
+    async fn run_crawl(
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
@@ -531,7 +531,7 @@ impl SpiderService for SpiderServiceImpl {
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
-        self.run_locked(
+        self.run_crawl(
             listing_source_id,
             domain_id,
             crawl_root_url,

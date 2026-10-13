@@ -3,7 +3,7 @@ use crate::CrawlerDomainId;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
-use crate::spider::local_lock::DomainLock;
+use crate::spider::local_lock::{DomainLock, DomainLockScope};
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
@@ -117,11 +117,15 @@ fn spawn_spider_candidate(
 
     join_set.spawn(
         async move {
-            let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id) else {
+            let Some(_lock) = DomainLock::try_acquire(
+                &lock_manager,
+                DomainLockScope::Spider,
+                candidate.domain_id,
+            ) else {
                 debug!(
                     listing_source_id = %candidate.listing_source_id,
                     domain_id = %candidate.domain_id,
-                    "Deferring domain - lock held by another worker"
+                    "Deferring domain - lock held by another spider worker"
                 );
                 return SpiderSlotOutcome {
                     domain_id,
@@ -1167,6 +1171,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_run_spider_candidate_while_the_scraper_holds_its_own_domain_lock() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| Box::pin(async move { Ok(vec![spider_candidate(domain_id)]) }));
+        spider_candidates
+            .expect_reset_crawl_failure()
+            .returning(|_| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().once().returning(|_, _, _, _| {
+            Box::pin(async {
+                Ok(SpiderRunResult {
+                    total_links: 10,
+                    product_urls_count: 5,
+                    product_pattern: None,
+                })
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let _scraper_lock =
+            DomainLock::try_acquire(&lock_manager, DomainLockScope::Scraper, domain_id).unwrap();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::clone(&lock_manager),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
     async fn should_skip_spider_candidate_when_domain_lock_is_already_held() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let locked_domain_id = CrawlerDomainId::new();
@@ -1186,7 +1236,9 @@ mod tests {
 
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());
-        let _prelock = DomainLock::try_acquire(&lock_manager, locked_domain_id).unwrap();
+        let _prelock =
+            DomainLock::try_acquire(&lock_manager, DomainLockScope::Spider, locked_domain_id)
+                .unwrap();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),

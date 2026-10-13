@@ -50,19 +50,45 @@ impl LocalLockManager {
     fn try_acquire(&self, key: String) -> Option<LocalLock> {
         LocalLock::try_acquire(Arc::clone(&self.locks), key)
     }
+
+    /// Reports whether a component currently holds its domain lock. This is a
+    /// point-in-time observation for diagnostics, not a synchronization primitive.
+    pub fn is_domain_locked(&self, scope: DomainLockScope, domain_id: CrawlerDomainId) -> bool {
+        self.locks.contains_key(&scope.key(domain_id))
+    }
 }
 
-/// RAII lock for a spider or scraper domain, keyed by persisted `domain_id`.
+/// The crawler component that owns a domain lock.
+///
+/// Spider and scraper hold independent domain locks: each component excludes
+/// only itself, so both may work on the same domain concurrently while their
+/// own per-domain throttles bound request pressure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DomainLockScope {
+    Spider,
+    Scraper,
+}
+
+impl DomainLockScope {
+    fn key(self, domain_id: CrawlerDomainId) -> String {
+        match self {
+            Self::Spider => format!("spider-domain:{domain_id}"),
+            Self::Scraper => format!("scraper-domain:{domain_id}"),
+        }
+    }
+}
+
+/// RAII lock for one component's work on one crawler domain, keyed by persisted
+/// `domain_id` and [`DomainLockScope`].
 pub struct DomainLock(#[allow(dead_code)] LocalLock);
 
 impl DomainLock {
     pub fn try_acquire(
         lock_manager: &LocalLockManager,
+        scope: DomainLockScope,
         domain_id: CrawlerDomainId,
     ) -> Option<Self> {
-        lock_manager
-            .try_acquire(format!("domain:{domain_id}"))
-            .map(Self)
+        lock_manager.try_acquire(scope.key(domain_id)).map(Self)
     }
 }
 
@@ -98,28 +124,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn same_domain_is_locked_until_first_guard_is_dropped() {
+    fn same_scope_domain_is_locked_until_first_guard_is_dropped() {
+        for scope in [DomainLockScope::Spider, DomainLockScope::Scraper] {
+            let manager = LocalLockManager::new();
+            let domain_id = CrawlerDomainId::new();
+
+            let first = DomainLock::try_acquire(&manager, scope, domain_id);
+            assert!(first.is_some(), "{scope:?}");
+            assert!(
+                DomainLock::try_acquire(&manager, scope, domain_id).is_none(),
+                "{scope:?}"
+            );
+            assert!(manager.is_domain_locked(scope, domain_id), "{scope:?}");
+
+            drop(first);
+
+            assert!(!manager.is_domain_locked(scope, domain_id), "{scope:?}");
+            assert!(
+                DomainLock::try_acquire(&manager, scope, domain_id).is_some(),
+                "{scope:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spider_and_scraper_can_lock_the_same_domain_concurrently() {
         let manager = LocalLockManager::new();
         let domain_id = CrawlerDomainId::new();
 
-        let first = DomainLock::try_acquire(&manager, domain_id);
-        assert!(first.is_some());
-        assert!(DomainLock::try_acquire(&manager, domain_id).is_none());
+        let spider = DomainLock::try_acquire(&manager, DomainLockScope::Spider, domain_id);
+        let scraper = DomainLock::try_acquire(&manager, DomainLockScope::Scraper, domain_id);
 
-        drop(first);
-
-        assert!(DomainLock::try_acquire(&manager, domain_id).is_some());
+        assert!(spider.is_some());
+        assert!(scraper.is_some());
+        assert!(DomainLock::try_acquire(&manager, DomainLockScope::Spider, domain_id).is_none());
+        assert!(DomainLock::try_acquire(&manager, DomainLockScope::Scraper, domain_id).is_none());
     }
 
     #[test]
     fn different_domains_can_be_locked_concurrently() {
         let manager = LocalLockManager::new();
 
-        let first = DomainLock::try_acquire(&manager, CrawlerDomainId::new());
-        let second = DomainLock::try_acquire(&manager, CrawlerDomainId::new());
+        let locks: Vec<_> = [
+            DomainLockScope::Spider,
+            DomainLockScope::Spider,
+            DomainLockScope::Scraper,
+            DomainLockScope::Scraper,
+        ]
+        .into_iter()
+        .map(|scope| DomainLock::try_acquire(&manager, scope, CrawlerDomainId::new()))
+        .collect();
 
-        assert!(first.is_some());
-        assert!(second.is_some());
+        assert!(locks.iter().all(Option::is_some));
     }
 
     #[test]
