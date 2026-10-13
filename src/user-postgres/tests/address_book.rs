@@ -392,7 +392,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(view.work, PROFILE, true)
+        .claim(view.work, PROFILE)
         .await
         .unwrap()
     else {
@@ -432,7 +432,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(current.work, PROFILE, true)
+        .claim(current.work, PROFILE)
         .await
         .unwrap()
     else {
@@ -484,7 +484,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(current.work, PROFILE, true)
+        .claim(current.work, PROFILE)
         .await
         .unwrap()
     else {
@@ -725,7 +725,7 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(current.work, PROFILE, true)
+        .claim(current.work, PROFILE)
         .await
         .unwrap()
     else {
@@ -980,7 +980,7 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
         let mut tx = uow.begin().await.unwrap();
         let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
-            .claim(current.work, PROFILE, true)
+            .claim(current.work, PROFILE)
             .await
             .unwrap()
         else {

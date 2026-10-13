@@ -24,11 +24,6 @@ async fn main() -> Result<(), Error> {
     let started = Instant::now();
     init(logging_config_from_env());
     let postgres = LambdaPostgresConfig::from_env()?;
-    let enabled = match std::env::var("GEO_RESOLUTION_ENABLED").as_deref() {
-        Ok("true") => true,
-        Ok("false") => false,
-        _ => return Err(Error::from("GEO_RESOLUTION_ENABLED must be true or false")),
-    };
     let credentials = postgres_credentials_provider_from_env()
         .await
         .map_err(|_| Error::from("PostgreSQL credentials unavailable"))?;
@@ -73,7 +68,6 @@ async fn main() -> Result<(), Error> {
                             SqlxResolutionRepositoryFactory,
                             provider,
                             TERMS_PROFILE.into(),
-                            enabled,
                         )) as Arc<dyn ResolveUseCase>)
                     })
                     .await?;

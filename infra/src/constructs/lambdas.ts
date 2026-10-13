@@ -201,7 +201,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     maxPostgresConnections: 1,
     timeoutSeconds: 45,
-    environment: (context) => ({ GEO_RESOLUTION_ENABLED: String(context.config.geoResolutionEnabled) }),
   },
   searchFilterMatchNotification: {
     id: "SearchFilterMatchNotificationLambda",

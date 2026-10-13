@@ -394,9 +394,14 @@ async fn apply_migrations(migrations_dir: &'static str) {
         // Business-schema fixtures need the deployment-managed heartbeat grantee.
         // Role-bootstrap tests create and own this role through their own setup.
         connection
-            .execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN CREATE ROLE aura_replication NOLOGIN; END IF; END $$")
+            .execute(AssertSqlSafe(
+                "DO $$ BEGIN \
+                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN \
+                 CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; \
+                 END IF; END $$;",
+            ))
             .await
-            .expect("shouldn't fail creating the isolated replication test role");
+            .expect("shouldn't fail provisioning the replication role for test migrations");
     }
     for path in &entries {
         let sql = std::fs::read_to_string(path).unwrap_or_else(|error| {

@@ -454,7 +454,7 @@ async fn accepted_country_resolution(
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(view.work, "TEST_G6", true)
+        .claim(view.work, "TEST_G6")
         .await?
     else {
         return Err("missing resolution claim".into());
