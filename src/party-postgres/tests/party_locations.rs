@@ -1147,7 +1147,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
     let mut tx = uow.begin().await.unwrap();
     let ClaimOutcome::Claimed(claim) = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
-        .claim(view.work, "TEST_G7", true)
+        .claim(view.work, "TEST_G7")
         .await
         .unwrap()
     else {
