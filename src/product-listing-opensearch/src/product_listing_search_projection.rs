@@ -3,11 +3,7 @@ use crate::product_listing_projection_document::{
 };
 use application::error::box_error;
 use fxrate_core::FxRateSnapshot;
-use opensearch::{
-    IndexParts, OpenSearch,
-    http::StatusCode,
-    params::{Refresh, VersionType},
-};
+use opensearch::{IndexParts, OpenSearch, http::StatusCode, params::VersionType};
 use platform_opensearch::response::read_response;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
@@ -37,38 +33,6 @@ impl OpenSearchProductListingSearchProjection {
             index: index.into(),
         }
     }
-    async fn confirm_conflict_visibility(
-        &self,
-        outcome: ProductListingSearchProjectionWriteOutcome,
-    ) -> Result<(), ProductListingSearchProjectionWriteError> {
-        if outcome != ProductListingSearchProjectionWriteOutcome::Stale {
-            return Ok(());
-        }
-        // A conflicting higher/equal write can still be awaiting refresh. A replay
-        // after an uncertain response must establish visibility before recording index acknowledgment.
-        let response = self
-            .client
-            .indices()
-            .refresh(opensearch::indices::IndicesRefreshParts::Index(&[
-                &self.index
-            ]))
-            .body(serde_json::json!({}))
-            .send()
-            .await
-            .map_err(|e| projection_write_error(true, box_error(e)))?;
-        let response = read_response(response)
-            .await
-            .map_err(|e| projection_write_error(true, box_error(e)))?;
-        let payload: serde_json::Value = serde_json::from_str(response.body())
-            .map_err(|e| projection_write_error(true, box_error(e)))?;
-        if !response.status().is_success() || payload["_shards"]["failed"].as_u64() != Some(0) {
-            return Err(projection_write_error(
-                true,
-                application::error::static_error("geographic index visibility confirmation failed"),
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[async_trait::async_trait]
@@ -87,7 +51,6 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
             .index(IndexParts::IndexId(&self.index, &document_id))
             .version(version)
             .version_type(VersionType::External)
-            .refresh(Refresh::WaitFor)
             .body(document)
             .send()
             .await
@@ -96,9 +59,7 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
                     source: box_error(source),
                 },
             )?;
-        let outcome = write_response_outcome(response, true).await?;
-        self.confirm_conflict_visibility(outcome).await?;
-        Ok(outcome)
+        write_response_outcome(response, true).await
     }
 
     async fn delete(
@@ -116,7 +77,6 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
             ))
             .version(version)
             .version_type(VersionType::External)
-            .refresh(Refresh::WaitFor)
             // Physical DELETE forgets its version after index.gc_deletes (default 60s).
             // Keep this content-free document until a strictly newer source replaces it.
             .body(serde_json::json!({
@@ -130,9 +90,7 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
                     source: box_error(source),
                 },
             )?;
-        let outcome = write_response_outcome(response, false).await?;
-        self.confirm_conflict_visibility(outcome).await?;
-        Ok(outcome)
+        write_response_outcome(response, false).await
     }
 }
 
@@ -209,6 +167,9 @@ mod paused_write;
 #[cfg(test)]
 #[path = "projection_race_tests.rs"]
 mod race_tests;
+#[cfg(test)]
+#[path = "projection_request_tests.rs"]
+mod request_tests;
 
 #[cfg(test)]
 mod tests {

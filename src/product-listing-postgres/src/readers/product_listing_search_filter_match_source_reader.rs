@@ -155,15 +155,6 @@ impl ProductListingSearchFilterMatchSourceReaderFactory<SqlxTransaction>
 impl ProductListingSearchFilterMatchSourceReader
     for SqlxProductListingSearchFilterMatchSourceReader<'_>
 {
-    async fn mark_projected(
-        &mut self,
-        id: ProductListingId,
-        version: i64,
-    ) -> Result<(), ProductListingSearchFilterMatchSourceReadError> {
-        sqlx::query("UPDATE product_listing_geographies SET indexed_version=GREATEST(indexed_version,$2) WHERE product_listing_id=$1 AND geography_version<=$2")
-            .bind(id.into_uuid()).bind(version).execute(&mut *self.connection).await.map_err(SourceQuerySqlxError)?;
-        Ok(())
-    }
     async fn find_source(
         &mut self,
         event_id: EventId,

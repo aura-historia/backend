@@ -8,7 +8,7 @@ opensearch.stage.aura-historia.com:9443 {
     tls /certs/live/opensearch.stage.aura-historia.com/fullchain.pem /certs/live/opensearch.stage.aura-historia.com/privkey.pem
 
     # Only ProductListing search and projection routes are public.
-    @runtime path /product-listings/_search /product-listings/_doc/* /product-listings/_refresh
+    @runtime path /product-listings/_search /product-listings/_doc/*
     handle @runtime {
         reverse_proxy https://opensearch:9200 {
             transport http {

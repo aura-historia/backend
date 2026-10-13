@@ -152,7 +152,9 @@ Validate representative populated-data load and rebuild time before broad activa
 Reconstruct under the projection fence rules; use off-host snapshots only with tested
 restore. Preserve failure custody under [controlled recovery](durable-worker-runbook.md#failure-custody-and-controlled-redrive).
 
-The product-projector role additionally permits `indices:admin/refresh` and its shard action
-`indices:admin/refresh[s]` on product-listings only. The gateway exposes that exact refresh route,
-and the projector's IAM POST grant is scoped to the same path. Geographic index acknowledgment
-records refresh visibility, including conflict/replay recovery.
+PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read
+projection. Product projector acknowledgment means a write was accepted or external
+versioning fenced it as stale. Search visibility follows the normal refresh cycle. The
+projector has document-write permissions; the runtime gateway exposes search and document
+routes. Monitor queue/projection lag, backlog age, failures/DLQ, version/fence correctness
+and rebuildability alongside cluster health.

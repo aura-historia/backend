@@ -160,21 +160,6 @@ where
         .map_err(|source| ProjectProductListingError::WriteFailed {
             source: box_error(source),
         })?;
-        let mut tx = self.unit_of_work.begin().await.map_err(|source| {
-            ProjectProductListingError::BeginFailed {
-                source: box_error(source),
-            }
-        })?;
-        self.sources
-            .in_transaction(&mut tx)
-            .mark_projected(source.product_listing_id, source.projection_version)
-            .await
-            .map_err(source_read_error)?;
-        tx.commit()
-            .await
-            .map_err(|source| ProjectProductListingError::CommitFailed {
-                source: box_error(source),
-            })?;
         Ok(ProjectProductListingResult {
             outcome: match (source.lifecycle, outcome) {
                 (
@@ -620,6 +605,7 @@ mod tests {
         assert!(state.fx_lookup_ids.is_empty());
         assert_eq!(vec![(source.product_listing_id, None)], state.upserts);
         assert_eq!(vec![1], state.write_commit_counts);
+        assert_eq!(1, state.commit_count);
         Ok(())
     }
 
@@ -816,28 +802,33 @@ mod tests {
         );
         assert!(state.upserts.is_empty());
         assert_eq!(vec![1], state.write_commit_counts);
+        assert_eq!(1, state.commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_return_stale_when_withdrawn_projection_write_is_stale()
+    async fn should_complete_stale_target_writes_with_only_the_source_transaction()
     -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
-        let mut source = source()?;
-        source.lifecycle = ListingLifecycle::Withdrawn;
-        let command = command(&source);
-        {
-            let mut state = lock_state(&state);
-            state.source_result = Some(Ok(Some(source)));
-            state.projection_result = Some(Ok(ProductListingSearchProjectionWriteOutcome::Stale));
+        for lifecycle in [ListingLifecycle::Active, ListingLifecycle::Withdrawn] {
+            let state = state();
+            let mut source = source()?;
+            source.lifecycle = lifecycle;
+            let command = command(&source);
+            {
+                let mut state = lock_state(&state);
+                state.source_result = Some(Ok(Some(source)));
+                state.projection_result =
+                    Some(Ok(ProductListingSearchProjectionWriteOutcome::Stale));
+            }
+
+            let result = handler(&state).execute(command).await?;
+
+            assert_eq!(ProjectProductListingOutcome::Stale, result.outcome);
+            let state = lock_state(&state);
+            assert_eq!(1, state.commit_count);
+            assert_eq!(vec![1], state.write_commit_counts);
+            assert_eq!(1, state.upserts.len() + state.deletes.len());
         }
-
-        let result = handler(&state).execute(command).await?;
-
-        assert_eq!(ProjectProductListingOutcome::Stale, result.outcome);
-        let state = lock_state(&state);
-        assert_eq!(2, state.commit_count);
-        assert_eq!(1, state.deletes.len());
         Ok(())
     }
 

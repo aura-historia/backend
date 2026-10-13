@@ -286,6 +286,10 @@ restarts traversal. The hourly cleanup also drains a page to recover missed wake
 path calls a geocoder or writes OpenSearch directly. Initial migration enqueues source-level
 rebuild work without rewriting every listing synchronously.
 
+Apply the cleanup of obsolete acknowledgment storage only after geography and product projector
+binaries and rollback sources no longer reference it, under the
+[schema-dependent release rules](infra.md#routine-and-schema-dependent-releases).
+
 For rebuilding, fence old projection writers and follow the existing isolated OpenSearch
 generation procedure. Enqueue source UUIDs in bounded keyset pages with
 `SELECT enqueue_listing_geography('SOURCE', $1)` in the operational transaction. Workers reread
@@ -295,7 +299,9 @@ repopulate a missing index when derived values are unchanged. Preserve checkpoin
 projection versions and deletion tombstones. Repeat source traversal if source creation
 overlaps it; listing journals independently cover concurrent listings.
 
-Monitor oldest pending work, expired claims, unacknowledged geography versions, retention
-deadlines and queue/DLQ failures. Index acknowledgment means refresh visibility, including
-conflict/replay recovery. Queries continue during catch-up; repair/replay stalled geography
-and product projectors to propagate retirement, applicability and evidence removal.
+Monitor oldest pending work, expired claims, retention deadlines, projection queue lag and
+backlog age, failures/DLQ, version/fence correctness and rebuildability. Product projector
+acknowledgment means OpenSearch accepted the write or external versioning fenced it as stale.
+Search visibility follows the normal refresh cycle; no persisted acknowledgment claims
+search visibility. Queries continue during catch-up; repair/replay stalled geography and product
+projectors to propagate retirement, applicability and evidence removal.

@@ -4,6 +4,7 @@ use fxrate_core::FxRateSnapshot;
 use product_listing_core::product_listing_id::ProductListingId;
 
 /// Writes the rebuildable ProductListing search projection. PostgreSQL remains authoritative.
+/// Completion means the write was accepted or fenced as stale; search is eventually consistent.
 #[async_trait::async_trait]
 pub trait ProductListingSearchProjection: Send + Sync {
     async fn upsert(
@@ -21,7 +22,9 @@ pub trait ProductListingSearchProjection: Send + Sync {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingSearchProjectionWriteOutcome {
+    /// The target accepted the write; search visibility may still lag.
     Applied,
+    /// An equal or newer external version already won.
     Stale,
 }
 

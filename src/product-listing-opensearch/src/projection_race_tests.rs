@@ -237,7 +237,7 @@ async fn assert_visible(
     Ok(())
 }
 
-fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
+pub(super) fn source() -> TestResult<ProductListingSearchFilterMatchSource> {
     let event_id = EventId::new();
     Ok(ProductListingSearchFilterMatchSource {
         event_id,
@@ -304,6 +304,8 @@ async fn geography_replacement_fences_old_points_and_preserves_country_only_quer
         assert_eq!("DE-BY",document["_source"]["businessGeography"]["subdivision"]);
         assert!(document["_source"]["businessGeography"]["point"].is_null());
         assert!(document["_source"]["inventoryGeography"].is_null());
+        // Search assertions synchronize visibility in the test, independently of writer completion.
+        refresh_index(DEFAULT_INDEX).await;
         let result:Value=client.search(opensearch::SearchParts::Index(&[DEFAULT_INDEX])).body(json!({"query":{"term":{"businessGeography.country":"DE"}},"aggs":{"countries":{"terms":{"field":"businessGeography.country"}}}})).send().await?.json().await?;
         assert_eq!(1,result["hits"]["total"]["value"]);assert_eq!("DE",result["aggregations"]["countries"]["buckets"][0]["key"]);
         let document=product_listing_document(&product_listing_service::ports::ProductListingSearchFilterMatchSource {geography:product_listing_service::geography::EffectiveListingGeography{business:Some(dimension),inventory:None},..source.clone()},None)?;

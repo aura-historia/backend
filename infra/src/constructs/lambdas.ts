@@ -571,8 +571,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
       resources: [props.queues.productListingIngestion.queue.queueArn],
     }));
   }
-  props.search.grantIndexDocumentWrite(functions.productListingOpenSearch);
-  props.search.grantIndexRefresh(functions.productListingOpenSearch, "product-listings");
+  props.search.grantIndexDocumentWrite(functions.productListingOpenSearch, "product-listings");
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],
     resources: [props.mailTemplateBucket.arnForObjects(`${props.config.stage}/${props.parameters.commitSha}/*`)],

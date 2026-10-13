@@ -89,14 +89,6 @@ pub enum ProductListingSearchFilterMatchSourceReadError {
 
 #[async_trait::async_trait]
 pub trait ProductListingSearchFilterMatchSourceReader: Send {
-    /// Confirm target custody after the external versioned write, never before it.
-    async fn mark_projected(
-        &mut self,
-        _id: ProductListingId,
-        _version: i64,
-    ) -> Result<(), ProductListingSearchFilterMatchSourceReadError> {
-        Ok(())
-    }
     async fn find_source(
         &mut self,
         event_id: EventId,
