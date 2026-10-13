@@ -19,7 +19,7 @@ use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
 };
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
-use crate::spider::local_lock::{DomainLock, ListingSourceLock, LocalLockManager, UrlLock};
+use crate::spider::local_lock::{ListingSourceLock, LocalLockManager, ScraperDomainLock, UrlLock};
 use listing_source_core::ListingSourceId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1086,8 +1086,9 @@ async fn scrape_domain_candidates(
         deferred: false,
     };
 
-    let Some(_domain_lock) = DomainLock::try_acquire(&ctx.lock_manager, ctx.domain_id) else {
-        debug!(domain_id = %ctx.domain_id, "Deferring scraper domain - lock held by another worker");
+    let Some(_domain_lock) = ScraperDomainLock::try_acquire(&ctx.lock_manager, ctx.domain_id)
+    else {
+        debug!(domain_id = %ctx.domain_id, "Deferring scraper domain - lock held by another scraper worker");
         outcome.deferred = true;
         return outcome;
     };
@@ -1989,7 +1990,7 @@ mod tests {
         candidate.is_domain_probe = true;
         let domain_id = candidate.domain_id;
         let lock_manager = Arc::new(LocalLockManager::new());
-        let held_lock = DomainLock::try_acquire(&lock_manager, domain_id)
+        let held_lock = ScraperDomainLock::try_acquire(&lock_manager, domain_id)
             .expect("test must hold the domain lock before scheduling");
 
         let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
@@ -2036,6 +2037,40 @@ mod tests {
         let retried = scrape_domain_candidates(vec![retry_candidate], retry_context).await;
         assert!(!retried.deferred);
         assert_eq!(retried.skipped, 1);
+    }
+
+    #[tokio::test]
+    async fn should_scrape_a_domain_while_the_spider_holds_its_own_domain_lock() {
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/product/1").unwrap(),
+        );
+        candidate.is_domain_probe = true;
+        let domain_id = candidate.domain_id;
+        let lock_manager = Arc::new(LocalLockManager::new());
+        let _spider_lock =
+            crate::spider::local_lock::SpiderDomainLock::try_acquire(&lock_manager, domain_id)
+                .expect("test must hold the spider domain lock before scheduling");
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_| Box::pin(async { successful_scrape_outcome() }));
+        let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
+        let context = ScrapeDomainContext {
+            scraper: Arc::new(scraper_service),
+            scraper_candidates: Arc::new(MockScraperCandidateService::new()),
+            lock_manager,
+            command_tx,
+            budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            domain_id,
+        };
+
+        let outcome = scrape_domain_candidates(vec![candidate], context).await;
+        assert!(!outcome.deferred);
+        assert_eq!(outcome.skipped, 1);
     }
 
     #[tokio::test]

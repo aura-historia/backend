@@ -52,16 +52,36 @@ impl LocalLockManager {
     }
 }
 
-/// RAII lock for a spider or scraper domain, keyed by persisted `domain_id`.
-pub struct DomainLock(#[allow(dead_code)] LocalLock);
+/// RAII lock for spider work on one crawler domain, keyed by persisted `domain_id`.
+///
+/// Spider and scraper hold independent domain locks: each component excludes
+/// only itself, so both may work on the same domain concurrently while their
+/// own per-domain throttles bound request pressure.
+pub struct SpiderDomainLock(#[allow(dead_code)] LocalLock);
 
-impl DomainLock {
+impl SpiderDomainLock {
     pub fn try_acquire(
         lock_manager: &LocalLockManager,
         domain_id: CrawlerDomainId,
     ) -> Option<Self> {
         lock_manager
-            .try_acquire(format!("domain:{domain_id}"))
+            .try_acquire(format!("spider-domain:{domain_id}"))
+            .map(Self)
+    }
+}
+
+/// RAII lock for scraper work on one crawler domain, keyed by persisted `domain_id`.
+///
+/// See [`SpiderDomainLock`] for why the two components do not share a lock.
+pub struct ScraperDomainLock(#[allow(dead_code)] LocalLock);
+
+impl ScraperDomainLock {
+    pub fn try_acquire(
+        lock_manager: &LocalLockManager,
+        domain_id: CrawlerDomainId,
+    ) -> Option<Self> {
+        lock_manager
+            .try_acquire(format!("scraper-domain:{domain_id}"))
             .map(Self)
     }
 }
@@ -98,28 +118,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn same_domain_is_locked_until_first_guard_is_dropped() {
+    fn same_spider_domain_is_locked_until_first_guard_is_dropped() {
         let manager = LocalLockManager::new();
         let domain_id = CrawlerDomainId::new();
 
-        let first = DomainLock::try_acquire(&manager, domain_id);
+        let first = SpiderDomainLock::try_acquire(&manager, domain_id);
         assert!(first.is_some());
-        assert!(DomainLock::try_acquire(&manager, domain_id).is_none());
+        assert!(SpiderDomainLock::try_acquire(&manager, domain_id).is_none());
 
         drop(first);
 
-        assert!(DomainLock::try_acquire(&manager, domain_id).is_some());
+        assert!(SpiderDomainLock::try_acquire(&manager, domain_id).is_some());
+    }
+
+    #[test]
+    fn same_scraper_domain_is_locked_until_first_guard_is_dropped() {
+        let manager = LocalLockManager::new();
+        let domain_id = CrawlerDomainId::new();
+
+        let first = ScraperDomainLock::try_acquire(&manager, domain_id);
+        assert!(first.is_some());
+        assert!(ScraperDomainLock::try_acquire(&manager, domain_id).is_none());
+
+        drop(first);
+
+        assert!(ScraperDomainLock::try_acquire(&manager, domain_id).is_some());
+    }
+
+    #[test]
+    fn spider_and_scraper_can_lock_the_same_domain_concurrently() {
+        let manager = LocalLockManager::new();
+        let domain_id = CrawlerDomainId::new();
+
+        let spider = SpiderDomainLock::try_acquire(&manager, domain_id);
+        let scraper = ScraperDomainLock::try_acquire(&manager, domain_id);
+
+        assert!(spider.is_some());
+        assert!(scraper.is_some());
+        assert!(SpiderDomainLock::try_acquire(&manager, domain_id).is_none());
+        assert!(ScraperDomainLock::try_acquire(&manager, domain_id).is_none());
     }
 
     #[test]
     fn different_domains_can_be_locked_concurrently() {
         let manager = LocalLockManager::new();
 
-        let first = DomainLock::try_acquire(&manager, CrawlerDomainId::new());
-        let second = DomainLock::try_acquire(&manager, CrawlerDomainId::new());
+        let first = SpiderDomainLock::try_acquire(&manager, CrawlerDomainId::new());
+        let second = SpiderDomainLock::try_acquire(&manager, CrawlerDomainId::new());
+        let third = ScraperDomainLock::try_acquire(&manager, CrawlerDomainId::new());
+        let fourth = ScraperDomainLock::try_acquire(&manager, CrawlerDomainId::new());
 
         assert!(first.is_some());
         assert!(second.is_some());
+        assert!(third.is_some());
+        assert!(fourth.is_some());
     }
 
     #[test]
