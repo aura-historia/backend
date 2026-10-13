@@ -42,8 +42,6 @@
 //! ```
 
 use listing_source_core::ListingSourceId;
-use std::fs::File;
-use std::io::BufWriter;
 use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
@@ -187,9 +185,10 @@ async fn main() {
         }
 
         info!("Scraping complete, writing output to 'scraper_output.json'…");
-        let file = File::create("scraper_output.json").unwrap();
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &products).unwrap();
+        let output = serde_json::to_vec_pretty(&products).unwrap();
+        tokio::fs::write("scraper_output.json", output)
+            .await
+            .unwrap();
         info!("Output written to 'scraper_output.json'.");
     }
     .instrument(tracing::info_span!(
