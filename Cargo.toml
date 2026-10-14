@@ -42,6 +42,7 @@ members = [
     "src/domain-primitives",
     "src/localization",
     "src/money",
+    "src/shipping-core",
     "src/embedding",
     "src/classifier-model",
     "src/image-fetcher",
@@ -148,6 +149,7 @@ credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
 localization = { path = "src/localization" }
 money = { path = "src/money" }
+shipping-core = { path = "src/shipping-core" }
 embedding = { path = "src/embedding" }
 classifier-model = { path = "src/classifier-model" }
 image-fetcher = { path = "src/image-fetcher" }

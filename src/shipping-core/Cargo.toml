@@ -1,0 +1,20 @@
+[package]
+name = "shipping-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+geo = { workspace = true }
+listing-source-core = { workspace = true }
+money = { workspace = true }
+party-core = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[features]
+default = []
+test-data = ["domain-primitives/test-data"]

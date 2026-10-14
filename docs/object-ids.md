@@ -20,6 +20,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `PartyLocationId` | `ploc` |
 | `ResolutionId` | `gres` |
 | `ListingSourceId` | `ls` |
+| `ShippingProfileId` | `shp` |
 | `UserId` | `usr` |
 | `UserAddressId` | `uaddr` |
 | `MarketingConsentSyncIntentId` | `mci` |

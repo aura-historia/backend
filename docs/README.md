@@ -9,6 +9,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Architecture and dependency rules | [Architecture](arch.md) |
 | Persistence integrity, concurrency and authority | [Storage](storage.md) |
 | Listing semantics and ingestion guarantees | [ProductListing](product-listing.md) |
+| Advertised shipping/collection terms, profile selection and pure assessment | [Shipping](shipping.md) |
 | Durable ID format and prefixes | [Object IDs](object-ids.md) |
 | Geographic assertions, reference releases, comparison and geocoding/provider retention | [Geography](geography.md) |
 | Email consent, provider eligibility and evidence | [Marketing consent](marketing-consent.md) |
