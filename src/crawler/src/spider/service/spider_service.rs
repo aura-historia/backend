@@ -50,28 +50,16 @@ pub enum SpiderServiceError {
         Box<crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError>,
     ),
 
-    #[error("Spider crawl emitted no pages for crawl-root URL '{crawl_root_url}'")]
-    EmptyCrawl { crawl_root_url: String },
-
+    /// The crawl produced too few usable pages; `kind` explains why and
+    /// `diagnostics` carries the bounded library and local-filter evidence.
     #[error(
-        "Spider crawl emitted only {total_links} page(s) for crawl-root URL '{crawl_root_url}'"
+        "Spider crawl failed for crawl-root URL '{crawl_root_url}' with kind '{kind}' after {total_links} page(s)"
     )]
-    TinyCrawl {
-        crawl_root_url: String,
-        total_links: usize,
-    },
-
-    #[error(
-        "Spider crawl failed for crawl-root URL '{crawl_root_url}' with diagnostic kind '{kind}' after {total_links} page(s)"
-    )]
-    DiagnosticCrawlFailure {
+    CrawlFailed {
         crawl_root_url: String,
         kind: CrawlFailureKind,
         total_links: usize,
-        http_status: Option<u16>,
-        final_url: Option<String>,
-        redirect_url: Option<String>,
-        diagnostic_reason: Option<String>,
+        diagnostics: Box<CrawlDiagnostics>,
     },
 
     #[error(
@@ -421,9 +409,11 @@ impl SpiderServiceImpl {
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
-            SpiderServiceError::Discovery(SpiderDiscoveryError::Discovery(
-                "configured crawler domain URL is invalid".to_string(),
-            ))
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::InvalidUrl,
+                reason: "configured crawler domain URL is invalid",
+                source: None,
+            })
         })?;
         let crawl = self.spider.crawl(crawl_root_url).await?;
         let diagnostics_rx = crawl.diagnostics;
@@ -467,10 +457,7 @@ impl SpiderServiceImpl {
         }
 
         let diagnostics = diagnostics_rx.await.unwrap_or_default();
-        if let Some(error) =
-            diagnostic_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
-                .or_else(|| crawl_size_failure_error(crawl_root_url, state.total_crawled))
-        {
+        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
             return Err(error);
         }
 
@@ -873,7 +860,12 @@ mod service_tests {
 
         assert!(matches!(
             result,
-            Err(SpiderServiceError::EmptyCrawl { crawl_root_url: url }) if url == crawl_root_url
+            Err(SpiderServiceError::CrawlFailed {
+                crawl_root_url: url,
+                kind: CrawlFailureKind::EmptyCrawl,
+                total_links: 0,
+                ..
+            }) if url == crawl_root_url
         ));
     }
 
@@ -911,9 +903,11 @@ mod service_tests {
 
         assert!(matches!(
             result,
-            Err(SpiderServiceError::TinyCrawl {
+            Err(SpiderServiceError::CrawlFailed {
                 crawl_root_url: url,
+                kind: CrawlFailureKind::TinyCrawl,
                 total_links: 1,
+                ..
             }) if url == crawl_root_url
         ));
     }
@@ -982,8 +976,8 @@ mod service_tests {
                 failure_kind: Some(CrawlFailureKind::RateLimited),
                 http_status: Some(429),
                 final_url: Some("https://example.com/".to_string()),
-                redirect_url: None,
                 diagnostic_reason: Some("canonical_non_success_status".to_string()),
+                ..CrawlDiagnostics::default()
             },
         );
 
@@ -1009,12 +1003,64 @@ mod service_tests {
 
         assert!(matches!(
             result,
-            Err(SpiderServiceError::DiagnosticCrawlFailure {
+            Err(SpiderServiceError::CrawlFailed {
                 kind: CrawlFailureKind::RateLimited,
                 total_links: 1,
-                http_status: Some(429),
+                diagnostics,
                 ..
-            })
+            }) if diagnostics.http_status == Some(429)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_prefer_local_filter_diagnostic_over_empty_crawl() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            Vec::<String>::new(),
+            CrawlDiagnostics {
+                failure_kind: Some(CrawlFailureKind::NoAcceptedPages),
+                pages_received: 4,
+                rejected_blacklist: 4,
+                ..CrawlDiagnostics::default()
+            },
+        );
+
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .times(1)
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service.expect_classify_and_save().times(0);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::CrawlFailed {
+                kind: CrawlFailureKind::NoAcceptedPages,
+                total_links: 0,
+                diagnostics,
+                ..
+            }) if diagnostics.pages_received == 4
         ));
     }
 
@@ -1107,38 +1153,24 @@ mod service_tests {
     }
 }
 
-fn diagnostic_failure_error(
+/// A crawl with at most one usable page is a failure. A library or local
+/// diagnostic explains it when present; otherwise the size alone does.
+fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
-    diagnostics: &CrawlDiagnostics,
+    diagnostics: CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
-    let kind = diagnostics.failure_kind?;
     if total_links > 1 {
         return None;
     }
-    Some(SpiderServiceError::DiagnosticCrawlFailure {
+    let kind = diagnostics.failure_kind.unwrap_or(match total_links {
+        0 => CrawlFailureKind::EmptyCrawl,
+        _ => CrawlFailureKind::TinyCrawl,
+    });
+    Some(SpiderServiceError::CrawlFailed {
         crawl_root_url: crawl_root_url.to_string(),
         kind,
         total_links,
-        http_status: diagnostics.http_status,
-        final_url: diagnostics.final_url.clone(),
-        redirect_url: diagnostics.redirect_url.clone(),
-        diagnostic_reason: diagnostics.diagnostic_reason.clone(),
+        diagnostics: Box::new(diagnostics),
     })
-}
-
-fn crawl_size_failure_error(
-    crawl_root_url: &str,
-    total_links: usize,
-) -> Option<SpiderServiceError> {
-    match total_links {
-        0 => Some(SpiderServiceError::EmptyCrawl {
-            crawl_root_url: crawl_root_url.to_string(),
-        }),
-        1 => Some(SpiderServiceError::TinyCrawl {
-            crawl_root_url: crawl_root_url.to_string(),
-            total_links,
-        }),
-        _ => None,
-    }
 }
