@@ -2,6 +2,7 @@ use classifier_model::{
     CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel, Probability,
 };
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use notification_postgres::SqlxSavedSearchDigestStoreFactory;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -69,6 +70,7 @@ pub async fn build_from_env()
             SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
+            SqlxSavedSearchDigestStoreFactory,
             config.policy,
         )
         .map_err(WiringError::Handler)?,

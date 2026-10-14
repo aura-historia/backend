@@ -7343,6 +7343,7 @@ dependencies = [
  "async-trait",
  "classifier-model",
  "fxrate-postgres",
+ "notification-postgres",
  "opensearch",
  "platform-observability",
  "platform-postgres",

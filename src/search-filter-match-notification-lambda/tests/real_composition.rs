@@ -20,6 +20,153 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn last_notification_selection_enqueues_digest_without_hourly_maintenance() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let first = seed_filter(&pool, user).await?;
+        let second = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[first, second]).await?;
+        seed_run_match(&pool, user, first, listing, origin, end).await?;
+        seed_run_match(&pool, user, second, listing, origin, end).await?;
+        terminal_filter(&pool, end, first).await?;
+        terminal_filter(&pool, end, second).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        let first_job = job_body(user, first, listing, origin)?;
+        let second_job = job_body(user, second, listing, origin)?;
+        assert!(
+            failure_ids(handler(event("first", first_job.clone()), generator.as_ref()).await?)
+                .is_empty()
+        );
+        assert_eq!(0, digest_delivery_count(&pool, user).await?);
+        assert!(
+            failure_ids(handler(event("last", second_job.clone()), generator.as_ref()).await?)
+                .is_empty()
+        );
+        assert_eq!(1, digest_delivery_count(&pool, user).await?);
+
+        let (a, b) = tokio::join!(
+            handler(event("first-replay", first_job), generator.as_ref()),
+            handler(event("last-replay", second_job), generator.as_ref()),
+        );
+        assert!(failure_ids(a?).is_empty());
+        assert!(failure_ids(b?).is_empty());
+        assert_eq!(1, digest_delivery_count(&pool, user).await?);
+        assert_eq!(
+            0,
+            digest_maintenance(&pool)
+                .execute(10)
+                .await?
+                .groups_finalized
+        );
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "normal notification completion: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn last_filter_with_no_matches_enqueues_previously_selected_members_atomically() {
+    let result: TestResult = async {
+        use application::transaction::{Transaction, UnitOfWork};
+        use notification_service::saved_search_digest::{SavedSearchDigestStore, SavedSearchDigestStoreFactory};
+        use search_filter_service::ports::{PeriodicSearchFilterProgress, PeriodicSearchFilterProgressFactory};
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let first = seed_filter(&pool, user).await?;
+        let empty = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[first, empty]).await?;
+        seed_run_match(&pool, user, first, listing, origin, end).await?;
+        terminal_filter(&pool, end, first).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("selected", job_body(user, first, listing, origin)?), generator.as_ref()).await?).is_empty());
+        assert_eq!(0, digest_delivery_count(&pool, user).await?);
+
+        let unit = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+        let progress = search_filter_postgres::SqlxPeriodicSearchFilterProgressFactory;
+        let digests = notification_postgres::SqlxSavedSearchDigestStoreFactory;
+        // Exercise the matcher's completion transaction, including a lost invocation.
+        let mut tx = unit.begin().await?;
+        progress.in_transaction(&mut tx).record_filter_attempt(end, empty, true).await?;
+        assert_eq!(1, digests.in_transaction(&mut tx).finalize_for_user(user, end).await?.unwrap().digests_created);
+        drop(tx);
+        sqlx::query("SELECT user_id FROM saved_search_digest_groups WHERE window_end = $1 AND user_id = $2 FOR UPDATE")
+            .bind(end).bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(0, digest_delivery_count(&pool, user).await?);
+        let terminal: bool = sqlx::query_scalar("SELECT terminal FROM search_filter_matching_run_filters WHERE window_end = $1 AND user_search_filter_id = $2")
+            .bind(end).bind(empty.as_uuid()).fetch_one(&pool).await?;
+        assert!(!terminal);
+
+        let mut tx = unit.begin().await?;
+        progress.in_transaction(&mut tx).record_filter_attempt(end, empty, true).await?;
+        assert_eq!(1, digests.in_transaction(&mut tx).finalize_for_user(user, end).await?.unwrap().digests_created);
+        tx.commit().await?;
+        assert_eq!(1, digest_delivery_count(&pool, user).await?);
+        assert_eq!(0, digest_maintenance(&pool).execute(10).await?.groups_finalized);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "normal matcher completion and rollback: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn overlapping_filter_and_suppressed_selection_completion_cannot_miss_finalization() {
+    let result: TestResult = async {
+        use application::transaction::{Transaction, UnitOfWork};
+        use notification_service::saved_search_digest::{SavedSearchDigestStore, SavedSearchDigestStoreFactory};
+        use search_filter_service::ports::{PeriodicSearchFilterProgress, PeriodicSearchFilterProgressFactory};
+        let pool = get_postgres_client().await;
+        let user = seed_user(&pool).await?;
+        let first = seed_filter(&pool, user).await?;
+        let last = seed_filter(&pool, user).await?;
+        let (listing, origin) = seed_product(&pool).await?;
+        let (withdrawn, withdrawn_origin) = seed_product(&pool).await?;
+        let end = seed_digest_run(&pool, user, &[first, last]).await?;
+        seed_run_match(&pool, user, first, listing, origin, end).await?;
+        seed_run_match(&pool, user, last, withdrawn, withdrawn_origin, end).await?;
+        terminal_filter(&pool, end, first).await?;
+        let generator = compose_search_filter_match_notification_use_case(pool.clone());
+        assert!(failure_ids(handler(event("selected", job_body(user, first, listing, origin)?), generator.as_ref()).await?).is_empty());
+        sqlx::query("UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1")
+            .bind(withdrawn.as_uuid()).execute(&pool).await?;
+
+        let unit = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+        let mut tx = unit.begin().await?;
+        let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(tx.connection()).await?;
+        search_filter_postgres::SqlxPeriodicSearchFilterProgressFactory.in_transaction(&mut tx)
+            .record_filter_attempt(end, last, true).await?;
+        assert!(notification_postgres::SqlxSavedSearchDigestStoreFactory.in_transaction(&mut tx)
+            .finalize_for_user(user, end).await?.is_none());
+        let job = job_body(user, last, withdrawn, withdrawn_origin)?;
+        let selection = tokio::spawn(async move { handler(event("suppressed-last", job), generator.as_ref()).await });
+        // Selection cannot yet observe the matcher's uncommitted terminal marker.
+        // It must wait for the group, then read readiness with a fresh snapshot.
+        wait_for_blocked(&pool, blocker, 1).await?;
+        tx.commit().await?;
+        assert!(failure_ids(selection.await??).is_empty());
+        assert_eq!(1, digest_delivery_count(&pool, user).await?);
+        let members: i64 = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1 AND digest_id IS NOT NULL")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, members);
+        assert_eq!(0, digest_maintenance(&pool).execute(10).await?.groups_finalized);
+        Ok(())
+    }.await;
+    assert!(
+        result.is_ok(),
+        "concurrent completion readiness: {result:?}"
+    );
+}
+
+async fn digest_delivery_count(pool: &sqlx::PgPool, user: UserId) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1")
+        .bind(user.as_uuid()).fetch_one(pool).await
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_finalizes_once() {
     let result: TestResult = async {
         use notification_service::ports::notification_delivery_repository::{NotificationDeliveryRepository, ClaimNotificationDeliveryOutcome};
@@ -42,9 +189,12 @@ async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_f
         assert_eq!(0, maintenance.execute(10).await?.digests_created);
         let recovery = search_filter_service::use_cases::RecoverSavedSearchNotificationsHandler::new(search_filter_postgres::SqlxPendingSavedSearchNotificationReader::new(pool.clone()), use_case.clone());
         assert_eq!(0, recovery.execute(100).await?);
+        let deliveries: i64 = sqlx::query_scalar("SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, deliveries); // Selection recovery itself finalized the ready group.
         let other = digest_maintenance(&pool);
         let (a, b) = tokio::join!(maintenance.execute(10), other.execute(10));
-        assert_eq!(1, a?.digests_created + b?.digests_created);
+        assert_eq!(0, a?.digests_created + b?.digests_created);
         assert_eq!(0, maintenance.execute(10).await?.digests_created);
         assert!(failure_ids(handler(event("replay", job_body(user, first, listing, origin)?), use_case.as_ref()).await?).is_empty());
         let counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM notifications WHERE user_id = $1), (SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1), (SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1), (SELECT count(*) FROM search_filter_matches WHERE user_id = $1)")
@@ -132,8 +282,10 @@ async fn interrupted_run_finalizes_successes_and_late_members_are_carried_to_nex
             .bind(end).bind(completed_filter.as_uuid()).execute(&pool).await?;
         seed_run_match(&pool, completed_user, completed_filter, listing, origin, end).await?;
         assert!(failure_ids(handler(event("completed-user", job_body(completed_user, completed_filter, listing, origin)?), generator.as_ref()).await?).is_empty());
-        assert_eq!(1, maintenance.execute(10).await?.digests_created);
         assert_eq!(0, maintenance.execute(10).await?.digests_created);
+        let completed_deliveries: i64 = sqlx::query_scalar("SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1")
+            .bind(completed_user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(1, completed_deliveries);
         sqlx::query("UPDATE search_filter_matching_runs SET recovery_deadline = now() - INTERVAL '1 second' WHERE window_end = $1").bind(end).execute(&pool).await?;
         assert_eq!(1, maintenance.execute(10).await?.digests_created);
 
@@ -316,8 +468,10 @@ async fn newer_run_cannot_enroll_members_from_an_unfinished_older_group() {
 
         assert!(failure_ids(handler(event("recovered", job_body(user, filter, second, second_origin)?), generator.as_ref()).await?).is_empty());
         let report = maintenance.execute(10).await?;
-        assert_eq!(1, report.digests_created);
-        assert_eq!(2, report.matches_enrolled);
+        assert_eq!(0, report.digests_created);
+        let enrolled: i64 = sqlx::query_scalar("SELECT count(*) FROM saved_search_digest_members WHERE user_id = $1 AND digest_id IS NOT NULL")
+            .bind(user.as_uuid()).fetch_one(&pool).await?;
+        assert_eq!(2, enrolled);
         let delivered_run: time::OffsetDateTime = sqlx::query_scalar("SELECT window_end FROM saved_search_digests WHERE user_id = $1")
             .bind(user.as_uuid()).fetch_one(&pool).await?;
         assert_eq!(old_end, delivered_run);

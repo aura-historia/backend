@@ -264,15 +264,18 @@ insertion for new run matches, fencing incompatible generators during cutover.
 Do not backfill historical matches or convert pending legacy delivery intents; an
 ambiguous old send must be reconciled using its original delivery identity.
 
-The hourly cleanup performs bounded notification-selection recovery and digest
-finalization using PostgreSQL, independently of CDC wake-ups. Failed selections are
-deferred for 15 minutes and reordered behind untouched work so they cannot starve
-the queue. Monitor cleanup invocation failures and backlog capacity: a healthy
-bounded invocation does not prove that all pending groups completed. A run retains
-its identity on retry until its fixed 24-hour recovery deadline. At expiry successful
-persisted matches can finalize even with unfinished filters; subsequent matching
-keeps ordinary progress/replay-overlap semantics. Selected late arrivals are retained
-for the next digest, including when that next run discovers no fresh matches.
+Normal filter completion and notification selection finalize ready digests
+immediately; delivery then follows the existing asynchronous outbox path. The hourly
+cleanup is the fallback for interrupted work, performing bounded
+notification-selection recovery and digest finalization using PostgreSQL,
+independently of CDC wake-ups. Failed selections are deferred for 15 minutes and
+reordered behind untouched work so they cannot starve the queue. Monitor cleanup
+invocation failures and backlog capacity: a healthy bounded invocation does not
+prove that all pending groups completed. A run retains its identity on retry until
+its fixed 24-hour recovery deadline. At expiry successful persisted matches can
+finalize even with unfinished filters; subsequent matching keeps ordinary
+progress/replay-overlap semantics. Selected late arrivals are retained for the next
+digest, including when that next run discovers no fresh matches.
 
 Inspect `saved_search_digest_status` with bounded, read-only queries for safe run/user
 and digest/delivery identities, pending filters/selections, group age, full eligible

@@ -22,6 +22,45 @@ impl SavedSearchDigestStoreFactory<SqlxTransaction> for SqlxSavedSearchDigestSto
 
 #[async_trait::async_trait]
 impl SavedSearchDigestStore for Store<'_> {
+    async fn finalize_for_user(
+        &mut self,
+        user_id: user_core::user_id::UserId,
+        window_end: OffsetDateTime,
+    ) -> Result<Option<SavedSearchDigestMaintenanceReport>, SavedSearchDigestError> {
+        // Lock first, then read readiness in a separate statement. At READ COMMITTED
+        // this observes the preceding finalizer's completion after a lock wait.
+        let age_seconds = sqlx::query_scalar::<_, f64>(
+            r#"
+            SELECT EXTRACT(EPOCH FROM now() - r.created)::float8
+            FROM saved_search_digest_groups g JOIN search_filter_matching_runs r USING(window_end)
+            WHERE g.window_end = $1 AND g.user_id = $2 AND g.finalized_at IS NULL
+            FOR UPDATE OF g
+        "#,
+        )
+        .bind(window_end)
+        .bind(user_id.into_uuid())
+        .fetch_optional(&mut *self.0)
+        .await
+        .map_err(error)?;
+        let Some(age_seconds) = age_seconds else {
+            return Ok(None);
+        };
+        let ready = sqlx::query_scalar::<_, bool>(r#"
+            SELECT (r.status <> 'RUNNING' OR NOT EXISTS (
+                SELECT 1 FROM search_filter_matching_run_filters f
+                WHERE f.window_end = r.window_end AND f.user_id = $2 AND NOT f.terminal))
+                AND NOT EXISTS (SELECT 1 FROM search_filter_matches m
+                    WHERE m.matching_run_end = r.window_end AND m.user_id = $2 AND NOT m.notification_selection_complete)
+            FROM search_filter_matching_runs r WHERE r.window_end = $1
+        "#).bind(window_end).bind(user_id.into_uuid()).fetch_one(&mut *self.0).await.map_err(error)?;
+        if !ready {
+            return Ok(None);
+        }
+        self.finalize_group(window_end, user_id.into_uuid(), age_seconds)
+            .await
+            .map(Some)
+    }
+
     async fn finalize_next(
         &mut self,
     ) -> Result<Option<SavedSearchDigestMaintenanceReport>, SavedSearchDigestError> {
@@ -39,6 +78,18 @@ impl SavedSearchDigestStore for Store<'_> {
         let Some((end, user, age_seconds)) = group else {
             return Ok(None);
         };
+        self.finalize_group(end, user, age_seconds).await.map(Some)
+    }
+}
+
+impl Store<'_> {
+    /// The caller holds the group lock and has checked readiness.
+    async fn finalize_group(
+        &mut self,
+        end: OffsetDateTime,
+        user: Uuid,
+        age_seconds: f64,
+    ) -> Result<SavedSearchDigestMaintenanceReport, SavedSearchDigestError> {
         let user_id = user_core::user_id::UserId::try_from(user).map_err(|source| {
             SavedSearchDigestError {
                 source: box_error(source),
@@ -67,11 +118,11 @@ impl SavedSearchDigestStore for Store<'_> {
         }
         sqlx::query("UPDATE saved_search_digest_groups SET finalized_at = now() WHERE window_end = $1 AND user_id = $2")
             .bind(end).bind(user).execute(&mut *self.0).await.map_err(error)?;
-        Ok(Some(SavedSearchDigestMaintenanceReport {
+        Ok(SavedSearchDigestMaintenanceReport {
             groups_finalized: 1,
             digests_created: usize::from(!members.is_empty()),
             matches_enrolled: members.len(),
-        }))
+        })
     }
 }
 fn error(source: sqlx::Error) -> SavedSearchDigestError {

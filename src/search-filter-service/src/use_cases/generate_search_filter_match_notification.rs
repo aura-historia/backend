@@ -15,6 +15,9 @@ use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
+use notification_service::saved_search_digest::{
+    SavedSearchDigestStore, SavedSearchDigestStoreFactory,
+};
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     ProductListingContentAssessmentReadError, ProductListingContentAssessmentSnapshotReader,
@@ -104,6 +107,11 @@ pub enum GenerateSearchFilterMatchNotificationError {
         #[source]
         source: BoxError,
     },
+    #[error("saved-search digest finalization failed")]
+    DigestFinalizationFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter match notification creation failed")]
     NotificationCreateFailed {
         #[source]
@@ -122,7 +130,7 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
     >;
 }
 
-pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
+pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N, D> {
     unit_of_work: U,
     matches: M,
     product_listings: P,
@@ -130,9 +138,10 @@ pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
     tier_entitlements: A,
     content_assessments: C,
     notifications: N,
+    digests: D,
 }
 
-impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
+impl<U, M, P, Q, A, C, N, D> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N, D> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
@@ -142,6 +151,7 @@ impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
         tier_entitlements: A,
         content_assessments: C,
         notifications: N,
+        digests: D,
     ) -> Self {
         Self {
             unit_of_work,
@@ -151,13 +161,14 @@ impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
             tier_entitlements,
             content_assessments,
             notifications,
+            digests,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationUseCase
-    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N>
+impl<U, M, P, Q, A, C, N, D> GenerateSearchFilterMatchNotificationUseCase
+    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N, D>
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
@@ -166,6 +177,7 @@ where
     A: UserTierEntitlementsFactory<U::Tx>,
     C: ProductListingContentAssessmentSnapshotReaderFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "generate_search_filter_match_notification",
@@ -209,7 +221,9 @@ where
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch);
         }
-        if match_source.matching_run_end.is_some() && match_source.notification_selection_complete {
+        let run_end = match_source.matching_run_end;
+        if run_end.is_some() && match_source.notification_selection_complete {
+            self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::AlreadyExists);
         }
@@ -221,7 +235,7 @@ where
             .await
             .map_err(product_source_read_error)?;
         let Some(product) = product else {
-            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
+            self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(
                 GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing,
@@ -233,7 +247,7 @@ where
             return Err(GenerateSearchFilterMatchNotificationError::ProductListingSourceMismatch);
         }
         if product.lifecycle != product_listing_core::listing_lifecycle::ListingLifecycle::Active {
-            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
+            self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(
                 GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
@@ -254,7 +268,7 @@ where
             .await
             .map_err(tier_entitlements_error)?;
         let Some(tier) = tier else {
-            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
+            self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForMissingUser);
         };
@@ -270,7 +284,7 @@ where
             .map_err(monthly_match_quota_error)?;
 
         if rank > monthly_match_quota(tier) {
-            complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
+            self.complete_selection(&mut tx, &command, run_end).await?;
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedByQuota);
         }
@@ -282,7 +296,7 @@ where
             content_policy,
         )
         .await?;
-        complete_selection(&mut self.matches.in_transaction(&mut tx), &command).await?;
+        self.complete_selection(&mut tx, &command, run_end).await?;
         tx.commit().await.map_err(commit_error)?;
 
         match outcome {
@@ -296,19 +310,41 @@ where
     }
 }
 
-async fn complete_selection(
-    reader: &mut impl SearchFilterMatchNotificationSourceReader,
-    command: &GenerateSearchFilterMatchNotificationCommand,
-) -> Result<(), GenerateSearchFilterMatchNotificationError> {
-    reader
-        .complete_selection(
-            command.user_id,
-            command.search_filter_id,
-            command.product_listing_id,
-            command.origin_event_id,
-        )
-        .await
-        .map_err(match_source_read_error)
+impl<U, M, P, Q, A, C, N, D> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N, D>
+where
+    U: UnitOfWork,
+    M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
+{
+    async fn complete_selection(
+        &self,
+        tx: &mut U::Tx,
+        command: &GenerateSearchFilterMatchNotificationCommand,
+        run_end: Option<time::OffsetDateTime>,
+    ) -> Result<(), GenerateSearchFilterMatchNotificationError> {
+        self.matches
+            .in_transaction(tx)
+            .complete_selection(
+                command.user_id,
+                command.search_filter_id,
+                command.product_listing_id,
+                command.origin_event_id,
+            )
+            .await
+            .map_err(match_source_read_error)?;
+        if let Some(run_end) = run_end {
+            self.digests
+                .in_transaction(tx)
+                .finalize_for_user(command.user_id, run_end)
+                .await
+                .map_err(|source| {
+                    GenerateSearchFilterMatchNotificationError::DigestFinalizationFailed {
+                        source: box_error(source),
+                    }
+                })?;
+        }
+        Ok(())
+    }
 }
 
 fn match_source_matches_command(
@@ -442,6 +478,7 @@ fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_digests::TestDigests;
     use indexmap::IndexSet;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use product_listing_core::{
@@ -851,6 +888,7 @@ mod tests {
                 ContentAssessmentOutcome::Found(Some(ContentPolicyDecision::Allowed)),
             ),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -886,6 +924,7 @@ mod tests {
                 ))),
             ),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -916,6 +955,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             DuplicateNotifications,
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -943,6 +983,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -971,6 +1012,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -1001,6 +1043,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         assert_eq!(
@@ -1028,6 +1071,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::QueryFailure),
             Notifications(Arc::clone(&state)),
+            TestDigests::default(),
         );
 
         let error = handler
@@ -1055,6 +1099,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::InvalidPersistedState),
             Notifications(state),
+            TestDigests::default(),
         );
 
         let error = handler
@@ -1083,6 +1128,7 @@ mod tests {
             Tiers,
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(state),
+            TestDigests::default(),
         );
 
         let error = handler

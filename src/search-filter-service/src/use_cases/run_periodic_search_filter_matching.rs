@@ -26,6 +26,9 @@ use product_listing_core::{
     product_listing::ProductListingPriceValuationBasis,
 };
 
+use notification_service::saved_search_digest::{
+    SavedSearchDigestStore, SavedSearchDigestStoreFactory,
+};
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
@@ -244,6 +247,11 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
+    #[error("saved-search digest finalization failed")]
+    DigestFinalizationFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to commit final periodic match transaction")]
     CommitFinalTransactionFailed {
         #[source]
@@ -259,7 +267,7 @@ pub trait RunPeriodicSearchFilterMatchingUseCase: Send + Sync {
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError>;
 }
 
-pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q> {
+pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D> {
     unit_of_work: U,
     run_lock: L,
     candidates: C,
@@ -271,11 +279,12 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     current_event_guard: G,
     matches: W,
     progress: Q,
+    digests: D,
     policy: PeriodicSearchFilterMatchingPolicy,
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -290,6 +299,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         current_event_guard: G,
         matches: W,
         progress: Q,
+        digests: D,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
         if policy.evaluation_limit.get() > 50
@@ -312,14 +322,15 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             current_event_guard,
             matches,
             progress,
+            digests,
             policy,
         })
     }
 }
 
 #[async_trait::async_trait]
-impl<U, L, C, F, P, X, S, E, G, W, Q> RunPeriodicSearchFilterMatchingUseCase
-    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D> RunPeriodicSearchFilterMatchingUseCase
+    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 where
     U: UnitOfWork,
     L: PeriodicSearchFilterMatchingRunLock,
@@ -332,6 +343,7 @@ where
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
 {
     #[tracing::instrument(name = "run_periodic_search_filter_matching", skip_all, fields(window_end = tracing::field::Empty))]
     async fn execute(
@@ -358,8 +370,8 @@ where
     }
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
 where
     U: UnitOfWork,
     C: PeriodicSearchFilterCandidateReader,
@@ -371,6 +383,7 @@ where
     G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
+    D: SavedSearchDigestStoreFactory<U::Tx>,
 {
     async fn execute_locked(
         &self,
@@ -545,6 +558,17 @@ where
                     .record_filter_attempt(window_end, candidate.search_filter_id, completed)
                     .await
                     .map_err(progress_error)?;
+                if completed {
+                    self.digests
+                        .in_transaction(&mut run_tx)
+                        .finalize_for_user(candidate.user_id, window_end)
+                        .await
+                        .map_err(|source| {
+                            RunPeriodicSearchFilterMatchingError::DigestFinalizationFailed {
+                                source: box_error(source),
+                            }
+                        })?;
+                }
                 run_tx.commit().await.map_err(|source| {
                     RunPeriodicSearchFilterMatchingError::CommitFinalTransactionFailed {
                         source: box_error(source),
@@ -1039,7 +1063,8 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::ProgressFailed { .. }
             | Self::ProductListingCurrentEventCheckFailed { .. }
             | Self::MatchPersistenceFailed { .. }
-            | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
+            | Self::CommitFinalTransactionFailed { .. }
+            | Self::DigestFinalizationFailed { .. } => FilterRetryClass::Retryable,
             Self::InvalidPolicy
             | Self::RunLockFailed { .. }
             | Self::RunLockReleaseFailed { .. }
@@ -1287,6 +1312,7 @@ mod tests {
         ExistingSearchFilterMatchReadError, PeriodicSearchFilterMatchingRunLease,
         PeriodicSearchFilterProgressLockOutcome, SearchFilterMatchPersistOutcome,
     };
+    use crate::test_digests::TestDigests;
     use application::transaction::TransactionError;
     use classifier_model::{
         ClassificationError, ClassificationRequest, ClassificationResponse, Probability,
@@ -1388,24 +1414,34 @@ mod tests {
         }
     }
 
-    struct NoopCandidates;
+    #[derive(Default)]
+    struct TestCandidates(Vec<PeriodicSearchFilterCandidate>);
 
     #[async_trait::async_trait]
-    impl PeriodicSearchFilterCandidateReader for NoopCandidates {
+    impl PeriodicSearchFilterCandidateReader for TestCandidates {
         async fn find_active_page(
             &self,
-            _request: PeriodicSearchFilterCandidatePageRequest,
+            request: PeriodicSearchFilterCandidatePageRequest,
         ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError>
         {
-            Ok(Vec::new())
+            Ok(self
+                .0
+                .iter()
+                .filter(|filter| {
+                    request
+                        .after
+                        .is_none_or(|after| filter.search_filter_id > after)
+                })
+                .cloned()
+                .collect())
         }
     }
 
-    struct NoopFxRates;
-    struct ReadingNoopFxRates;
+    struct TestFxRates;
+    struct ReadingTestFxRates;
 
     #[async_trait::async_trait]
-    impl FxRateSnapshotRepository for ReadingNoopFxRates {
+    impl FxRateSnapshotRepository for ReadingTestFxRates {
         async fn find_latest(
             &mut self,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
@@ -1416,7 +1452,7 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            Ok(Some(test_snapshot()))
         }
 
         async fn find_by_id(
@@ -1442,12 +1478,12 @@ mod tests {
         }
     }
 
-    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for NoopFxRates {
+    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for TestFxRates {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
         ) -> impl FxRateSnapshotRepository + 'tx {
-            ReadingNoopFxRates
+            ReadingTestFxRates
         }
     }
 
@@ -1720,8 +1756,8 @@ mod tests {
     type Handler = RunPeriodicSearchFilterMatchingHandler<
         FakeUnitOfWork,
         NoopRunLock,
-        NoopCandidates,
-        NoopFxRates,
+        TestCandidates,
+        TestFxRates,
         NoopProductListings,
         NoopExistingMatches,
         NoopSources,
@@ -1729,6 +1765,7 @@ mod tests {
         FakeCurrentEvents,
         FakeMatches,
         FakeProgress,
+        TestDigests,
     >;
 
     fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
@@ -1754,8 +1791,8 @@ mod tests {
         RunPeriodicSearchFilterMatchingHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             NoopRunLock,
-            NoopCandidates,
-            NoopFxRates,
+            TestCandidates::default(),
+            TestFxRates,
             NoopProductListings(Arc::clone(&state)),
             NoopExistingMatches(Arc::clone(&state)),
             NoopSources(Arc::clone(&state)),
@@ -1763,6 +1800,7 @@ mod tests {
             FakeCurrentEvents(Arc::clone(&state)),
             FakeMatches(Arc::clone(&state)),
             FakeProgress(state),
+            TestDigests::default(),
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: NonZeroUsize::MIN,
                 hybrid_scan_limit: NonZeroUsize::MIN,
@@ -1791,6 +1829,30 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    #[tokio::test]
+    async fn finishing_a_filter_checks_its_users_digest_without_a_notification_job()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let mut handler = handler(state)?;
+        let filter = filter();
+        // A search with no new matches must still attempt finalization.
+        handler.candidates = TestCandidates(vec![filter.clone()]);
+        let checks = handler.digests.checks.clone();
+        let end = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let outcome = handler
+            .execute(RunPeriodicSearchFilterMatchingCommand { started_at: end })
+            .await?;
+        let RunPeriodicSearchFilterMatchingOutcome::Applied(report) = outcome else {
+            panic!("expected completed run")
+        };
+        assert_eq!(1, report.filters_completed);
+        assert_eq!(0, report.matches_inserted);
+        assert_eq!(vec![(filter.user_id, end)], *checks.lock().unwrap());
+        Ok(())
     }
 
     fn geographic_filter() -> PeriodicSearchFilterCandidate {

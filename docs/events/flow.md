@@ -267,15 +267,20 @@ commit together. Suppressed selections are terminal; failed transactions remain
 recoverable. Repeated classifier evaluation and CDC replay cannot enroll an existing
 match again.
 
-Finalization locks the user/run group and waits for both intended filter completion
-and notification selection of every persisted match. It freezes all selected
-membership and inserts one delivery into the existing notification outbox in the
-same transaction. Empty groups produce no delivery. Concurrent finalizers reuse the
-same group; finalized membership never changes. Unfinished older groups retain their
-own membership until finalization. A late selected member of a finalized group remains
-unassigned for the next user/run digest, without creating a second email for the old
-run. Hourly cleanup recovers unfinished selection from authoritative matches and
-finalizes ready or expired groups; failures retain their membership and retry custody.
+Both filter completion and match notification selection attempt finalization for
+their user/run in the same transaction as their completion marker. Finalization
+locks the group before rereading readiness, so either completion order and
+concurrent completions can enqueue delivery immediately once both are complete. It
+waits for intended filter completion and notification selection of every persisted
+match, then freezes all selected membership and inserts one delivery into the
+existing notification outbox in the same transaction. Empty groups produce no
+delivery. Concurrent finalizers reuse the same group; finalized membership never
+changes. Unfinished older groups retain their own membership until finalization. A
+late selected member of a finalized group remains unassigned for the next user/run
+digest, without creating a second email for the old run. Hourly cleanup is the
+recovery path: it recovers unfinished selection from authoritative matches and
+finalizes ready or expired groups; failures retain their membership and retry
+custody.
 
 Delivery rereads current account status, filter ownership/active state/notifications,
 listing existence/lifecycle/current event and current content assessment. Existing

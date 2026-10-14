@@ -106,6 +106,7 @@ async fn main() -> Result<(), Error> {
                                     InitialExternalDeliveryPlanReaderFactory,
                                     SqlxNotificationDeliveryIntentRepositoryFactory,
                                 ),
+                                SqlxSavedSearchDigestStoreFactory,
                             )),
                         ),
                         MaintainSavedSearchDigestsHandler::new(

@@ -4,6 +4,7 @@ use application::{
 };
 use notification_core::notification::NotificationContent;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 /// Versioned, immutable membership. Rendering deduplicates listing cards while
 /// retaining every selected per-filter match for accounting and search labels.
@@ -30,6 +31,16 @@ pub struct SavedSearchDigestError {
 
 #[async_trait::async_trait]
 pub trait SavedSearchDigestStore: Send {
+    /// Serialize with membership changes and other finalizers, then finalize this
+    /// user/run only when ready under the normal completion or expired-run rules.
+    /// The readiness check must observe completions committed while waiting for
+    /// the group lock, so concurrent completions cannot both miss finalization.
+    async fn finalize_for_user(
+        &mut self,
+        user_id: UserId,
+        window_end: OffsetDateTime,
+    ) -> Result<Option<SavedSearchDigestMaintenanceReport>, SavedSearchDigestError>;
+
     /// Expire interrupted runs and finalize one ready user group under a lock.
     /// Membership and the existing delivery outbox commit in the caller's transaction.
     async fn finalize_next(
